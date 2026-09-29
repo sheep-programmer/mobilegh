@@ -46,6 +46,8 @@ import com.mobilegh.data.Gist
 import com.mobilegh.data.Net
 import com.mobilegh.data.NodeType
 import com.mobilegh.data.Session
+import com.mobilegh.data.Totp
+import kotlinx.coroutines.delay
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.rememberLoader
@@ -185,6 +187,84 @@ private fun GistLine(i: Int, line: AnnotatedString) {
     }
 }
 
+// ======================= 两步验证（TOTP） =======================
+
+/**
+ * 存本账号的 TOTP 密钥后，登录时验证器这一步会自动填码——不用再掏第二台设备。
+ * 密钥经 Keystore 加密存本机，只在本机算码。
+ */
+@Composable
+private fun TwoFactorSection() {
+    val g = Gh.c
+    val ctx = rememberCtx()
+    val login = Session.login ?: return
+    var editing by remember { mutableStateOf(false) }
+    var has by remember(login, Session.generation) { mutableStateOf(Session.hasTotp(login)) }
+    var tick by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(has) { while (has) { tick = System.currentTimeMillis(); delay(1000) } }
+
+    SectionTitle("两步验证（TOTP）")
+    MenuGroup {
+        if (has) {
+            val code = remember(tick) { Session.totpCode(login) ?: "------" }
+            val left = remember(tick) { Totp.secondsRemaining() }
+            Row(
+                Modifier.fillMaxWidth().clickable { ctx.copy(code, "验证码已复制"); }.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Oc(R.drawable.oc_key, g.fgMuted, 18.dp)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("$login", fontSize = 15.sp, color = g.fg, fontWeight = FontWeight.SemiBold)
+                    Text("登录时自动填入 · ${left}s 后刷新", fontSize = 12.sp, color = g.fgMuted)
+                }
+                Text(
+                    if (code.length == 6) "${code.substring(0, 3)} ${code.substring(3)}" else code,
+                    fontSize = 22.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = g.accent, letterSpacing = 1.sp,
+                )
+            }
+            MenuRow(R.drawable.oc_trash, "移除 TOTP 密钥") {
+                Session.setTotpSecret(login, null)
+                has = false
+                ctx.toast("已移除")
+            }
+        } else {
+            MenuRow(R.drawable.oc_key, "添加验证器密钥（自动填两步验证码）") { editing = true }
+        }
+    }
+
+    if (editing) {
+        var secret by remember { mutableStateOf("") }
+        val ok = Totp.isValid(secret)
+        GhDialog("添加验证器密钥", { editing = false }, confirm = "保存", confirmEnabled = ok, onConfirm = {
+            Session.setTotpSecret(login, secret)
+            has = true
+            editing = false
+            ctx.toast("已保存，下次登录自动填码")
+        }) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "在 GitHub 设置里添加「Authenticator app」时，页面会给一串密钥（点 “setup key / 手动输入” 可看到）。把那串粘到这里即可，也可以直接粘贴整条 otpauth:// 链接。",
+                    fontSize = 13.sp, color = g.fgMuted,
+                )
+                GhField(secret, { secret = it }, "密钥或 otpauth:// 链接", placeholder = "如 JBSWY3DPEHPK3PXP")
+                if (secret.isNotBlank() && !ok) {
+                    Text("这串密钥无法解析，请检查是否复制完整。", fontSize = 12.sp, color = g.danger)
+                } else if (ok) {
+                    Text("当前验证码：${Totp.now(secret)}（用于确认密钥正确）", fontSize = 12.sp, color = g.success, fontFamily = FontFamily.Monospace)
+                }
+                Text(
+                    "提示：把两步验证方式设成验证器 App 后，登录就不必再用另一台手机确认了。",
+                    fontSize = 12.sp, color = g.fgMuted,
+                )
+                GhButton("打开 GitHub 两步验证设置", Modifier.fillMaxWidth(), icon = R.drawable.oc_link_external) {
+                    ctx.openBrowser("https://github.com/settings/security")
+                }
+            }
+        }
+    }
+}
+
 // ======================= 设置 =======================
 
 @Composable
@@ -228,6 +308,8 @@ fun SettingsScreen() {
             }
             SwitchRow("代码自动换行", "查看源码和日志时自动折行", Session.codeWrap) { Session.toggleWrap() }
             }
+
+            TwoFactorSection()
 
             NetworkSection(onAdd = { addNode = true }, onApi = { apiDialog = true })
 

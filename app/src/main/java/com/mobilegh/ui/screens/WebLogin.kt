@@ -64,8 +64,10 @@ private fun autoAuthorizeJs(code: String) = """
   window.__mgh = 1;
   var store = window.sessionStorage;
   var pw = document.querySelector('form[action="/session"] input[name="password"]');
-  if (pw) {
-    pw.addEventListener('input', function() { store.setItem('__mgh_pw', pw.value); });
+  var uf = document.querySelector('form[action="/session"] input[name="login"]');
+  if (pw || uf) {
+    if (uf) uf.addEventListener('input', function() { store.setItem('__mgh_user', uf.value.trim()); });
+    if (pw) pw.addEventListener('input', function() { store.setItem('__mgh_pw', pw.value); });
     return;
   }
   function click(b) { if (b) setTimeout(function() { b.click(); }, 300); }
@@ -122,9 +124,41 @@ private fun autoAuthorizeJs(code: String) = """
 })('$code');
 """
 
+/** 检测到验证器（TOTP）两步验证页时，用本机存的密钥算出 6 位码并回填。码在 Kotlin 侧算，不下放给页面 JS。 */
+private const val OTP_CTX_JS = """
+(function(){
+  var f = document.querySelector('input[name="otp"],input[name="app_otp"],input#app_totp,input[autocomplete="one-time-code"]');
+  if (!f || f.value) return "";
+  return sessionStorage.getItem('__mgh_user') || "";
+})()
+"""
+
+private fun fillTotpJs(code: String) = """
+(function(code){
+  var f = document.querySelector('input[name="otp"],input[name="app_otp"],input#app_totp,input[autocomplete="one-time-code"]');
+  if (!f || f.value) return;
+  var set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  set.call(f, code);
+  f.dispatchEvent(new Event('input', {bubbles: true}));
+  f.dispatchEvent(new Event('change', {bubbles: true}));
+  var btn = f.form && f.form.querySelector('button[type="submit"], input[type="submit"]');
+  if (btn) setTimeout(function() { btn.click(); }, 200);
+})('$code');
+"""
+
+private fun autofillTotp(view: WebView) {
+    view.evaluateJavascript(OTP_CTX_JS) { raw ->
+        // raw 是被 JSON 编码的字符串，形如 "octocat" 或 ""；空说明当前页没有验证器输入框
+        val login = raw?.trim('"')?.takeIf { it.isNotBlank() && it != "null" } ?: com.mobilegh.data.Session.login
+        val code = com.mobilegh.data.Session.totpCode(login) ?: com.mobilegh.data.Session.totpCode(com.mobilegh.data.Session.login)
+        if (code != null) view.post { view.evaluateJavascript(fillTotpJs(code), null) }
+    }
+}
+
 /**
  * 内置 GitHub 网页登录：在 github.com 上输入账号密码（及两步验证），然后授权 MobileGH。
  * 走的是 OAuth 设备码流程，App 只拿到最终的 access token，接触不到密码。
+ * 若在设置里存了 TOTP 密钥，验证器两步验证这一步也会自动填码。
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -164,7 +198,7 @@ fun WebLogin(userCode: String, verifyUrl: String, onClose: () -> Unit) {
             Text("验证码 ", color = g.fgMuted, fontSize = 13.sp)
             Text(userCode, color = g.fg, fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(6.dp))
-            Text("登录后自动填写并授权", color = g.fgMuted, fontSize = 12.sp, maxLines = 1)
+            Text(if (com.mobilegh.data.Session.hasTotp(com.mobilegh.data.Session.login)) "自动填写验证码、两步验证并授权" else "登录后自动填写并授权", color = g.fgMuted, fontSize = 12.sp, maxLines = 1)
         }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = g.accent, trackColor = g.canvas)
         else Spacer(Modifier.height(2.dp))
@@ -183,7 +217,10 @@ fun WebLogin(userCode: String, verifyUrl: String, onClose: () -> Unit) {
 
                         override fun onPageFinished(view: WebView, url: String) {
                             loading = false
-                            if (android.net.Uri.parse(url).host == "github.com") view.evaluateJavascript(autoAuthorizeJs(userCode), null)
+                            if (android.net.Uri.parse(url).host == "github.com") {
+                                view.evaluateJavascript(autoAuthorizeJs(userCode), null)
+                                autofillTotp(view)
+                            }
                         }
                     }
                     web = this

@@ -91,6 +91,31 @@ object Session {
         generation++
     }
 
+    /** 是否为该账号存了 TOTP 密钥（用于设置界面显示状态） */
+    fun hasTotp(login: String?): Boolean = login != null && prefs.contains(totpKey(login))
+
+    /** 取出该账号的 TOTP 密钥明文（仅在本机算码时用） */
+    fun totpSecret(login: String?): String? {
+        login ?: return null
+        val enc = prefs.getString(totpKey(login), null) ?: return null
+        return runCatching { Crypto.decrypt(enc) }.getOrNull()
+    }
+
+    /** 存 / 删该账号的 TOTP 密钥；密钥同样经 Keystore 加密 */
+    fun setTotpSecret(login: String, secret: String?) {
+        val e = prefs.edit()
+        if (secret.isNullOrBlank()) e.remove(totpKey(login)) else e.putString(totpKey(login), Crypto.encrypt(Totp.normalize(secret)))
+        e.apply()
+    }
+
+    /** 该账号当前的 6 位验证码，没存密钥时返回 null */
+    fun totpCode(login: String?): String? {
+        val s = totpSecret(login) ?: return null
+        return runCatching { Totp.now(s) }.getOrNull()
+    }
+
+    private fun totpKey(login: String) = "totp_${login.lowercase()}"
+
     fun setTheme(mode: Int) {
         themeMode = mode
         prefs.edit().putInt("theme", mode).apply()

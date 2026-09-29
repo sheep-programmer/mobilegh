@@ -14,6 +14,7 @@
 ## 功能一览
 
 - **账号密码登录**：App 内打开 GitHub 官方登录页，输入账号密码（支持两步验证），点一下授权即可；密码只提交给 github.com，App 拿到的只是 OAuth Token。也可以用 Personal Access Token 登录
+- **内置 TOTP 验证器**：在设置里存入 GitHub 两步验证密钥后，登录时验证码本地算出、自动填入，一台设备搞定，不必再掏第二台手机确认（标准 RFC 6238，密钥经 Keystore 加密存本机）
 - 首页动态、通知（未读角标）
 - 仓库浏览：README 渲染（含相对路径图片）、代码高亮、Markdown / 图片预览、分支切换
 - Issues / Pull Requests：列表、讨论串、评论、关闭、合并、审查、文件变更 Diff

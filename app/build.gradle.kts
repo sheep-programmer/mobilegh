@@ -8,8 +8,9 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// 公开的 OAuth App Client ID（设备码流程不需要 secret），可用环境变量或 gradle 属性覆盖
 val clientId: String = (System.getenv("MOBILEGH_CLIENT_ID")
-    ?: providers.gradleProperty("mobilegh.clientId").orNull).orEmpty()
+    ?: providers.gradleProperty("mobilegh.clientId").orNull)?.takeIf { it.isNotBlank() } ?: "Ov23litcWlPUB3KqPlQ2"
 
 // 发布签名：优先读取 keystore.properties（已被 .gitignore 忽略），
 // 也支持用环境变量在 CI 中注入。两者都没有时回退到 debug 签名。
@@ -32,8 +33,8 @@ android {
         applicationId = "com.mobilegh"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = 2
+        versionName = "0.2"
         buildConfigField("String", "GITHUB_CLIENT_ID", "\"$clientId\"")
     }
 

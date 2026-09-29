@@ -31,7 +31,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -51,16 +50,15 @@ import com.mobilegh.data.str
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.friendly
 import com.mobilegh.ui.components.GhButton
-import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
-import com.mobilegh.ui.components.copy
 import com.mobilegh.ui.components.openBrowser
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -69,6 +67,12 @@ import okhttp3.Request
 
 private const val TOKEN_URL =
     "https://github.com/settings/tokens/new?description=MobileGH&scopes=repo,read:org,admin:org,notifications,user,gist,workflow,delete_repo,read:project"
+
+/** 账号登录申请的权限，与 Token 预选权限保持一致 */
+private const val SCOPES = "repo read:org admin:org notifications user gist workflow delete_repo read:project"
+
+/** 编译时配置了 OAuth App 才能用账号登录 */
+private val webLogin get() = BuildConfig.GITHUB_CLIENT_ID.isNotBlank()
 
 /** 用给定 Token 请求 /user 验证有效性 */
 private suspend fun verify(token: String): User {
@@ -107,6 +111,8 @@ fun LoginScreen(adding: Boolean = false) {
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var device by remember { mutableStateOf<DeviceCode?>(null) }
+    var job by remember { mutableStateOf<Job?>(null) }
+    var showToken by rememberSaveable { mutableStateOf(!webLogin) }
 
     fun signIn(t: String) {
         busy = true
@@ -125,17 +131,27 @@ fun LoginScreen(adding: Boolean = false) {
         }
     }
 
+    fun stopDevice() {
+        job?.cancel()
+        job = null
+        device = null
+        busy = false
+    }
+
+    /** 账号登录：申请设备码后在内置浏览器打开 GitHub，后台轮询授权结果 */
     fun startDevice() {
         val cid = BuildConfig.GITHUB_CLIENT_ID
         busy = true
         error = null
-        scope.launch {
+        clearWebSession()
+        job?.cancel()
+        job = scope.launch {
             try {
-                val r = postForm("https://github.com/login/device/code", "client_id" to cid, "scope" to "repo read:org notifications user gist workflow")
+                val r = postForm("https://github.com/login/device/code", "client_id" to cid, "scope" to SCOPES)
                 val dc = DeviceCode(r.str("device_code")!!, r.str("user_code")!!, r.str("verification_uri")!!, r.str("interval")?.toIntOrNull() ?: 5)
                 device = dc
                 var interval = dc.interval
-                while (device != null) {
+                while (true) {
                     delay(interval * 1000L)
                     val t = postForm(
                         "https://github.com/login/oauth/access_token",
@@ -143,22 +159,31 @@ fun LoginScreen(adding: Boolean = false) {
                     )
                     val access = t.str("access_token")
                     when {
-                        access != null -> { device = null; signIn(access) }
-                        t.str("error") == "slow_down" -> interval += 5
+                        access != null -> {
+                            device = null
+                            clearWebSession()
+                            signIn(access)
+                            break
+                        }
+                        t.str("error") == "slow_down" -> interval = t.str("interval")?.toIntOrNull() ?: (interval + 5)
                         t.str("error") == "authorization_pending" -> {}
-                        else -> { device = null; error = t.str("error_description") ?: t.str("error") ?: "授权失败" }
+                        t.str("error") == "access_denied" -> { device = null; error = "你取消了授权"; break }
+                        t.str("error") == "expired_token" -> { device = null; error = "验证码已过期，请重新登录"; break }
+                        else -> { device = null; error = t.str("error_description") ?: t.str("error") ?: "授权失败"; break }
                     }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
+                device = null
                 error = e.friendly()
             } finally {
-                busy = false
+                if (device == null) busy = false
             }
         }
     }
 
+    Box(Modifier.fillMaxSize()) {
     Column(
         Modifier.fillMaxSize().background(g.canvas).statusBarsPadding().navigationBarsPadding().imePadding().verticalScroll(rememberScrollState()),
     ) {
@@ -172,32 +197,48 @@ fun LoginScreen(adding: Boolean = false) {
             Text("轻量、完整的第三方 GitHub 客户端", color = g.fgMuted, fontSize = 14.sp)
             Spacer(Modifier.height(32.dp))
 
-            GhField(
-                token, { token = it }, "Personal Access Token",
-                placeholder = "ghp_xxx 或 github_pat_xxx",
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
-                trailing = { OcButton(if (show) R.drawable.oc_eye else R.drawable.oc_lock, { show = !show }, g.fgMuted) },
-            )
-            if (error != null) {
+            if (webLogin) {
+                GhButton("使用 GitHub 账号登录", Modifier.fillMaxWidth(), primary = true, icon = R.drawable.oc_mark_github, enabled = !busy) { startDevice() }
                 Spacer(Modifier.height(8.dp))
-                Text(error!!, color = g.danger, fontSize = 13.sp, modifier = Modifier.fillMaxWidth())
+                Text("在 GitHub 官方页面输入账号密码，支持两步验证", color = g.fgMuted, fontSize = 12.sp, textAlign = TextAlign.Center)
             }
-            Spacer(Modifier.height(16.dp))
-            if (busy && device == null) {
-                CircularProgressIndicator(Modifier.height(36.dp), color = g.fgMuted)
-            } else {
-                GhButton("登录", Modifier.fillMaxWidth(), primary = true, enabled = token.isNotBlank()) { signIn(token) }
-            }
-            Spacer(Modifier.height(10.dp))
-            GhButton("在 GitHub 生成 Token（已预选权限）", Modifier.fillMaxWidth(), icon = R.drawable.oc_link_external) { ctx.openBrowser(TOKEN_URL) }
-            if (BuildConfig.GITHUB_CLIENT_ID.isNotBlank()) {
+            if (error != null) {
                 Spacer(Modifier.height(10.dp))
-                GhButton("使用 GitHub 设备码授权", Modifier.fillMaxWidth(), icon = R.drawable.oc_device_mobile, enabled = !busy) { startDevice() }
+                Text(error!!, color = g.danger, fontSize = 13.sp, modifier = Modifier.fillMaxWidth(), textAlign = if (showToken) TextAlign.Start else TextAlign.Center)
+            }
+            if (busy && device == null) {
+                Spacer(Modifier.height(16.dp))
+                CircularProgressIndicator(Modifier.height(36.dp), color = g.fgMuted)
+            }
+
+            if (webLogin) {
+                Spacer(Modifier.height(24.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f).height(1.dp).background(g.border))
+                    Text(
+                        if (showToken) "使用 Token 登录" else "使用 Token 登录 ▾", color = g.accent, fontSize = 13.sp,
+                        modifier = Modifier.clickable { showToken = !showToken }.padding(horizontal = 12.dp, vertical = 4.dp),
+                    )
+                    Box(Modifier.weight(1f).height(1.dp).background(g.border))
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+            if (showToken) {
+                GhField(
+                    token, { token = it }, "Personal Access Token",
+                    placeholder = "ghp_xxx 或 github_pat_xxx",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                    visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailing = { OcButton(if (show) R.drawable.oc_eye else R.drawable.oc_lock, { show = !show }, g.fgMuted) },
+                )
+                Spacer(Modifier.height(16.dp))
+                GhButton("使用 Token 登录", Modifier.fillMaxWidth(), primary = !webLogin, enabled = token.isNotBlank() && !busy) { signIn(token) }
+                Spacer(Modifier.height(10.dp))
+                GhButton("在 GitHub 生成 Token（已预选权限）", Modifier.fillMaxWidth(), icon = R.drawable.oc_link_external) { ctx.openBrowser(TOKEN_URL) }
             }
 
             Spacer(Modifier.height(28.dp))
-            Column(
+            if (showToken) Column(
                 Modifier.fillMaxWidth().border(1.dp, g.border, RoundedCornerShape(8.dp)).background(g.canvasSubtle, RoundedCornerShape(8.dp)).padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -215,20 +256,7 @@ fun LoginScreen(adding: Boolean = false) {
         }
     }
 
-    device?.let { d ->
-        GhDialog("设备码授权", onDismiss = { device = null }, confirm = "打开 GitHub", onConfirm = { ctx.copy(d.user, "验证码已复制"); ctx.openBrowser(d.uri) }) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Text("在 GitHub 页面中输入以下验证码：", color = g.fgMuted, fontSize = 14.sp)
-                Spacer(Modifier.height(12.dp))
-                Box(
-                    Modifier.border(1.dp, g.border, RoundedCornerShape(8.dp)).clickable { ctx.copy(d.user, "验证码已复制") }.padding(horizontal = 20.dp, vertical = 10.dp),
-                ) {
-                    Text(d.user, fontFamily = FontFamily.Monospace, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = g.fg, letterSpacing = 3.sp)
-                }
-                Spacer(Modifier.height(10.dp))
-                Text("授权完成后会自动登录", color = g.fgMuted, fontSize = 12.sp, textAlign = TextAlign.Center)
-            }
-        }
+    device?.let { d -> WebLogin(d.user, d.uri, onClose = { stopDevice() }) }
     }
 }
 

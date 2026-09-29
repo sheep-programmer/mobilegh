@@ -13,6 +13,7 @@
 
 ## 功能一览
 
+- **账号密码登录**：App 内打开 GitHub 官方登录页，输入账号密码（支持两步验证），点一下授权即可；密码只提交给 github.com，App 拿到的只是 OAuth Token。也可以用 Personal Access Token 登录
 - 首页动态、通知（未读角标）
 - 仓库浏览：README 渲染（含相对路径图片）、代码高亮、Markdown / 图片预览、分支切换
 - Issues / Pull Requests：列表、讨论串、评论、关闭、合并、审查、文件变更 Diff
@@ -25,6 +26,7 @@
 
 Kotlin + Jetpack Compose（Material 3，GitHub Primer 配色），最低 Android 8.0（API 26）。
 
+- 账号登录走 GitHub OAuth 设备码流程（不需要在 App 里内置 client secret）
 - Token 使用 Android Keystore 加密存储
 - API 请求带 ETag 缓存，重复请求不消耗配额
 

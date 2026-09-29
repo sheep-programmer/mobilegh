@@ -200,7 +200,7 @@ fun LoginScreen(adding: Boolean = false) {
             if (webLogin) {
                 GhButton("使用 GitHub 账号登录", Modifier.fillMaxWidth(), primary = true, icon = R.drawable.oc_mark_github, enabled = !busy) { startDevice() }
                 Spacer(Modifier.height(8.dp))
-                Text("在 GitHub 官方页面输入账号密码，支持两步验证", color = g.fgMuted, fontSize = 12.sp, textAlign = TextAlign.Center)
+                Text("在 GitHub 官方页面输入账号密码，支持两步验证。\n登录后自动授权 MobileGH 访问你的仓库、组织、通知、Gist 与 Actions", color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
             }
             if (error != null) {
                 Spacer(Modifier.height(10.dp))

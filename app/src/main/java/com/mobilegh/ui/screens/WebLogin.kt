@@ -50,33 +50,75 @@ fun clearWebSession() {
 }
 
 /**
- * 在 GitHub 设备激活页填入验证码并点「Continue」。
- * 页面是 8 个单字符输入框（旧版是一个 user_code 输入框），两种都兼容；每次页面加载只填一次。
+ * 自动走完 GitHub 设备授权的各个页面，每次页面加载只处理一次：
+ * 0. 登录页：把刚输入的密码暂存在 github.com 页面自己的 sessionStorage 里（App 不读取），用于第 4 步
+ * 1. 账号选择页（/login/device/select_account）：点「Continue」
+ * 2. 验证码页：9 个输入框，第 5 个是只读的「-」，只往可编辑的格子里按顺序填
+ * 3. 授权页：确认页面上的 user_code 就是本次申请的，等「Authorize」按钮解除禁用后点击
+ * 4. 授权要求二次确认（sudo）时：用暂存的密码提交页面自带的「Use your password」表单，用完即删；
+ *    只尝试一次，密码不对就留给用户手动确认
  */
-private fun fillCodeJs(code: String) = """
+private fun autoAuthorizeJs(code: String) = """
 (function(code){
   if (window.__mgh) return;
-  var raw = code.replace(/-/g, '');
+  window.__mgh = 1;
+  var store = window.sessionStorage;
+  var pw = document.querySelector('form[action="/session"] input[name="password"]');
+  if (pw) {
+    pw.addEventListener('input', function() { store.setItem('__mgh_pw', pw.value); });
+    return;
+  }
+  function click(b) { if (b) setTimeout(function() { b.click(); }, 300); }
+  function same(f) {
+    var uc = f && f.querySelector('input[name="user_code"]');
+    return uc && uc.value.toUpperCase() === code.toUpperCase();
+  }
+  var pick = document.querySelector('form[action="/login/device/select_account"] [type="submit"]');
+  if (pick) return click(pick);
+
   var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
   function put(e, v) {
     setter.call(e, v);
     e.dispatchEvent(new Event('input', {bubbles: true}));
     e.dispatchEvent(new Event('change', {bubbles: true}));
   }
-  var boxes = [].slice.call(document.querySelectorAll('input[name^="user-code-"]'));
-  var form;
-  if (boxes.length >= raw.length) {
-    boxes.forEach(function(e, i) { put(e, raw.charAt(i)); });
-    form = boxes[0].form;
-  } else {
-    var one = document.querySelector('input[name="user_code"]:not([type="hidden"])');
-    if (!one) return;
-    put(one, code);
-    form = one.form;
+  var sudo = document.querySelector('form[action="/login/device/authorize"] input[name="sudo_password"]');
+  if (sudo) {
+    var saved = store.getItem('__mgh_pw');
+    store.removeItem('__mgh_pw');
+    if (saved && same(sudo.form) && !store.getItem('__mgh_sudo')) {
+      store.setItem('__mgh_sudo', '1');
+      put(sudo, saved);
+      HTMLFormElement.prototype.submit.call(sudo.form);
+    }
+    return;
   }
-  window.__mgh = 1;
-  var btn = form && form.querySelector('button[type="submit"], input[type="submit"]');
-  if (btn) setTimeout(function() { btn.click(); }, 300);
+
+  var boxes = [].slice.call(document.querySelectorAll('input[name^="user-code-"]'))
+    .filter(function(e) { return !e.readOnly && e.type !== 'hidden'; });
+  var raw = code.replace(/-/g, '');
+  if (boxes.length === raw.length) {
+    boxes.forEach(function(e, i) { put(e, raw.charAt(i)); });
+    return click(boxes[0].form.querySelector('[type="submit"]'));
+  }
+  var one = document.querySelector('input[name="user_code"]:not([type="hidden"])');
+  if (one) { put(one, code); return click(one.form.querySelector('[type="submit"]')); }
+
+  var form = document.querySelector('form[action="/login/device/authorize"]');
+  var ok = form && form.querySelector('button[name="authorize"][value="1"]');
+  if (!ok || !same(form)) return;
+  // GitHub 只有在按钮完整出现在屏幕上、页面获得焦点 1 秒后才解除禁用，先滚到按钮处
+  (form.querySelector('.js-authorization-buttons') || ok).scrollIntoView({block: 'center'});
+  var n = 0, t = setInterval(function() {
+    if (!ok.disabled) { clearInterval(t); ok.click(); return; }
+    if (++n < 20) return;
+    // 4 秒后仍未解除禁用：直接提交授权表单（等同于点击 Authorize）
+    clearInterval(t);
+    var v = document.createElement('input');
+    v.type = 'hidden'; v.name = 'authorize'; v.value = '1';
+    form.appendChild(v);
+    HTMLFormElement.prototype.submit.call(form);
+  }, 200);
 })('$code');
 """
 
@@ -122,7 +164,7 @@ fun WebLogin(userCode: String, verifyUrl: String, onClose: () -> Unit) {
             Text("验证码 ", color = g.fgMuted, fontSize = 13.sp)
             Text(userCode, color = g.fg, fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(6.dp))
-            Text("登录后自动填写，点「Authorize」即可", color = g.fgMuted, fontSize = 12.sp, maxLines = 1)
+            Text("登录后自动填写并授权", color = g.fgMuted, fontSize = 12.sp, maxLines = 1)
         }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = g.accent, trackColor = g.canvas)
         else Spacer(Modifier.height(2.dp))
@@ -141,7 +183,7 @@ fun WebLogin(userCode: String, verifyUrl: String, onClose: () -> Unit) {
 
                         override fun onPageFinished(view: WebView, url: String) {
                             loading = false
-                            if (url.contains("/login/device")) view.evaluateJavascript(fillCodeJs(userCode), null)
+                            if (android.net.Uri.parse(url).host == "github.com") view.evaluateJavascript(autoAuthorizeJs(userCode), null)
                         }
                     }
                     web = this

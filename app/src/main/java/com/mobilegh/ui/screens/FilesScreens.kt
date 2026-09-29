@@ -54,6 +54,7 @@ import com.mobilegh.ui.components.copy
 import com.mobilegh.ui.components.fmtSize
 import com.mobilegh.ui.components.highlightLines
 import com.mobilegh.ui.components.openBrowser
+import com.mobilegh.ui.components.downloadFile
 import com.mobilegh.ui.components.relTime
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.share
@@ -217,8 +218,12 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
                 FileBody.Image -> ZoomImage(rawUrl, Modifier.fillMaxSize())
                 FileBody.Binary -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     EmptyState("二进制文件，无法预览", R.drawable.oc_file)
-                    GhButton("在浏览器中下载", Modifier.padding(horizontal = 32.dp).fillMaxWidth(), icon = R.drawable.oc_download) {
-                        ctx.openBrowser(com.mobilegh.data.Net.download("https://github.com/$owner/$name/raw/${ref ?: "HEAD"}/$path"))
+                    GhButton("下载到本机", Modifier.padding(horizontal = 32.dp).fillMaxWidth(), icon = R.drawable.oc_download) {
+                        ctx.downloadFile(
+                            "https://github.com/$owner/$name/raw/${ref ?: "HEAD"}/$path",
+                            path.substringAfterLast('/'),
+                            com.mobilegh.data.Net.isPrivateRepo("$owner/$name"),
+                        )
                     }
                 }
             }

@@ -141,6 +141,14 @@ object GitHub {
     suspend fun createIssue(o: String, n: String, title: String, body: String) =
         Api.send<Issue>("POST", "${r(o, n)}/issues", buildJsonObject { put("title", title); put("body", body) })
 
+    /** 用 GitHub 官方接口把 Markdown 渲染成 HTML（GFM，带仓库上下文，可解析 #123、@user、任务列表等）。用于编辑器预览。 */
+    suspend fun renderMarkdown(text: String, context: String?): String =
+        Api.ensureOk(Api.call("POST", "/markdown", buildJsonObject {
+            put("text", text)
+            put("mode", "gfm")
+            if (context != null) put("context", context)
+        }, accept = "text/html")).body
+
     // ---------------- Releases ----------------
     suspend fun releases(o: String, n: String, page: Int, force: Boolean) = Api.get<List<Release>>("${r(o, n)}/releases?per_page=10&page=$page", force, Api.FULL)
 

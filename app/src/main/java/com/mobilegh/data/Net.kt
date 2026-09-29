@@ -123,6 +123,9 @@ object Net {
 
     private fun isPrivate(o: String, r: String) = "$o/$r".lowercase() in privateRepos
 
+    /** 该仓库是否已知为私有（用于下载时决定直连+带 Token 还是走加速） */
+    fun isPrivateRepo(fullName: String) = fullName.lowercase() in privateRepos
+
     private fun build(node: CdnNode, o: String, r: String, ref: String, path: String): String? = when (node.type) {
         NodeType.Direct -> "https://raw.githubusercontent.com/$o/$r/$ref/$path"
         NodeType.JsDelivr -> if (ref == "HEAD") null else "${node.base}/gh/$o/$r@$ref/$path"

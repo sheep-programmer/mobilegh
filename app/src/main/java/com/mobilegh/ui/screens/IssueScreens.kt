@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -42,7 +43,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
+import androidx.compose.ui.text.input.TextFieldValue
 import com.mobilegh.data.Comment
+import com.mobilegh.ui.components.MarkdownPreview
+import com.mobilegh.ui.components.MarkdownToolbar
+import com.mobilegh.ui.components.MarkdownEditor
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.Issue
 import com.mobilegh.data.Pull
@@ -134,7 +139,8 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
             IssueThread(i.await(), p?.await(), c.await(), r?.await().orEmpty())
         }
     }
-    var comment by rememberSaveable { mutableStateOf("") }
+    var comment by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
+    var previewComment by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var mergeDialog by remember { mutableStateOf(false) }
     var reviewDialog by remember { mutableStateOf(false) }
@@ -177,24 +183,38 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
             if (t != null && !t.issue.locked) {
                 Column(Modifier.background(g.header).navigationBarsPadding().imePadding()) {
                     HDivider()
-                    Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        GhField(
-                            comment, { comment = it }, "发表评论（支持 Markdown）",
-                            Modifier.weight(1f).heightIn(max = 160.dp), singleLine = false,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-                        )
+                    MarkdownToolbar(
+                        comment, { comment = it }, previewComment, { previewComment = it },
+                        Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (previewComment) {
+                            Box(Modifier.weight(1f).heightIn(min = 44.dp, max = 200.dp).verticalScroll(rememberScrollState())) {
+                                MarkdownPreview(comment.text, "$owner/$name")
+                            }
+                        } else {
+                            androidx.compose.material3.OutlinedTextField(
+                                comment, { comment = it },
+                                Modifier.weight(1f).heightIn(max = 160.dp),
+                                placeholder = { Text("发表评论（支持 Markdown）", color = g.fgMuted) },
+                                singleLine = false,
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+                            )
+                        }
                         Spacer(Modifier.width(6.dp))
                         OcButton(R.drawable.oc_upload, {
-                            if (comment.isBlank() || sending) return@OcButton
+                            if (comment.text.isBlank() || sending) return@OcButton
                             sending = true
                             entry.act({ sending = false; ctx.toast(it) }) {
-                                GitHub.addComment(owner, name, number, comment.trim())
-                                comment = ""
+                                GitHub.addComment(owner, name, number, comment.text.trim())
+                                comment = TextFieldValue()
+                                previewComment = false
                                 sending = false
                                 ctx.toast("评论已发布")
                                 reload()
                             }
-                        }, if (comment.isBlank()) g.fgMuted else g.accent, enabled = !sending)
+                        }, if (comment.text.isBlank()) g.fgMuted else g.accent, enabled = !sending)
                     }
                 }
             }
@@ -440,18 +460,18 @@ fun NewIssueScreen(owner: String, name: String) {
     val entry = LocalEntry.current
     val ctx = rememberCtx()
     var title by rememberSaveable { mutableStateOf("") }
-    var body by rememberSaveable { mutableStateOf("") }
+    var body by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     var busy by remember { mutableStateOf(false) }
     Page("新建 Issue", subtitle = "$owner/$name") { pad ->
         Column(Modifier.padding(pad).imePadding().verticalScroll(rememberScrollState()).padding(16.dp)) {
             GhField(title, { title = it }, "标题")
             Spacer(Modifier.height(12.dp))
-            GhField(body, { body = it }, "描述（支持 Markdown）", singleLine = false, minLines = 8, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default))
+            MarkdownEditor(body, { body = it }, placeholder = "描述（支持 Markdown）", contextRepo = "$owner/$name", minLines = 8)
             Spacer(Modifier.height(16.dp))
             GhButton("提交", Modifier.fillMaxWidth(), primary = true, enabled = title.isNotBlank() && !busy) {
                 busy = true
                 entry.act({ busy = false; ctx.toast(it) }) {
-                    val i = GitHub.createIssue(owner, name, title.trim(), body)
+                    val i = GitHub.createIssue(owner, name, title.trim(), body.text)
                     nav.replace(Screen.IssueDetail(owner, name, i.number, false))
                 }
             }

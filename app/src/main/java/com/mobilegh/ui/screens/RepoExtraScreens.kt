@@ -71,6 +71,7 @@ import com.mobilegh.ui.components.fmtCount
 import com.mobilegh.ui.components.fmtDate
 import com.mobilegh.ui.components.fmtSize
 import com.mobilegh.ui.components.openBrowser
+import com.mobilegh.ui.components.downloadFile
 import com.mobilegh.ui.components.relTime
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.toast
@@ -86,13 +87,14 @@ fun ReleasesScreen(owner: String, name: String) {
     val expanded = retain("expanded") { mutableStateMapOf<Long, Boolean>() }
     Page("Releases", subtitle = "$owner/$name") { pad ->
         PagedList(pager, Modifier.padding(pad), empty = "还没有发布版本", divider = false, boxed = false) { r ->
-            ReleaseCard(r, first = pager.items.firstOrNull() == r, expanded[r.id] == true) { expanded[r.id] = !(expanded[r.id] ?: false) }
+            ReleaseCard(owner, name, r, first = pager.items.firstOrNull() == r, expanded[r.id] == true) { expanded[r.id] = !(expanded[r.id] ?: false) }
         }
     }
 }
 
 @Composable
-private fun ReleaseCard(r: Release, first: Boolean, expanded: Boolean, onToggle: () -> Unit) {
+private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean, expanded: Boolean, onToggle: () -> Unit) {
+    val priv = com.mobilegh.data.Net.isPrivateRepo("$owner/$name")
     val g = Gh.c
     val ctx = rememberCtx()
     Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
@@ -133,7 +135,7 @@ private fun ReleaseCard(r: Release, first: Boolean, expanded: Boolean, onToggle:
                 Text("资源 (${r.assets.size + 2})", Modifier.padding(horizontal = 12.dp), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
                 r.assets.forEach { a ->
                     Row(
-                        Modifier.fillMaxWidth().clickable { ctx.openBrowser(Net.download(a.browserDownloadUrl)) }.padding(horizontal = 12.dp, vertical = 8.dp),
+                        Modifier.fillMaxWidth().clickable { ctx.downloadFile(a.browserDownloadUrl, a.name, priv) }.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Oc(R.drawable.oc_package, g.fgMuted)
@@ -145,7 +147,7 @@ private fun ReleaseCard(r: Release, first: Boolean, expanded: Boolean, onToggle:
                 val repoPath = r.htmlUrl.substringBefore("/releases/")
                 listOf("zip", "tar.gz").forEach { ext ->
                     Row(
-                        Modifier.fillMaxWidth().clickable { ctx.openBrowser(Net.download("$repoPath/archive/refs/tags/${r.tagName}.$ext")) }.padding(horizontal = 12.dp, vertical = 8.dp),
+                        Modifier.fillMaxWidth().clickable { ctx.downloadFile("$repoPath/archive/refs/tags/${r.tagName}.$ext", "$name-${r.tagName}.$ext", priv) }.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Oc(R.drawable.oc_file_directory, g.fgMuted)

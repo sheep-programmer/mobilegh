@@ -46,6 +46,7 @@ import com.mobilegh.nav.rememberPager
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.Dropdown
+import com.mobilegh.ui.components.EventItem
 import com.mobilegh.ui.components.EmptyState
 import com.mobilegh.ui.components.ErrorState
 import com.mobilegh.ui.components.GhButton
@@ -58,6 +59,7 @@ import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.RepoItem
 import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.SwitchRow
+import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.UserItem
 import com.mobilegh.ui.components.boxedItems
 import com.mobilegh.ui.components.relTime
@@ -86,11 +88,18 @@ fun ReposTab() {
     var v by rememberSaveable { mutableIntStateOf(0) }
     var query by rememberSaveable { mutableStateOf("") }
     var hideForks by rememberSaveable { mutableStateOf(false) }
+    var orgIndex by rememberSaveable { mutableIntStateOf(0) }
+    val orgs = rememberLoader("repo-orgs") { GitHub.myOrgs(it) }
+    val orgNames = listOf("全部组织") + orgs.data.orEmpty().map { it.login }
+    val safeOrgIndex = orgIndex.coerceIn(0, (orgNames.size - 1).coerceAtLeast(0))
+    val selectedOrg = orgNames.getOrNull(safeOrgIndex)?.takeUnless { it == "全部组织" }
     val key = "repos:$f:$sort:$v"
-    val pager = rememberPager(key) { p, force -> GitHub.myRepos(filters[f].second, SORTS[sort].first, vis[v].first, p, force) }
+    val pager = rememberPager(key) { p, force ->
+        if (f == 3) emptyList() else GitHub.myRepos(filters[f].second, SORTS[sort].first, vis[v].first, p, force)
+    }
     val state = rememberLazyListState()
     LaunchedEffect(nav.reselect) { if (nav.reselect > 0 && nav.tab == Tab.Repos) state.animateScrollToItem(0) }
-    LaunchedEffect(query, key) { if (query.isNotBlank()) pager.loadAll() }
+    LaunchedEffect(query, key) { if (query.isNotBlank() && f != 3) pager.loadAll() }
 
     Page(
         "仓库", back = false, contentWindowInsets = WindowInsets(0),
@@ -103,28 +112,121 @@ fun ReposTab() {
                 Dropdown(vis[v].second, vis.map { it.second }, { v = it })
                 Dropdown(if (hideForks) "隐藏 Fork" else "含 Fork", listOf("含 Fork", "隐藏 Fork"), { hideForks = it == 1 })
             }
-            GhField(query, { query = it }, "筛选仓库", Modifier.padding(horizontal = 12.dp).padding(bottom = 8.dp), placeholder = "输入名称或描述")
-            HDivider()
-            val q = query.trim()
-            if (q.isEmpty() && !hideForks) {
-                PagedList(pager, state = state, empty = "没有仓库") { RepoItem(it) }
-            } else {
-                val list = pager.items.filter {
-                    (!hideForks || !it.fork) && (q.isEmpty() || it.fullName.contains(q, true) || it.description?.contains(q, true) == true)
+            if (f == 3) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("组织", color = g.fgMuted, fontSize = 13.sp)
+                    Spacer(Modifier.width(8.dp))
+                    Dropdown(orgNames[safeOrgIndex], orgNames, { orgIndex = it })
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (orgs.loading) "正在读取组织…" else "${orgs.data.orEmpty().size} 个组织",
+                        color = g.fgMuted, fontSize = 12.sp,
+                    )
                 }
-                PullToRefreshBox(pager.refreshing, pager::refresh) {
-                    LazyColumn(Modifier.fillMaxSize(), state = state) {
-                        item {
-                            Text(
-                                "找到 ${list.size} 个${if (!pager.end) "（正在加载更多…）" else ""}",
-                                Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 12.sp, color = g.fgMuted,
-                            )
+            }
+            GhField(query, { query = it }, "筛选仓库", Modifier.padding(horizontal = 12.dp).padding(bottom = 8.dp), placeholder = "输入名称或描述")
+            val q = query.trim()
+            if (f == 3) {
+                OrganizationReposPanel(
+                    orgs = if (selectedOrg == null) orgs.data.orEmpty().map { it.login } else listOf(selectedOrg),
+                    visibility = vis[v].first,
+                    sort = SORTS[sort].first,
+                    query = q,
+                    hideForks = hideForks,
+                )
+            } else {
+                HDivider()
+                if (q.isEmpty() && !hideForks) {
+                    PagedList(pager, state = state, empty = "没有仓库") { RepoItem(it) }
+                } else {
+                    val list = pager.items.filter {
+                        (!hideForks || !it.fork) && (q.isEmpty() || it.fullName.contains(q, true) || it.description?.contains(q, true) == true)
+                    }
+                    PullToRefreshBox(pager.refreshing, pager::refresh) {
+                        LazyColumn(Modifier.fillMaxSize(), state = state) {
+                            item {
+                                Text(
+                                    "找到 ${list.size} 个${if (!pager.end) "（正在加载更多…）" else ""}",
+                                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 12.sp, color = g.fgMuted,
+                                )
+                            }
+                            boxedItems(list, key = { it.id }) { RepoItem(it) }
+                            if (!pager.end && !pager.loading && q.isEmpty()) item { LaunchedEffect(pager.items.size) { pager.loadMore() } }
                         }
-                        boxedItems(list, key = { it.id }) { RepoItem(it) }
-                        if (!pager.end && !pager.loading && q.isEmpty()) item { LaunchedEffect(pager.items.size) { pager.loadMore() } }
                     }
                 }
             }
+        }
+    }
+}
+
+/** 组织仓库专用面板：按组织汇总仓库，并在列表下方显示组织事件流。 */
+@Composable
+private fun OrganizationReposPanel(
+    orgs: List<String>,
+    visibility: String,
+    sort: String,
+    query: String,
+    hideForks: Boolean,
+) {
+    val g = Gh.c
+    val login = Session.login ?: return
+    val repoKey = "org-repos:${orgs.joinToString(",")}:$sort"
+    val eventKey = "org-events:${orgs.joinToString(",")}"
+    val repos = rememberLoader(repoKey) { force -> GitHub.organizationRepos(orgs, sort, force) }
+    val events = rememberLoader(eventKey) { force -> GitHub.organizationEvents(login, orgs, force) }
+    val filtered = repos.data.orEmpty().filter {
+        (visibility == "all" || (visibility == "private") == it.isPrivate) &&
+            (!hideForks || !it.fork) &&
+            (query.isBlank() || it.fullName.contains(query, true) || it.description?.contains(query, true) == true)
+    }
+
+    if (repos.data == null && repos.error != null) {
+        ErrorState(repos.error!!, Modifier.fillMaxSize()) { repos.load(true); events.load(true) }
+        return
+    }
+    if (repos.data == null) {
+        Loading(Modifier.fillMaxSize())
+        return
+    }
+    PullToRefreshBox(
+        repos.refreshing || events.refreshing,
+        onRefresh = { repos.refresh(); events.refresh() },
+        Modifier.fillMaxSize(),
+    ) {
+        LazyColumn(Modifier.fillMaxSize()) {
+            item {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${filtered.size} 个组织仓库", fontSize = 13.sp, color = g.fgMuted, modifier = Modifier.weight(1f))
+                    TextLink("刷新") { repos.refresh(); events.refresh() }
+                }
+            }
+            if (filtered.isEmpty()) {
+                item {
+                    EmptyState(
+                        if (orgs.isEmpty()) "没有读取到组织\n请确认 Token 包含 read:org，并在 GitHub 组织设置中完成 SSO 授权"
+                        else "这些组织下没有符合当前筛选的仓库",
+                        R.drawable.oc_organization,
+                    )
+                }
+            } else {
+                boxedItems(filtered, key = { it.id }) { RepoItem(it) }
+            }
+            item {
+                SectionTitle("组织动态")
+                Text(
+                    "显示所选组织仓库的 push、Issue、Pull Request 和 Release；GitHub 事件接口可能有几分钟延迟。",
+                    Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp), fontSize = 12.sp, color = g.fgMuted,
+                )
+            }
+            val activity = events.data.orEmpty()
+            if (activity.isEmpty()) {
+                item { EmptyState("暂时没有组织动态", R.drawable.oc_pulse) }
+            } else {
+                boxedItems(activity, key = { it.id }) { EventItem(it) }
+            }
+            if (events.loading) item { Loading(Modifier.fillMaxWidth().height(72.dp)) }
+            item { Spacer(Modifier.height(28.dp)) }
         }
     }
 }

@@ -273,18 +273,18 @@ fun parsePatch(patch: String): List<DiffLine> {
 
 /** 在 LazyColumn 中逐行渲染 diff（自动换行，适合手机） */
 fun LazyListScope.diffLines(key: String, lines: List<DiffLine>, g: GhColors) {
-    itemsIndexed(lines, key = { i, _ -> "$key:$i" }) { _, d -> DiffRow(d, g) }
+    itemsIndexed(lines, key = { i, _ -> "$key:$i" }) { _, d -> DiffRow(d, g, key) }
 }
 
 @Composable
-fun DiffRow(d: DiffLine, g: GhColors) {
+fun DiffRow(d: DiffLine, g: GhColors, file: String = "") {
     val bg = when (d.kind) {
         '+' -> g.diffAdd
         '-' -> g.diffDel
         '@' -> g.diffHunk
-        else -> Color.Transparent
+        else -> g.canvasSubtle
     }
-    Row(Modifier.fillMaxWidth().background(bg)) {
+    Row(Modifier.fillMaxWidth().background(bg).padding(vertical = 2.dp)) {
         val no = when (d.kind) {
             '+' -> d.newNo?.toString() ?: ""
             '-' -> d.oldNo?.toString() ?: ""
@@ -297,8 +297,13 @@ fun DiffRow(d: DiffLine, g: GhColors) {
             Modifier.width(14.dp), style = CodeStyle,
             color = when (d.kind) { '+' -> g.success; '-' -> g.danger; else -> g.fgMuted },
         )
+        val code = if (d.kind == '@' || d.kind == '\\' || file.isBlank()) {
+            AnnotatedString(d.text)
+        } else {
+            highlightLines(d.text, file, syntaxColors(g)).firstOrNull() ?: AnnotatedString(d.text)
+        }
         Text(
-            if (d.kind == '@') d.text else d.text,
+            code,
             Modifier.weight(1f).padding(end = 8.dp), style = CodeStyle,
             color = if (d.kind == '@') g.fgMuted else g.fg,
         )

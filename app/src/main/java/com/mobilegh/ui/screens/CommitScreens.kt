@@ -177,10 +177,10 @@ fun LazyListScope.fileDiffs(
     g: GhColors,
     onOpen: (CommitFile) -> Unit,
 ) {
-    val autoCollapse = files.sumOf { it.lines.size } > 3000
     files.forEach { pf ->
         val f = pf.file
-        val isCollapsed = collapsed[f.filename] ?: (autoCollapse || pf.lines.size > 800)
+        // 手机端默认只展示文件清单，避免打开提交时被大量裸 diff 淹没；点文件标题再展开代码块。
+        val isCollapsed = collapsed[f.filename] ?: true
         item(key = "h:${f.filename}") {
             FileDiffHeader(f, isCollapsed, { collapsed[f.filename] = !isCollapsed }, { onOpen(f) })
         }

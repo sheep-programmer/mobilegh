@@ -143,7 +143,8 @@ fun LoginScreen(adding: Boolean = false) {
         val cid = BuildConfig.GITHUB_CLIENT_ID
         busy = true
         error = null
-        clearWebSession()
+        // 保留 github.com 的网页会话：同一台手机重新授权时不会无谓地触发一次新的登录/2FA。
+        // WebLogin 菜单仍提供「清除网页会话」，需要切换 GitHub 网页账号时再主动使用。
         job?.cancel()
         job = scope.launch {
             try {
@@ -161,7 +162,6 @@ fun LoginScreen(adding: Boolean = false) {
                     when {
                         access != null -> {
                             device = null
-                            clearWebSession()
                             signIn(access)
                             break
                         }
@@ -198,11 +198,11 @@ fun LoginScreen(adding: Boolean = false) {
             Spacer(Modifier.height(32.dp))
 
             if (webLogin) {
-                GhButton("使用 GitHub 账号登录", Modifier.fillMaxWidth(), primary = true, icon = R.drawable.oc_mark_github, enabled = !busy) { startDevice() }
+                GhButton("账号 + 两步验证登录", Modifier.fillMaxWidth(), primary = true, icon = R.drawable.oc_mark_github, enabled = !busy) { startDevice() }
                 Spacer(Modifier.height(8.dp))
-                Text("在 GitHub 官方页面输入账号密码，支持两步验证。\n登录后自动授权 MobileGH 访问你的仓库、组织、通知、Gist 与 Actions", color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
+                Text("在 GitHub 官方页面输入账号密码。遇到两步验证时选择「验证器应用」，已保存的 TOTP 会自动填入。\n登录后自动授权 MobileGH 访问你的仓库、组织、通知、Gist 与 Actions", color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(6.dp))
-                Text("账号授权默认长期有效；旧授权已过期时请重新登录。", color = g.fgMuted, fontSize = 12.sp, textAlign = TextAlign.Center)
+                Text("GitHub Mobile 的数字匹配由 GitHub 安全系统控制，第三方应用不能代替确认；使用验证器应用即可在本机完成两步验证。", color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
             }
             if (error != null) {
                 Spacer(Modifier.height(10.dp))

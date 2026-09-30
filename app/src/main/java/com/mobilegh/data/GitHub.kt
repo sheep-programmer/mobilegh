@@ -26,13 +26,46 @@ object GitHub {
     // ---------------- 仓库列表 ----------------
     /** affiliation: owner / collaborator / organization_member 的任意组合——官方 App 只显示 owner */
     suspend fun myRepos(affiliation: String, sort: String, visibility: String, page: Int, force: Boolean) =
-        Api.get<List<Repo>>("/user/repos?affiliation=$affiliation&visibility=$visibility&sort=$sort&per_page=$PER&page=$page", force).track()
+        Api.get<List<Repo>>(
+            buildString {
+                append("/user/repos?affiliation=$affiliation")
+                // GitHub 对 affiliation 与 visibility 的组合在不同 API 版本行为不一致；
+                // 组织成员仓库由下面的组织接口负责，避免筛选后出现空列表。
+                if (affiliation == "owner") append("&visibility=$visibility")
+                append("&sort=$sort&per_page=$PER&page=$page")
+            },
+            force,
+        ).track()
 
     suspend fun userRepos(login: String, sort: String, page: Int, force: Boolean) =
         Api.get<List<Repo>>("/users/$login/repos?type=owner&sort=$sort&per_page=$PER&page=$page", force)
 
     suspend fun orgRepos(org: String, sort: String, page: Int, force: Boolean) =
         Api.get<List<Repo>>("/orgs/$org/repos?type=all&sort=$sort&per_page=$PER&page=$page", force).track()
+
+    /** 一次读取一个组织可访问的全部仓库，专门用于移动端的组织筛选页。 */
+    private suspend fun orgReposAll(org: String, sort: String, force: Boolean): List<Repo> {
+        val result = ArrayList<Repo>()
+        var page = 1
+        while (page <= 20) {
+            val list = Api.get<List<Repo>>("/orgs/${Api.encodePath(org)}/repos?type=all&sort=$sort&per_page=100&page=$page", force && page == 1).track()
+            result += list
+            if (list.size < 100) break
+            page++
+        }
+        return result
+    }
+
+    /** 汇总用户加入的组织仓库，去重后按最近推送或名称排序。 */
+    suspend fun organizationRepos(orgs: List<String>, sort: String, force: Boolean): List<Repo> {
+        if (orgs.isEmpty()) return emptyList()
+        val result = LinkedHashMap<Long, Repo>()
+        orgs.forEach { org -> orgReposAll(org, sort, force).forEach { result[it.id] = it } }
+        return result.values.sortedWith(
+            if (sort == "full_name") compareBy(String.CASE_INSENSITIVE_ORDER) { it.fullName }
+            else compareByDescending<Repo> { it.pushedAt ?: it.updatedAt ?: it.createdAt ?: "" },
+        )
+    }
 
     suspend fun starred(login: String?, page: Int, force: Boolean) =
         Api.get<List<Repo>>((if (login == null) "/user/starred" else "/users/$login/starred") + "?sort=created&per_page=$PER&page=$page", force)
@@ -246,6 +279,16 @@ object GitHub {
     // ---------------- 动态 ----------------
     suspend fun received(login: String, page: Int, force: Boolean) = Api.get<List<Event>>("/users/$login/received_events?per_page=$PER&page=$page", force)
     suspend fun userEvents(login: String, page: Int, force: Boolean) = Api.get<List<Event>>("/users/$login/events?per_page=$PER&page=$page", force)
+
+    /** 组织活动流：比用户 received_events 更准确地覆盖组织仓库的 push、Issue、PR 和 release。 */
+    suspend fun orgEvents(login: String, org: String, page: Int, force: Boolean) =
+        Api.get<List<Event>>("/users/${Api.encodePath(login)}/events/orgs/${Api.encodePath(org)}?per_page=$PER&page=$page", force)
+
+    suspend fun organizationEvents(login: String, orgs: List<String>, force: Boolean): List<Event> {
+        if (orgs.isEmpty()) return emptyList()
+        return orgs.flatMap { org -> orgEvents(login, org, 1, force) }
+            .sortedByDescending { it.createdAt ?: "" }
+    }
 
     // ---------------- 搜索 ----------------
     suspend fun searchRepos(q: String, sort: String?, page: Int) = Api.get<SearchResult<Repo>>("/search/repositories?q=${Api.q(q)}&per_page=$PER&page=$page" + (sort?.let { "&sort=$it" } ?: ""))

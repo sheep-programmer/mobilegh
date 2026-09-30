@@ -36,13 +36,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.mobilegh.R
+import com.mobilegh.ui.components.MenuAction
+import com.mobilegh.ui.components.MoreMenu
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.copy
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.theme.Gh
 
-/** 清掉内置浏览器里的 GitHub 登录态，保证每次登录（含添加第二个账号）都从登录页开始 */
+/** 清掉内置浏览器里的 GitHub 登录态；默认登录会保留会话，只有用户主动切换网页账号时调用。 */
 fun clearWebSession() {
     CookieManager.getInstance().removeAllCookies(null)
     CookieManager.getInstance().flush()
@@ -155,6 +157,20 @@ private fun autofillTotp(view: WebView) {
     }
 }
 
+/** GitHub Mobile 数字匹配页提供了合法的替代方式；有 TOTP 时自动打开验证器入口。 */
+private const val chooseTotpMethodJs = """
+(function(){
+  function text(el){ return (el.innerText || el.textContent || '').trim(); }
+  var inputs = document.querySelector('input[name="otp"],input[name="app_otp"],input#app_totp,input[autocomplete="one-time-code"]');
+  if (inputs) return;
+  var all = Array.prototype.slice.call(document.querySelectorAll('button,a,input[type="submit"]'));
+  var alt = all.find(function(e){ return /use another method|try another way|more options|使用其他方式|尝试其他方式|其他验证方式/i.test(text(e)); });
+  if (alt) { alt.click(); return; }
+  var totp = all.find(function(e){ return /use your authenticator app|authenticator app|验证器应用|验证器/i.test(text(e)); });
+  if (totp) totp.click();
+})()
+"""
+
 /**
  * 内置 GitHub 网页登录：在 github.com 上输入账号密码（及两步验证），然后授权 MobileGH。
  * 走的是 OAuth 设备码流程，App 只拿到最终的 access token，接触不到密码。
@@ -186,19 +202,28 @@ fun WebLogin(userCode: String, verifyUrl: String, onClose: () -> Unit) {
                     Text(title, color = g.fgMuted, fontSize = 12.sp, maxLines = 1)
                 }
             }
-            Spacer(Modifier.width(12.dp))
+            MoreMenu(listOf(
+                MenuAction("清除 GitHub 网页会话", danger = true) {
+                    clearWebSession()
+                    onClose()
+                },
+            ))
         }
         Row(
-            Modifier.fillMaxWidth().background(g.canvasSubtle).clickable { ctx.copy(userCode, "验证码已复制") }
+            Modifier.fillMaxWidth().background(g.canvasSubtle).clickable { ctx.copy(userCode, "授权码已复制") }
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Oc(R.drawable.oc_key, g.fgMuted, 14.dp)
             Spacer(Modifier.width(6.dp))
-            Text("验证码 ", color = g.fgMuted, fontSize = 13.sp)
+            Text("授权码 ", color = g.fgMuted, fontSize = 13.sp)
             Text(userCode, color = g.fg, fontSize = 13.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(6.dp))
-            Text(if (com.mobilegh.data.Session.hasTotp(com.mobilegh.data.Session.login)) "自动填写验证码、两步验证并授权" else "登录后自动填写并授权", color = g.fgMuted, fontSize = 12.sp, maxLines = 1)
+            Text(
+                if (com.mobilegh.data.Session.hasTotp(com.mobilegh.data.Session.login)) "自动填写两步验证码并授权"
+                else "这是授权码，不是两步验证码；两步验证请在页面选择验证器应用",
+                color = g.fgMuted, fontSize = 12.sp, maxLines = 2,
+            )
         }
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = g.accent, trackColor = g.canvas)
         else Spacer(Modifier.height(2.dp))
@@ -219,7 +244,11 @@ fun WebLogin(userCode: String, verifyUrl: String, onClose: () -> Unit) {
                             loading = false
                             if (android.net.Uri.parse(url).host == "github.com") {
                                 view.evaluateJavascript(autoAuthorizeJs(userCode), null)
-                                autofillTotp(view)
+                                // 数字匹配页先切换到 GitHub 提供的验证器选项，再尝试填入 TOTP。
+                                view.postDelayed({
+                                    view.evaluateJavascript(chooseTotpMethodJs, null)
+                                    view.postDelayed({ autofillTotp(view) }, 450)
+                                }, 250)
                             }
                         }
                     }

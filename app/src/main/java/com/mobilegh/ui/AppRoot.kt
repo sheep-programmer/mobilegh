@@ -94,16 +94,16 @@ private fun Main(nav: Navigator) {
         runCatching { Badges.unread = GitHub.notifications(false, false, 1, true).count { it.unread } }
     }
     // Token 被 GitHub 判定失效（账号登录的授权过期等）：引导重新登录
-    if (Session.authExpired) {
+    if (Session.authExpired && nav.stack.lastOrNull()?.screen != Screen.Login) {
         GhDialog(
-            "登录已过期",
+            "GitHub 授权已失效",
             onDismiss = { Session.authExpired = false },
             confirm = "重新登录",
             onConfirm = {
                 Session.authExpired = false
                 nav.push(Screen.Login)
             },
-        ) { Text("GitHub 授权已失效，需要重新登录后才能继续访问。", fontSize = 14.sp) }
+        ) { Text("授权可能已过期或被撤销。请重新登录，新的账号授权默认长期有效。", fontSize = 14.sp) }
     }
 
     AnimatedContent(

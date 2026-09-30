@@ -297,6 +297,35 @@ fun SettingsScreen() {
             MenuRow(R.drawable.oc_plus, "添加账号") { nav.push(Screen.Login) }
             }
 
+            SectionTitle("登录时长")
+            Card(Modifier.padding(horizontal = 16.dp)) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Oc(R.drawable.oc_clock, g.success, 18.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("默认永不过期", Modifier.weight(1f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+                        Pill("默认配置", g.success)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "账号登录默认获取没有固定到期时间的授权。旧授权不会自动延长，请重新登录一次。\n" +
+                            "Token 登录的有效期由你在 GitHub 设置的到期日决定；授权被撤销时仍需重新登录。",
+                        fontSize = 12.sp, lineHeight = 18.sp, color = g.fgMuted,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    MenuRow(R.drawable.oc_mark_github, "重新登录，获取新授权") {
+                        nav.push(Screen.Login)
+                    }
+                    MenuRow(R.drawable.oc_link_external, "检查 OAuth 过期设置") {
+                        ctx.openBrowser(BuildConfig.GITHUB_CLIENT_SETTINGS_URL)
+                    }
+                    Text(
+                        "仅 OAuth 应用所有者可修改。Opt-in 表示固定过期已关闭；若显示 Opt-out，点击它并完成身份验证即可关闭。",
+                        fontSize = 12.sp, lineHeight = 18.sp, color = g.fgMuted,
+                    )
+                }
+            }
+
             SectionTitle("外观")
             MenuGroup {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {

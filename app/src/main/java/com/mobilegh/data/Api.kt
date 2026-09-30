@@ -83,8 +83,13 @@ object Api {
                     b.header("X-GitHub-Api-Version", "2022-11-28")
                     if (req.header("Accept") == null) b.header("Accept", "application/vnd.github+json")
                 }
-                val resp = chain.proceed(b.build())
-                if (resp.code == 401 && token != null && (req.url.host in AUTH_HOSTS || req.url.host == apiHost)) {
+                val authenticatedReq = b.build()
+                val resp = chain.proceed(authenticatedReq)
+                // 验证其他 Token、或切换账号前发出的旧请求，不应使当前账号失效。
+                if (resp.code == 401 && token != null && Session.token == token &&
+                    authenticatedReq.header("Authorization") == "Bearer $token" &&
+                    (req.url.host in AUTH_HOSTS || req.url.host == apiHost)
+                ) {
                     Session.authExpired = true
                 }
                 resp.header("x-ratelimit-remaining")?.let { rem ->

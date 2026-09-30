@@ -12,6 +12,15 @@ plugins {
 val clientId: String = (System.getenv("MOBILEGH_CLIENT_ID")
     ?: providers.gradleProperty("mobilegh.clientId").orNull)?.takeIf { it.isNotBlank() } ?: "Ov23litcWlPUB3KqPlQ2"
 
+/**
+ * OAuth App 的注册页地址。
+ * 用数字 app id，因为 /settings/applications/<client_id>/beta 会 404（实测跳「Uh oh!」）。
+ * 这个页面就是「Token expiration」开关（关掉 = 登录长期有效）所在处。
+ */
+val clientSettingsUrl: String = (System.getenv("MOBILEGH_CLIENT_SETTINGS_URL")
+    ?: providers.gradleProperty("mobilegh.clientSettingsUrl").orNull)?.takeIf { it.isNotBlank() }
+    ?: "https://github.com/settings/applications/3890463/beta"
+
 // 发布签名：优先读取 keystore.properties（已被 .gitignore 忽略），
 // 也支持用环境变量在 CI 中注入。两者都没有时回退到 debug 签名。
 val keystoreProps = Properties().apply {
@@ -33,9 +42,10 @@ android {
         applicationId = "com.mobilegh"
         minSdk = 26
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.6"
+        versionCode = 7
+        versionName = "0.7"
         buildConfigField("String", "GITHUB_CLIENT_ID", "\"$clientId\"")
+        buildConfigField("String", "GITHUB_CLIENT_SETTINGS_URL", "\"$clientSettingsUrl\"")
     }
 
     // 按 ABI 拆分：默认主产物为 arm64-v8a（现代手机），同时产出 32 位与 x86 版本

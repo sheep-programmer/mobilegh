@@ -31,6 +31,9 @@ object Session {
 
     var login by mutableStateOf<String?>(null)
     var avatar by mutableStateOf<String?>(null)
+
+    /** 当前 Token 被 GitHub 判定失效（401），界面据此弹窗提示重新授权 */
+    var authExpired by mutableStateOf(false)
     var themeMode by mutableIntStateOf(0) // 0 跟随系统 1 浅色 2 深色
     var codeWrap by mutableStateOf(false)
     var rateRemaining by mutableStateOf<String?>(null)
@@ -56,6 +59,7 @@ object Session {
         token = t
         login = a.login
         avatar = a.avatarUrl
+        authExpired = false
     }
 
     fun signIn(token: String, user: User) {

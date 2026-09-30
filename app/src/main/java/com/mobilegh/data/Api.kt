@@ -84,6 +84,9 @@ object Api {
                     if (req.header("Accept") == null) b.header("Accept", "application/vnd.github+json")
                 }
                 val resp = chain.proceed(b.build())
+                if (resp.code == 401 && token != null && (req.url.host in AUTH_HOSTS || req.url.host == apiHost)) {
+                    Session.authExpired = true
+                }
                 resp.header("x-ratelimit-remaining")?.let { rem ->
                     Session.rateRemaining = "$rem/${resp.header("x-ratelimit-limit") ?: "?"}"
                 }

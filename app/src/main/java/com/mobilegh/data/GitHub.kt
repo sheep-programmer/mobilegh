@@ -141,6 +141,38 @@ object GitHub {
     suspend fun createIssue(o: String, n: String, title: String, body: String) =
         Api.send<Issue>("POST", "${r(o, n)}/issues", buildJsonObject { put("title", title); put("body", body) })
 
+    // ---------------- 评论 / 表情 / 元数据 ----------------
+    suspend fun editComment(o: String, n: String, commentId: Long, body: String) =
+        Api.send<Comment>("PATCH", "${r(o, n)}/issues/comments/$commentId", buildJsonObject { put("body", body) })
+    suspend fun deleteComment(o: String, n: String, commentId: Long) = Api.exec("DELETE", "${r(o, n)}/issues/comments/$commentId")
+    suspend fun editIssue(o: String, n: String, num: Int, title: String, body: String) =
+        Api.send<Issue>("PATCH", "${r(o, n)}/issues/$num", buildJsonObject { put("title", title); put("body", body) })
+
+    /**
+     * 切换表情：POST 创建，已存在时 GitHub 返回 200（不是 201）并带回已有那条的 id，此时再 DELETE 即取消。
+     * commentId 为 null 表示对 Issue/PR 正文本身表态。返回 true=现在已表态，false=已取消。
+     */
+    suspend fun toggleReaction(o: String, n: String, num: Int, commentId: Long?, content: String): Boolean {
+        val base = if (commentId == null) "${r(o, n)}/issues/$num/reactions" else "${r(o, n)}/issues/comments/$commentId/reactions"
+        val resp = Api.ensureOk(Api.call("POST", base, buildJsonObject { put("content", content) }))
+        if (resp.code == 201) return true
+        val id = Api.json.decodeFromString(ReactionResp.serializer(), resp.body).id
+        Api.exec("DELETE", "$base/$id")
+        return false
+    }
+
+    suspend fun repoLabels(o: String, n: String) = Api.get<List<Label>>("${r(o, n)}/labels?per_page=100", true)
+    suspend fun repoAssignees(o: String, n: String) = Api.get<List<Assignable>>("${r(o, n)}/assignees?per_page=100", true)
+    suspend fun repoMilestones(o: String, n: String) = Api.get<List<Milestone>>("${r(o, n)}/milestones?state=open&per_page=100", true)
+    suspend fun setLabels(o: String, n: String, num: Int, names: List<String>) =
+        Api.exec("PUT", "${r(o, n)}/issues/$num/labels", buildJsonObject { put("labels", JsonArray(names.map { JsonPrimitive(it) })) })
+    suspend fun setAssignees(o: String, n: String, num: Int, logins: List<String>) =
+        Api.exec("PATCH", "${r(o, n)}/issues/$num", buildJsonObject { put("assignees", JsonArray(logins.map { JsonPrimitive(it) })) })
+    suspend fun setMilestone(o: String, n: String, num: Int, milestone: Int?) =
+        Api.exec("PATCH", "${r(o, n)}/issues/$num", buildJsonObject {
+            put("milestone", milestone?.let { JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
+        })
+
     /** 用 GitHub 官方接口把 Markdown 渲染成 HTML（GFM，带仓库上下文，可解析 #123、@user、任务列表等）。用于编辑器预览。 */
     suspend fun renderMarkdown(text: String, context: String?): String =
         Api.ensureOk(Api.call("POST", "/markdown", buildJsonObject {

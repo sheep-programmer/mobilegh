@@ -44,6 +44,7 @@ import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Navigator
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.Tab
+import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.screens.*
@@ -91,6 +92,18 @@ private fun Main(nav: Navigator) {
     // 启动时拉取未读通知数
     LaunchedEffect(Unit) {
         runCatching { Badges.unread = GitHub.notifications(false, false, 1, true).count { it.unread } }
+    }
+    // Token 被 GitHub 判定失效（账号登录的授权过期等）：引导重新登录
+    if (Session.authExpired) {
+        GhDialog(
+            "登录已过期",
+            onDismiss = { Session.authExpired = false },
+            confirm = "重新登录",
+            onConfirm = {
+                Session.authExpired = false
+                nav.push(Screen.Login)
+            },
+        ) { Text("GitHub 授权已失效，需要重新登录后才能继续访问。", fontSize = 14.sp) }
     }
 
     AnimatedContent(

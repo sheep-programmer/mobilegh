@@ -104,7 +104,29 @@ data class Milestone(val number: Int = 0, val title: String = "", val state: Str
 data class PrRef(val url: String? = null, val htmlUrl: String? = null, val mergedAt: String? = null)
 
 @Serializable
-data class Reactions(val totalCount: Int = 0)
+data class Reactions(
+    val totalCount: Int = 0,
+    @SerialName("+1") val plusOne: Int = 0,
+    @SerialName("-1") val minusOne: Int = 0,
+    val laugh: Int = 0,
+    val hooray: Int = 0,
+    val confused: Int = 0,
+    val heart: Int = 0,
+    val rocket: Int = 0,
+    val eyes: Int = 0,
+) {
+    fun count(content: String): Int = when (content) {
+        "+1" -> plusOne; "-1" -> minusOne; "laugh" -> laugh; "hooray" -> hooray
+        "confused" -> confused; "heart" -> heart; "rocket" -> rocket; "eyes" -> eyes
+        else -> 0
+    }
+}
+
+@Serializable
+data class ReactionResp(val id: Long = 0, val content: String = "")
+
+@Serializable
+data class Assignable(val login: String = "", val avatarUrl: String = "")
 
 @Serializable
 data class Issue(
@@ -142,6 +164,7 @@ data class Comment(
     val updatedAt: String? = null,
     val authorAssociation: String? = null,
     val htmlUrl: String = "",
+    val reactions: Reactions? = null,
 )
 
 @Serializable

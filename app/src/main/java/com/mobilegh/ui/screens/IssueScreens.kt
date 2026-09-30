@@ -45,6 +45,10 @@ import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import androidx.compose.ui.text.input.TextFieldValue
 import com.mobilegh.data.Comment
+import com.mobilegh.data.Session
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import com.mobilegh.ui.components.MarkdownPreview
 import com.mobilegh.ui.components.MarkdownToolbar
 import com.mobilegh.ui.components.MarkdownEditor
@@ -144,6 +148,10 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
     var sending by remember { mutableStateOf(false) }
     var mergeDialog by remember { mutableStateOf(false) }
     var reviewDialog by remember { mutableStateOf(false) }
+    var metaKind by remember { mutableStateOf<String?>(null) }
+    /** 正在编辑的评论：id=null 表示编辑 Issue/PR 正文 */
+    var editing by remember { mutableStateOf<Pair<Long?, String>?>(null) }
+    var deleting by remember { mutableStateOf<Long?>(null) }
     val url = "https://github.com/$owner/$name/${if (isPull) "pull" else "issues"}/$number"
     val t = data.data
 
@@ -223,8 +231,62 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
         LoadBox(data, Modifier.padding(pad).fillMaxSize()) { th ->
             LazyColumn(Modifier.fillMaxSize()) {
                 item { ThreadHeader(owner, name, th) }
-                item {
-                    HtmlView(threadHtml(th), Modifier.padding(top = 12.dp), baseUrl = "https://github.com/$owner/$name/")
+                item { MetaBlock(th.issue) { metaKind = it } }
+                item { Spacer(Modifier.height(8.dp)) }
+                val base = "https://github.com/$owner/$name/"
+                val me = Session.login
+                fun quote(login: String?, text: String?) {
+                    val q = text.orEmpty().trim().lines().joinToString("\n") { "> $it" }
+                    val head = if (login != null) "@$login 写道：\n\n" else ""
+                    comment = TextFieldValue("$head$q\n\n", androidx.compose.ui.text.TextRange(Int.MAX_VALUE))
+                    previewComment = false
+                    ctx.toast("已引用到评论框")
+                }
+                item(key = "body") {
+                    val body = th.issue.body ?: th.pull?.body
+                    TimelineCard(
+                        th.issue.user, th.issue.createdAt, assoc(th.issue.authorAssociation), th.issue.bodyHtml ?: th.pull?.bodyHtml, base,
+                        menu = buildList {
+                            add(MenuAction("引用回复") { quote(th.issue.user?.login, body) })
+                            if (th.issue.user?.login == me) add(MenuAction("编辑") { editing = null to body.orEmpty() })
+                            add(MenuAction("复制链接") { ctx.copy(url) })
+                        },
+                    ) {
+                        ReactionBar(th.issue.reactions) { GitHub.toggleReaction(owner, name, number, null, it) }
+                    }
+                }
+                val entries = (th.comments.map { it.createdAt to it as Any } + th.reviews.filter { it.state != "PENDING" }.map { it.submittedAt to it as Any })
+                    .sortedBy { it.first ?: "" }
+                items(entries.size, key = { i -> (entries[i].second as? Comment)?.id?.let { "c$it" } ?: "r$i" }) { idx ->
+                    when (val e = entries[idx].second) {
+                        is Comment -> TimelineCard(
+                            e.user, e.createdAt, assoc(e.authorAssociation), e.bodyHtml, base,
+                            menu = buildList {
+                                add(MenuAction("引用回复") { quote(e.user?.login, e.body) })
+                                if (e.user?.login == me) {
+                                    add(MenuAction("编辑") { editing = e.id to e.body.orEmpty() })
+                                    add(MenuAction("删除", danger = true) { deleting = e.id })
+                                }
+                                add(MenuAction("复制链接") { ctx.copy(e.htmlUrl) })
+                            },
+                        ) {
+                            ReactionBar(e.reactions) { GitHub.toggleReaction(owner, name, number, e.id, it) }
+                        }
+                        is Review -> {
+                            val (label, color) = when (e.state) {
+                                "APPROVED" -> "批准了这些更改" to g.success
+                                "CHANGES_REQUESTED" -> "请求修改" to g.danger
+                                "DISMISSED" -> "的审查已被驳回" to g.fgMuted
+                                else -> "审查了代码" to g.fgMuted
+                            }
+                            if (!e.bodyHtml.isNullOrBlank()) TimelineCard(e.user, e.submittedAt, label, e.bodyHtml, base, menu = emptyList())
+                            else Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(8.dp).background(color, CircleShape))
+                                Spacer(Modifier.width(8.dp))
+                                Text("${e.user?.login ?: ""} $label · ${relTime(e.submittedAt)}", fontSize = 13.sp, color = g.fgMuted)
+                            }
+                        }
+                    }
                 }
                 if (th.comments.size >= 100) item {
                     GhButton("评论较多，在浏览器查看全部", Modifier.padding(16.dp).fillMaxWidth()) { ctx.openBrowser(url) }
@@ -232,6 +294,29 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
                 item { Spacer(Modifier.height(24.dp)) }
             }
         }
+    }
+
+    metaKind?.let { k ->
+        t?.let { th -> MetaDialog(k, owner, name, number, th.issue, onDismiss = { metaKind = null }, onSaved = ::reload) }
+    }
+    editing?.let { (cid, text) ->
+        EditDialog(
+            if (cid == null) "编辑${if (isPull) " Pull Request" else " Issue"}" else "编辑评论",
+            if (cid == null) t?.issue?.title else null, text, "$owner/$name",
+            onDismiss = { editing = null },
+        ) { newTitle, newBody ->
+            editing = null
+            entry.act({ ctx.toast(it) }, ::reload) {
+                if (cid == null) GitHub.editIssue(owner, name, number, newTitle, newBody) else GitHub.editComment(owner, name, cid, newBody)
+                ctx.toast("已保存")
+            }
+        }
+    }
+    deleting?.let { cid ->
+        GhDialog("删除评论", { deleting = null }, confirm = "删除", danger = true, onConfirm = {
+            deleting = null
+            entry.act({ ctx.toast(it) }, ::reload) { GitHub.deleteComment(owner, name, cid); ctx.toast("已删除") }
+        }) { Text("删除后无法恢复。", color = g.fg) }
     }
 
     val pr = t?.pull
@@ -309,29 +394,6 @@ private fun ThreadHeader(owner: String, name: String, th: IssueThread) {
                 }
             }
         }
-        if (i.labels.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                i.labels.forEach { LabelChip(it.name, it.color) }
-            }
-        }
-        if (i.assignees.isNotEmpty() || i.milestone != null) {
-            Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (i.assignees.isNotEmpty()) {
-                    Text("指派给 ", fontSize = 12.sp, color = g.fgMuted)
-                    i.assignees.forEach { a ->
-                        Avatar(a.avatarUrl, 20.dp, Modifier.padding(end = 4.dp).clickable { nav.push(Screen.Profile(a.login)) })
-                    }
-                }
-                i.milestone?.let {
-                    Spacer(Modifier.width(8.dp))
-                    Oc(R.drawable.oc_milestone, g.fgMuted, 14.dp)
-                    Spacer(Modifier.width(4.dp))
-                    Text(it.title, fontSize = 12.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-        }
     }
     HDivider()
 }
@@ -343,36 +405,6 @@ private fun assoc(a: String?): String? = when (a) {
     "CONTRIBUTOR" -> "贡献者"
     "FIRST_TIME_CONTRIBUTOR" -> "首次贡献"
     else -> null
-}
-
-private fun card(user: User?, time: String?, association: String?, body: String?, extra: String? = null): String {
-    val login = escapeHtml(user?.login ?: "ghost")
-    val avatar = user?.avatarUrl?.let { sizedAvatar(it, 48) } ?: ""
-    val badge = (extra ?: assoc(association))?.let { "<span class='tl-badge'>${escapeHtml(it)}</span>" } ?: ""
-    val content = body?.takeIf { it.isNotBlank() } ?: "<p class='tl-empty'>没有提供描述。</p>"
-    return "<div class='tl-item'><div class='tl-head'><img src='$avatar'><a href='https://github.com/$login'><b>$login</b></a><span>${relTime(time)}</span>$badge</div><div class='tl-body'>$content</div></div>"
-}
-
-private fun threadHtml(t: IssueThread): String = buildString {
-    append("<div class='tl'>")
-    append(card(t.issue.user, t.issue.createdAt, t.issue.authorAssociation, t.issue.bodyHtml ?: t.pull?.bodyHtml))
-    val entries = t.comments.map { it.createdAt to it } + t.reviews.filter { it.state != "PENDING" }.map { it.submittedAt to it }
-    entries.sortedBy { it.first ?: "" }.forEach { (_, e) ->
-        when (e) {
-            is Comment -> append(card(e.user, e.createdAt, e.authorAssociation, e.bodyHtml))
-            is Review -> {
-                val (label, cls) = when (e.state) {
-                    "APPROVED" -> "批准了这些更改" to "approved"
-                    "CHANGES_REQUESTED" -> "请求修改" to "changes"
-                    "DISMISSED" -> "的审查已被驳回" to ""
-                    else -> "审查了代码" to ""
-                }
-                if (!e.bodyHtml.isNullOrBlank()) append(card(e.user, e.submittedAt, null, e.bodyHtml, label))
-                else append("<div class='tl-event $cls'><span class='dot'></span><b>${escapeHtml(e.user?.login ?: "")}</b> $label · ${relTime(e.submittedAt)}</div>")
-            }
-        }
-    }
-    append("</div>")
 }
 
 @Composable

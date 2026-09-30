@@ -223,7 +223,8 @@ private fun OrganizationReposPanel(
             if (activity.isEmpty()) {
                 item { EmptyState("暂时没有组织动态", R.drawable.oc_pulse) }
             } else {
-                boxedItems(activity, key = { it.id }) { EventItem(it) }
+                // 组织事件接口在分页边界偶尔会返回重复 id；复合 key 避免 LazyColumn 因重复 key 崩溃。
+                boxedItems(activity, key = { "${it.id}:${it.repo.name}:${it.createdAt}" }) { EventItem(it) }
             }
             if (events.loading) item { Loading(Modifier.fillMaxWidth().height(72.dp)) }
             item { Spacer(Modifier.height(28.dp)) }
@@ -308,10 +309,16 @@ fun OrgsScreen() {
         com.mobilegh.ui.components.LoadBox(orgs, Modifier.padding(pad).fillMaxSize()) { list ->
             LazyColumn(Modifier.fillMaxSize()) {
                 if (list.isEmpty()) item {
-                    EmptyState("你还没有加入任何组织\n（若已加入但看不到，请确认 Token 包含 read:org 权限，且组织已为 Token 授权 SSO）", R.drawable.oc_organization)
+                    EmptyState(
+                        "没有读取到组织\n请下拉刷新；如果仍为空，确认账号已接受组织邀请、Token 包含 read:org，且组织已为 OAuth 应用授权 SSO",
+                        R.drawable.oc_organization,
+                    )
+                }
+                if (list.isEmpty()) item {
+                    GhButton("重新读取组织", Modifier.padding(horizontal = 16.dp).fillMaxWidth(), icon = R.drawable.oc_sync) { orgs.load(true) }
                 }
                 item { Spacer(Modifier.height(12.dp)) }
-                boxedItems(list) { o ->
+                boxedItems(list, key = { it.login }) { o ->
                     UserItem(com.mobilegh.data.User(login = o.login, avatarUrl = o.avatarUrl, type = "Organization", description = o.description))
                 }
                 item {

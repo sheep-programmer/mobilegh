@@ -73,7 +73,26 @@ object GitHub {
     suspend fun forks(o: String, n: String, page: Int, force: Boolean) = Api.get<List<Repo>>("${r(o, n)}/forks?sort=newest&per_page=$PER&page=$page", force)
 
     // ---------------- 组织 ----------------
-    suspend fun myOrgs(force: Boolean) = Api.get<List<Org>>("/user/orgs?per_page=100", force)
+    /**
+     * 当前用户加入的组织。
+     *
+     * /user/orgs 对私有组织、隐藏成员身份和 SSO 组织有时不会返回完整结果；
+     * membership 接口包含 organization 对象，因此合并两个结果后再去重。
+     */
+    suspend fun myOrgs(force: Boolean): List<Org> {
+        val visible = runCatching { Api.get<List<Org>>("/user/orgs?per_page=100", force) }
+        val memberships = runCatching {
+            Api.get<List<OrgMembership>>("/user/memberships/orgs?state=active&per_page=100", force)
+                .filter { it.state == "active" }
+                .map { it.organization }
+        }
+        if (visible.isFailure && memberships.isFailure) throw visible.exceptionOrNull() ?: memberships.exceptionOrNull()!!
+        return (visible.getOrDefault(emptyList()) + memberships.getOrDefault(emptyList()))
+            .filter { it.login.isNotBlank() }
+            .associateBy { it.login.lowercase() }
+            .values
+            .sortedBy { it.login.lowercase() }
+    }
     suspend fun userOrgs(login: String, force: Boolean) = Api.get<List<Org>>("/users/$login/orgs?per_page=100", force)
     suspend fun org(login: String, force: Boolean = false) = Api.get<Org>("/orgs/$login", force)
     suspend fun orgMembers(org: String, page: Int, force: Boolean) = Api.get<List<User>>("/orgs/$org/members?per_page=$PER&page=$page", force)

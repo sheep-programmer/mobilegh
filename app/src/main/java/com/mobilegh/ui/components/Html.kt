@@ -10,6 +10,7 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -44,9 +45,27 @@ fun HtmlView(
     var height by remember { mutableIntStateOf(0) }
     val anchor by rememberUpdatedState(onAnchor)
     val doc = remember(html, dark) { wrapHtml(html, dark) }
+    // 时间线里的每条评论都可能包含一个 WebView。显式销毁离开 LazyColumn 的实例，
+    // 否则反复滚动会让 Chromium 渲染器和网页资源一直累积，最终造成闪退或系统回收。
+    val webRef = remember { arrayOfNulls<WebView>(1) }
+    DisposableEffect(Unit) {
+        onDispose {
+            webRef[0]?.let { wv ->
+                runCatching {
+                    wv.stopLoading()
+                    wv.loadUrl("about:blank")
+                    wv.clearHistory()
+                    wv.removeAllViews()
+                    wv.destroy()
+                }
+                webRef[0] = null
+            }
+        }
+    }
     AndroidView(
         factory = { c ->
             WebView(c).apply {
+                webRef[0] = this
                 setBackgroundColor(0)
                 isVerticalScrollBarEnabled = false
                 isHorizontalScrollBarEnabled = false
@@ -76,6 +95,12 @@ fun HtmlView(
 }
 
 class GhWebClient(private val ctx: Context, private val nav: Navigator) : WebViewClient() {
+    override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+        // Chromium 的网页渲染进程崩溃时让 App 继续运行；当前卡片留空，用户可以返回或刷新。
+        runCatching { view.stopLoading(); view.destroy() }
+        return true
+    }
+
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val url = request.url.toString()
         Links.route(url)?.let { nav.push(it); return true }

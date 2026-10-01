@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -206,6 +207,7 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
         },
     ) { pad ->
         LoadBox(run, Modifier.padding(pad).fillMaxSize()) { rr ->
+            val expandedJobs = remember { mutableStateMapOf<Long, Boolean>() }
             LazyColumn(Modifier.fillMaxSize()) {
                 item {
                     val (icon, color) = runVisual(rr.status, rr.conclusion)
@@ -250,29 +252,49 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                 }
                 val js = jobs.data
                 if (js == null) item { com.mobilegh.ui.components.Loading(Modifier.fillMaxWidth().height(120.dp)) }
-                else itemsIndexed(js) { _, j ->
+                else itemsIndexed(js, key = { _, j -> j.id }) { _, j ->
                     Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                         Column {
                             val (ji, jc) = runVisual(j.status, j.conclusion)
+                            val expanded = expandedJobs[j.id] == true
                             Row(
-                                Modifier.fillMaxWidth().clickable { nav.push(Screen.JobLog(owner, name, j.id, j.name)) }.padding(12.dp),
+                                Modifier.fillMaxWidth().clickable { expandedJobs[j.id] = !expanded }.padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
+                                Oc(if (expanded) R.drawable.oc_chevron_down else R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
+                                Spacer(Modifier.width(4.dp))
                                 Oc(ji, jc, 16.dp)
                                 Spacer(Modifier.width(8.dp))
                                 Text(j.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = g.fg, modifier = Modifier.weight(1f))
                                 Text(fmtDuration(j.startedAt, j.completedAt), fontSize = 12.sp, color = g.fgMuted)
                                 Spacer(Modifier.width(6.dp))
-                                Oc(R.drawable.oc_log, g.fgMuted, 14.dp)
+                                Text("日志", fontSize = 12.sp, color = g.accent, modifier = Modifier.clickable { nav.push(Screen.JobLog(owner, name, j.id, j.name)) })
                             }
-                            if (j.steps.isNotEmpty()) HDivider()
-                            j.steps.forEach { s ->
-                                val (si, scol) = runVisual(s.status, s.conclusion)
-                                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Oc(si, scol, 13.dp)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(s.name, fontSize = 13.sp, color = g.fg, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    Text(fmtDuration(s.startedAt, s.completedAt).takeIf { s.startedAt != null } ?: "", fontSize = 11.sp, color = g.fgMuted)
+                            if (expanded) {
+                                HDivider()
+                                if (j.steps.isEmpty()) {
+                                    Text("GitHub 尚未返回步骤明细，打开日志查看终端输出。", Modifier.padding(12.dp), fontSize = 12.sp, color = g.fgMuted)
+                                } else {
+                                    j.steps.forEachIndexed { index, s ->
+                                        val (si, scol) = runVisual(s.status, s.conclusion)
+                                        Row(
+                                            Modifier.fillMaxWidth().clickable { nav.push(Screen.JobLog(owner, name, j.id, j.name + " · " + s.name)) }
+                                                .padding(start = 34.dp, end = 12.dp, top = 7.dp, bottom = 7.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Text((index + 1).toString(), fontSize = 11.sp, color = g.fgMuted, modifier = Modifier.width(22.dp))
+                                            Oc(si, scol, 13.dp)
+                                            Spacer(Modifier.width(8.dp))
+                                            Column(Modifier.weight(1f)) {
+                                                Text(s.name, fontSize = 13.sp, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                                Text(statusZh(s.status, s.conclusion), fontSize = 11.sp, color = scol)
+                                            }
+                                            Text(fmtDuration(s.startedAt, s.completedAt).takeIf { s.startedAt != null } ?: "", fontSize = 11.sp, color = g.fgMuted)
+                                        }
+                                    }
+                                }
+                                GhButton("打开终端日志", Modifier.padding(start = 34.dp, end = 12.dp, top = 4.dp, bottom = 10.dp).fillMaxWidth(), icon = R.drawable.oc_log) {
+                                    nav.push(Screen.JobLog(owner, name, j.id, j.name))
                                 }
                             }
                             Spacer(Modifier.height(6.dp))

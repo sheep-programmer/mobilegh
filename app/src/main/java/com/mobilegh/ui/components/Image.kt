@@ -71,6 +71,10 @@ object Images {
             }
         } catch (e: Exception) {
             null
+        } catch (e: OutOfMemoryError) {
+            // 大图解码失败时清理图片缓存，避免一次 OOM 直接杀掉整个客户端。
+            mem.evictAll()
+            null
         }
     }
 }

@@ -63,6 +63,7 @@ import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.copy
+import com.mobilegh.ui.components.downloadFile
 import com.mobilegh.ui.components.fmtDuration
 import com.mobilegh.ui.components.fmtSize
 import com.mobilegh.ui.components.openBrowser
@@ -289,7 +290,14 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                                 Text(art.name, fontSize = 14.sp, color = g.fg)
                                 Text(fmtSize(art.sizeInBytes) + if (art.expired) " · 已过期" else "", fontSize = 12.sp, color = g.fgMuted)
                             }
-                            if (!art.expired) OcButton(R.drawable.oc_download, { ctx.openBrowser("https://github.com/$owner/$name/actions/runs/$runId/artifacts/${art.id}") })
+                            if (!art.expired) OcButton(R.drawable.oc_download, {
+                                ctx.downloadFile(
+                                    "https://api.github.com/repos/$owner/$name/actions/artifacts/${art.id}/zip",
+                                    "${art.name}.zip",
+                                    isPrivate = true,
+                                    mimeType = "application/zip",
+                                )
+                            })
                         }
                     }
                 }

@@ -45,6 +45,7 @@ import com.mobilegh.nav.Navigator
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.Tab
 import com.mobilegh.ui.components.GhDialog
+import com.mobilegh.ui.components.DownloadHost
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.screens.*
@@ -72,6 +73,7 @@ fun AppRoot(nav: Navigator) {
             } else {
                 Main(nav)
             }
+            Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.BottomEnd) { DownloadHost() }
         }
     }
 }

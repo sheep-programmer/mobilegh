@@ -90,6 +90,7 @@ object Api {
                     authenticatedReq.header("Authorization") == "Bearer $token" &&
                     (req.url.host in AUTH_HOSTS || req.url.host == apiHost)
                 ) {
+                    AppLog.warn("auth", "GitHub 返回 401：" + req.url.encodedPath)
                     Session.authExpired = true
                 }
                 resp.header("x-ratelimit-remaining")?.let { rem ->
@@ -123,6 +124,7 @@ object Api {
         val response = try {
             http.newCall(rb.build()).await()
         } catch (e: IOException) {
+            AppLog.warn("network", "请求连接失败：" + path.take(180), e)
             throw ApiException(-1, "网络连接失败：${e.message ?: e.javaClass.simpleName}")
         }
         return withContext(Dispatchers.IO) {

@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.AppLog
 import com.mobilegh.data.Run
 import com.mobilegh.data.Session
 import com.mobilegh.nav.LocalEntry
@@ -137,6 +138,7 @@ fun ActionsScreen(owner: String, name: String) {
                 val w = list[wi]
                 dispatch = false
                 entry.act({ ctx.toast(it) }) {
+                    AppLog.info("actions", "手动触发工作流：" + w.name + " @ " + ref.trim())
                     GitHub.dispatch(owner, name, w.id, ref.trim())
                     ctx.toast("已触发 ${w.name}")
                     delay(2500)
@@ -236,14 +238,14 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (rr.status == "completed") {
                                 GhButton("重新运行", icon = R.drawable.oc_sync) {
-                                    entry.act({ ctx.toast(it) }) { GitHub.rerun(owner, name, runId, false); ctx.toast("已重新运行"); delay(2000); reload() }
+                                    entry.act({ ctx.toast(it) }) { AppLog.info("actions", "重新运行 Run #" + runId); GitHub.rerun(owner, name, runId, false); ctx.toast("已重新运行"); delay(2000); reload() }
                                 }
                                 if (rr.conclusion == "failure") GhButton("重跑失败任务") {
-                                    entry.act({ ctx.toast(it) }) { GitHub.rerun(owner, name, runId, true); ctx.toast("已重跑失败任务"); delay(2000); reload() }
+                                    entry.act({ ctx.toast(it) }) { AppLog.info("actions", "重跑失败任务 Run #" + runId); GitHub.rerun(owner, name, runId, true); ctx.toast("已重跑失败任务"); delay(2000); reload() }
                                 }
                             } else {
                                 GhButton("取消运行", danger = true, icon = R.drawable.oc_stop) {
-                                    entry.act({ ctx.toast(it) }) { GitHub.cancelRun(owner, name, runId); ctx.toast("已请求取消"); reload() }
+                                    entry.act({ ctx.toast(it) }) { AppLog.info("actions", "取消 Run #" + runId); GitHub.cancelRun(owner, name, runId); ctx.toast("已请求取消"); reload() }
                                 }
                             }
                         }

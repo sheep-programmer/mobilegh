@@ -99,6 +99,7 @@ object Downloads {
         tasks.filter { !it.active }.drop(20).forEach { tasks.remove(it) }
         selectedKey = task.key
         showHistory = false
+        AppLog.info("download", "开始下载：" + task.filename + "（" + if (isPrivate) "private" else "public" + "）")
         save()
         scope.launch {
             try {
@@ -113,6 +114,7 @@ object Downloads {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                AppLog.error("download", "无法开始下载：" + task.filename, e)
                 if (tasks.firstOrNull { it.key == task.key }?.state != DownloadState.Cancelled) {
                     update(task.copy(state = DownloadState.Failed, message = e.message ?: "无法开始下载"))
                     save()
@@ -274,7 +276,15 @@ object Downloads {
     }
 
     private fun update(task: DownloadTask) {
-        tasks.indexOfFirst { it.key == task.key }.takeIf { it >= 0 }?.let { index -> if (tasks[index] != task) tasks[index] = task }
+        tasks.indexOfFirst { it.key == task.key }.takeIf { it >= 0 }?.let { index ->
+            val old = tasks[index]
+            if (old != task) {
+                if (old.state != task.state && task.state in setOf(DownloadState.Complete, DownloadState.Failed, DownloadState.Cancelled)) {
+                    AppLog.info("download", task.filename + "：" + task.state.name + (task.message?.let { " · " + it } ?: ""))
+                }
+                tasks[index] = task
+            }
+        }
     }
     private fun save() { prefs.edit().putString("tasks", Api.plain.encodeToString(tasks.toList())).apply() }
     private fun safeFilename(name: String): String = name.substringAfterLast('/').substringAfterLast('\\')

@@ -44,6 +44,7 @@ sealed interface Screen {
     data class GistDetail(val id: String) : Screen
     data class Activity(val login: String) : Screen
     data object Settings : Screen
+    data object Logs : Screen
     data object CreateRepo : Screen
     data object Login : Screen
     data class MyIssues(val pulls: Boolean) : Screen

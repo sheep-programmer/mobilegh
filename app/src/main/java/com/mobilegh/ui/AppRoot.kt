@@ -223,6 +223,7 @@ private fun ScreenHost(s: Screen) {
         is Screen.GistDetail -> GistDetailScreen(s.id)
         is Screen.Activity -> ActivityScreen(s.login)
         Screen.Settings -> SettingsScreen()
+        Screen.Logs -> LogsScreen()
         Screen.CreateRepo -> CreateRepoScreen()
         Screen.Login -> LoginScreen(adding = true)
         is Screen.MyIssues -> MyIssuesScreen(s.pulls)

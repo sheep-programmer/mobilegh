@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.mobilegh.data.Api
+import com.mobilegh.data.AppLog
 import com.mobilegh.data.Net
 import com.mobilegh.nav.Links
 import com.mobilegh.nav.LocalNav
@@ -97,6 +98,7 @@ fun HtmlView(
 class GhWebClient(private val ctx: Context, private val nav: Navigator) : WebViewClient() {
     override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
         // Chromium 的网页渲染进程崩溃时让 App 继续运行；当前卡片留空，用户可以返回或刷新。
+        AppLog.error("webview", "网页渲染进程退出：didCrash=" + detail.didCrash())
         runCatching { view.stopLoading(); view.destroy() }
         return true
     }

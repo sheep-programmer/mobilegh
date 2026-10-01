@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import com.mobilegh.BuildConfig
 import com.mobilegh.R
 import com.mobilegh.data.Api
+import com.mobilegh.data.AppLog
 import com.mobilegh.data.Downloads
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.Gist
@@ -368,6 +369,7 @@ fun SettingsScreen() {
             SectionTitle("存储")
             MenuGroup {
             MenuRow(R.drawable.oc_download, "下载记录", count = Downloads.activeCount.takeIf { it > 0 }) { Downloads.showHistory = true }
+            MenuRow(R.drawable.oc_log, "日志与诊断", value = AppLog.entries.size.toString() + " 条") { nav.push(Screen.Logs) }
             MenuRow(R.drawable.oc_trash, "清除缓存") {
                 Api.clearCache()
                 ctx.cacheDir.listFiles()?.filter { it.name != "http" }?.forEach { it.deleteRecursively() }

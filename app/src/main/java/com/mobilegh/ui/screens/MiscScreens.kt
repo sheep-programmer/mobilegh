@@ -446,8 +446,8 @@ private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit) {
             Text("加速模式", fontSize = 15.sp, color = g.fg)
             Text(
                 when (Net.mode) {
-                    0 -> "自动：启动时静默测速，当前使用 ${Net.rawNode().name}"
-                    1 -> "手动：${Net.rawNode().name}"
+                    0 -> "自动：源码/图片 ${Net.rawNode().name} · 下载 ${Net.downloadNode().name}"
+                    1 -> "手动：源码/图片 ${Net.rawNode().name} · 下载 ${Net.downloadNode().name}"
                     else -> "已关闭，全部直连 GitHub"
                 },
                 fontSize = 12.sp, color = g.fgMuted,
@@ -459,7 +459,7 @@ private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit) {
     Card(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Column {
             val raw = Net.rawNode().id
-            val dl = Net.dlNode().id
+            val dl = Net.downloadNode().id
             Net.nodes.forEachIndexed { i, n ->
                 if (i > 0) HDivider()
                 val ms = Net.latency[n.id]

@@ -334,7 +334,7 @@ fun EditDialog(
         confirmEnabled = body.text.isNotBlank() && (initialTitle == null || title.isNotBlank()),
         onConfirm = { onSave(title.trim(), body.text) },
     ) {
-        Column(Modifier.verticalScroll(rememberScrollState())) {
+        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             if (initialTitle != null) {
                 GhField(title, { title = it }, "标题")
             }

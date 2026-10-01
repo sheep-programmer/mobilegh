@@ -77,7 +77,12 @@ fun HtmlView(
                 settings.textZoom = 100
                 addJavascriptInterface(object {
                     @JavascriptInterface
-                    fun h(v: Int) = post { height = v }
+                    fun h(v: Int) = post {
+                        // JS 返回的是内容像素；异常页面/循环图片可能回报几十万像素，
+                        // 直接换算成 dp 会触发 Compose Constraints 崩溃。
+                        if (v > 12000) AppLog.warn("webview", "HTML 高度异常：" + v + "px，已限制")
+                        height = v.coerceIn(24, 12000)
+                    }
 
                     @JavascriptInterface
                     fun a(y: Int) = post { anchor?.invoke(y) }
@@ -91,7 +96,7 @@ fun HtmlView(
                 wv.loadDataWithBaseURL(baseUrl, doc, "text/html", "utf-8", null)
             }
         },
-        modifier = modifier.fillMaxWidth().height(height.coerceAtLeast(24).dp),
+        modifier = modifier.fillMaxWidth().height(height.coerceIn(24, 12000).dp),
     )
 }
 

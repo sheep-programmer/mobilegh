@@ -134,6 +134,7 @@ object Downloads {
         } else {
             url = Net.download(url)
         }
+        AppLog.info("download", task.filename + " 使用节点：" + if (task.isPrivate) "直连 GitHub" else Net.downloadNode().name + "；地址主机：" + (Uri.parse(url).host ?: "unknown"))
         val appDirectory = Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
             ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
         @Suppress("DEPRECATION")

@@ -50,8 +50,9 @@ object Net {
         CdnNode("ghfast", "ghfast.top", NodeType.Prefix, "https://ghfast.top/"),
         CdnNode("ghproxy-net", "ghproxy.net", NodeType.Prefix, "https://ghproxy.net/"),
         CdnNode("gh-proxy", "gh-proxy.com", NodeType.Prefix, "https://gh-proxy.com/"),
-        CdnNode("ddlc", "gh.ddlc.top", NodeType.Prefix, "https://gh.ddlc.top/"),
+        CdnNode("gh-proxy-org", "gh-proxy.org", NodeType.Prefix, "https://gh-proxy.org/"),
         CdnNode("llkk", "gh.llkk.cc", NodeType.Prefix, "https://gh.llkk.cc/"),
+        CdnNode("gh-jason", "gh.jasonzeng.dev", NodeType.Prefix, "https://gh.jasonzeng.dev/"),
     )
 
     /** 未测速前的默认值：最稳定的节点 */
@@ -116,6 +117,9 @@ object Net {
         1 -> byId(manualId)?.takeIf { it.type != NodeType.JsDelivr } ?: byId(bestDlId) ?: DIRECT
         else -> byId(bestDlId) ?: DIRECT
     }
+
+    /** 当前下载使用的节点，供下载日志和设置页显示。 */
+    fun downloadNode(): CdnNode = dlNode()
 
     fun markPrivate(fullName: String) {
         privateRepos.add(fullName.lowercase())
@@ -258,7 +262,10 @@ object Net {
                     return if (direct >= 0 && direct - results[best.id]!! < 80) DIRECT.id else best.id
                 }
                 bestRawId = pick(list, DEFAULT_RAW)
-                bestDlId = pick(list.filter { it.type != NodeType.JsDelivr }, DIRECT.id)
+                // 下载优先使用 Prefix 代理；直连只作为所有下载代理都测速失败时的后备。
+                val downloadProxies = list.filter { it.type == NodeType.Prefix }
+                bestDlId = downloadProxies.filter { (results[it.id] ?: -1) >= 0 }
+                    .minByOrNull { results[it.id] ?: Long.MAX_VALUE }?.id ?: DIRECT.id
                 lastTest = System.currentTimeMillis()
                 prefs.edit()
                     .putString("bestRaw", bestRawId)

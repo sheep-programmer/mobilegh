@@ -56,11 +56,22 @@ object GitHub {
         return result
     }
 
-    /** 汇总用户加入的组织仓库，去重后按最近推送或名称排序。 */
+    /**
+     * 汇总用户加入的组织仓库，去重后按最近推送或名称排序。
+     *
+     * 先走用户维度的 /user/repos?affiliation=organization_member（对受限组织更健壮），
+     * 再用 /orgs/{org}/repos 补充（可拿到用户没直接参与但可访问的仓库）。
+     */
     suspend fun organizationRepos(orgs: List<String>, sort: String, force: Boolean): List<Repo> {
         if (orgs.isEmpty()) return emptyList()
+        val wanted = orgs.map { it.lowercase() }.toSet()
         val result = LinkedHashMap<Long, Repo>()
-        orgs.forEach { org -> orgReposAll(org, sort, force).forEach { result[it.id] = it } }
+        // 主路径：用户维度的组织成员仓库
+        orgMemberRepos(force).filter { it.owner.login.lowercase() in wanted }.forEach { result[it.id] = it }
+        // 补充路径：逐个组织读取，受限时忽略该组织的失败
+        orgs.forEach { org ->
+            runCatching { orgReposAll(org, sort, force) }.getOrDefault(emptyList()).forEach { result[it.id] = it }
+        }
         return result.values.sortedWith(
             if (sort == "full_name") compareBy(String.CASE_INSENSITIVE_ORDER) { it.fullName }
             else compareByDescending<Repo> { it.pushedAt ?: it.updatedAt ?: it.createdAt ?: "" },
@@ -93,6 +104,55 @@ object GitHub {
             .values
             .sortedBy { it.login.lowercase() }
     }
+    /**
+     * 组织可见性诊断。
+     *
+     * GitHub 的组织默认开启「第三方 OAuth 应用访问限制」：未被组织批准的第三方应用，
+     * 该组织会**从 /user/orgs 里被静默剔除**（不报错，直接不返回）。官方 App 是特权应用所以豁免。
+     * 而 /user/memberships/orgs 仍会返回这些组织，两者的差集就是「存在但被限制」的组织。
+     */
+    data class OrgAccess(val orgs: List<Org>, val restricted: List<String>)
+
+    suspend fun orgAccess(force: Boolean): OrgAccess {
+        val visible = runCatching { Api.get<List<Org>>("/user/orgs?per_page=100", force) }
+        val memberships = runCatching {
+            Api.get<List<OrgMembership>>("/user/memberships/orgs?per_page=100", force)
+        }.getOrDefault(emptyList())
+        val visOrgs = visible.getOrDefault(emptyList()).filter { it.login.isNotBlank() }
+        val visNames = visOrgs.map { it.login.lowercase() }.toSet()
+        val memOrgs = memberships.map { it.organization }.filter { it.login.isNotBlank() }
+        val restricted = (memOrgs + visOrgs)
+            .filter { it.login.isNotBlank() }
+            .associateBy { it.login.lowercase() }
+            .filterKeys { it !in visNames }
+            .values.map { it.login }
+            .sorted()
+        val all = (visOrgs + memOrgs).associateBy { it.login.lowercase() }.values.sortedBy { it.login.lowercase() }
+        if (visible.isFailure && memberships.isEmpty()) throw visible.exceptionOrNull()!!
+        return OrgAccess(all, restricted)
+    }
+
+    /**
+     * 组织仓库枚举（主路径）。
+     *
+     * /orgs/{org}/repos 在被限制的组织上会 403；而 /user/repos?affiliation=organization_member
+     * 是用户维度的接口，按组织成员身份返回全部可访问仓库，权限受限时也只是少返回而不会报错。
+     * 因此用它作为主路径，再按组织名筛选。
+     */
+    suspend fun orgMemberRepos(force: Boolean = false): List<Repo> {
+        val result = LinkedHashMap<Long, Repo>()
+        var page = 1
+        while (page <= 20) {
+            val list = runCatching {
+                Api.get<List<Repo>>("/user/repos?affiliation=organization_member&sort=pushed&per_page=100&page=$page", force && page == 1)
+            }.getOrElse { break }
+            list.track().forEach { result[it.id] = it }
+            if (list.size < 100) break
+            page++
+        }
+        return result.values.toList()
+    }
+
     suspend fun userOrgs(login: String, force: Boolean) = Api.get<List<Org>>("/users/$login/orgs?per_page=100", force)
     suspend fun org(login: String, force: Boolean = false) = Api.get<Org>("/orgs/$login", force)
     suspend fun orgMembers(org: String, page: Int, force: Boolean) = Api.get<List<User>>("/orgs/$org/members?per_page=$PER&page=$page", force)
@@ -235,6 +295,13 @@ object GitHub {
 
     // ---------------- Releases ----------------
     suspend fun releases(o: String, n: String, page: Int, force: Boolean) = Api.get<List<Release>>("${r(o, n)}/releases?per_page=10&page=$page", force, Api.FULL)
+
+    /** 最新正式版本；404 表示仓库还没有发布任何 Release */
+    suspend fun latestRelease(o: String, n: String, force: Boolean = false): Release? = try {
+        Api.get<Release>("${r(o, n)}/releases/latest", force, Api.FULL)
+    } catch (e: ApiException) {
+        if (e.code == 404) null else throw e
+    }
 
     // ---------------- Actions ----------------
     suspend fun runs(o: String, n: String, workflowId: Long?, page: Int, force: Boolean) =

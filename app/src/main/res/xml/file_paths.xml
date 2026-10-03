@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 可共享的目录：下载文件位于外部存储的「下载」文件夹，或应用私有下载目录 -->
+<paths>
+    <external-path name="public_downloads" path="Download/" />
+    <external-files-path name="app_downloads" path="Download/" />
+    <external-files-path name="app_files" path="." />
+    <cache-path name="cache" path="." />
+</paths>

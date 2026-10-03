@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mobilegh.BuildConfig
 import com.mobilegh.R
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.Invitation
@@ -53,6 +54,7 @@ import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.Loading
+import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
@@ -60,6 +62,8 @@ import com.mobilegh.ui.components.RepoItem
 import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.SwitchRow
 import com.mobilegh.ui.components.TextLink
+import com.mobilegh.ui.components.openBrowser
+import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.UserItem
 import com.mobilegh.ui.components.boxedItems
 import com.mobilegh.ui.components.relTime
@@ -170,11 +174,16 @@ private fun OrganizationReposPanel(
     hideForks: Boolean,
 ) {
     val g = Gh.c
+    val ctx = rememberCtx()
     val login = Session.login ?: return
     val repoKey = "org-repos:${orgs.joinToString(",")}:$sort"
     val eventKey = "org-events:${orgs.joinToString(",")}"
     val repos = rememberLoader(repoKey) { force -> GitHub.organizationRepos(orgs, sort, force) }
     val events = rememberLoader(eventKey) { force -> GitHub.organizationEvents(login, orgs, force) }
+    // 被组织访问限制挡住的组织：用于给出明确的提示，而不是只显示空列表
+    val access = rememberLoader("org-access") { GitHub.orgAccess(it) }
+    val restricted = access.data?.restricted.orEmpty().filter { it.lowercase() in orgs.map(String::lowercase) }
+    val requestUrl = "https://github.com/settings/connections/applications/" + BuildConfig.GITHUB_CLIENT_ID
     val filtered = repos.data.orEmpty().filter {
         (visibility == "all" || (visibility == "private") == it.isPrivate) &&
             (!hideForks || !it.fork) &&
@@ -204,10 +213,20 @@ private fun OrganizationReposPanel(
             if (filtered.isEmpty()) {
                 item {
                     EmptyState(
-                        if (orgs.isEmpty()) "没有读取到组织\n请确认 Token 包含 read:org，并在 GitHub 组织设置中完成 SSO 授权"
-                        else "这些组织下没有符合当前筛选的仓库",
+                        when {
+                            orgs.isEmpty() -> "没有读取到组织\n请确认 Token 包含 read:org，并让组织批准 MobileGH"
+                            restricted.isNotEmpty() -> "无法读取组织仓库\n${restricted.joinToString("、")} 尚未批准 MobileGH"
+                            else -> "这些组织下没有符合当前筛选的仓库"
+                        },
                         R.drawable.oc_organization,
                     )
+                }
+                if (restricted.isNotEmpty()) {
+                    item {
+                        GhButton("申请组织访问权限", Modifier.padding(horizontal = 16.dp).fillMaxWidth(), icon = R.drawable.oc_link_external) {
+                            ctx.openBrowser(requestUrl)
+                        }
+                    }
                 }
             } else {
                 boxedItems(filtered, key = { it.id }) { RepoItem(it) }
@@ -304,26 +323,59 @@ fun CreateRepoScreen() {
 @Composable
 fun OrgsScreen() {
     val nav = LocalNav.current
-    val orgs = rememberLoader("myorgs") { GitHub.myOrgs(it) }
+    val ctx = rememberCtx()
+    val g = Gh.c
+    val access = rememberLoader("myorgs") { GitHub.orgAccess(it) }
+    val requestUrl = "https://github.com/settings/connections/applications/" + BuildConfig.GITHUB_CLIENT_ID
     Page("我的组织") { pad ->
-        com.mobilegh.ui.components.LoadBox(orgs, Modifier.padding(pad).fillMaxSize()) { list ->
+        com.mobilegh.ui.components.LoadBox(access, Modifier.padding(pad).fillMaxSize()) { data ->
+            val list = data.orgs
+            val restricted = data.restricted
             LazyColumn(Modifier.fillMaxSize()) {
-                if (list.isEmpty()) item {
+                if (list.isEmpty() && restricted.isEmpty()) item {
                     EmptyState(
-                        "没有读取到组织\n请下拉刷新；如果仍为空，确认账号已接受组织邀请、Token 包含 read:org，且组织已为 OAuth 应用授权 SSO",
+                        "没有读取到组织\n请下拉刷新；如果仍为空，确认账号已接受组织邀请、Token 包含 read:org",
                         R.drawable.oc_organization,
                     )
                 }
-                if (list.isEmpty()) item {
-                    GhButton("重新读取组织", Modifier.padding(horizontal = 16.dp).fillMaxWidth(), icon = R.drawable.oc_sync) { orgs.load(true) }
+                if (restricted.isNotEmpty()) {
+                    item {
+                        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Oc(R.drawable.oc_shield_lock, g.attention, 18.dp)
+                                Spacer(Modifier.width(8.dp))
+                                Text("${restricted.size} 个组织需要批准 MobileGH", color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                "这些组织开启了「第三方 OAuth 应用访问限制」，未被批准的应用看不到它们的仓库。" +
+                                    "GitHub 官方 App 是特权应用所以不受限制；MobileGH 需要你在下面申请、由组织所有者批准。",
+                                color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp,
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            GhButton("申请组织访问权限", Modifier.fillMaxWidth(), icon = R.drawable.oc_link_external) {
+                                ctx.openBrowser(requestUrl)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Text(restricted.joinToString("、"), color = g.fg, fontSize = 13.sp)
+                        }
+                        HDivider()
+                    }
                 }
                 item { Spacer(Modifier.height(12.dp)) }
                 boxedItems(list, key = { it.login }) { o ->
                     UserItem(com.mobilegh.data.User(login = o.login, avatarUrl = o.avatarUrl, type = "Organization", description = o.description))
                 }
+                if (restricted.isNotEmpty()) {
+                    boxedItems(restricted, key = { it }) { name ->
+                        UserItem(com.mobilegh.data.User(login = name, type = "Organization", description = "待批准：点上方按钮申请访问"))
+                    }
+                }
                 item {
                     Spacer(Modifier.height(8.dp))
-                    GhButton("查看待处理的组织邀请", Modifier.padding(16.dp).fillMaxWidth(), icon = R.drawable.oc_mail) { nav.push(Screen.Invitations) }
+                    GhButton("重新读取组织", Modifier.padding(horizontal = 16.dp).fillMaxWidth(), icon = R.drawable.oc_sync) { access.load(true) }
+                    Spacer(Modifier.height(8.dp))
+                    GhButton("查看待处理的组织邀请", Modifier.padding(horizontal = 16.dp).fillMaxWidth(), icon = R.drawable.oc_mail) { nav.push(Screen.Invitations) }
                 }
             }
         }

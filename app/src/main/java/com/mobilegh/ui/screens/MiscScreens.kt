@@ -17,16 +17,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,6 +53,8 @@ import com.mobilegh.data.Net
 import com.mobilegh.data.NodeType
 import com.mobilegh.data.Session
 import com.mobilegh.data.Totp
+import com.mobilegh.data.Update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
@@ -279,6 +285,7 @@ fun SettingsScreen() {
     var confirmOut by remember { mutableStateOf(false) }
     var addNode by remember { mutableStateOf(false) }
     var apiDialog by remember { mutableStateOf(false) }
+    var showUpdate by remember { mutableStateOf(false) }
 
     Page("设置") { pad ->
         Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -379,6 +386,15 @@ fun SettingsScreen() {
 
             SectionTitle("关于")
             MenuGroup {
+            MenuRow(
+                R.drawable.oc_download,
+                "检查更新",
+                value = when {
+                    Update.checking -> "检查中…"
+                    Update.available != null -> "有新版 v${Update.available!!.version}"
+                    else -> "v${BuildConfig.VERSION_NAME}"
+                },
+            ) { showUpdate = true }
             MenuRow(R.drawable.oc_info, "MobileGH", value = "v${BuildConfig.VERSION_NAME}") {}
             MenuRow(R.drawable.oc_link_external, "管理 GitHub Token") { ctx.openBrowser("https://github.com/settings/tokens") }
             MenuRow(R.drawable.oc_shield_lock, "已授权的 OAuth 应用") { ctx.openBrowser("https://github.com/settings/applications") }
@@ -425,6 +441,58 @@ fun SettingsScreen() {
                 GhField(url, { url = it }, "代理地址", placeholder = "https://gh-api.example.workers.dev")
             }
         }
+    }
+
+    if (showUpdate) {
+        val scope = rememberCoroutineScope()
+        AlertDialog(
+            onDismissRequest = { showUpdate = false },
+            containerColor = g.canvas,
+            shape = RoundedCornerShape(12.dp),
+            title = { Text("在线更新", color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column {
+                    Text("当前版本 v${BuildConfig.VERSION_NAME} · 设备架构 ${Update.abi}", fontSize = 13.sp, color = g.fgMuted)
+                    Spacer(Modifier.height(12.dp))
+                    val info = Update.available
+                    when {
+                        Update.checking -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(Modifier.size(18.dp), color = g.accent, strokeWidth = 2.dp)
+                                Spacer(Modifier.width(10.dp))
+                                Text("正在读取最新 Release…", color = g.fg, fontSize = 14.sp)
+                            }
+                        }
+                        info != null -> {
+                            Text("发现新版本 v${info.version}", color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                            Spacer(Modifier.height(6.dp))
+                            Text(info.assetName + " · " + fmtSize(info.size), fontSize = 12.sp, color = g.fgMuted)
+                            info.notes?.takeIf { it.isNotBlank() }?.let {
+                                Spacer(Modifier.height(10.dp))
+                                Text(it.take(600), fontSize = 12.sp, lineHeight = 18.sp, color = g.fgMuted, maxLines = 8, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        else -> {
+                            Text(Update.error ?: "已是最新版本", color = if (Update.error != null) g.danger else g.fg, fontSize = 14.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                val info = Update.available
+                if (info != null) {
+                    TextButton({
+                        showUpdate = false
+                        Update.download(info)
+                        ctx.toast("正在下载，完成后在下载记录中安装")
+                    }) { Text("下载更新", color = g.accent) }
+                } else {
+                    TextButton({ scope.launch { Update.check() } }) { Text("重新检查", color = g.accent) }
+                }
+            },
+            dismissButton = { TextButton({ showUpdate = false }) { Text("关闭", color = g.fgMuted) } },
+        )
+        LaunchedEffect(showUpdate) { if (Update.available == null && !Update.checking) Update.check() }
     }
 }
 

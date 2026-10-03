@@ -129,7 +129,7 @@ private fun autoAuthorizeJs(code: String) = """
 /** 检测到验证器（TOTP）两步验证页时，用本机存的密钥算出 6 位码并回填。码在 Kotlin 侧算，不下放给页面 JS。 */
 private const val OTP_CTX_JS = """
 (function(){
-  var f = document.querySelector('input[name="otp"],input[name="app_otp"],input#app_totp,input[autocomplete="one-time-code"]');
+  var f = document.querySelector('input[name="otp"],input[name="app_otp"],input[name="sudo_app_otp"],input#app_totp,input[autocomplete="one-time-code"]');
   if (!f || f.value) return "";
   return sessionStorage.getItem('__mgh_user') || "";
 })()
@@ -137,7 +137,7 @@ private const val OTP_CTX_JS = """
 
 private fun fillTotpJs(code: String) = """
 (function(code){
-  var f = document.querySelector('input[name="otp"],input[name="app_otp"],input#app_totp,input[autocomplete="one-time-code"]');
+  var f = document.querySelector('input[name="otp"],input[name="app_otp"],input[name="sudo_app_otp"],input#app_totp,input[autocomplete="one-time-code"]');
   if (!f || f.value) return;
   var set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
   set.call(f, code);
@@ -161,7 +161,7 @@ private fun autofillTotp(view: WebView) {
 private const val chooseTotpMethodJs = """
 (function(){
   function text(el){ return (el.innerText || el.textContent || '').trim(); }
-  var inputs = document.querySelector('input[name="otp"],input[name="app_otp"],input#app_totp,input[autocomplete="one-time-code"]');
+  var inputs = document.querySelector('input[name="otp"],input[name="app_otp"],input[name="sudo_app_otp"],input#app_totp,input[autocomplete="one-time-code"]');
   if (inputs) return;
   var all = Array.prototype.slice.call(document.querySelectorAll('button,a,input[type="submit"]'));
   var alt = all.find(function(e){ return /use another method|try another way|more options|使用其他方式|尝试其他方式|其他验证方式/i.test(text(e)); });
@@ -172,10 +172,168 @@ private const val chooseTotpMethodJs = """
 """
 
 /**
+ * 经典 PAT 登录：在 GitHub 官方页面用账号密码 + 两步验证登录后，
+ * 自动在「新建 Token」页勾选所需权限并生成一个 Classic Token，读回本地。
+ *
+ * Classic Token 不受「第三方 OAuth 应用访问限制」影响，因此能看到全部组织仓库，
+ * 和官方 App 的可见范围一致。
+ */
+object TokenLogin {
+    /** 新建 Token 页地址；scopes 已预选，登录后即可直接提交 */
+    const val URL =
+        "https://github.com/settings/tokens/new?description=MobileGH" +
+            "&scopes=repo,read:org,admin:org,notifications,user,gist,workflow,delete_repo,read:project"
+
+    /**
+     * 处理新建 Token 页；token 生成后返回 token 值（形如 ghp_xxx），否则返回空串。
+     * 只读取本页生成的 token，不做任何其他操作。
+     */
+    fun createTokenJs(desc: String) = """
+    (function(desc){
+      if (window.__mghTok) return "";
+      var path = location.pathname;
+      // 1) 生成成功后跳到列表页，页面上会一次性展示新 token
+      var shown = document.querySelector('.new-token, #new-access-token, code.js-token-value, input.js-token-value');
+      var v = shown ? (shown.value || shown.textContent || '') : '';
+      v = v.trim();
+      if (/^gh[po]_[A-Za-z0-9]{20,}$/.test(v)) { window.__mghTok = 1; return v; }
+      if (path.indexOf('/settings/tokens/new') < 0) return "";
+      // 2) 新建页：确认描述和权限，然后提交
+      var form = document.querySelector('form[action="/settings/tokens"]') ||
+                 document.querySelector('form[action*="/settings/tokens"]') ||
+                 document.querySelector('form[method="post"]');
+      if (!form) return "";
+      var set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      var note = form.querySelector('input[name="description"], input[name="oauth_access[description]"], input#oauth_access_description');
+      if (note && !note.value) {
+        set.call(note, desc);
+        note.dispatchEvent(new Event('input', {bubbles: true}));
+        note.dispatchEvent(new Event('change', {bubbles: true}));
+      }
+      // 权限已由 URL 的 scopes 预选，这里兜底勾选，避免个别页面预选失效
+      ['repo','read:org','admin:org','notifications','user','gist','workflow','delete_repo','read:project']
+        .forEach(function(s){
+          var cb = form.querySelector('input[name="oauth_access[scopes][]"][value="' + s + '"], input[name="scopes[]"][value="' + s + '"]');
+          if (cb && !cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change', {bubbles: true})); }
+        });
+      if (window.__mghSubmit) return "";
+      var btn = form.querySelector('button[type="submit"], input[type="submit"]');
+      if (!btn || btn.disabled) return "";
+      window.__mghSubmit = 1;
+      setTimeout(function(){ btn.click(); }, 400);
+      return "";
+    })('$desc')
+    """
+
+    /** 读回 token 后立即从页面移除明文，避免停留在剪贴板/页面里 */
+    const val SWEEP_JS = """
+    (function(){
+      var el = document.querySelector('.new-token, #new-access-token, code.js-token-value');
+      if (el) { el.textContent = ''; }
+    })()
+    """
+}
+
+/**
  * 内置 GitHub 网页登录：在 github.com 上输入账号密码（及两步验证），然后授权 MobileGH。
  * 走的是 OAuth 设备码流程，App 只拿到最终的 access token，接触不到密码。
  * 若在设置里存了 TOTP 密钥，验证器两步验证这一步也会自动填码。
  */
+/**
+ * 经典 PAT 网页登录：账号密码 + 两步验证（可用已存 TOTP 自动填码）→ 自动生成 Classic Token。
+ * 与设备授权流程共用同一套网页会话与验证码自动填充。
+ */
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+fun TokenWebLogin(onClose: () -> Unit, onToken: (String) -> Unit) {
+    val g = Gh.c
+    val ctx = rememberCtx()
+    var loading by remember { mutableStateOf(true) }
+    var title by remember { mutableStateOf("github.com") }
+    var web by remember { mutableStateOf<WebView?>(null) }
+    var got by remember { mutableStateOf(false) }
+
+    BackHandler {
+        val w = web
+        if (w != null && w.canGoBack()) w.goBack() else onClose()
+    }
+    DisposableEffect(Unit) { onDispose { web?.destroy() } }
+
+    Column(Modifier.fillMaxSize().background(g.canvas).statusBarsPadding().navigationBarsPadding().imePadding()) {
+        Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
+            OcButton(R.drawable.oc_x, onClose)
+            Column(Modifier.weight(1f)) {
+                Text("使用 GitHub 账号登录", color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Oc(R.drawable.oc_lock, g.success, 12.dp)
+                    Spacer(Modifier.width(4.dp))
+                    Text(title, color = g.fgMuted, fontSize = 12.sp, maxLines = 1)
+                }
+            }
+            MoreMenu(listOf(
+                MenuAction("清除 GitHub 网页会话", danger = true) {
+                    clearWebSession()
+                    onClose()
+                },
+            ))
+        }
+        Row(
+            Modifier.fillMaxWidth().background(g.canvasSubtle).padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Oc(R.drawable.oc_key, g.fgMuted, 14.dp)
+            Spacer(Modifier.width(6.dp))
+            Text(
+                if (com.mobilegh.data.Session.hasTotp(com.mobilegh.data.Session.login))
+                    "两步验证码会自动填入，登录后自动生成访问令牌；若页面已显示 ghp_ 开头的 Token，可复制后返回上一页粘贴登录"
+                else
+                    "登录后自动创建 Classic Token；两步验证请选择「验证器应用」；若自动创建失败，复制页面上的 Token 返回上一页粘贴登录",
+                color = g.fgMuted, fontSize = 12.sp, maxLines = 3,
+            )
+        }
+        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = g.accent, trackColor = g.canvas)
+        else Spacer(Modifier.height(2.dp))
+        AndroidView(
+            factory = { c ->
+                WebView(c).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.allowFileAccess = false
+                    settings.allowContentAccess = false
+                    webViewClient = object : WebViewClient() {
+                        override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                            loading = true
+                            title = android.net.Uri.parse(url).host ?: url
+                        }
+
+                        override fun onPageFinished(view: WebView, url: String) {
+                            loading = false
+                            if (android.net.Uri.parse(url).host != "github.com") return
+                            // 登录页 / 两步验证页：复用设备授权流程的验证器自动填码逻辑
+                            view.postDelayed({
+                                view.evaluateJavascript(chooseTotpMethodJs, null)
+                                view.postDelayed({ autofillTotp(view) }, 450)
+                            }, 250)
+                            if (got) return
+                            view.evaluateJavascript(TokenLogin.createTokenJs("MobileGH")) { raw ->
+                                val token = raw?.trim('"')?.takeIf { it.startsWith("gh") && it.length > 20 }
+                                if (token != null && !got) {
+                                    got = true
+                                    view.evaluateJavascript(TokenLogin.SWEEP_JS, null)
+                                    onToken(token)
+                                }
+                            }
+                        }
+                    }
+                    web = this
+                    loadUrl(TokenLogin.URL)
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun WebLogin(userCode: String, verifyUrl: String, onClose: () -> Unit) {

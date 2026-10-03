@@ -18,10 +18,17 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -45,6 +52,7 @@ fun Context.downloadFile(rawUrl: String, filename: String? = null, isPrivate: Bo
 fun DownloadHost() {
     val g = Gh.c
     val ctx = rememberCtx()
+    var clearDialog by remember { mutableStateOf(false) }
     LifecycleStartEffect(Unit) {
         Downloads.setForeground(true)
         onStopOrDispose { Downloads.setForeground(false) }
@@ -69,7 +77,12 @@ fun DownloadHost() {
                         22.dp,
                     )
                     Spacer(Modifier.width(10.dp))
-                    Text(stateTitle, color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stateTitle, color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    if (selected.state == DownloadState.Complete) {
+                        IconButton({ Downloads.revealFolder(ctx, selected) }) {
+                            Oc(R.drawable.oc_file_directory, g.fgMuted, 20.dp)
+                        }
+                    }
                 }
             },
             text = {
@@ -83,8 +96,10 @@ fun DownloadHost() {
             },
             confirmButton = {
                 when {
+                    selected.state == DownloadState.Complete -> TextButton({
+                        if (selected.filename.endsWith(".apk", true)) Downloads.installApk(ctx, selected) else Downloads.open(ctx, selected)
+                    }) { Text(if (selected.filename.endsWith(".apk", true)) "安装更新" else "打开文件", color = g.accent) }
                     selected.active -> TextButton({ Downloads.selectedKey = null }) { Text("后台下载", color = g.accent) }
-                    selected.state == DownloadState.Complete -> TextButton({ Downloads.open(ctx, selected) }) { Text("打开文件", color = g.accent) }
                     else -> TextButton({ Downloads.retry(selected) }) { Text("重新下载", color = g.accent) }
                 }
             },
@@ -99,17 +114,68 @@ fun DownloadHost() {
             onDismissRequest = { Downloads.showHistory = false },
             containerColor = g.canvas,
             shape = RoundedCornerShape(12.dp),
-            title = { Text("下载记录", color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("下载记录", color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    if (Downloads.tasks.isNotEmpty()) {
+                        TextButton({ clearDialog = true }) { Text("清空", color = g.danger, fontSize = 13.sp) }
+                    }
+                }
+            },
             text = {
                 if (Downloads.tasks.isEmpty()) {
                     Text("还没有下载记录", color = g.fgMuted)
                 } else {
                     LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         items(Downloads.tasks, key = { it.key }) { task ->
-                            Column(Modifier.fillMaxWidth().clickable { Downloads.showHistory = false; Downloads.selectedKey = task.key }) {
-                                Text(task.filename, color = g.fg, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Spacer(Modifier.height(6.dp))
-                                DownloadProgress(task)
+                            var menu by remember { mutableStateOf(false) }
+                            Column(Modifier.fillMaxWidth()) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(
+                                        Modifier.weight(1f).clickable { Downloads.showHistory = false; Downloads.selectedKey = task.key },
+                                    ) {
+                                        Text(task.filename, color = g.fg, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        Spacer(Modifier.height(6.dp))
+                                        DownloadProgress(task)
+                                    }
+                                    Box {
+                                        IconButton({ menu = true }) { Oc(R.drawable.oc_kebab_horizontal, g.fgMuted, 18.dp) }
+                                        DropdownMenu(menu, { menu = false }, Modifier.background(g.canvas)) {
+                                            if (task.state == DownloadState.Complete) {
+                                                DropdownMenuItem(
+                                                    text = { Text("打开文件", fontSize = 14.sp, color = g.fg) },
+                                                    onClick = { menu = false; Downloads.open(ctx, task) },
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("打开所在文件夹", fontSize = 14.sp, color = g.fg) },
+                                                    onClick = { menu = false; Downloads.revealFolder(ctx, task) },
+                                                )
+                                                DropdownMenuItem(
+                                                    text = { Text("删除本地文件", fontSize = 14.sp, color = g.danger) },
+                                                    onClick = {
+                                                        menu = false
+                                                        if (Downloads.deleteFile(ctx, task)) ctx.toast("本地文件已删除") else ctx.toast("本地文件不存在或无法删除")
+                                                    },
+                                                )
+                                            }
+                                            if (task.active) {
+                                                DropdownMenuItem(
+                                                    text = { Text("取消下载", fontSize = 14.sp, color = g.danger) },
+                                                    onClick = { menu = false; Downloads.cancel(task) },
+                                                )
+                                            } else {
+                                                DropdownMenuItem(
+                                                    text = { Text("重新下载", fontSize = 14.sp, color = g.fg) },
+                                                    onClick = { menu = false; Downloads.retry(task) },
+                                                )
+                                            }
+                                            DropdownMenuItem(
+                                                text = { Text("从记录中移除", fontSize = 14.sp, color = g.fgMuted) },
+                                                onClick = { menu = false; Downloads.forget(ctx, task) },
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -117,6 +183,32 @@ fun DownloadHost() {
             },
             confirmButton = { TextButton({ Downloads.showHistory = false }) { Text("关闭", color = g.accent) } },
         )
+        if (clearDialog) {
+            AlertDialog(
+                onDismissRequest = { clearDialog = false },
+                containerColor = g.canvas,
+                shape = RoundedCornerShape(12.dp),
+                title = { Text("清空下载记录", color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) },
+                text = { Text("是否同时删除已下载到手机的文件？删除后无法恢复。", color = g.fgMuted, fontSize = 14.sp, lineHeight = 20.sp) },
+                confirmButton = {
+                    TextButton({
+                        clearDialog = false
+                        val (n, f) = Downloads.clearHistory(ctx, true)
+                        ctx.toast("已清空 $n 条记录，删除 $f 个文件")
+                    }) { Text("同时删除文件", color = g.danger) }
+                },
+                dismissButton = {
+                    Row {
+                        TextButton({
+                            clearDialog = false
+                            val (n, _) = Downloads.clearHistory(ctx, false)
+                            ctx.toast("已清空 $n 条记录，文件保留在「下载」文件夹")
+                        }) { Text("仅清空记录", color = g.fgMuted) }
+                        TextButton({ clearDialog = false }) { Text("取消", color = g.accent) }
+                    }
+                },
+            )
+        }
     } else if (Downloads.activeCount > 0) {
         Box(Modifier.fillMaxWidth().padding(end = 16.dp, bottom = 104.dp), contentAlignment = Alignment.BottomEnd) {
             Row(

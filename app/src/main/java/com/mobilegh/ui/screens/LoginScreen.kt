@@ -113,6 +113,7 @@ fun LoginScreen(adding: Boolean = false) {
     var device by remember { mutableStateOf<DeviceCode?>(null) }
     var job by remember { mutableStateOf<Job?>(null) }
     var showToken by rememberSaveable { mutableStateOf(!webLogin) }
+    var patLogin by remember { mutableStateOf(false) }
 
     fun signIn(t: String) {
         busy = true
@@ -198,11 +199,21 @@ fun LoginScreen(adding: Boolean = false) {
             Spacer(Modifier.height(32.dp))
 
             if (webLogin) {
-                GhButton("账号 + 两步验证登录", Modifier.fillMaxWidth(), primary = true, icon = R.drawable.oc_mark_github, enabled = !busy) { startDevice() }
+                GhButton("使用 GitHub 账号登录", Modifier.fillMaxWidth(), primary = true, icon = R.drawable.oc_mark_github, enabled = !busy) { patLogin = true }
                 Spacer(Modifier.height(8.dp))
-                Text("在 GitHub 官方页面输入账号密码。遇到两步验证时选择「验证器应用」，已保存的 TOTP 会自动填入。\n登录后自动授权 MobileGH 访问你的仓库、组织、通知、Gist 与 Actions", color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
+                Text(
+                    "在 GitHub 官方页面输入账号密码。遇到两步验证时选择「验证器应用」，已保存的 TOTP 会自动填入。\n" +
+                        "登录后自动创建一个 Classic Token，能看到你参与协作的仓库和所在组织的全部仓库。",
+                    color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(10.dp))
+                GhButton("改用 OAuth 授权登录", Modifier.fillMaxWidth(), icon = R.drawable.oc_shield_lock, enabled = !busy) { startDevice() }
                 Spacer(Modifier.height(6.dp))
-                Text("GitHub Mobile 的数字匹配由 GitHub 安全系统控制，第三方应用不能代替确认；使用验证器应用即可在本机完成两步验证。", color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)
+                Text(
+                    "OAuth 授权无法看到启用了「第三方应用访问限制」的组织（需要组织管理员批准）；" +
+                        "如果组织列表为空，用上面的账号登录方式即可。",
+                    color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center,
+                )
             }
             if (error != null) {
                 Spacer(Modifier.height(10.dp))
@@ -259,6 +270,15 @@ fun LoginScreen(adding: Boolean = false) {
     }
 
     device?.let { d -> WebLogin(d.user, d.uri, onClose = { stopDevice() }) }
+    if (patLogin) {
+        TokenWebLogin(
+            onClose = { patLogin = false },
+            onToken = { t ->
+                patLogin = false
+                signIn(t)
+            },
+        )
+    }
     }
 }
 

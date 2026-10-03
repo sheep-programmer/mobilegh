@@ -41,7 +41,9 @@ import com.mobilegh.ui.components.MoreMenu
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.copy
+import com.mobilegh.ui.components.openBrowser
 import com.mobilegh.ui.components.rememberCtx
+import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.theme.Gh
 
 /** 清掉内置浏览器里的 GitHub 登录态；默认登录会保留会话，只有用户主动切换网页账号时调用。 */
@@ -179,10 +181,19 @@ private const val chooseTotpMethodJs = """
  * 和官方 App 的可见范围一致。
  */
 object TokenLogin {
-    /** 新建 Token 页地址；scopes 已预选，登录后即可直接提交 */
-    const val URL =
-        "https://github.com/settings/tokens/new?description=MobileGH" +
-            "&scopes=repo,read:org,admin:org,notifications,user,gist,workflow,delete_repo,read:project"
+    /**
+     * 新建 Token 页地址。
+     *
+     * 只用最短形式：带一大串 `scopes=` 的查询串在部分链路上会被中断（ERR_CONNECTION_ABORTED），
+     * 描述与权限改由页面内的 JS 勾选，效果相同。
+     */
+    const val URL = "https://github.com/settings/tokens/new"
+
+    /** 需要勾选的权限 */
+    private val SCOPES = listOf(
+        "repo", "read:org", "admin:org", "notifications",
+        "user", "gist", "workflow", "delete_repo", "read:project",
+    )
 
     /**
      * 处理新建 Token 页；token 生成后返回 token 值（形如 ghp_xxx），否则返回空串。
@@ -193,7 +204,7 @@ object TokenLogin {
       if (window.__mghTok) return "";
       var path = location.pathname;
       // 1) 生成成功后跳到列表页，页面上会一次性展示新 token
-      var shown = document.querySelector('.new-token, #new-access-token, code.js-token-value, input.js-token-value');
+      var shown = document.querySelector('#new-oauth-token, .new-token, #new-access-token, code.js-token-value, input.js-token-value');
       var v = shown ? (shown.value || shown.textContent || '') : '';
       v = v.trim();
       if (/^gh[po]_[A-Za-z0-9]{20,}$/.test(v)) { window.__mghTok = 1; return v; }
@@ -210,17 +221,26 @@ object TokenLogin {
         note.dispatchEvent(new Event('input', {bubbles: true}));
         note.dispatchEvent(new Event('change', {bubbles: true}));
       }
-      // 权限已由 URL 的 scopes 预选，这里兜底勾选，避免个别页面预选失效
+      // 勾选所需权限：按 value 匹配，不依赖具体 name 前缀
+      var boxes = [].slice.call(form.querySelectorAll('input[type="checkbox"]'));
+      function pick(scope) {
+        return boxes.find(function(c){ return c.value === scope; });
+      }
+      var missing = [];
       ['repo','read:org','admin:org','notifications','user','gist','workflow','delete_repo','read:project']
         .forEach(function(s){
-          var cb = form.querySelector('input[name="oauth_access[scopes][]"][value="' + s + '"], input[name="scopes[]"][value="' + s + '"]');
-          if (cb && !cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change', {bubbles: true})); }
+          var cb = pick(s);
+          if (cb) { if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event('change', {bubbles: true})); } }
+          else missing.push(s);
         });
+      // 一个权限都没勾上就不要提交，否则会生成一个没有任何权限的废 Token
+      var anyChecked = boxes.some(function(c){ return c.checked; });
+      if (!anyChecked) return "";
       if (window.__mghSubmit) return "";
       var btn = form.querySelector('button[type="submit"], input[type="submit"]');
       if (!btn || btn.disabled) return "";
       window.__mghSubmit = 1;
-      setTimeout(function(){ btn.click(); }, 400);
+      setTimeout(function(){ btn.click(); }, 1500);
       return "";
     })('$desc')
     """
@@ -228,7 +248,7 @@ object TokenLogin {
     /** 读回 token 后立即从页面移除明文，避免停留在剪贴板/页面里 */
     const val SWEEP_JS = """
     (function(){
-      var el = document.querySelector('.new-token, #new-access-token, code.js-token-value');
+      var el = document.querySelector('#new-oauth-token, .new-token, #new-access-token, code.js-token-value');
       if (el) { el.textContent = ''; }
     })()
     """
@@ -324,8 +344,29 @@ fun TokenWebLogin(onClose: () -> Unit, onToken: (String) -> Unit) {
                                 }
                             }
                         }
+
+                        /**
+                         * 代理链路偶发中断（ERR_CONNECTION_ABORTED / RST）时自动重试，
+                         * 连续失败则让用户改用系统浏览器完成，避免卡死在这一页。
+                         */
+                        override fun onReceivedError(view: WebView, request: android.webkit.WebResourceRequest, error: android.webkit.WebResourceError) {
+                            if (!request.isForMainFrame) return
+                            loading = false
+                            if (retry < 2) {
+                                retry++
+                                view.postDelayed({ view.loadUrl(request.url.toString()) }, 1200L * retry)
+                                return
+                            }
+                            com.mobilegh.data.AppLog.warn("auth", "登录页加载失败：" + error.description + " " + request.url)
+                            ctx.toast("页面加载失败，已用系统浏览器打开")
+                            ctx.openBrowser(request.url.toString())
+                        }
+
+                        private var retry = 0
                     }
                     web = this
+                    // 直连 github.com，绕过全局代理设置里可能影响 WebView 的节点
+                    settings.userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Mobile Safari/537.36"
                     loadUrl(TokenLogin.URL)
                 }
             },

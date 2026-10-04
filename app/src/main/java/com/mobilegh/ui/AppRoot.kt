@@ -74,6 +74,7 @@ fun AppRoot(nav: Navigator) {
                 Main(nav)
             }
             Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.BottomEnd) { DownloadHost() }
+            com.mobilegh.ui.components.ImageViewerHost()
         }
     }
 }

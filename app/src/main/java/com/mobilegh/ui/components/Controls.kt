@@ -92,10 +92,10 @@ data class MenuAction(val text: String, val danger: Boolean = false, val onClick
 
 /** 右上角"更多"菜单 */
 @Composable
-fun MoreMenu(actions: List<MenuAction>) {
+fun MoreMenu(actions: List<MenuAction>, tint: Color = Gh.c.fg) {
     var open by remember { mutableStateOf(false) }
     val g = Gh.c
-    OcButton(R.drawable.oc_kebab_horizontal, { open = true })
+    OcButton(R.drawable.oc_kebab_horizontal, { open = true }, tint)
     DropdownMenu(open, { open = false }, containerColor = g.canvas) {
         actions.forEach { a ->
             DropdownMenuItem(

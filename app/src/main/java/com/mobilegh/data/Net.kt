@@ -155,6 +155,70 @@ object Net {
         return list
     }
 
+    // ---------------- 图片 ----------------
+
+    /** 本次运行中最近一次成功加载图片的节点；失败过的节点排到最后 */
+    @Volatile private var imageOkId: String? = null
+    private val imageFailed = Collections.synchronizedSet(HashSet<String>())
+
+    fun markImageOk(id: String) { imageOkId = id; imageFailed.remove(id) }
+    fun markImageFail(id: String) { imageFailed.add(id); if (imageOkId == id) imageOkId = null }
+
+    private fun isGithubImageHost(host: String) = host == "camo.githubusercontent.com" ||
+        host == "user-images.githubusercontent.com" || host == "private-user-images.githubusercontent.com" ||
+        host == "objects.githubusercontent.com"
+
+    /** 签名 URL 本身就是凭据，不能转发给公共镜像。 */
+    fun requiresDirectImage(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return true
+        if (uri.scheme != "https" || uri.host == "private-user-images.githubusercontent.com" ||
+            uri.host == "objects.githubusercontent.com") return true
+        val privateQuery = uri.rawQuery.orEmpty().split('&').any {
+            val key = runCatching { java.net.URLDecoder.decode(it.substringBefore('='), "UTF-8") }.getOrDefault("").lowercase()
+            key in setOf("jwt", "token", "access_token", "auth", "signature", "sig", "policy", "credential", "expires") ||
+                key.startsWith("x-amz-") || key.startsWith("x-goog-")
+        }
+        if (privateQuery) return true
+        val raw = parseRaw(url)
+        return raw != null && isPrivate(raw[0], raw[1])
+    }
+
+    /**
+     * 图片候选地址 (节点 id, 地址)。
+     *
+     * 只试一个加速节点 + 直连时，只要那个节点在当前网络不通（jsDelivr 在国内常被污染），图片就会裂开。
+     * 这里依次尝试所有加速节点：上次成功的 → 当前选中的 → 按测速快慢 → 未测速的 → 失败过的，最后直连。
+     */
+    fun imageCandidates(url: String): List<Pair<String, String>> {
+        if (mode == 2 || requiresDirectImage(url)) return listOf(DIRECT.id to url)
+        val raw = parseRaw(url)
+        val host = runCatching { URI(url).host }.getOrNull() ?: return listOf(DIRECT.id to url)
+        if (raw == null && !isGithubImageHost(host) &&
+            !(host == "github.com" && url.contains("/user-attachments/"))
+        ) return listOf(DIRECT.id to url)
+        if (raw != null && isPrivate(raw[0], raw[1])) return listOf(DIRECT.id to url)
+
+        val ordered = nodes.filter { it.type != NodeType.Direct }.sortedWith(
+            compareBy<CdnNode>(
+                { it.id in imageFailed },
+                { it.id != imageOkId },
+                { it.id != rawNode().id },
+                { latency[it.id]?.takeIf { l -> l >= 0 } ?: Long.MAX_VALUE },
+            ),
+        )
+        val list = ArrayList<Pair<String, String>>()
+        for (n in ordered) {
+            val u = if (raw != null) {
+                build(n, raw[0], raw[1], raw[2], raw.drop(3).joinToString("/"))?.let { candidate ->
+                    URI(url).rawQuery?.let { "$candidate?$it" } ?: candidate
+                }
+            } else if (n.type == NodeType.Prefix) n.base + url else null
+            if (u != null) list += n.id to u
+        }
+        list += DIRECT.id to url
+        return list.distinctBy { it.second }
+    }
+
     /** 源码文本：jsDelivr 会缓存分支内容，因此只使用实时转发的代理节点 */
     fun freshRawUrl(o: String, r: String, ref: String, encodedPath: String): String? {
         if (mode == 2 || isPrivate(o, r)) return null

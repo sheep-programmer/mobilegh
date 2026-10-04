@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +44,7 @@ import com.mobilegh.data.DownloadState
 import com.mobilegh.data.DownloadTask
 import com.mobilegh.data.Downloads
 import com.mobilegh.ui.theme.Gh
+import kotlinx.coroutines.launch
 
 /** 所有页面统一调用：点击资源后立即在应用内展示下载弹窗。 */
 fun Context.downloadFile(rawUrl: String, filename: String? = null, isPrivate: Boolean = false, mimeType: String? = null) {
@@ -52,6 +56,7 @@ fun Context.downloadFile(rawUrl: String, filename: String? = null, isPrivate: Bo
 fun DownloadHost() {
     val g = Gh.c
     val ctx = rememberCtx()
+    val scope = rememberCoroutineScope()
     var clearDialog by remember { mutableStateOf(false) }
     LifecycleStartEffect(Unit) {
         Downloads.setForeground(true)
@@ -154,7 +159,9 @@ fun DownloadHost() {
                                                     text = { Text("删除本地文件", fontSize = 14.sp, color = g.danger) },
                                                     onClick = {
                                                         menu = false
-                                                        if (Downloads.deleteFile(ctx, task)) ctx.toast("本地文件已删除") else ctx.toast("本地文件不存在或无法删除")
+                                                        scope.launch {
+                                                            if (Downloads.deleteFile(ctx, task)) ctx.toast("本地文件已删除") else ctx.toast("本地文件不存在或无法删除")
+                                                        }
                                                     },
                                                 )
                                             }
@@ -189,20 +196,24 @@ fun DownloadHost() {
                 containerColor = g.canvas,
                 shape = RoundedCornerShape(12.dp),
                 title = { Text("清空下载记录", color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) },
-                text = { Text("是否同时删除已下载到手机的文件？删除后无法恢复。", color = g.fgMuted, fontSize = 14.sp, lineHeight = 20.sp) },
+                text = { Text("是否同时删除已下载到手机的文件？删除后无法恢复。正在下载的任务会取消。", color = g.fgMuted, fontSize = 14.sp, lineHeight = 20.sp) },
                 confirmButton = {
                     TextButton({
                         clearDialog = false
-                        val (n, f) = Downloads.clearHistory(ctx, true)
-                        ctx.toast("已清空 $n 条记录，删除 $f 个文件")
+                        scope.launch {
+                            val (n, f) = Downloads.clearHistory(ctx, true)
+                            ctx.toast("已清空 $n 条记录，删除 $f 个文件")
+                        }
                     }) { Text("同时删除文件", color = g.danger) }
                 },
                 dismissButton = {
                     Row {
                         TextButton({
                             clearDialog = false
-                            val (n, _) = Downloads.clearHistory(ctx, false)
-                            ctx.toast("已清空 $n 条记录，文件保留在「下载」文件夹")
+                            scope.launch {
+                                val (n, _) = Downloads.clearHistory(ctx, false)
+                                ctx.toast("已清空 $n 条记录，文件保留在「下载」文件夹")
+                            }
                         }) { Text("仅清空记录", color = g.fgMuted) }
                         TextButton({ clearDialog = false }) { Text("取消", color = g.accent) }
                     }
@@ -265,4 +276,78 @@ private fun DownloadProgress(task: DownloadTask) {
         Spacer(Modifier.height(8.dp))
         Text(it, fontSize = 12.sp, lineHeight = 18.sp, color = color)
     }
+}
+
+/** 下载前查看的文件信息 */
+data class FileInfo(
+    val name: String,
+    val url: String,
+    val isPrivate: Boolean,
+    val details: List<Pair<String, String>>,
+    val mimeType: String? = null,
+)
+
+/**
+ * 点资源先弹出详情：完整文件名（可选中复制）、大小、类型、下载次数、时间等，
+ * 用户确认后才开始下载；已经下载过且文件还在时可直接打开。
+ */
+@Composable
+fun FileInfoDialog(info: FileInfo, onDismiss: () -> Unit) {
+    val g = Gh.c
+    val ctx = rememberCtx()
+    val done = Downloads.tasks.firstOrNull { it.url == info.url && it.state == DownloadState.Complete && Downloads.fileExists(it) }
+    val running = Downloads.tasks.firstOrNull { it.url == info.url && it.active }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = g.canvas,
+        shape = RoundedCornerShape(12.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Oc(R.drawable.oc_package, g.fgMuted, 20.dp)
+                Spacer(Modifier.width(8.dp))
+                Text("文件信息", color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        text = {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(info.name, color = g.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, lineHeight = 21.sp)
+                }
+                Spacer(Modifier.height(14.dp))
+                info.details.filter { it.second.isNotBlank() }.forEach { (k, v) ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        Text(k, color = g.fgMuted, fontSize = 13.sp, modifier = Modifier.width(76.dp))
+                        androidx.compose.foundation.text.selection.SelectionContainer(Modifier.weight(1f)) {
+                            Text(v, color = g.fg, fontSize = 13.sp, lineHeight = 19.sp)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton({ ctx.copy(info.name, "文件名已复制") }) { Text("复制文件名", color = g.accent, fontSize = 13.sp) }
+                    TextButton({ ctx.copy(info.url, "链接已复制") }) { Text("复制链接", color = g.accent, fontSize = 13.sp) }
+                }
+                when {
+                    running != null -> Text("正在下载中…", color = g.accent, fontSize = 12.sp)
+                    done != null -> Text("已下载过，文件在手机「下载」文件夹", color = g.success, fontSize = 12.sp)
+                }
+            }
+        },
+        confirmButton = {
+            when {
+                running != null -> TextButton({ onDismiss(); Downloads.selectedKey = running.key }) { Text("查看进度", color = g.accent) }
+                done != null -> Row {
+                    TextButton({ onDismiss(); Downloads.start(info.url, info.name, info.isPrivate, info.mimeType) }) { Text("重新下载", color = g.fgMuted) }
+                    TextButton({
+                        onDismiss()
+                        if (done.filename.endsWith(".apk", true)) Downloads.installApk(ctx, done) else Downloads.open(ctx, done)
+                    }) { Text("打开", color = g.accent) }
+                }
+                else -> TextButton({ onDismiss(); Downloads.start(info.url, info.name, info.isPrivate, info.mimeType) }) {
+                    Text("下载", color = g.accent, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        },
+        dismissButton = { TextButton(onDismiss) { Text("取消", color = g.fgMuted) } },
+    )
 }

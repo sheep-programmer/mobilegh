@@ -112,7 +112,7 @@ fun LoginScreen(adding: Boolean = false) {
     var error by remember { mutableStateOf<String?>(null) }
     var device by remember { mutableStateOf<DeviceCode?>(null) }
     var job by remember { mutableStateOf<Job?>(null) }
-    var showToken by rememberSaveable { mutableStateOf(!webLogin) }
+    var showOther by rememberSaveable { mutableStateOf(false) }
     var patLogin by remember { mutableStateOf(false) }
 
     fun signIn(t: String) {
@@ -198,26 +198,27 @@ fun LoginScreen(adding: Boolean = false) {
             Text("轻量、完整的第三方 GitHub 客户端", color = g.fgMuted, fontSize = 14.sp)
             Spacer(Modifier.height(32.dp))
 
-            if (webLogin) {
-                GhButton("使用 GitHub 账号登录", Modifier.fillMaxWidth(), primary = true, icon = R.drawable.oc_mark_github, enabled = !busy) { patLogin = true }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "在 GitHub 官方页面输入账号密码。遇到两步验证时选择「验证器应用」，已保存的 TOTP 会自动填入。\n" +
-                        "登录后自动创建一个 Classic Token，能看到你参与协作的仓库和所在组织的全部仓库。",
-                    color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(10.dp))
-                GhButton("改用 OAuth 授权登录", Modifier.fillMaxWidth(), icon = R.drawable.oc_shield_lock, enabled = !busy) { startDevice() }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "OAuth 授权无法看到启用了「第三方应用访问限制」的组织（需要组织管理员批准）；" +
-                        "如果组织列表为空，用上面的账号登录方式即可。",
-                    color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center,
-                )
-            }
+            // 默认登录方式：粘贴 Classic Token。只走 API，不依赖 github.com 网页能否打开
+            GhField(
+                token, { token = it }, "Personal Access Token",
+                placeholder = "ghp_xxx 或 github_pat_xxx",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
+                trailing = { OcButton(if (show) R.drawable.oc_eye else R.drawable.oc_lock, { show = !show }, g.fgMuted) },
+            )
+            Spacer(Modifier.height(12.dp))
+            GhButton("使用 Token 登录", Modifier.fillMaxWidth(), primary = true, icon = R.drawable.oc_key, enabled = token.isNotBlank() && !busy) { signIn(token) }
+            Spacer(Modifier.height(10.dp))
+            GhButton("在 GitHub 生成 Token（已预选权限）", Modifier.fillMaxWidth(), icon = R.drawable.oc_link_external) { ctx.openBrowser(TOKEN_URL) }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "推荐使用 Classic Token 查看多个组织和参与协作的仓库。组织策略、SSO 和 Token 权限仍会影响可访问的范围。",
+                color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center,
+            )
+
             if (error != null) {
                 Spacer(Modifier.height(10.dp))
-                Text(error!!, color = g.danger, fontSize = 13.sp, modifier = Modifier.fillMaxWidth(), textAlign = if (showToken) TextAlign.Start else TextAlign.Center)
+                Text(error!!, color = g.danger, fontSize = 13.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
             }
             if (busy && device == null) {
                 Spacer(Modifier.height(16.dp))
@@ -229,41 +230,44 @@ fun LoginScreen(adding: Boolean = false) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f).height(1.dp).background(g.border))
                     Text(
-                        if (showToken) "使用 Token 登录" else "使用 Token 登录 ▾", color = g.accent, fontSize = 13.sp,
-                        modifier = Modifier.clickable { showToken = !showToken }.padding(horizontal = 12.dp, vertical = 4.dp),
+                        if (showOther) "其他登录方式" else "其他登录方式 ▾", color = g.accent, fontSize = 13.sp,
+                        modifier = Modifier.clickable { showOther = !showOther }.padding(horizontal = 12.dp, vertical = 4.dp),
                     )
                     Box(Modifier.weight(1f).height(1.dp).background(g.border))
                 }
-                Spacer(Modifier.height(16.dp))
-            }
-            if (showToken) {
-                GhField(
-                    token, { token = it }, "Personal Access Token",
-                    placeholder = "ghp_xxx 或 github_pat_xxx",
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
-                    visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailing = { OcButton(if (show) R.drawable.oc_eye else R.drawable.oc_lock, { show = !show }, g.fgMuted) },
-                )
-                Spacer(Modifier.height(16.dp))
-                GhButton("使用 Token 登录", Modifier.fillMaxWidth(), primary = !webLogin, enabled = token.isNotBlank() && !busy) { signIn(token) }
-                Spacer(Modifier.height(10.dp))
-                GhButton("在 GitHub 生成 Token（已预选权限）", Modifier.fillMaxWidth(), icon = R.drawable.oc_link_external) { ctx.openBrowser(TOKEN_URL) }
+                if (showOther) {
+                    Spacer(Modifier.height(16.dp))
+                    GhButton("使用 GitHub 账号登录", Modifier.fillMaxWidth(), icon = R.drawable.oc_mark_github, enabled = !busy) { patLogin = true }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "在 GitHub 网页输入账号密码，登录后自动创建 Classic Token。需要手机能直接打开 github.com。",
+                        color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    GhButton("OAuth 授权登录", Modifier.fillMaxWidth(), icon = R.drawable.oc_shield_lock, enabled = !busy) { startDevice() }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "组织启用第三方应用访问限制时，OAuth 需要组织管理员批准后才能访问。",
+                        color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center,
+                    )
+                }
             }
 
             Spacer(Modifier.height(28.dp))
-            if (showToken) Column(
+            Column(
                 Modifier.fillMaxWidth().border(1.dp, g.border, RoundedCornerShape(8.dp)).background(g.canvasSubtle, RoundedCornerShape(8.dp)).padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Oc(R.drawable.oc_light_bulb, g.attention)
                     Spacer(Modifier.width(6.dp))
-                    Text("关于 Token", fontWeight = FontWeight.SemiBold, color = g.fg, fontSize = 14.sp)
+                    Text("如何获取 Token", fontWeight = FontWeight.SemiBold, color = g.fg, fontSize = 14.sp)
                 }
-                Tip("推荐使用 Classic Token：可以访问你参与协作的仓库和所在组织的全部仓库。")
-                Tip("Fine-grained Token 只能访问单个所有者的资源，会看不到别人邀请你协作的仓库。")
-                Tip("所需权限：repo、read:org、notifications、user、gist、workflow；删除仓库需要 delete_repo。")
-                Tip("Token 只保存在本机，用 Android Keystore 加密存储，只会发送给 api.github.com。")
+                Tip("点「在 GitHub 生成 Token」，权限已预选好，拉到底点 Generate token，复制 ghp_ 开头的字符串粘贴到上面。")
+                Tip("有效期由 Expiration 决定；组织允许时可以选择「No expiration」。到期、撤销或组织策略变更后需要重新登录。")
+                Tip("请选 Classic Token；Fine-grained Token 只能访问单个所有者，看不到别人邀请你协作的仓库。")
+                Tip("查看组织需要 read:org；私有仓库需要 repo。有 SSO 的组织还需在 Token 设置中点 Configure SSO 授权。")
+                Tip("Token 用 Android Keystore 加密保存在本机，公共图片和下载镜像不会收到 Token。")
             }
             Spacer(Modifier.height(32.dp))
         }

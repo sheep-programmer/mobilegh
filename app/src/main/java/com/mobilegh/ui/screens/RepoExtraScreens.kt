@@ -71,7 +71,9 @@ import com.mobilegh.ui.components.fmtCount
 import com.mobilegh.ui.components.fmtDate
 import com.mobilegh.ui.components.fmtSize
 import com.mobilegh.ui.components.openBrowser
-import com.mobilegh.ui.components.downloadFile
+import com.mobilegh.ui.components.FileInfo
+import com.mobilegh.ui.components.FileInfoDialog
+import com.mobilegh.ui.components.fmtDateTime
 import com.mobilegh.ui.components.relTime
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.toast
@@ -96,7 +98,8 @@ fun ReleasesScreen(owner: String, name: String) {
 private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean, expanded: Boolean, onToggle: () -> Unit) {
     val priv = com.mobilegh.data.Net.isPrivateRepo("$owner/$name")
     val g = Gh.c
-    val ctx = rememberCtx()
+    var info by remember { mutableStateOf<FileInfo?>(null) }
+    info?.let { FileInfoDialog(it) { info = null } }
     Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
         Column(Modifier.padding(vertical = 12.dp)) {
             Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -135,7 +138,25 @@ private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean,
                 Text("资源 (${r.assets.size + 2})", Modifier.padding(horizontal = 12.dp), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
                 r.assets.forEach { a ->
                     Row(
-                        Modifier.fillMaxWidth().clickable { ctx.downloadFile(a.browserDownloadUrl, a.name, priv) }.padding(horizontal = 12.dp, vertical = 8.dp),
+                        Modifier.fillMaxWidth().clickable {
+                            info = FileInfo(
+                                name = a.name,
+                                url = a.browserDownloadUrl,
+                                isPrivate = priv,
+                                mimeType = a.contentType,
+                                details = listOf(
+                                    "说明" to (a.label ?: ""),
+                                    "大小" to "${fmtSize(a.size)}（${"%,d".format(a.size)} 字节）",
+                                    "类型" to (a.contentType ?: ""),
+                                    "下载次数" to "${a.downloadCount} 次",
+                                    "上传者" to (a.uploader?.login ?: ""),
+                                    "上传时间" to fmtDateTime(a.createdAt),
+                                    "更新时间" to fmtDateTime(a.updatedAt),
+                                    "版本" to "${r.name?.takeIf { it.isNotBlank() } ?: r.tagName}（${r.tagName}）",
+                                    "校验值" to (a.digest ?: ""),
+                                ),
+                            )
+                        }.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Oc(R.drawable.oc_package, g.fgMuted)
@@ -147,7 +168,19 @@ private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean,
                 val repoPath = r.htmlUrl.substringBefore("/releases/")
                 listOf("zip", "tar.gz").forEach { ext ->
                     Row(
-                        Modifier.fillMaxWidth().clickable { ctx.downloadFile("$repoPath/archive/refs/tags/${r.tagName}.$ext", "$name-${r.tagName}.$ext", priv) }.padding(horizontal = 12.dp, vertical = 8.dp),
+                        Modifier.fillMaxWidth().clickable {
+                            info = FileInfo(
+                                name = "$name-${r.tagName}.$ext",
+                                url = "$repoPath/archive/refs/tags/${r.tagName}.$ext",
+                                isPrivate = priv,
+                                details = listOf(
+                                    "内容" to "标签 ${r.tagName} 的完整源代码（$ext 压缩包）",
+                                    "仓库" to "$owner/$name",
+                                    "发布时间" to fmtDateTime(r.publishedAt ?: r.createdAt),
+                                    "大小" to "下载时由 GitHub 实时打包，大小未知",
+                                ),
+                            )
+                        }.padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Oc(R.drawable.oc_file_directory, g.fgMuted)

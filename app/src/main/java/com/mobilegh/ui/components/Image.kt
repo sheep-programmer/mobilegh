@@ -30,13 +30,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.mobilegh.data.Api
-import com.mobilegh.data.Net
-import com.mobilegh.data.await
+import com.mobilegh.data.ImageFetch
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.Request
 
 /** 极简图片加载器：内存 LRU + OkHttp 磁盘缓存 + 采样解码。替代 Coil/Glide 以保持轻量。 */
 object Images {
@@ -44,38 +41,29 @@ object Images {
         override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4 / 1024
     }
 
-    fun cached(url: String): ImageBitmap? = mem.get(url)
+    fun cached(url: String): ImageBitmap? = if (ImageFetch.cached(url) != null) mem.get(ImageFetch.cacheKey(url)) else null
 
     suspend fun load(url: String, maxDim: Int = 2048): ImageBitmap? {
-        mem.get(url)?.let { return it }
-        for (u in Net.rawCandidates(url)) {
-            fetch(u, maxDim)?.let { mem.put(url, it); return it }
+        cached(url)?.let { return it }
+        val key = ImageFetch.cacheKey(url)
+        return withContext(Dispatchers.IO) {
+            val r = ImageFetch.fetch(url) ?: return@withContext null
+            decode(r.bytes, maxDim)?.also { if (key == ImageFetch.cacheKey(url)) mem.put(key, it) }
         }
-        return null
     }
 
-    private suspend fun fetch(url: String, maxDim: Int): ImageBitmap? {
-        return try {
-            val resp = Api.http.newCall(Request.Builder().url(url).build()).await()
-            withContext(Dispatchers.IO) {
-                resp.use {
-                    if (!it.isSuccessful) return@withContext null
-                    val bytes = it.body.bytes()
-                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                    var sample = 1
-                    while (bounds.outWidth / sample > maxDim || bounds.outHeight / sample > maxDim) sample *= 2
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
-                        ?.asImageBitmap()
-                }
-            }
-        } catch (e: Exception) {
-            null
-        } catch (e: OutOfMemoryError) {
-            // 大图解码失败时清理图片缓存，避免一次 OOM 直接杀掉整个客户端。
-            mem.evictAll()
-            null
-        }
+    /** 采样解码，避免大图直接撑爆内存 */
+    fun decode(bytes: ByteArray, maxDim: Int): ImageBitmap? = try {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (bounds.outWidth / sample > maxDim || bounds.outHeight / sample > maxDim) sample *= 2
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+            ?.asImageBitmap()
+    } catch (e: OutOfMemoryError) {
+        // 大图解码失败时清理图片缓存，避免一次 OOM 直接杀掉整个客户端。
+        mem.evictAll()
+        null
     }
 }
 
@@ -119,9 +107,13 @@ fun ZoomImage(url: String, modifier: Modifier = Modifier) {
     Box(
         modifier
             .pointerInput(Unit) {
-                detectTapGestures(onDoubleTap = {
-                    if (scale > 1f) { scale = 1f; offset = Offset.Zero } else scale = 2.5f
-                })
+                detectTapGestures(
+                    // 单击进入全屏查看器（可保存、分享）
+                    onTap = { ImageViewer.open(url) },
+                    onDoubleTap = {
+                        if (scale > 1f) { scale = 1f; offset = Offset.Zero } else scale = 2.5f
+                    },
+                )
             }
             .transformable(state),
     ) {

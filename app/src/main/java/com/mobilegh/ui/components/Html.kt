@@ -18,16 +18,15 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.mobilegh.data.Api
 import com.mobilegh.data.AppLog
-import com.mobilegh.data.Net
+import com.mobilegh.data.ImageFetch
 import com.mobilegh.nav.Links
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Navigator
 import com.mobilegh.ui.theme.Gh
-import okhttp3.Request
 
 /**
  * 渲染 GitHub 返回的 HTML（README、Issue、Release 等），使用 GitHub 的 markdown 样式。
@@ -43,6 +42,9 @@ fun HtmlView(
 ) {
     val nav = LocalNav.current
     val dark = Gh.c.dark
+    // Compose 的约束以物理像素编码，不能只限制 dp，否则高密度屏仍可能超限。
+    val maxHeight = minOf(12000, (28000 / LocalDensity.current.density).toInt())
+    val heightLimit by rememberUpdatedState(maxHeight)
     var height by remember { mutableIntStateOf(0) }
     val anchor by rememberUpdatedState(onAnchor)
     val doc = remember(html, dark) { wrapHtml(html, dark) }
@@ -80,23 +82,28 @@ fun HtmlView(
                     fun h(v: Int) = post {
                         // JS 返回的是内容像素；异常页面/循环图片可能回报几十万像素，
                         // 直接换算成 dp 会触发 Compose Constraints 崩溃。
-                        if (v > 12000) AppLog.warn("webview", "HTML 高度异常：" + v + "px，已限制")
-                        height = v.coerceIn(24, 12000)
+                        if (v > heightLimit) AppLog.warn("webview", "HTML 高度异常：" + v + "px，已限制")
+                        height = v.coerceIn(24, heightLimit)
                     }
 
                     @JavascriptInterface
                     fun a(y: Int) = post { anchor?.invoke(y) }
+
+                    /** 点击网页里的图片：打开全屏查看器 */
+                    @JavascriptInterface
+                    fun img(src: String, alt: String) = post { ImageViewer.open(src, alt) }
                 }, "Bridge")
                 webViewClient = GhWebClient(c, nav)
             }
         },
         update = { wv ->
-            if (wv.tag != doc) {
-                wv.tag = doc
+            val contentKey = doc to baseUrl
+            if (wv.tag != contentKey) {
+                wv.tag = contentKey
                 wv.loadDataWithBaseURL(baseUrl, doc, "text/html", "utf-8", null)
             }
         },
-        modifier = modifier.fillMaxWidth().height(height.coerceIn(24, 12000).dp),
+        modifier = modifier.fillMaxWidth().height(height.coerceIn(24, maxHeight).dp),
     )
 }
 
@@ -115,41 +122,22 @@ class GhWebClient(private val ctx: Context, private val nav: Navigator) : WebVie
         return true
     }
 
-    /** 把相对路径的仓库图片改走 raw.githubusercontent.com 并附带 Token，私有仓库的图片也能显示 */
+    /**
+     * 接管网页里的图片请求：仓库内图片转成 raw 地址，按节点依次尝试加速，
+     * 并校验返回的确实是图片；私有仓库的图片直连并带 Token。
+     */
     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
-        if (request.isForMainFrame) return null
-        val u = request.url
-        val segs = u.pathSegments ?: return null
-        val target = when {
-            u.host == "raw.githubusercontent.com" -> u.toString()
-            u.host == "github.com" && segs.size >= 5 && (segs[2] == "blob" || segs[2] == "raw") ->
-                "https://raw.githubusercontent.com/${segs[0]}/${segs[1]}/${segs.drop(3).joinToString("/")}"
-            else -> return null
-        }
-        // 公开内容优先走加速节点，最后回退直连（直连时才会附带 Token）
-        for (url in Net.rawCandidates(target)) {
-            try {
-                val resp = Api.http.newCall(Request.Builder().url(url).build()).execute()
-                if (resp.isSuccessful) {
-                    return WebResourceResponse(mimeOf(target) ?: resp.header("Content-Type")?.substringBefore(';'), null, resp.body.byteStream())
-                }
-                resp.close()
-            } catch (e: Exception) {
-                // 尝试下一个
-            }
-        }
-        return null
-    }
-
-    private fun mimeOf(url: String): String? = when (url.substringBefore('?').substringAfterLast('.').lowercase()) {
-        "png" -> "image/png"
-        "jpg", "jpeg" -> "image/jpeg"
-        "gif" -> "image/gif"
-        "svg" -> "image/svg+xml"
-        "webp" -> "image/webp"
-        "avif" -> "image/avif"
-        "mp4" -> "video/mp4"
-        else -> null
+        if (request.isForMainFrame || request.method != "GET") return null
+        val url = request.url.toString()
+        val target = ImageFetch.normalize(url)
+        val host = request.url.host ?: return null
+        val handled = target.startsWith("https://raw.githubusercontent.com/") ||
+            (host == "githubusercontent.com" || host.endsWith(".githubusercontent.com")) ||
+            (host == "github.com" && url.contains("/user-attachments/"))
+        if (!handled) return null
+        val r = ImageFetch.fetch(target)
+            ?: return WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), java.io.ByteArrayInputStream(ByteArray(0)))
+        return WebResourceResponse(r.mime ?: ImageFetch.mimeOf(target, r.bytes), null, java.io.ByteArrayInputStream(r.bytes))
     }
 }
 
@@ -165,7 +153,18 @@ fun wrapHtml(body: String, dark: Boolean): String = """
   var c=document.getElementById('c');
   function r(){Bridge.h(Math.ceil(c.getBoundingClientRect().height)+2);}
   new ResizeObserver(r).observe(c); r();
+  var IMG=/\.(png|jpe?g|gif|webp|svg|avif|bmp)([?#]|$)/i;
   document.addEventListener('click',function(e){
+    var img=e.target.closest('img');
+    if(img&&!img.closest('.tl-head')){
+      var la=img.closest('a'), lh=la?(la.getAttribute('href')||''):'';
+      // 图片本身或链接指向图片文件时打开查看器；徽章等链接到别处的图片照常跳转
+      if(!la||IMG.test(lh)||la.href===img.src||/\/(blob|raw)\//.test(lh)&&IMG.test(lh)){
+        e.preventDefault(); e.stopPropagation();
+        try{Bridge.img(img.currentSrc||img.src, img.getAttribute('alt')||'');}catch(x){}
+        return;
+      }
+    }
     var a=e.target.closest('a'); if(!a) return;
     var h=a.getAttribute('href')||'';
     if(h.charAt(0)==='#'){

@@ -5,6 +5,7 @@ local.properties
 *.iml
 .DS_Store
 captures/
+/dist/
 .kotlin/
 
 # 发布签名密钥，绝不入库

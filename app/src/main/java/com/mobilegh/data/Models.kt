@@ -272,10 +272,15 @@ data class Content(
 data class Asset(
     val id: Long = 0,
     val name: String = "",
+    val label: String? = null,
     val size: Long = 0,
     val downloadCount: Int = 0,
     val browserDownloadUrl: String = "",
     val contentType: String? = null,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+    val uploader: User? = null,
+    val digest: String? = null,
 )
 
 @Serializable

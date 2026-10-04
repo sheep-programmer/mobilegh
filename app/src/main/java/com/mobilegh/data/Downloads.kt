@@ -105,12 +105,13 @@ object Downloads {
         tasks.filter { !it.active }.drop(20).forEach { tasks.remove(it) }
         selectedKey = task.key
         showHistory = false
-        AppLog.info("download", "开始下载：" + task.filename + "（" + if (isPrivate) "private" else "public" + "）")
+        AppLog.info("download", "开始下载：" + task.filename + "（" + (if (isPrivate) "private" else "public") + "）")
         save()
         scope.launch {
             try {
                 val queued = withContext(Dispatchers.IO) { enqueue(task, Session.token) }
-                if (tasks.firstOrNull { it.key == task.key }?.state == DownloadState.Cancelled) {
+                val current = tasks.firstOrNull { it.key == task.key }
+                if (current == null || current.state == DownloadState.Cancelled) {
                     withContext(Dispatchers.IO) { queued.managerId?.let { manager.remove(it) } }
                 } else {
                     update(queued)
@@ -389,66 +390,63 @@ object Downloads {
     }
 
     /** 删除本地文件（可选择只删文件、保留记录） */
-    fun deleteFile(ctx: Context, task: DownloadTask): Boolean {
+    suspend fun deleteFile(ctx: Context, task: DownloadTask): Boolean {
+        val ok = withContext(Dispatchers.IO) { deleteFileQuiet(ctx, task) }
+        if (ok) {
+            task.managerId?.let { id -> withContext(Dispatchers.IO) { runCatching { manager.remove(id) } } }
+            tasks.firstOrNull { it.key == task.key }?.let { current ->
+                update(current.copy(managerId = null, filePath = null, state = DownloadState.Cancelled, message = "本地文件已删除"))
+                save()
+            }
+        }
+        return ok
+    }
+
+    /** 从下载记录中移除（不删除已完成的本地文件） */
+    fun forget(ctx: Context, task: DownloadTask) {
+        tasks.removeAll { it.key == task.key }
+        if (selectedKey == task.key) selectedKey = null
+        save()
+        task.managerId?.takeIf { task.active }?.let { id ->
+            scope.launch { withContext(Dispatchers.IO) { runCatching { manager.remove(id) } } }
+        }
+    }
+
+    /** 清空下载历史；先移除任务，再在后台删除文件，避免查询/删除阻塞界面。 */
+    suspend fun clearHistory(ctx: Context, withFiles: Boolean): Pair<Int, Int> {
+        val snapshot = tasks.toList()
+        tasks.clear()
+        selectedKey = null
+        showHistory = false
+        save()
+        val files = withContext(Dispatchers.IO) {
+            var deleted = 0
+            snapshot.forEach { task ->
+                if (withFiles && deleteFileQuiet(ctx, task)) deleted++
+                task.managerId?.takeIf { task.active || withFiles }?.let { id -> runCatching { manager.remove(id) } }
+            }
+            deleted
+        }
+        AppLog.info("download", "清空下载记录 ${snapshot.size} 条" + if (withFiles) "，同时删除 $files 个本地文件" else "，保留已下载文件")
+        return snapshot.size to files
+    }
+
+    /** 删除本地文件但不改动记录状态（用于后台删除/清空历史） */
+    private fun deleteFileQuiet(ctx: Context, task: DownloadTask): Boolean {
         val file = task.filePath?.let { File(it) }?.takeIf { it.isFile }
-        var ok = file != null && runCatching { file!!.delete() }.getOrDefault(false)
+        var ok = file != null && runCatching { file.delete() }.getOrDefault(false)
         if (!ok && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             // 分区存储下 File 删除会失败，改用 MediaStore 删除自己创建的文件（无需额外权限）
             ok = mediaStoreUri(ctx, task.filename)?.let { uri ->
                 runCatching { ctx.contentResolver.delete(uri, null, null) > 0 }.getOrDefault(false)
             } ?: false
         }
-        if (ok) {
-            task.managerId?.let { id -> runCatching { manager.remove(id) } }
-            update(task.copy(managerId = null, filePath = null, state = DownloadState.Cancelled, message = "本地文件已删除"))
-            save()
-        }
         return ok
-    }
-
-    /** 从下载记录中移除（不删除本地文件） */
-    fun forget(ctx: Context, task: DownloadTask) {
-        task.managerId?.takeIf { task.active }?.let { id -> runCatching { manager.remove(id) } }
-        tasks.removeAll { it.key == task.key }
-        if (selectedKey == task.key) selectedKey = null
-        save()
-    }
-
-    /** 清空下载历史；withFiles = true 时同时删除已下载的本地文件 */
-    fun clearHistory(ctx: Context, withFiles: Boolean): Pair<Int, Int> {
-        var files = 0
-        if (withFiles) {
-            tasks.forEach { task ->
-                if (deleteFileQuiet(ctx, task)) files++
-                task.managerId?.takeIf { task.active }?.let { id -> runCatching { manager.remove(id) } }
-            }
-        } else {
-            tasks.filter { it.active }.forEach { task -> task.managerId?.let { id -> runCatching { manager.remove(id) } } }
-        }
-        val count = tasks.size
-        tasks.clear()
-        selectedKey = null
-        showHistory = false
-        save()
-        AppLog.info("download", "清空下载记录 $count 条" + if (withFiles) "，同时删除 $files 个本地文件" else "")
-        return count to files
-    }
-
-    /** 删除本地文件但不改动记录状态（用于清空历史） */
-    private fun deleteFileQuiet(ctx: Context, task: DownloadTask): Boolean {
-        val f = task.filePath?.let { File(it) }
-        if (f != null && f.isFile && runCatching { f.delete() }.getOrDefault(false)) return true
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            return mediaStoreUri(ctx, task.filename)?.let { uri ->
-                runCatching { ctx.contentResolver.delete(uri, null, null) > 0 }.getOrDefault(false)
-            } ?: false
-        }
-        return false
     }
 
     fun fileExists(task: DownloadTask): Boolean = task.filePath?.let { File(it).isFile } == true
 
-    fun deleteAllFiles(ctx: Context): Int = clearHistory(ctx, true).second
+    suspend fun deleteAllFiles(ctx: Context): Int = clearHistory(ctx, true).second
 
     private fun authority(ctx: Context) = ctx.packageName + ".fileprovider"
 

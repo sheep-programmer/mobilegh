@@ -9,6 +9,8 @@ import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,7 +26,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -32,10 +36,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.mobilegh.R
+import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MoreMenu
 import com.mobilegh.ui.components.Oc
@@ -272,6 +278,16 @@ fun TokenWebLogin(onClose: () -> Unit, onToken: (String) -> Unit) {
     var title by remember { mutableStateOf("github.com") }
     var web by remember { mutableStateOf<WebView?>(null) }
     var got by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) }
+    var everLoaded by remember { mutableStateOf(false) }
+    var attempt by remember { mutableIntStateOf(0) }
+
+    // 连接被拦截时常常是「挂起不报错」，靠超时兜底：15 秒还没出现页面就判定打不开
+    LaunchedEffect(attempt) {
+        failed = false
+        kotlinx.coroutines.delay(15000)
+        if (!everLoaded) failed = true
+    }
 
     BackHandler {
         val w = web
@@ -311,67 +327,95 @@ fun TokenWebLogin(onClose: () -> Unit, onToken: (String) -> Unit) {
                 color = g.fgMuted, fontSize = 12.sp, maxLines = 3,
             )
         }
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = g.accent, trackColor = g.canvas)
+        if (loading && !failed) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = g.accent, trackColor = g.canvas)
         else Spacer(Modifier.height(2.dp))
-        AndroidView(
-            factory = { c ->
-                WebView(c).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.allowFileAccess = false
-                    settings.allowContentAccess = false
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-                            loading = true
-                            title = android.net.Uri.parse(url).host ?: url
-                        }
+        Box(Modifier.fillMaxSize()) {
+            AndroidView(
+                factory = { c ->
+                    WebView(c).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.allowFileAccess = false
+                        settings.allowContentAccess = false
+                        webViewClient = object : WebViewClient() {
+                            // 本次导航是否出错：WebView 加载失败时仍会回调 onPageFinished（展示自带错误页），
+                            // 且该 url 的 host 还是 github.com，必须用这个标志区分真加载和错误页
+                            private var navError = false
 
-                        override fun onPageFinished(view: WebView, url: String) {
-                            loading = false
-                            if (android.net.Uri.parse(url).host != "github.com") return
-                            // 登录页 / 两步验证页：复用设备授权流程的验证器自动填码逻辑
-                            view.postDelayed({
-                                view.evaluateJavascript(chooseTotpMethodJs, null)
-                                view.postDelayed({ autofillTotp(view) }, 450)
-                            }, 250)
-                            if (got) return
-                            view.evaluateJavascript(TokenLogin.createTokenJs("MobileGH")) { raw ->
-                                val token = raw?.trim('"')?.takeIf { it.startsWith("gh") && it.length > 20 }
-                                if (token != null && !got) {
-                                    got = true
-                                    view.evaluateJavascript(TokenLogin.SWEEP_JS, null)
-                                    onToken(token)
+                            override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                                loading = true
+                                navError = false
+                                title = android.net.Uri.parse(url).host ?: url
+                            }
+
+                            override fun onPageFinished(view: WebView, url: String) {
+                                loading = false
+                                if (navError || android.net.Uri.parse(url).host != "github.com") return
+                                everLoaded = true
+                                failed = false
+                                // 登录页 / 两步验证页：复用设备授权流程的验证器自动填码逻辑
+                                view.postDelayed({
+                                    view.evaluateJavascript(chooseTotpMethodJs, null)
+                                    view.postDelayed({ autofillTotp(view) }, 450)
+                                }, 250)
+                                if (got) return
+                                view.evaluateJavascript(TokenLogin.createTokenJs("MobileGH")) { raw ->
+                                    val token = raw?.trim('"')?.takeIf { it.startsWith("gh") && it.length > 20 }
+                                    if (token != null && !got) {
+                                        got = true
+                                        view.evaluateJavascript(TokenLogin.SWEEP_JS, null)
+                                        onToken(token)
+                                    }
                                 }
                             }
-                        }
 
-                        /**
-                         * 代理链路偶发中断（ERR_CONNECTION_ABORTED / RST）时自动重试，
-                         * 连续失败则让用户改用系统浏览器完成，避免卡死在这一页。
-                         */
-                        override fun onReceivedError(view: WebView, request: android.webkit.WebResourceRequest, error: android.webkit.WebResourceError) {
-                            if (!request.isForMainFrame) return
-                            loading = false
-                            if (retry < 2) {
-                                retry++
-                                view.postDelayed({ view.loadUrl(request.url.toString()) }, 1200L * retry)
-                                return
+                            override fun onReceivedError(view: WebView, request: android.webkit.WebResourceRequest, error: android.webkit.WebResourceError) {
+                                if (!request.isForMainFrame) return
+                                navError = true
+                                loading = false
+                                com.mobilegh.data.AppLog.warn("auth", "登录页加载失败：" + error.description + " " + request.url)
+                                if (!everLoaded) failed = true
                             }
-                            com.mobilegh.data.AppLog.warn("auth", "登录页加载失败：" + error.description + " " + request.url)
-                            ctx.toast("页面加载失败，已用系统浏览器打开")
-                            ctx.openBrowser(request.url.toString())
                         }
-
-                        private var retry = 0
+                        web = this
+                        loadUrl(TokenLogin.URL)
                     }
-                    web = this
-                    // 直连 github.com，绕过全局代理设置里可能影响 WebView 的节点
-                    settings.userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Mobile Safari/537.36"
-                    loadUrl(TokenLogin.URL)
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (failed) {
+                LoadFailPanel(
+                    host = "github.com",
+                    onRetry = { attempt++; web?.loadUrl(TokenLogin.URL) },
+                    onBrowser = { ctx.openBrowser(TokenLogin.URL) },
+                )
+            }
+        }
+    }
+}
+
+/** WebView 打不开时的错误面板：给出重试和用系统浏览器打开两条出路，不再无限白屏 */
+@Composable
+private fun LoadFailPanel(host: String, onRetry: () -> Unit, onBrowser: () -> Unit) {
+    val g = Gh.c
+    Column(
+        Modifier.fillMaxSize().background(g.canvas).padding(horizontal = 32.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Oc(R.drawable.oc_alert, g.attention, 40.dp)
+        Spacer(Modifier.height(16.dp))
+        Text("打不开 $host", color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "你的网络无法直接访问 GitHub 网页。可以重试，或用系统浏览器打开——系统浏览器可以使用手机上的 VPN / 代理。" +
+                "也可以返回上一页，用「使用 Token 登录」粘贴一个已创建的 Token（Token 走加速节点，通常可用）。",
+            color = g.fgMuted, fontSize = 13.sp, lineHeight = 20.sp, textAlign = TextAlign.Center,
         )
+        Spacer(Modifier.height(24.dp))
+        GhButton("重试", Modifier.fillMaxWidth(), primary = true, icon = R.drawable.oc_sync, onClick = onRetry)
+        Spacer(Modifier.height(10.dp))
+        GhButton("用系统浏览器打开", Modifier.fillMaxWidth(), icon = R.drawable.oc_link_external, onClick = onBrowser)
     }
 }
 
@@ -383,6 +427,15 @@ fun WebLogin(userCode: String, verifyUrl: String, onClose: () -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var title by remember { mutableStateOf("github.com") }
     var web by remember { mutableStateOf<WebView?>(null) }
+    var failed by remember { mutableStateOf(false) }
+    var everLoaded by remember { mutableStateOf(false) }
+    var attempt by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(attempt) {
+        failed = false
+        kotlinx.coroutines.delay(15000)
+        if (!everLoaded) failed = true
+    }
 
     BackHandler {
         val w = web
@@ -424,38 +477,59 @@ fun WebLogin(userCode: String, verifyUrl: String, onClose: () -> Unit) {
                 color = g.fgMuted, fontSize = 12.sp, maxLines = 2,
             )
         }
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = g.accent, trackColor = g.canvas)
+        if (loading && !failed) LinearProgressIndicator(Modifier.fillMaxWidth().height(2.dp), color = g.accent, trackColor = g.canvas)
         else Spacer(Modifier.height(2.dp))
-        AndroidView(
-            factory = { c ->
-                WebView(c).apply {
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    settings.allowFileAccess = false
-                    settings.allowContentAccess = false
-                    webViewClient = object : WebViewClient() {
-                        override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-                            loading = true
-                            title = android.net.Uri.parse(url).host ?: url
-                        }
+        Box(Modifier.fillMaxSize()) {
+            AndroidView(
+                factory = { c ->
+                    WebView(c).apply {
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        settings.allowFileAccess = false
+                        settings.allowContentAccess = false
+                        webViewClient = object : WebViewClient() {
+                            private var navError = false
 
-                        override fun onPageFinished(view: WebView, url: String) {
-                            loading = false
-                            if (android.net.Uri.parse(url).host == "github.com") {
-                                view.evaluateJavascript(autoAuthorizeJs(userCode), null)
-                                // 数字匹配页先切换到 GitHub 提供的验证器选项，再尝试填入 TOTP。
-                                view.postDelayed({
-                                    view.evaluateJavascript(chooseTotpMethodJs, null)
-                                    view.postDelayed({ autofillTotp(view) }, 450)
-                                }, 250)
+                            override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+                                loading = true
+                                navError = false
+                                title = android.net.Uri.parse(url).host ?: url
+                            }
+
+                            override fun onPageFinished(view: WebView, url: String) {
+                                loading = false
+                                if (!navError && android.net.Uri.parse(url).host == "github.com") {
+                                    everLoaded = true
+                                    failed = false
+                                    view.evaluateJavascript(autoAuthorizeJs(userCode), null)
+                                    // 数字匹配页先切换到 GitHub 提供的验证器选项，再尝试填入 TOTP。
+                                    view.postDelayed({
+                                        view.evaluateJavascript(chooseTotpMethodJs, null)
+                                        view.postDelayed({ autofillTotp(view) }, 450)
+                                    }, 250)
+                                }
+                            }
+
+                            override fun onReceivedError(view: WebView, request: android.webkit.WebResourceRequest, error: android.webkit.WebResourceError) {
+                                if (!request.isForMainFrame) return
+                                navError = true
+                                loading = false
+                                if (!everLoaded) failed = true
                             }
                         }
+                        web = this
+                        loadUrl(verifyUrl)
                     }
-                    web = this
-                    loadUrl(verifyUrl)
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (failed) {
+                LoadFailPanel(
+                    host = "github.com",
+                    onRetry = { attempt++; web?.loadUrl(verifyUrl) },
+                    onBrowser = { ctx.openBrowser(verifyUrl) },
+                )
+            }
+        }
     }
 }

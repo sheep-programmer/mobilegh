@@ -38,7 +38,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.LifecycleStartEffect
 import com.mobilegh.R
 import com.mobilegh.data.DownloadState
 import com.mobilegh.data.DownloadTask
@@ -58,10 +57,6 @@ fun DownloadHost() {
     val ctx = rememberCtx()
     val scope = rememberCoroutineScope()
     var clearDialog by remember { mutableStateOf(false) }
-    LifecycleStartEffect(Unit) {
-        Downloads.setForeground(true)
-        onStopOrDispose { Downloads.setForeground(false) }
-    }
     val selected = Downloads.tasks.firstOrNull { it.key == Downloads.selectedKey }
     if (selected != null) {
         val stateTitle = when (selected.state) {

@@ -8,6 +8,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
 import com.mobilegh.data.Session
+import com.mobilegh.data.Downloads
 import com.mobilegh.nav.Links
 import com.mobilegh.nav.Navigator
 import com.mobilegh.ui.AppRoot
@@ -29,6 +30,16 @@ class NavVm : ViewModel() {
 
 class MainActivity : ComponentActivity() {
     private val vm: NavVm by viewModels()
+
+    override fun onStart() {
+        super.onStart()
+        Downloads.setForeground(true)
+    }
+
+    override fun onStop() {
+        Downloads.setForeground(false)
+        super.onStop()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()

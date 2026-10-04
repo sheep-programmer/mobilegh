@@ -29,15 +29,22 @@ class NavVm : ViewModel() {
 }
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        // 升级前可能已经有多个主页面实例；只在全部不可见时停止监控。
+        private var startedActivities = 0
+    }
+
     private val vm: NavVm by viewModels()
 
     override fun onStart() {
         super.onStart()
+        startedActivities++
         Downloads.setForeground(true)
     }
 
     override fun onStop() {
-        Downloads.setForeground(false)
+        startedActivities = (startedActivities - 1).coerceAtLeast(0)
+        Downloads.setForeground(startedActivities > 0)
         super.onStop()
     }
 

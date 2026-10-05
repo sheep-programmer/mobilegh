@@ -10,6 +10,8 @@
         android:maxSdkVersion="28" />
 
     <queries>
+        <!-- Android 11+：仅查询用户选择复用的 GitHub Mobile，不枚举所有已安装应用。 -->
+        <package android:name="com.github.android" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />

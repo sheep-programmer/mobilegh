@@ -34,10 +34,12 @@ fun AuthenticatorScreen(onBack: (() -> Unit)? = null) {
     var deleting by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { while (true) { tick = System.currentTimeMillis(); delay(1000) } }
     BackHandler { if (onBack != null) onBack() else nav.pop() }
-    Page("两步验证器", onBack = onBack, actions = {
+    Page("两步验证", onBack = onBack, actions = {
         OcButton(R.drawable.oc_plus, { editing = true })
     }) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize().background(g.canvas), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(16.dp)) {
+            item { OfficialApprovalCard() }
+            item { Text("验证器验证码", color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 16.sp) }
             item { Text("选择 GitHub 的「验证器应用」，复制这里的六位码完成验证。", color = g.fgMuted, fontSize = 14.sp) }
             if (accounts.isEmpty()) item {
                 Card {

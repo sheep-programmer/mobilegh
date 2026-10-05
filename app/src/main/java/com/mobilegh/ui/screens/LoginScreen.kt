@@ -175,17 +175,20 @@ fun LoginScreen(adding: Boolean = false) {
                     TextLink("取消") { cancel() }
                 }
             }
+            Spacer(Modifier.height(12.dp))
+            OfficialApprovalCard(waitingForOAuth = true)
         }
         if (busy && device == null) CircularProgressIndicator(Modifier.padding(16.dp).size(24.dp), color = g.fgMuted)
         error?.let { Text(it, Modifier.padding(vertical = 12.dp), color = g.danger, fontSize = 14.sp) }
         Spacer(Modifier.height(24.dp))
-        TextLink("两步验证器") { authenticator = true }
+        TextLink("两步验证与数字批准") { authenticator = true }
         Text("凭据仅加密保存在本机", Modifier.padding(top = 12.dp, bottom = 32.dp), color = g.fgMuted, fontSize = 12.sp)
     }
     if (help) GhDialog("登录帮助", { help = false }, confirm = "知道了", onConfirm = { help = false }) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Token：查看组织需 read:org，私有仓库需 repo。有效期由 GitHub 设置决定。", fontSize = 14.sp)
             Text("OAuth：使用系统浏览器登录，支持 GitHub 提供的验证器、通行密钥等两步验证方式。", fontSize = 14.sp)
+            Text("数字批准：在两步验证页面打开已登录的 GitHub Mobile，输入浏览器显示的两位数字。", fontSize = 14.sp)
             Text("组织仓库仍受应用批准、Token 策略和 SSO 限制，可在设置的组织访问诊断中检查。", fontSize = 14.sp)
         }
     }

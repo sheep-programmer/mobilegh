@@ -206,7 +206,7 @@ private fun TwoFactorSection() {
     val nav = LocalNav.current
     SectionTitle("两步验证")
     MenuGroup {
-        MenuRow(R.drawable.oc_shield_lock, "两步验证器", count = Session.totpAccounts().size.takeIf { it > 0 }) {
+        MenuRow(R.drawable.oc_shield_lock, "两步验证与数字批准", count = Session.totpAccounts().size.takeIf { it > 0 }) {
             nav.push(Screen.Authenticator)
         }
         MenuRow(R.drawable.oc_organization, "组织访问诊断") { nav.push(Screen.OrgDiagnostics) }

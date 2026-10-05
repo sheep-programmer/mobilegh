@@ -96,6 +96,7 @@ fun RepoScreen(owner: String, name: String) {
     var starDelta by remember { mutableStateOf(0) }
     var showBranches by remember { mutableStateOf(false) }
     var showClone by remember { mutableStateOf(false) }
+    var showLists by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -115,6 +116,7 @@ fun RepoScreen(owner: String, name: String) {
                 add(MenuAction("分享") { ctx.share("https://github.com/$owner/$name") })
                 add(MenuAction("复制链接") { ctx.copy("https://github.com/$owner/$name") })
                 add(MenuAction("克隆地址…") { showClone = true })
+                if (r != null) add(MenuAction("加入自定义列表") { showLists = true })
                 add(MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name") })
                 add(MenuAction("Fork 此仓库") {
                     entry.act({ ctx.toast(it) }) {
@@ -159,9 +161,10 @@ fun RepoScreen(owner: String, name: String) {
                         MenuGroup {
                             MenuRow(R.drawable.oc_issue_opened, "Issues", Color(0xFF1A7F37)) { nav.push(Screen.Issues(owner, name, false)) }
                             MenuRow(R.drawable.oc_git_pull_request, "Pull Requests", Color(0xFF0969DA)) { nav.push(Screen.Issues(owner, name, true)) }
+                            if (r.hasDiscussions) MenuRow(R.drawable.oc_comment_discussion, "Discussions", Color(0xFF8250DF)) { nav.push(Screen.Discussions(owner, name)) }
                             MenuRow(R.drawable.oc_play, "Actions", Color(0xFF6E7781)) { nav.push(Screen.Actions(owner, name)) }
                             MenuRow(R.drawable.oc_tag, "Releases", Color(0xFF2DA44E)) { nav.push(Screen.Releases(owner, name)) }
-                            MenuRow(R.drawable.oc_people, "贡献者", Color(0xFFBC4C00)) { nav.push(Screen.Users(UserKind.Contributors, owner, name)) }
+                            MenuRow(R.drawable.oc_people, "贡献者统计", Color(0xFFBC4C00)) { nav.push(Screen.Contributors(owner, name)) }
                             MenuRow(R.drawable.oc_graph, "洞察 · 流量统计", Color(0xFF8250DF)) { nav.push(Screen.Insights(owner, name)) }
                             if (admin) {
                                 MenuRow(R.drawable.oc_person, "协作者管理", Color(0xFFBF3989)) { nav.push(Screen.Collaborators(owner, name)) }
@@ -191,6 +194,7 @@ fun RepoScreen(owner: String, name: String) {
                         MenuGroup {
                             MenuRow(R.drawable.oc_code, "浏览代码") { nav.push(Screen.Files(owner, name, "", ref.value)) }
                             MenuRow(R.drawable.oc_git_commit, "提交历史") { nav.push(Screen.Commits(owner, name, ref.value)) }
+                            MenuRow(R.drawable.oc_git_branch, "比较分支与提交") { nav.push(Screen.Compare(owner, name)) }
                         }
                     }
                     langs.data?.takeIf { it.isNotEmpty() }?.let { l ->
@@ -228,12 +232,14 @@ fun RepoScreen(owner: String, name: String) {
                             }
                         }
                     }
+                    item { ContributorPreview(owner, name) }
                     item { Spacer(Modifier.height(32.dp)) }
                 }
             }
         }
     }
 
+    if (showLists && r != null) AddToStarListsDialog(r) { showLists = false }
     if (showBranches && r != null) {
         BranchPicker(owner, name, branch ?: r.defaultBranch, onDismiss = { showBranches = false }) {
             ref.value = if (it == r.defaultBranch) null else it

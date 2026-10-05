@@ -19,7 +19,9 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 @Serializable
-data class Account(val login: String, val avatarUrl: String = "", val tk: String = "")
+data class Account(val login: String, val avatarUrl: String = "", val tk: String = "", val refreshTk: String = "", val expiresAt: Long = 0, val clientId: String = "")
+
+data class OAuthCredentials(val token: String, val refreshToken: String, val expiresAt: Long, val clientId: String, val previousToken: String? = null)
 
 /** 登录态与偏好设置。Token 使用 Android Keystore(AES-GCM) 加密后存储。 */
 object Session {
@@ -27,6 +29,10 @@ object Session {
 
     @Volatile
     var token: String? = null
+        private set
+
+    @Volatile
+    var oauth: OAuthCredentials? = null
         private set
 
     var login by mutableStateOf<String?>(null)
@@ -44,6 +50,15 @@ object Session {
 
     fun init(ctx: Context) {
         prefs = ctx.getSharedPreferences("session", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("native_browser_migration", false) && prefs.contains("accounts")) {
+            // Retire stale embedded-login cookies and password sessionStorage from earlier versions.
+            runCatching {
+                android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                android.webkit.CookieManager.getInstance().flush()
+                android.webkit.WebStorage.getInstance().deleteAllData()
+            }
+            prefs.edit().putBoolean("native_browser_migration", true).apply()
+        }
         themeMode = prefs.getInt("theme", 0)
         codeWrap = prefs.getBoolean("wrap", false)
         accounts.clear()
@@ -57,13 +72,18 @@ object Session {
     private fun activate(a: Account) {
         val t = runCatching { Crypto.decrypt(a.tk) }.getOrNull() ?: return
         token = t
+        oauth = a.refreshTk.takeIf { it.isNotBlank() }?.let { encrypted ->
+            runCatching { OAuthCredentials(t, Crypto.decrypt(encrypted), a.expiresAt, a.clientId) }.getOrNull()
+        }
         login = a.login
         avatar = a.avatarUrl
         authExpired = false
     }
 
-    fun signIn(token: String, user: User) {
-        val acc = Account(user.login, user.avatarUrl, Crypto.encrypt(token))
+    fun signIn(token: String, user: User, refreshToken: String? = null, expiresIn: Long? = null, clientId: String = "") {
+        val acc = Account(user.login, user.avatarUrl, Crypto.encrypt(token),
+            refreshToken?.takeIf { it.isNotBlank() }?.let(Crypto::encrypt).orEmpty(),
+            expiresIn?.let { System.currentTimeMillis() + it.coerceAtMost(31_536_000) * 1000 } ?: 0, clientId)
         accounts.removeAll { it.login.equals(user.login, true) }
         accounts.add(0, acc)
         saveAccounts()
@@ -86,6 +106,7 @@ object Session {
         accounts.removeAll { it.login == cur }
         saveAccounts()
         token = null
+        oauth = null
         login = null
         avatar = null
         Api.clearCache()
@@ -93,6 +114,21 @@ object Session {
         prefs.edit().putString("current", next?.login).apply()
         next?.let { activate(it) }
         generation++
+    }
+
+    /** Called on the main dispatcher; refreshing credentials must not reset the navigation stack. */
+    fun renewOAuth(expectedToken: String, result: DevicePoll.Authorized): String? {
+        val old = oauth ?: return null
+        if (token != expectedToken || old.token != expectedToken) return null
+        val current = accounts.firstOrNull { it.login == login } ?: return null
+        val next = current.copy(tk = Crypto.encrypt(result.token),
+            refreshTk = Crypto.encrypt(result.refreshToken ?: old.refreshToken),
+            expiresAt = result.expiresIn?.let { System.currentTimeMillis() + it.coerceAtMost(31_536_000) * 1000 } ?: 0)
+        accounts[accounts.indexOf(current)] = next
+        saveAccounts()
+        activate(next)
+        oauth = oauth?.copy(previousToken = expectedToken)
+        return token
     }
 
     /** 是否为该账号存了 TOTP 密钥（用于设置界面显示状态） */
@@ -107,6 +143,8 @@ object Session {
 
     /** 存 / 删该账号的 TOTP 密钥；密钥同样经 Keystore 加密 */
     fun setTotpSecret(login: String, secret: String?) {
+        require(login.matches(Regex("[A-Za-z0-9][A-Za-z0-9-]{0,38}"))) { "GitHub 用户名格式无效" }
+        require(secret.isNullOrBlank() || Totp.isValid(secret)) { "验证器密钥无效" }
         val e = prefs.edit()
         if (secret.isNullOrBlank()) e.remove(totpKey(login)) else e.putString(totpKey(login), Crypto.encrypt(Totp.normalize(secret)))
         e.apply()
@@ -119,6 +157,9 @@ object Session {
     }
 
     private fun totpKey(login: String) = "totp_${login.lowercase()}"
+
+    fun totpAccounts(): List<String> = prefs.all.keys.filter { it.startsWith("totp_") }
+        .map { it.removePrefix("totp_") }.sorted()
 
     fun setTheme(mode: Int) {
         themeMode = mode

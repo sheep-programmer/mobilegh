@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -100,6 +101,7 @@ fun Page(
     bottomBar: @Composable () -> Unit = {},
     floating: @Composable () -> Unit = {},
     contentWindowInsets: WindowInsets? = null,
+    onBack: (() -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val nav = LocalNav.current
@@ -115,7 +117,7 @@ fun Page(
                         }
                     },
                     navigationIcon = {
-                        if (back) OcButton(R.drawable.oc_arrow_left, { nav.pop() })
+                        if (back || onBack != null) OcButton(R.drawable.oc_arrow_left, { if (onBack != null) onBack() else nav.pop() })
                     },
                     actions = actions,
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Gh.c.header, titleContentColor = Gh.c.fg),
@@ -184,6 +186,8 @@ fun <T> PagedList(
     boxed: Boolean = true,
     contentPadding: PaddingValues = PaddingValues(top = 8.dp, bottom = 16.dp),
     onRefresh: () -> Unit = {},
+    itemFilter: ((T) -> Boolean)? = null,
+    itemKey: ((T) -> Any)? = null,
     header: LazyListScope.() -> Unit = {},
     item: @Composable LazyItemScope.(T) -> Unit,
 ) {
@@ -200,9 +204,11 @@ fun <T> PagedList(
     PullToRefreshBox(pager.refreshing, onRefresh = { pager.refresh(); onRefresh() }, modifier) {
         LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = contentPadding) {
             header()
-            itemsIndexed(pager.items) { i, it ->
+            val filtered = if (itemFilter == null) pager.items else pager.items.filter(itemFilter)
+            val shown = if (itemKey == null) filtered else filtered.distinctBy(itemKey)
+            itemsIndexed(shown, key = if (itemKey == null) null else { _, value -> itemKey(value) }) { i, it ->
                 if (boxed) {
-                    Column(Modifier.groupItem(i == 0, i == pager.items.lastIndex, Gh.c.border, Gh.c.canvas)) { item(it) }
+                    Column(Modifier.groupItem(i == 0, i == shown.lastIndex, Gh.c.border, Gh.c.canvas)) { item(it) }
                 } else {
                     item(it)
                     if (divider) HDivider()
@@ -215,7 +221,7 @@ fun <T> PagedList(
                         TextLink("加载失败，点击重试") { pager.error = null; pager.loadMore() }
                     }
                     pager.loading && !pager.refreshing -> Loading(Modifier.fillMaxWidth().padding(24.dp))
-                    pager.end && pager.items.isEmpty() -> EmptyState(empty)
+                    pager.end && shown.isEmpty() -> EmptyState(if (pager.items.isEmpty()) empty else "没有匹配的内容")
                 }
             }
         }
@@ -246,13 +252,13 @@ fun GhButton(
     val pad = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
     if (primary) {
         Button(
-            onClick, modifier.height(36.dp), enabled = enabled, shape = shape, contentPadding = pad,
+            onClick, modifier.heightIn(min = 44.dp), enabled = enabled, shape = shape, contentPadding = pad,
             colors = ButtonDefaults.buttonColors(containerColor = if (danger) g.danger else g.btnPrimary, contentColor = Color.White),
             content = content,
         )
     } else {
         OutlinedButton(
-            onClick, modifier.height(36.dp), enabled = enabled, shape = shape, contentPadding = pad,
+            onClick, modifier.heightIn(min = 44.dp), enabled = enabled, shape = shape, contentPadding = pad,
             border = BorderStroke(1.dp, g.border),
             colors = ButtonDefaults.outlinedButtonColors(containerColor = g.btnBg, contentColor = if (danger) g.danger else g.fg),
             content = content,
@@ -528,13 +534,19 @@ fun Context.share(text: String) {
 
 /** 用外部浏览器打开（绕开本应用自身的 github.com 链接拦截） */
 fun Context.openBrowser(url: String) {
-    val intent = Intent(Intent.ACTION_VIEW, url.toUri())
-    val browser = packageManager.resolveActivity(Intent(Intent.ACTION_VIEW, "https://example.com".toUri()), PackageManager.MATCH_DEFAULT_ONLY)
-        ?.activityInfo?.packageName
-    if (browser != null && browser != packageName && browser != "android") intent.setPackage(browser)
-    runCatching { startActivity(intent) }.onFailure {
-        runCatching { startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, url.toUri()), "打开")) }
+    val generic = Intent(Intent.ACTION_VIEW, "https://example.com".toUri()).addCategory(Intent.CATEGORY_BROWSABLE)
+    val matches = packageManager.queryIntentActivities(generic, PackageManager.MATCH_DEFAULT_ONLY)
+        .map { it.activityInfo.packageName }.filter { it != packageName && it != "android" }.distinct()
+    val preferred = packageManager.resolveActivity(generic, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
+    val ordered = matches.sortedBy { if (it == preferred) 0 else 1 }
+    val targets = ordered.map { name -> Intent(Intent.ACTION_VIEW, url.toUri()).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(name) }
+    if (targets.isEmpty()) {
+        toast("没有可用的浏览器，请先安装或启用浏览器")
+        return
     }
+    val intent = if (targets.size == 1 || targets[0].`package` == preferred) targets[0]
+        else Intent.createChooser(targets[0], "选择浏览器").putExtra(Intent.EXTRA_INITIAL_INTENTS, targets.drop(1).toTypedArray())
+    runCatching { startActivity(intent) }.onFailure { toast("无法打开浏览器：${it.message}") }
 }
 
 @Composable

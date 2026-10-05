@@ -203,73 +203,13 @@ private fun GistLine(i: Int, line: AnnotatedString) {
  */
 @Composable
 private fun TwoFactorSection() {
-    val g = Gh.c
-    val ctx = rememberCtx()
-    val login = Session.login ?: return
-    var editing by remember { mutableStateOf(false) }
-    var has by remember(login, Session.generation) { mutableStateOf(Session.hasTotp(login)) }
-    var tick by remember { mutableStateOf(System.currentTimeMillis()) }
-    LaunchedEffect(has) { while (has) { tick = System.currentTimeMillis(); delay(1000) } }
-
-    SectionTitle("两步验证（TOTP）")
+    val nav = LocalNav.current
+    SectionTitle("两步验证")
     MenuGroup {
-        if (has) {
-            val code = remember(tick) { Session.totpCode(login) ?: "------" }
-            val left = remember(tick) { Totp.secondsRemaining() }
-            Row(
-                Modifier.fillMaxWidth().clickable { ctx.copy(code, "验证码已复制"); }.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Oc(R.drawable.oc_key, g.fgMuted, 18.dp)
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("$login", fontSize = 15.sp, color = g.fg, fontWeight = FontWeight.SemiBold)
-                    Text("登录时自动填入 · ${left}s 后刷新", fontSize = 12.sp, color = g.fgMuted)
-                }
-                Text(
-                    if (code.length == 6) "${code.substring(0, 3)} ${code.substring(3)}" else code,
-                    fontSize = 22.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = g.accent, letterSpacing = 1.sp,
-                )
-            }
-            MenuRow(R.drawable.oc_trash, "移除 TOTP 密钥") {
-                Session.setTotpSecret(login, null)
-                has = false
-                ctx.toast("已移除")
-            }
-        } else {
-            MenuRow(R.drawable.oc_key, "添加验证器密钥（自动填两步验证码）") { editing = true }
+        MenuRow(R.drawable.oc_shield_lock, "两步验证器", count = Session.totpAccounts().size.takeIf { it > 0 }) {
+            nav.push(Screen.Authenticator)
         }
-    }
-
-    if (editing) {
-        var secret by remember { mutableStateOf("") }
-        val ok = Totp.isValid(secret)
-        GhDialog("添加验证器密钥", { editing = false }, confirm = "保存", confirmEnabled = ok, onConfirm = {
-            Session.setTotpSecret(login, secret)
-            has = true
-            editing = false
-            ctx.toast("已保存，下次登录自动填码")
-        }) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    "在 GitHub 设置里添加「Authenticator app」时，页面会给一串密钥（点 “setup key / 手动输入” 可看到）。把那串粘到这里即可，也可以直接粘贴整条 otpauth:// 链接。",
-                    fontSize = 13.sp, color = g.fgMuted,
-                )
-                GhField(secret, { secret = it }, "密钥或 otpauth:// 链接", placeholder = "如 JBSWY3DPEHPK3PXP")
-                if (secret.isNotBlank() && !ok) {
-                    Text("这串密钥无法解析，请检查是否复制完整。", fontSize = 12.sp, color = g.danger)
-                } else if (ok) {
-                    Text("当前验证码：${Totp.now(secret)}（用于确认密钥正确）", fontSize = 12.sp, color = g.success, fontFamily = FontFamily.Monospace)
-                }
-                Text(
-                    "提示：把两步验证方式设成验证器 App 后，登录就不必再用另一台手机确认了。",
-                    fontSize = 12.sp, color = g.fgMuted,
-                )
-                GhButton("打开 GitHub 两步验证设置", Modifier.fillMaxWidth(), icon = R.drawable.oc_link_external) {
-                    ctx.openBrowser("https://github.com/settings/security")
-                }
-            }
-        }
+        MenuRow(R.drawable.oc_organization, "组织访问诊断") { nav.push(Screen.OrgDiagnostics) }
     }
 }
 
@@ -312,12 +252,12 @@ fun SettingsScreen() {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Oc(R.drawable.oc_clock, g.success, 18.dp)
                         Spacer(Modifier.width(10.dp))
-                        Text("默认永不过期", Modifier.weight(1f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
-                        Pill("默认配置", g.success)
+                        Text("授权有效期", Modifier.weight(1f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+                        Pill("由 GitHub 决定", g.fgMuted)
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "账号登录默认获取没有固定到期时间的授权。旧授权不会自动延长，请重新登录一次。\n" +
+                        "OAuth 授权的有效期取决于 GitHub 服务端设置。旧授权不会自动延长。\n" +
                             "Token 登录的有效期由你在 GitHub 设置的到期日决定；授权被撤销时仍需重新登录。",
                         fontSize = 12.sp, lineHeight = 18.sp, color = g.fgMuted,
                     )

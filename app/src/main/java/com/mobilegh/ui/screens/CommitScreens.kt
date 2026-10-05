@@ -58,10 +58,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-fun CommitsScreen(owner: String, name: String, ref: String?, path: String?) {
-    val pager = rememberPager("commits") { p, f -> GitHub.commits(owner, name, ref, path, p, f) }
-    Page("提交历史", subtitle = listOfNotNull("$owner/$name", ref, path).joinToString(" · ")) { pad ->
-        PagedList(pager, Modifier.padding(pad)) { CommitRow(owner, name, it) }
+fun CommitsScreen(owner: String, name: String, ref: String?, path: String?, author: String? = null, since: String? = null, until: String? = null) {
+    val pager = rememberPager("commits:$author:$since:$until") { p, f -> GitHub.commits(owner, name, ref, path, p, f, author, since, until) }
+    Page("提交历史", subtitle = listOfNotNull("$owner/$name", ref, path, author).joinToString(" · ")) { pad ->
+        PagedList(pager, Modifier.padding(pad), itemKey = { it.sha }, header = {
+            if (since != null || until != null) item {
+                Text("${since?.take(10) ?: "不限"} 至 ${until?.take(10) ?: "不限"} · 按提交时间精确筛选（UTC）",
+                    Modifier.padding(16.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
+            }
+        }) { CommitRow(owner, name, it) }
     }
 }
 

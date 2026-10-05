@@ -20,8 +20,10 @@ sealed interface Screen {
     data class Repo(val owner: String, val name: String) : Screen
     data class Files(val owner: String, val name: String, val path: String, val ref: String?) : Screen
     data class FileView(val owner: String, val name: String, val path: String, val ref: String?) : Screen
-    data class Commits(val owner: String, val name: String, val ref: String?, val path: String? = null) : Screen
+    data class Commits(val owner: String, val name: String, val ref: String?, val path: String? = null,
+        val author: String? = null, val since: String? = null, val until: String? = null) : Screen
     data class CommitDetail(val owner: String, val name: String, val sha: String) : Screen
+    data class Compare(val owner: String, val name: String, val base: String = "HEAD~1", val head: String = "HEAD") : Screen
     data class Issues(val owner: String, val name: String, val pulls: Boolean) : Screen
     data class IssueDetail(val owner: String, val name: String, val number: Int, val isPull: Boolean) : Screen
     data class PullFiles(val owner: String, val name: String, val number: Int) : Screen
@@ -32,6 +34,9 @@ sealed interface Screen {
     data class Releases(val owner: String, val name: String) : Screen
     data class Branches(val owner: String, val name: String) : Screen
     data class Insights(val owner: String, val name: String) : Screen
+    data class Contributors(val owner: String, val name: String) : Screen
+    data class Discussions(val owner: String, val name: String) : Screen
+    data class DiscussionDetail(val owner: String, val name: String, val number: Int) : Screen
     data class RepoSettings(val owner: String, val name: String) : Screen
     data class Collaborators(val owner: String, val name: String) : Screen
     data class Profile(val login: String) : Screen
@@ -43,8 +48,11 @@ sealed interface Screen {
     data class Gists(val login: String?) : Screen
     data class GistDetail(val id: String) : Screen
     data class Activity(val login: String) : Screen
+    data class StarLists(val login: String) : Screen
     data object Settings : Screen
     data object Logs : Screen
+    data object Authenticator : Screen
+    data object OrgDiagnostics : Screen
     data object CreateRepo : Screen
     data object Login : Screen
     data class MyIssues(val pulls: Boolean) : Screen

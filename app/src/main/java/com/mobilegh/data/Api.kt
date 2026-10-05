@@ -70,6 +70,14 @@ object Api {
             .cache(cache)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .authenticator { _, response ->
+                val expected = response.request.header("Authorization")?.removePrefix("Bearer ")
+                val host = response.request.url.host
+                if (response.priorResponse?.code == 401 || expected == null ||
+                    (expected != Session.oauth?.token && expected != Session.oauth?.previousToken) ||
+                    (host !in AUTH_HOSTS && host != Net.apiHost)) null
+                else OAuthRefresh.renew(expected)?.let { renewed -> response.request.newBuilder().header("Authorization", "Bearer $renewed").build() }
+            }
             .addInterceptor { chain ->
                 val req = chain.request()
                 val b = req.newBuilder().header("User-Agent", "MobileGH/1.0 (Android)")
@@ -113,6 +121,12 @@ object Api {
         force: Boolean = false,
     ): Resp {
         val rb = Request.Builder().url(url(path))
+        // Bind this operation to its initiating account, before OkHttp queues the request.
+        val callToken = Session.token
+        val requestHost = rb.build().url.host
+        if (callToken != null && (requestHost in AUTH_HOSTS || requestHost == Net.apiHost)) {
+            rb.header("Authorization", "Bearer $callToken")
+        }
         accept?.let { rb.header("Accept", it) }
         if (force) rb.cacheControl(CacheControl.Builder().noCache().build())
         val reqBody = when {

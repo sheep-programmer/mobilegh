@@ -197,6 +197,19 @@ fun EventItem(e: Event) {
     }
 }
 
+/** 动态分类（用于按类型筛选信息流） */
+enum class EventCat(val label: String) { All("全部"), Push("提交"), Pr("PR"), Issue("Issue"), Release("发布"), Social("Star/Fork"), Other("其他") }
+
+fun eventCat(e: Event): EventCat = when (e.type) {
+    "PushEvent", "CreateEvent", "DeleteEvent", "GollumEvent", "CommitCommentEvent" -> EventCat.Push
+    "PullRequestEvent", "PullRequestReviewEvent", "PullRequestReviewCommentEvent" -> EventCat.Pr
+    "IssuesEvent" -> EventCat.Issue
+    "IssueCommentEvent" -> if (e.payload.obj("issue")?.obj("pull_request") != null) EventCat.Pr else EventCat.Issue
+    "ReleaseEvent" -> EventCat.Release
+    "WatchEvent", "ForkEvent", "PublicEvent" -> EventCat.Social
+    else -> EventCat.Other
+}
+
 private data class EventDesc(val icon: Int, val action: String, val detail: String?, val target: Screen)
 
 private fun describeEvent(e: Event, o: String, r: String): EventDesc {

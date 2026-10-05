@@ -50,7 +50,9 @@ object Links {
             "network", "forks" -> Screen.Repos(RepoKind.Forks, o, r)
             "branches" -> Screen.Branches(o, r)
             "graphs", "pulse" -> Screen.Insights(o, r)
-            "discussions", "wiki", "security", "projects", "compare", "milestone", "milestones", "labels", "raw" -> null
+            "discussions" -> segs.getOrNull(3)?.toIntOrNull()?.let { Screen.DiscussionDetail(o, r, it) } ?: Screen.Discussions(o, r)
+            "compare" -> segs.getOrNull(3)?.split("...", limit = 2)?.takeIf { it.size == 2 && it.all(String::isNotBlank) }?.let { Screen.Compare(o, r, it[0], it[1]) } ?: Screen.Compare(o, r)
+            "wiki", "security", "projects", "milestone", "milestones", "labels", "raw" -> null
             else -> Screen.Repo(o, r)
         }
     }

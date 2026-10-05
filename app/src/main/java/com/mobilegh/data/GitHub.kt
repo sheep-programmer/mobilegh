@@ -48,7 +48,7 @@ object GitHub {
         val result = ArrayList<Repo>()
         var page = 1
         while (page <= 20) {
-            val list = Api.get<List<Repo>>("/orgs/${Api.encodePath(org)}/repos?type=all&sort=$sort&per_page=100&page=$page", force && page == 1).track()
+            val list = Api.get<List<Repo>>("/orgs/${Api.encodePath(org)}/repos?type=all&sort=$sort&per_page=100&page=$page", force).track()
             result += list
             if (list.size < 100) break
             page++
@@ -70,7 +70,13 @@ object GitHub {
         orgMemberRepos(force).filter { it.owner.login.lowercase() in wanted }.forEach { result[it.id] = it }
         // 补充路径：逐个组织读取，受限时忽略该组织的失败
         orgs.forEach { org ->
-            runCatching { orgReposAll(org, sort, force) }.getOrDefault(emptyList()).forEach { result[it.id] = it }
+            try {
+                orgReposAll(org, sort, force).forEach { result[it.id] = it }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e
+            } catch (e: ApiException) {
+                AppLog.warn("network", "组织仓库读取失败：$org (${e.code})")
+                if (orgs.size == 1 && result.isEmpty()) throw e
+            }
         }
         return result.values.sortedWith(
             if (sort == "full_name") compareBy(String.CASE_INSENSITIVE_ORDER) { it.fullName }
@@ -84,71 +90,26 @@ object GitHub {
     suspend fun forks(o: String, n: String, page: Int, force: Boolean) = Api.get<List<Repo>>("${r(o, n)}/forks?sort=newest&per_page=$PER&page=$page", force)
 
     // ---------------- 组织 ----------------
-    /**
-     * 当前用户加入的组织。
-     *
-     * /user/orgs 对私有组织、隐藏成员身份和 SSO 组织有时不会返回完整结果；
-     * membership 接口包含 organization 对象，因此合并两个结果后再去重。
-     */
-    suspend fun myOrgs(force: Boolean): List<Org> {
-        val visible = runCatching { Api.get<List<Org>>("/user/orgs?per_page=100", force) }
-        val memberships = runCatching {
-            Api.get<List<OrgMembership>>("/user/memberships/orgs?state=active&per_page=100", force)
-                .filter { it.state == "active" }
-                .map { it.organization }
-        }
-        if (visible.isFailure && memberships.isFailure) throw visible.exceptionOrNull() ?: memberships.exceptionOrNull()!!
-        return (visible.getOrDefault(emptyList()) + memberships.getOrDefault(emptyList()))
-            .filter { it.login.isNotBlank() }
-            .associateBy { it.login.lowercase() }
-            .values
-            .sortedBy { it.login.lowercase() }
-    }
-    /**
-     * 组织可见性诊断。
-     *
-     * GitHub 的组织默认开启「第三方 OAuth 应用访问限制」：未被组织批准的第三方应用，
-     * 该组织会**从 /user/orgs 里被静默剔除**（不报错，直接不返回）。官方 App 是特权应用所以豁免。
-     * 而 /user/memberships/orgs 仍会返回这些组织，两者的差集就是「存在但被限制」的组织。
-     */
-    data class OrgAccess(val orgs: List<Org>, val restricted: List<String>)
+    suspend fun myOrgs(force: Boolean): List<Org> = orgAccess(force).orgs
 
-    suspend fun orgAccess(force: Boolean): OrgAccess {
-        val visible = runCatching { Api.get<List<Org>>("/user/orgs?per_page=100", force) }
-        val memberships = runCatching {
-            Api.get<List<OrgMembership>>("/user/memberships/orgs?per_page=100", force)
-        }.getOrDefault(emptyList())
-        val visOrgs = visible.getOrDefault(emptyList()).filter { it.login.isNotBlank() }
-        val visNames = visOrgs.map { it.login.lowercase() }.toSet()
-        val memOrgs = memberships.map { it.organization }.filter { it.login.isNotBlank() }
-        val restricted = (memOrgs + visOrgs)
-            .filter { it.login.isNotBlank() }
-            .associateBy { it.login.lowercase() }
-            .filterKeys { it !in visNames }
-            .values.map { it.login }
-            .sorted()
-        val all = (visOrgs + memOrgs).associateBy { it.login.lowercase() }.values.sortedBy { it.login.lowercase() }
-        if (visible.isFailure && memberships.isEmpty()) throw visible.exceptionOrNull()!!
-        return OrgAccess(all, restricted)
+    data class OrgAccess(
+        val orgs: List<Org>,
+        val restricted: List<String> = emptyList(),
+        val warnings: List<String> = emptyList(),
+        val scopes: String? = null,
+    )
+
+    suspend fun orgAccess(force: Boolean): OrgAccess = OrganizationAccess.read(force).let {
+        OrgAccess(it.orgs, warnings = it.warnings, scopes = it.scopes)
     }
 
-    /**
-     * 组织仓库枚举（主路径）。
-     *
-     * /orgs/{org}/repos 在被限制的组织上会 403；而 /user/repos?affiliation=organization_member
-     * 是用户维度的接口，按组织成员身份返回全部可访问仓库，权限受限时也只是少返回而不会报错。
-     * 因此用它作为主路径，再按组织名筛选。
-     */
+    /** All repositories actually visible to this token, including organization membership. */
     suspend fun orgMemberRepos(force: Boolean = false): List<Repo> {
-        val result = LinkedHashMap<Long, Repo>()
-        var page = 1
-        while (page <= 20) {
-            val list = runCatching {
-                Api.get<List<Repo>>("/user/repos?affiliation=organization_member&sort=pushed&per_page=100&page=$page", force && page == 1)
-            }.getOrElse { break }
-            list.track().forEach { result[it.id] = it }
+        val result = linkedMapOf<Long, Repo>()
+        for (page in 1..20) {
+            val list = Api.get<List<Repo>>("/user/repos?affiliation=organization_member&sort=pushed&per_page=100&page=$page", force).track()
+            list.forEach { result[it.id] = it }
             if (list.size < 100) break
-            page++
         }
         return result.values.toList()
     }
@@ -218,8 +179,12 @@ object GitHub {
     suspend fun fork(o: String, n: String) = Api.send<Repo>("POST", "${r(o, n)}/forks")
 
     // ---------------- 提交 ----------------
-    suspend fun commits(o: String, n: String, sha: String?, path: String?, page: Int, force: Boolean) =
-        Api.get<List<Commit>>("${r(o, n)}/commits?per_page=$PER&page=$page" + (sha?.let { "&sha=${Api.q(it)}" } ?: "") + (path?.let { "&path=${Api.q(it)}" } ?: ""), force)
+    suspend fun commits(o: String, n: String, sha: String?, path: String?, page: Int, force: Boolean,
+        author: String? = null, since: String? = null, until: String? = null) =
+        Api.get<List<Commit>>("${r(o, n)}/commits?per_page=$PER&page=$page" +
+            (sha?.let { "&sha=${Api.q(it)}" } ?: "") + (path?.let { "&path=${Api.q(it)}" } ?: "") +
+            (author?.let { "&author=${Api.q(it)}" } ?: "") + (since?.let { "&since=${Api.q(it)}" } ?: "") +
+            (until?.let { "&until=${Api.q(it)}" } ?: ""), force)
     suspend fun commit(o: String, n: String, sha: String) = Api.get<Commit>("${r(o, n)}/commits/$sha")
 
     // ---------------- Issue / PR ----------------
@@ -324,6 +289,23 @@ object GitHub {
     suspend fun clones(o: String, n: String, force: Boolean) = Api.get<Traffic>("${r(o, n)}/traffic/clones", force)
     suspend fun referrers(o: String, n: String, force: Boolean) = Api.get<List<Referrer>>("${r(o, n)}/traffic/popular/referrers", force)
     suspend fun popularPaths(o: String, n: String, force: Boolean) = Api.get<List<PopularPath>>("${r(o, n)}/traffic/popular/paths", force)
+
+    /**
+     * 贡献者统计（官方 App 只给一个头像列表，这里给出每人的提交数与增删行数）。
+     * 与 commit_activity 一样，首次计算会返回 202，需要轮询重试；空仓库返回 204。
+     */
+    suspend fun contributorStats(o: String, n: String, force: Boolean): List<ContributorStat> {
+        repeat(5) { attempt ->
+            val resp = Api.call("GET", "${r(o, n)}/stats/contributors?per_page=100", force = force || attempt > 0)
+            when {
+                resp.code == 200 -> return Api.json.decodeFromString(ListSerializer(ContributorStat.serializer()), resp.body)
+                resp.code == 204 -> return emptyList()
+                resp.code != 202 -> Api.ensureOk(resp)
+            }
+            delay(1500L * (attempt + 1))
+        }
+        throw ApiException(202, "GitHub 正在计算贡献者统计，请稍后刷新")
+    }
 
     /** 统计接口在首次计算时返回 202，需要稍后重试 */
     suspend fun commitActivity(o: String, n: String, force: Boolean): List<WeekActivity> {

@@ -255,6 +255,7 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
                             orgList.forEach { o -> Box(Modifier.clickable { nav.push(Screen.Org(o.login)) }) { Avatar(o.avatarUrl, 32.dp, square = true) } }
                         }
                     }
+                    item { AchievementsStrip(login, self = isSelf) }
                     item { SectionTitle("贡献活动") { com.mobilegh.ui.components.TextLink("动态") { nav.push(Screen.Activity(login)) } } }
                     item { Card(Modifier.padding(horizontal = 16.dp)) { ContributionBody(contrib, full = true) } }
                     val pins = pinned.data.orEmpty()
@@ -269,6 +270,7 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
                                 if (isSelf) nav.select(Tab.Repos).also { nav.popToRoot() } else nav.push(Screen.Repos(RepoKind.User, login))
                             }
                             MenuRow(R.drawable.oc_star, "Star", Color(0xFFBF8700)) { nav.push(Screen.Repos(RepoKind.Starred, login)) }
+                            MenuRow(R.drawable.oc_checklist, "Star 列表", Color(0xFFD4A72C)) { nav.push(Screen.StarLists(login)) }
                             MenuRow(R.drawable.oc_organization, "组织", Color(0xFFBC4C00), count = orgList.size.takeIf { it > 0 }) {
                                 if (isSelf) nav.push(Screen.Orgs) else orgList.firstOrNull()?.let { nav.push(Screen.Org(it.login)) }
                             }
@@ -485,7 +487,18 @@ fun UsersScreen(kind: UserKind, a: String, b: String) {
 @Composable
 fun ActivityScreen(login: String) {
     val pager = rememberPager("events:$login") { p, f -> GitHub.userEvents(login, p, f) }
+    var cat by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(com.mobilegh.ui.components.EventCat.All) }
     Page("动态", subtitle = login) { pad ->
-        PagedList(pager, Modifier.padding(pad), empty = "最近 90 天没有公开动态") { EventItem(it) }
+        Column(Modifier.padding(pad)) {
+            Chips(com.mobilegh.ui.components.EventCat.entries.map { it.label }, com.mobilegh.ui.components.EventCat.entries.indexOf(cat)) {
+                cat = com.mobilegh.ui.components.EventCat.entries[it]
+            }
+            HDivider()
+            PagedList(
+                pager, empty = "最近 90 天没有公开动态",
+                itemKey = { it.id },
+                itemFilter = { cat == com.mobilegh.ui.components.EventCat.All || com.mobilegh.ui.components.eventCat(it) == cat },
+            ) { EventItem(it) }
+        }
     }
 }

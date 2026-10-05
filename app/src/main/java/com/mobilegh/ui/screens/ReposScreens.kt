@@ -1,5 +1,7 @@
 package com.mobilegh.ui.screens
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,6 +49,8 @@ import com.mobilegh.nav.rememberPager
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.Dropdown
+import com.mobilegh.ui.components.EventCat
+import com.mobilegh.ui.components.eventCat
 import com.mobilegh.ui.components.EventItem
 import com.mobilegh.ui.components.EmptyState
 import com.mobilegh.ui.components.ErrorState
@@ -67,186 +71,117 @@ import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.UserItem
 import com.mobilegh.ui.components.boxedItems
 import com.mobilegh.ui.components.relTime
-import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.theme.Gh
 
 private val SORTS = listOf("pushed" to "最近推送", "updated" to "最近更新", "full_name" to "名称", "created" to "创建时间")
 
-/**
- * 仓库 Tab：官方 App 只列出自己创建的仓库，这里可以按 所有者 / 协作者 / 组织成员 查看全部可访问的仓库
- */
+/** Repositories available to the signed-in account, including collaborators and organizations. */
 @Composable
 fun ReposTab() {
     val nav = LocalNav.current
     val g = Gh.c
-    val filters = listOf(
-        "全部" to "owner,collaborator,organization_member",
-        "我创建的" to "owner",
-        "协作的" to "collaborator",
-        "组织的" to "organization_member",
-    )
+    val filters = listOf("全部" to "owner,collaborator,organization_member", "我的" to "owner", "协作" to "collaborator", "组织" to "organization_member")
     val vis = listOf("all" to "全部可见性", "public" to "公开", "private" to "私有")
-    var f by rememberSaveable { mutableIntStateOf(0) }
+    var filter by rememberSaveable { mutableIntStateOf(0) }
     var sort by rememberSaveable { mutableIntStateOf(0) }
-    var v by rememberSaveable { mutableIntStateOf(0) }
+    var visibility by rememberSaveable { mutableIntStateOf(0) }
     var query by rememberSaveable { mutableStateOf("") }
     var hideForks by rememberSaveable { mutableStateOf(false) }
-    var orgIndex by rememberSaveable { mutableIntStateOf(0) }
-    val orgs = rememberLoader("repo-orgs") { GitHub.myOrgs(it) }
-    val orgNames = listOf("全部组织") + orgs.data.orEmpty().map { it.login }
-    val safeOrgIndex = orgIndex.coerceIn(0, (orgNames.size - 1).coerceAtLeast(0))
-    val selectedOrg = orgNames.getOrNull(safeOrgIndex)?.takeUnless { it == "全部组织" }
-    val key = "repos:$f:$sort:$v"
+    var selectedOrg by rememberSaveable { mutableStateOf<String?>(null) }
+    val directory = rememberLoader("repo-orgs") { GitHub.orgAccess(it) }
+    val orgs = directory.data?.orgs.orEmpty().map { it.login }
+    val orgOptions = listOf("全部组织") + orgs
+    val safeOrg = selectedOrg?.takeIf { it in orgs }
+    val key = "repos:$filter:$sort:$visibility"
     val pager = rememberPager(key) { p, force ->
-        if (f == 3) emptyList() else GitHub.myRepos(filters[f].second, SORTS[sort].first, vis[v].first, p, force)
+        if (filter == 3) emptyList() else GitHub.myRepos(filters[filter].second, SORTS[sort].first, vis[visibility].first, p, force)
     }
     val state = rememberLazyListState()
     LaunchedEffect(nav.reselect) { if (nav.reselect > 0 && nav.tab == Tab.Repos) state.animateScrollToItem(0) }
-    LaunchedEffect(query, key) { if (query.isNotBlank() && f != 3) pager.loadAll() }
-
-    Page(
-        "仓库", back = false, contentWindowInsets = WindowInsets(0),
-        actions = { OcButton(R.drawable.oc_plus, { nav.push(Screen.CreateRepo) }) },
-    ) { pad ->
-        Column(Modifier.padding(pad)) {
-            Chips(filters.map { it.first }, f) { f = it }
-            Row(Modifier.padding(horizontal = 12.dp).padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    LaunchedEffect(query, key) { if (query.isNotBlank() && filter != 3) pager.loadAll() }
+    Page("仓库", back = false, contentWindowInsets = WindowInsets(0), actions = {
+        OcButton(R.drawable.oc_plus, { nav.push(Screen.CreateRepo) })
+        OcButton(R.drawable.oc_shield_lock, { nav.push(Screen.OrgDiagnostics) })
+    }) { pad ->
+        Column(Modifier.padding(pad).fillMaxSize()) {
+            Chips(filters.map { it.first }, filter) { filter = it }
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Dropdown(SORTS[sort].second, SORTS.map { it.second }, { sort = it })
-                Dropdown(vis[v].second, vis.map { it.second }, { v = it })
+                Dropdown(vis[visibility].second, vis.map { it.second }, { visibility = it })
                 Dropdown(if (hideForks) "隐藏 Fork" else "含 Fork", listOf("含 Fork", "隐藏 Fork"), { hideForks = it == 1 })
             }
-            if (f == 3) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("组织", color = g.fgMuted, fontSize = 13.sp)
-                    Spacer(Modifier.width(8.dp))
-                    Dropdown(orgNames[safeOrgIndex], orgNames, { orgIndex = it })
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (orgs.loading) "正在读取组织…" else "${orgs.data.orEmpty().size} 个组织",
-                        color = g.fgMuted, fontSize = 12.sp,
-                    )
+            if (filter == 3) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
+                        Dropdown(safeOrg ?: "全部组织", orgOptions, { selectedOrg = orgs.getOrNull(it - 1) })
+                    }
+                    Text(if (directory.loading) "读取中…" else "${orgs.size} 个组织", color = g.fgMuted, fontSize = 12.sp)
+                    OcButton(R.drawable.oc_sync, { directory.refresh() })
                 }
             }
-            GhField(query, { query = it }, "筛选仓库", Modifier.padding(horizontal = 12.dp).padding(bottom = 8.dp), placeholder = "输入名称或描述")
-            val q = query.trim()
-            if (f == 3) {
-                OrganizationReposPanel(
-                    orgs = if (selectedOrg == null) orgs.data.orEmpty().map { it.login } else listOf(selectedOrg),
-                    visibility = vis[v].first,
-                    sort = SORTS[sort].first,
-                    query = q,
-                    hideForks = hideForks,
-                )
-            } else {
-                HDivider()
-                if (q.isEmpty() && !hideForks) {
-                    PagedList(pager, state = state, empty = "没有仓库") { RepoItem(it) }
-                } else {
-                    val list = pager.items.filter {
-                        (!hideForks || !it.fork) && (q.isEmpty() || it.fullName.contains(q, true) || it.description?.contains(q, true) == true)
-                    }
-                    PullToRefreshBox(pager.refreshing, pager::refresh) {
-                        LazyColumn(Modifier.fillMaxSize(), state = state) {
-                            item {
-                                Text(
-                                    "找到 ${list.size} 个${if (!pager.end) "（正在加载更多…）" else ""}",
-                                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 12.sp, color = g.fgMuted,
-                                )
-                            }
-                            boxedItems(list, key = { it.id }) { RepoItem(it) }
-                            if (!pager.end && !pager.loading && q.isEmpty()) item { LaunchedEffect(pager.items.size) { pager.loadMore() } }
-                        }
-                    }
+            GhField(query, { query = it }, "筛选仓库", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), placeholder = "名称或描述")
+            HDivider()
+            if (filter == 3) {
+                when {
+                    directory.data == null && directory.loading -> Loading(Modifier.weight(1f).fillMaxWidth())
+                    directory.data == null && directory.error != null -> ErrorState(directory.error!!, Modifier.weight(1f)) { directory.refresh() }
+                    else -> OrganizationReposPanel(if (safeOrg == null) orgs else listOf(safeOrg), vis[visibility].first,
+                        SORTS[sort].first, query.trim(), hideForks, directory.data?.warnings.orEmpty(), Modifier.weight(1f), directory::refresh)
                 }
+            } else {
+                PagedList(pager, Modifier.weight(1f), state = state, empty = "没有匹配的仓库", itemKey = { it.id }, itemFilter = {
+                    (visibility == 0 || (visibility == 2) == it.isPrivate) && (!hideForks || !it.fork) &&
+                        (query.isBlank() || it.fullName.contains(query.trim(), true) || it.description?.contains(query.trim(), true) == true)
+                }) { RepoItem(it) }
             }
         }
     }
 }
 
-/** 组织仓库专用面板：按组织汇总仓库，并在列表下方显示组织事件流。 */
 @Composable
 private fun OrganizationReposPanel(
-    orgs: List<String>,
-    visibility: String,
-    sort: String,
-    query: String,
-    hideForks: Boolean,
+    orgs: List<String>, visibility: String, sort: String, query: String, hideForks: Boolean,
+    warnings: List<String>, modifier: Modifier, refreshDirectory: () -> Unit,
 ) {
     val g = Gh.c
-    val ctx = rememberCtx()
+    val nav = LocalNav.current
     val login = Session.login ?: return
-    val repoKey = "org-repos:${orgs.joinToString(",")}:$sort"
-    val eventKey = "org-events:${orgs.joinToString(",")}"
-    val repos = rememberLoader(repoKey) { force -> GitHub.organizationRepos(orgs, sort, force) }
-    val events = rememberLoader(eventKey) { force -> GitHub.organizationEvents(login, orgs, force) }
-    // 被组织访问限制挡住的组织：用于给出明确的提示，而不是只显示空列表
-    val access = rememberLoader("org-access") { GitHub.orgAccess(it) }
-    val restricted = access.data?.restricted.orEmpty().filter { it.lowercase() in orgs.map(String::lowercase) }
-    val requestUrl = "https://github.com/settings/connections/applications/" + BuildConfig.GITHUB_CLIENT_ID
+    val repos = rememberLoader("org-repos:${orgs.joinToString(",")}:$sort") { GitHub.organizationRepos(orgs, sort, it) }
+    val events = rememberLoader("org-events:${orgs.joinToString(",")}") { GitHub.organizationEvents(login, orgs, it) }
+    var category by rememberSaveable { mutableStateOf(EventCat.All) }
     val filtered = repos.data.orEmpty().filter {
-        (visibility == "all" || (visibility == "private") == it.isPrivate) &&
-            (!hideForks || !it.fork) &&
+        (visibility == "all" || (visibility == "private") == it.isPrivate) && (!hideForks || !it.fork) &&
             (query.isBlank() || it.fullName.contains(query, true) || it.description?.contains(query, true) == true)
     }
-
-    if (repos.data == null && repos.error != null) {
-        ErrorState(repos.error!!, Modifier.fillMaxSize()) { repos.load(true); events.load(true) }
-        return
-    }
-    if (repos.data == null) {
-        Loading(Modifier.fillMaxSize())
-        return
-    }
-    PullToRefreshBox(
-        repos.refreshing || events.refreshing,
-        onRefresh = { repos.refresh(); events.refresh() },
-        Modifier.fillMaxSize(),
-    ) {
-        LazyColumn(Modifier.fillMaxSize()) {
+    PullToRefreshBox(repos.refreshing || events.refreshing, { refreshDirectory(); repos.refresh(); events.refresh() }, modifier.fillMaxWidth()) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
             item {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${filtered.size} 个组织仓库", fontSize = 13.sp, color = g.fgMuted, modifier = Modifier.weight(1f))
-                    TextLink("刷新") { repos.refresh(); events.refresh() }
+                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${filtered.size} 个组织仓库", Modifier.weight(1f), fontWeight = FontWeight.SemiBold, color = g.fg)
+                    TextLink("权限诊断") { nav.push(Screen.OrgDiagnostics) }
                 }
             }
-            if (filtered.isEmpty()) {
-                item {
-                    EmptyState(
-                        when {
-                            orgs.isEmpty() -> "没有读取到组织\n请确认 Token 包含 read:org，并让组织批准 MobileGH"
-                            restricted.isNotEmpty() -> "无法读取组织仓库\n${restricted.joinToString("、")} 尚未批准 MobileGH"
-                            else -> "这些组织下没有符合当前筛选的仓库"
-                        },
-                        R.drawable.oc_organization,
-                    )
-                }
-                if (restricted.isNotEmpty()) {
-                    item {
-                        GhButton("申请组织访问权限", Modifier.padding(horizontal = 16.dp).fillMaxWidth(), icon = R.drawable.oc_link_external) {
-                            ctx.openBrowser(requestUrl)
-                        }
-                    }
-                }
-            } else {
-                boxedItems(filtered, key = { it.id }) { RepoItem(it) }
+            if (warnings.isNotEmpty()) item {
+                Text(warnings.joinToString("\n"), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = g.attention, fontSize = 12.sp)
             }
-            item {
-                SectionTitle("组织动态")
-                Text(
-                    "显示所选组织仓库的 push、Issue、Pull Request 和 Release；GitHub 事件接口可能有几分钟延迟。",
-                    Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp), fontSize = 12.sp, color = g.fgMuted,
-                )
+            if (repos.loading) item { Loading(Modifier.fillMaxWidth().height(80.dp)) }
+            repos.error?.let { msg -> item { ErrorState(msg, Modifier.fillMaxWidth()) { repos.refresh() } } }
+            if (filtered.isEmpty() && !repos.loading && repos.error == null) item {
+                EmptyState(if (orgs.isEmpty()) "当前授权未返回组织，查看权限诊断或待处理邀请" else "没有匹配仓库；私有仓库需相应权限和 SSO 授权", R.drawable.oc_organization)
             }
-            val activity = events.data.orEmpty()
-            if (activity.isEmpty()) {
-                item { EmptyState("暂时没有组织动态", R.drawable.oc_pulse) }
-            } else {
-                // 组织事件接口在分页边界偶尔会返回重复 id；复合 key 避免 LazyColumn 因重复 key 崩溃。
-                boxedItems(activity, key = { "${it.id}:${it.repo.name}:${it.createdAt}" }) { EventItem(it) }
+            filtered.groupBy { it.owner.login }.toSortedMap(String.CASE_INSENSITIVE_ORDER).forEach { (org, group) ->
+                item(key = "group:$org") { SectionTitle(org) { TextLink("组织") { nav.push(Screen.Org(org)) } } }
+                boxedItems(group, key = { "repo:${it.id}" }) { RepoItem(it, showOwner = false) }
             }
-            if (events.loading) item { Loading(Modifier.fillMaxWidth().height(72.dp)) }
-            item { Spacer(Modifier.height(28.dp)) }
+            item { SectionTitle("组织动态") }
+            item { Chips(EventCat.entries.map { it.label }, EventCat.entries.indexOf(category)) { category = EventCat.entries[it] } }
+            val activity = events.data.orEmpty().distinctBy { it.id }.filter { category == EventCat.All || eventCat(it) == category }
+            boxedItems(activity, key = { "event:${it.id}" }) { EventItem(it) }
+            if (events.loading) item { Loading(Modifier.fillMaxWidth().height(64.dp)) }
+            events.error?.let { msg -> item { ErrorState(msg, Modifier.fillMaxWidth()) { events.refresh() } } }
+            if (activity.isEmpty() && !events.loading && events.error == null) item { EmptyState("该分类暂时没有动态", R.drawable.oc_pulse) }
+            item { Text("事件由 GitHub 提供，可能延迟；下拉刷新更新。", Modifier.padding(16.dp), color = g.fgMuted, fontSize = 12.sp) }
         }
     }
 }
@@ -323,59 +258,24 @@ fun CreateRepoScreen() {
 @Composable
 fun OrgsScreen() {
     val nav = LocalNav.current
-    val ctx = rememberCtx()
     val g = Gh.c
     val access = rememberLoader("myorgs") { GitHub.orgAccess(it) }
-    val requestUrl = "https://github.com/settings/connections/applications/" + BuildConfig.GITHUB_CLIENT_ID
-    Page("我的组织") { pad ->
+    Page("我的组织", actions = { OcButton(R.drawable.oc_shield_lock, { nav.push(Screen.OrgDiagnostics) }) }) { pad ->
         com.mobilegh.ui.components.LoadBox(access, Modifier.padding(pad).fillMaxSize()) { data ->
-            val list = data.orgs
-            val restricted = data.restricted
             LazyColumn(Modifier.fillMaxSize()) {
-                if (list.isEmpty() && restricted.isEmpty()) item {
-                    EmptyState(
-                        "没有读取到组织\n请下拉刷新；如果仍为空，确认账号已接受组织邀请、Token 包含 read:org",
-                        R.drawable.oc_organization,
-                    )
+                item { SectionTitle("${data.orgs.size} 个可访问组织") { TextLink("权限诊断") { nav.push(Screen.OrgDiagnostics) } } }
+                if (data.warnings.isNotEmpty()) item {
+                    Text(data.warnings.joinToString("\n"), Modifier.padding(16.dp), color = g.attention, fontSize = 13.sp)
                 }
-                if (restricted.isNotEmpty()) {
-                    item {
-                        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Oc(R.drawable.oc_shield_lock, g.attention, 18.dp)
-                                Spacer(Modifier.width(8.dp))
-                                Text("${restricted.size} 个组织需要批准 MobileGH", color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            }
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                "这些组织开启了「第三方 OAuth 应用访问限制」，未被批准的应用看不到它们的仓库。" +
-                                    "GitHub 官方 App 是特权应用所以不受限制；MobileGH 需要你在下面申请、由组织所有者批准。",
-                                color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp,
-                            )
-                            Spacer(Modifier.height(10.dp))
-                            GhButton("申请组织访问权限", Modifier.fillMaxWidth(), icon = R.drawable.oc_link_external) {
-                                ctx.openBrowser(requestUrl)
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            Text(restricted.joinToString("、"), color = g.fg, fontSize = 13.sp)
-                        }
-                        HDivider()
-                    }
-                }
-                item { Spacer(Modifier.height(12.dp)) }
-                boxedItems(list, key = { it.login }) { o ->
+                if (data.orgs.isEmpty()) item { EmptyState("当前授权没有返回组织。请检查权限、组织策略、SSO 和邀请状态。", R.drawable.oc_organization) }
+                boxedItems(data.orgs, key = { it.login }) { o ->
                     UserItem(com.mobilegh.data.User(login = o.login, avatarUrl = o.avatarUrl, type = "Organization", description = o.description))
                 }
-                if (restricted.isNotEmpty()) {
-                    boxedItems(restricted, key = { it }) { name ->
-                        UserItem(com.mobilegh.data.User(login = name, type = "Organization", description = "待批准：点上方按钮申请访问"))
-                    }
-                }
                 item {
+                    Spacer(Modifier.height(16.dp))
+                    GhButton("重新读取组织", Modifier.padding(horizontal = 16.dp).fillMaxWidth(), icon = R.drawable.oc_sync) { access.refresh() }
                     Spacer(Modifier.height(8.dp))
-                    GhButton("重新读取组织", Modifier.padding(horizontal = 16.dp).fillMaxWidth(), icon = R.drawable.oc_sync) { access.load(true) }
-                    Spacer(Modifier.height(8.dp))
-                    GhButton("查看待处理的组织邀请", Modifier.padding(horizontal = 16.dp).fillMaxWidth(), icon = R.drawable.oc_mail) { nav.push(Screen.Invitations) }
+                    GhButton("待处理组织邀请", Modifier.padding(horizontal = 16.dp).fillMaxWidth(), icon = R.drawable.oc_mail) { nav.push(Screen.Invitations) }
                 }
             }
         }

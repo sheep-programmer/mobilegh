@@ -1,6 +1,8 @@
 package com.mobilegh.data
 
-import android.net.Uri
+import java.net.URI
+import java.net.URLDecoder
+import java.util.Locale
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
@@ -15,19 +17,29 @@ object Totp {
     fun normalize(input: String): String {
         val s = input.trim()
         val secret = if (s.startsWith("otpauth://", ignoreCase = true)) {
-            runCatching { Uri.parse(s).getQueryParameter("secret") }.getOrNull() ?: ""
+            val uri = URI(s)
+            require(uri.host.equals("totp", true)) { "仅支持 TOTP 链接" }
+            val params = uri.rawQuery.orEmpty().split('&').associate {
+                val parts = it.split('=', limit = 2)
+                parts[0] to URLDecoder.decode(parts.getOrElse(1) { "" }, "UTF-8")
+            }
+            require(params["algorithm"].orEmpty().ifBlank { "SHA1" }.equals("SHA1", true)) { "GitHub 使用 SHA1 验证码" }
+            require(params["digits"].orEmpty().ifBlank { "6" } == "6") { "GitHub 使用 6 位验证码" }
+            require(params["period"].orEmpty().ifBlank { "30" } == "30") { "GitHub 使用 30 秒验证码" }
+            params["secret"].orEmpty()
         } else {
             s
         }
-        return secret.replace(" ", "").replace("-", "").uppercase()
+        return secret.filterNot { it.isWhitespace() || it == '-' }.uppercase(Locale.ROOT)
     }
 
     /** 校验密钥是否为合法 Base32 且能算出码 */
     fun isValid(secret: String): Boolean =
-        runCatching { base32Decode(normalize(secret)).isNotEmpty() && now(secret).length == 6 }.getOrDefault(false)
+        runCatching { base32Decode(normalize(secret)).size >= 10 && now(secret).length == 6 }.getOrDefault(false)
 
     /** 当前时间片的 6 位验证码 */
     fun now(secret: String, timeMs: Long = System.currentTimeMillis(), digits: Int = 6, periodSec: Int = 30): String {
+        require(digits in 6..8 && periodSec > 0 && timeMs >= 0) { "invalid TOTP parameters" }
         val key = base32Decode(normalize(secret))
         require(key.isNotEmpty()) { "empty secret" }
         val counter = timeMs / 1000L / periodSec
@@ -54,13 +66,15 @@ object Totp {
         (periodSec - (System.currentTimeMillis() / 1000L % periodSec)).toInt()
 
     private fun base32Decode(s: String): ByteArray {
-        val clean = s.trim().trimEnd('=').uppercase()
+        val clean = s.trim().trimEnd('=').uppercase(Locale.ROOT)
+        require(clean.isNotEmpty() && clean.all { it in BASE32 }) { "invalid Base32 secret" }
+        require(clean.length % 8 !in listOf(1, 3, 6)) { "truncated Base32 secret" }
         var buffer = 0
         var bits = 0
         val out = ArrayList<Byte>(clean.length * 5 / 8 + 1)
         for (c in clean) {
             val idx = BASE32.indexOf(c)
-            if (idx < 0) continue
+            require(idx >= 0) { "invalid Base32 character" }
             buffer = (buffer shl 5) or idx
             bits += 5
             if (bits >= 8) {

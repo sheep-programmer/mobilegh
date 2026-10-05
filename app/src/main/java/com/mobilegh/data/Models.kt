@@ -431,6 +431,13 @@ data class PopularPath(val path: String = "", val title: String = "", val count:
 @Serializable
 data class WeekActivity(val days: List<Int> = emptyList(), val total: Int = 0, val week: Long = 0)
 
+/** /stats/contributors 的周数据：w=周起始 Unix 秒，a=新增行，d=删除行，c=提交数 */
+@Serializable
+data class StatWeek(val w: Long = 0, val a: Int = 0, val d: Int = 0, val c: Int = 0)
+
+@Serializable
+data class ContributorStat(val author: User = User(), val total: Int = 0, val weeks: List<StatWeek> = emptyList())
+
 @Serializable
 data class GistFile(val filename: String = "", val type: String? = null, val language: String? = null, val rawUrl: String = "", val size: Long = 0, val content: String? = null, val truncated: Boolean = false)
 

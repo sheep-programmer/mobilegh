@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,8 +35,10 @@ import com.mobilegh.nav.rememberPager
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Chips
+import com.mobilegh.ui.components.EventCat
 import com.mobilegh.ui.components.EventItem
 import com.mobilegh.ui.components.HDivider
+import com.mobilegh.ui.components.eventCat
 import com.mobilegh.ui.components.IssueItem
 import com.mobilegh.ui.components.MenuRow
 import com.mobilegh.ui.components.MenuGroup
@@ -56,6 +59,7 @@ fun HomeScreen() {
     }
     val contrib = rememberContrib(login)
     val feed = rememberPager("feed") { p, f -> GitHub.received(login, p, f) }
+    var cat by rememberSaveable { mutableStateOf(EventCat.All) }
     val state = rememberLazyListState()
     LaunchedEffect(nav.reselect) { if (nav.reselect > 0 && nav.tab == Tab.Home) state.animateScrollToItem(0) }
 
@@ -70,6 +74,8 @@ fun HomeScreen() {
             feed, Modifier.padding(pad).fillMaxSize(), state,
             empty = "关注一些开发者或 star 一些仓库后，这里会显示动态",
             onRefresh = { me.refresh(); invites.refresh(); contrib.refresh() },
+            itemFilter = { cat == EventCat.All || eventCat(it) == cat },
+            itemKey = { it.id },
             header = {
                 item {
                     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -94,6 +100,7 @@ fun HomeScreen() {
                         MenuRow(R.drawable.oc_repo, "仓库（含协作与组织）", Color(0xFF59636E)) { nav.select(Tab.Repos) }
                         MenuRow(R.drawable.oc_organization, "组织", Color(0xFFBC4C00)) { nav.push(Screen.Orgs) }
                         MenuRow(R.drawable.oc_star, "已 Star", Color(0xFFBF8700)) { nav.push(Screen.Repos(RepoKind.Starred, login)) }
+                        MenuRow(R.drawable.oc_checklist, "自定义列表", Color(0xFFD4A72C)) { nav.push(Screen.StarLists(login)) }
                         MenuRow(R.drawable.oc_mail, "待处理邀请", Color(0xFF8250DF), count = invites.data?.takeIf { it > 0 }) { nav.push(Screen.Invitations) }
                         MenuRow(R.drawable.oc_code_square, "Gists", Color(0xFF24292F)) { nav.push(Screen.Gists(null)) }
                     }
@@ -101,6 +108,9 @@ fun HomeScreen() {
                 item { SectionTitle("贡献") { com.mobilegh.ui.components.TextLink("详情") { nav.select(Tab.Me) } } }
                 item { Card(Modifier.padding(horizontal = 16.dp)) { ContributionBody(contrib, full = false) } }
                 item { SectionTitle("动态") }
+                item {
+                    Chips(EventCat.entries.map { it.label }, EventCat.entries.indexOf(cat)) { cat = EventCat.entries[it] }
+                }
             },
         ) { EventItem(it) }
     }

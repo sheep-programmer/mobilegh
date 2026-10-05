@@ -16,3 +16,5 @@
 arm64-v8a 推荐；另提供 armeabi-v7a、x86_64、universal。沿用原发布证书，可覆盖升级。
 
 验证：91 项单元测试通过；Release 构建与 Android lint 通过（0 errors）；4 个 APK 的 V2/V3 签名通过，证书与 v0.19 相同。模拟器可打开原生登录页，但 Android System UI/Launcher 出现 ANR，完整交互验证仍有限。真实 Lists/Discussions/Compare 读取已核对，写操作使用响应/权限/账号切换测试覆盖；未完成真人完整 2FA 与真实过期续期验证。
+
+补充实测：在该账号为 MobileGH 批准 iyuca-cn、cursimple 后，本应用自己的 OAuth Token 已读取到 2 个组织、15 个仓库（其中 4 个私有）；设备授权已正常走通并返回无固定 expires_in 的 Token。设备数字匹配的相关字段在自有 OAuth/PAT/CLI 对照中仍不可见，未完成设备注册/批准，不将此项宣称已替代。

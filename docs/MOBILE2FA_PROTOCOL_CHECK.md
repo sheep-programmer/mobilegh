@@ -225,3 +225,21 @@ query MobileGHMobile2FAParameterTypes {
 2026-10-06 使用当前账号的 GitHub CLI OAuth 授权、MobileGH 自己的 User-Agent，分别不带/带本报告从 APK 提取的完整 8 项 GraphQL-Features，对 `viewer.mobileAuthStatus` 作只读查询。两者都得到 GraphQL `undefinedField`，错误类型 User、字段 mobileAuthStatus。带相同请求头查询实际 MobileDeviceKeyType 及 User/Mutation 字段：枚举为 null，相关注册/批准/状态字段未返回。没有发送注册或批准 mutation，也没有使用官方 App 身份、现有设备私钥或其他人的凭据。
 
 这个结果证明完整已知请求头未对该 CLI OAuth 上下文开放能力；尚不能替代 MobileGH 自己签发 Token 的对照，也不能证明所有内部接口技术上永久不可实现。
+
+## Classic PAT 与组织批准的补充验证
+
+在用户完成当前 GitHub 身份复核后，已给 iyuca-cn、cursimple 两个组织批准 MobileGH。授权连接页中两者均从 Grant/Restricted 变成 Revoke/Allowed，保留组织其他应用的访问限制。
+
+另创建并实际验证了仅含 read:org、repo、user 的临时 Classic PAT（账号为 sheep-programmer）。基准和 APK 的完整 8 项 GraphQL-Features 请求下，viewer.mobileAuthStatus 均返回 undefinedField；MobileDeviceKeyType 枚举仍为 null，User/Mutation 的 mobile 字段为空。该 PAT 能读取两组织。没有注册/批准/删除任何 2FA 密钥；仅撤销本次临时 PAT，原有 Token 未动。
+
+这进一步证明当前默认 PAT 登录上下文不提供文档中的设备审批接口，仍不宣称所有未来接口或其他授权上下文永久不可实现。
+
+## MobileGH 自有 OAuth 的实测结果
+
+已通过 MobileGH 自己的 Client ID（Ov23litcWlPUB3KqPlQ2）的公开设备流程，在本人当前网页会话正常授权并获得真实 OAuth Token。通过 `/user` 核对账号 sheep-programmer；实际 scopes 为 gist、notifications、read:org、repo、user、workflow。响应没有 expires_in 或 refresh_token，符合当前服务端关闭固定到期的设置；没有称此授权永不撤销。
+
+与 CLI/PAT 的测试保持同 endpoint 和 MobileGH User-Agent，分别不带、带 APK 的完整八项 GraphQL-Features。两个请求均返回 User.mobileAuthStatus 的 undefinedField。MobileDeviceKeyType 为 null；User 和 Mutation 的相关 mobile 字段均未返回。未注册或修改 2FA 设备，也未尝试借用官方客户端身份。
+
+组织批准后，该真实 MobileGH OAuth 可以读取 iyuca-cn、cursimple；当前分别返回 9 和 6 个仓库，共 15 个，其中 iyuca-cn 有 4 个私有仓库。仓库数量是本次查询的快照，未来可变化。这是本应用自己的授权结果，不再以 CLI 或 Classic PAT 的返回代替 OAuth 验证。
+
+**当前实现结论：组织/仓库访问已在该账号上打通；数字匹配设备注册/批准仍没有在以上真实凭据上下文找到可调用契约，客户端流程尚未达到注册成功阶段。本地生成密钥和签名可实现，但它不能改变当前服务端暴露的接口集合。此结论限定为本轮验证的账号、凭据和请求条件，不宣称任何未来 GitHub 接口永远无法支持第三方。**

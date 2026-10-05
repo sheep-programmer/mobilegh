@@ -216,3 +216,7 @@ APK：`/Users/sheep/Downloads/GitHub.apk.1`，大小 `41718693` 字节；清单�
 当前本机 gh CLI 凭据是 OAuth Token（`gho_` 类型），不是 Classic PAT。用它读到组织，只能证明该 OAuth 授权可访问那些组织，不能作为“PAT 无条件绕过组织限制”的证据。
 
 公开 schema 同时提供了 GitHub Lists 的 `createUserList`、`updateUserList`、`deleteUserList` 和 `updateUserListsForItem`，本轮使用这些接口实现原生列表；成就仍按公开主页读取。[UserList 官方文档](https://docs.github.com/en/graphql/reference/users#userlist)
+
+## 本轮后续验证
+
+[实际 APK 协议和真实凭据对照](MOBILE2FA_PROTOCOL_CHECK.md)已补齐 CLI OAuth、临时 Classic PAT 和 MobileGH 自有 OAuth 的 baseline/原版请求头测试。三者的已知设备批准字段均不可见；临时 PAT 已撤销。用户完成身份复核后，两组织已批准 MobileGH，实际自有 OAuth 读取到 2 组织、15 仓库（4 私有）。组织访问已解决，设备批准尚未实现。

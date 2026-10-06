@@ -1,0 +1,532 @@
+{
+  "date": "2026-10-06",
+  "deviceFlow": {
+    "credential": "MobileGH-own-OAuth-official-requested-scopes",
+    "login": "sheep-programmer",
+    "requestedScopes": "user repo notifications admin:org read:discussion user:assets project workflow",
+    "issuedScopes": "admin:org,notifications,project,read:discussion,repo,user,workflow",
+    "actualScopes": "admin:org, notifications, project, read:discussion, repo, user, workflow",
+    "responses": [
+      {
+        "mode": "baseline",
+        "query": "status",
+        "response": {
+          "errors": [
+            {
+              "path": [
+                "query MobileGHDeviceApprovalStatus",
+                "viewer",
+                "mobileAuthStatus"
+              ],
+              "extensions": {
+                "code": "undefinedField",
+                "typeName": "User",
+                "fieldName": "mobileAuthStatus"
+              },
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 47
+                }
+              ],
+              "message": "Field 'mobileAuthStatus' doesn't exist on type 'User'"
+            }
+          ]
+        }
+      },
+      {
+        "mode": "baseline",
+        "query": "schema",
+        "response": {
+          "keyKind": null,
+          "userFields": [],
+          "mutationFields": [],
+          "errors": null
+        }
+      },
+      {
+        "mode": "apk-features",
+        "query": "status",
+        "response": {
+          "errors": [
+            {
+              "path": [
+                "query MobileGHDeviceApprovalStatus",
+                "viewer",
+                "mobileAuthStatus"
+              ],
+              "extensions": {
+                "code": "undefinedField",
+                "typeName": "User",
+                "fieldName": "mobileAuthStatus"
+              },
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 47
+                }
+              ],
+              "message": "Field 'mobileAuthStatus' doesn't exist on type 'User'"
+            }
+          ]
+        }
+      },
+      {
+        "mode": "apk-features",
+        "query": "schema",
+        "response": {
+          "keyKind": null,
+          "userFields": [],
+          "mutationFields": [],
+          "errors": null
+        }
+      }
+    ]
+  },
+  "deviceMutationValidation": [
+    {
+      "mode": "baseline",
+      "probe": "registration-contract",
+      "response": {
+        "errors": [
+          {
+            "path": [
+              "mutation MobileGHRegistrationContractValidation",
+              "addMobileDevicePublicKey"
+            ],
+            "extensions": {
+              "code": "undefinedField",
+              "typeName": "Mutation",
+              "fieldName": "addMobileDevicePublicKey"
+            },
+            "locations": [
+              {
+                "line": 1,
+                "column": 65
+              }
+            ],
+            "message": "Field 'addMobileDevicePublicKey' doesn't exist on type 'Mutation'"
+          },
+          {
+            "path": [
+              "mutation MobileGHRegistrationContractValidation"
+            ],
+            "extensions": {
+              "code": "variableNotUsed",
+              "variableName": "probe"
+            },
+            "locations": [
+              {
+                "line": 1,
+                "column": 1
+              }
+            ],
+            "message": "Variable $probe is declared by MobileGHRegistrationContractValidation but not used"
+          }
+        ]
+      }
+    },
+    {
+      "mode": "baseline",
+      "probe": "approval-contract",
+      "response": {
+        "errors": [
+          {
+            "path": [
+              "mutation MobileGHApprovalContractValidation",
+              "approveMobileAuthDeviceRequest"
+            ],
+            "extensions": {
+              "code": "undefinedField",
+              "typeName": "Mutation",
+              "fieldName": "approveMobileAuthDeviceRequest"
+            },
+            "locations": [
+              {
+                "line": 1,
+                "column": 64
+              }
+            ],
+            "message": "Field 'approveMobileAuthDeviceRequest' doesn't exist on type 'Mutation'"
+          },
+          {
+            "path": [
+              "mutation MobileGHApprovalContractValidation"
+            ],
+            "extensions": {
+              "code": "variableNotUsed",
+              "variableName": "probe"
+            },
+            "locations": [
+              {
+                "line": 1,
+                "column": 1
+              }
+            ],
+            "message": "Variable $probe is declared by MobileGHApprovalContractValidation but not used"
+          }
+        ]
+      }
+    },
+    {
+      "mode": "apk-features",
+      "probe": "registration-contract",
+      "response": {
+        "errors": [
+          {
+            "path": [
+              "mutation MobileGHRegistrationContractValidation",
+              "addMobileDevicePublicKey"
+            ],
+            "extensions": {
+              "code": "undefinedField",
+              "typeName": "Mutation",
+              "fieldName": "addMobileDevicePublicKey"
+            },
+            "locations": [
+              {
+                "line": 1,
+                "column": 65
+              }
+            ],
+            "message": "Field 'addMobileDevicePublicKey' doesn't exist on type 'Mutation'"
+          },
+          {
+            "path": [
+              "mutation MobileGHRegistrationContractValidation"
+            ],
+            "extensions": {
+              "code": "variableNotUsed",
+              "variableName": "probe"
+            },
+            "locations": [
+              {
+                "line": 1,
+                "column": 1
+              }
+            ],
+            "message": "Variable $probe is declared by MobileGHRegistrationContractValidation but not used"
+          }
+        ]
+      }
+    },
+    {
+      "mode": "apk-features",
+      "probe": "approval-contract",
+      "response": {
+        "errors": [
+          {
+            "path": [
+              "mutation MobileGHApprovalContractValidation",
+              "approveMobileAuthDeviceRequest"
+            ],
+            "extensions": {
+              "code": "undefinedField",
+              "typeName": "Mutation",
+              "fieldName": "approveMobileAuthDeviceRequest"
+            },
+            "locations": [
+              {
+                "line": 1,
+                "column": 64
+              }
+            ],
+            "message": "Field 'approveMobileAuthDeviceRequest' doesn't exist on type 'Mutation'"
+          },
+          {
+            "path": [
+              "mutation MobileGHApprovalContractValidation"
+            ],
+            "extensions": {
+              "code": "variableNotUsed",
+              "variableName": "probe"
+            },
+            "locations": [
+              {
+                "line": 1,
+                "column": 1
+              }
+            ],
+            "message": "Variable $probe is declared by MobileGHApprovalContractValidation but not used"
+          }
+        ]
+      }
+    }
+  ],
+  "webFlow": {
+    "credential": "MobileGH-own-web-OAuth-PKCE",
+    "login": "sheep-programmer",
+    "requestedScopes": "user repo notifications admin:org read:discussion user:assets project workflow",
+    "issuedScopes": "admin:org,notifications,project,read:discussion,repo,user,workflow",
+    "actualScopes": "admin:org, notifications, project, read:discussion, repo, user, workflow",
+    "responses": [
+      {
+        "mode": "baseline",
+        "query": "status",
+        "response": {
+          "errors": [
+            {
+              "path": [
+                "query MobileGHWebOAuthApprovalStatus",
+                "viewer",
+                "mobileAuthStatus"
+              ],
+              "extensions": {
+                "code": "undefinedField",
+                "typeName": "User",
+                "fieldName": "mobileAuthStatus"
+              },
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 49
+                }
+              ],
+              "message": "Field 'mobileAuthStatus' doesn't exist on type 'User'"
+            }
+          ]
+        }
+      },
+      {
+        "mode": "baseline",
+        "query": "schema",
+        "response": {
+          "keyKind": null,
+          "mutationFields": [],
+          "errors": null
+        }
+      },
+      {
+        "mode": "baseline",
+        "query": "registration-contract",
+        "response": {
+          "errors": [
+            {
+              "path": [
+                "mutation MobileGHWebRegistrationContractValidation",
+                "addMobileDevicePublicKey"
+              ],
+              "extensions": {
+                "code": "undefinedField",
+                "typeName": "Mutation",
+                "fieldName": "addMobileDevicePublicKey"
+              },
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 68
+                }
+              ],
+              "message": "Field 'addMobileDevicePublicKey' doesn't exist on type 'Mutation'"
+            },
+            {
+              "path": [
+                "mutation MobileGHWebRegistrationContractValidation"
+              ],
+              "extensions": {
+                "code": "variableNotUsed",
+                "variableName": "probe"
+              },
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 1
+                }
+              ],
+              "message": "Variable $probe is declared by MobileGHWebRegistrationContractValidation but not used"
+            }
+          ]
+        }
+      },
+      {
+        "mode": "baseline",
+        "query": "approval-contract",
+        "response": {
+          "errors": [
+            {
+              "path": [
+                "mutation MobileGHWebApprovalContractValidation",
+                "approveMobileAuthDeviceRequest"
+              ],
+              "extensions": {
+                "code": "undefinedField",
+                "typeName": "Mutation",
+                "fieldName": "approveMobileAuthDeviceRequest"
+              },
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 67
+                }
+              ],
+              "message": "Field 'approveMobileAuthDeviceRequest' doesn't exist on type 'Mutation'"
+            },
+            {
+              "path": [
+                "mutation MobileGHWebApprovalContractValidation"
+              ],
+              "extensions": {
+                "code": "variableNotUsed",
+                "variableName": "probe"
+              },
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 1
+                }
+              ],
+              "message": "Variable $probe is declared by MobileGHWebApprovalContractValidation but not used"
+            }
+          ]
+        }
+      },
+      {
+        "mode": "apk-features",
+        "query": "status",
+        "response": {
+          "errors": [
+            {
+              "path": [
+                "query MobileGHWebOAuthApprovalStatus",
+                "viewer",
+                "mobileAuthStatus"
+              ],
+              "extensions": {
+                "code": "undefinedField",
+                "typeName": "User",
+                "fieldName": "mobileAuthStatus"
+              },
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 49
+                }
+              ],
+              "message": "Field 'mobileAuthStatus' doesn't exist on type 'User'"
+            }
+          ]
+        }
+      },
+      {
+        "mode": "apk-features",
+        "query": "schema",
+        "response": {
+          "keyKind": null,
+          "mutationFields": [],
+          "errors": null
+        }
+      },
+      {
+        "mode": "apk-features",
+        "query": "registration-contract",
+        "response": {
+          "errors": [
+            {
+              "path": [
+                "mutation MobileGHWebRegistrationContractValidation",
+                "addMobileDevicePublicKey"
+              ],
+              "extensions": {
+                "code": "undefinedField",
+                "typeName": "Mutation",
+                "fieldName": "addMobileDevicePublicKey"
+              },
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 68
+                }
+              ],
+              "message": "Field 'addMobileDevicePublicKey' doesn't exist on type 'Mutation'"
+            },
+            {
+              "path": [
+                "mutation MobileGHWebRegistrationContractValidation"
+              ],
+              "extensions": {
+                "code": "variableNotUsed",
+                "variableName": "probe"
+              },
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 1
+                }
+              ],
+              "message": "Variable $probe is declared by MobileGHWebRegistrationContractValidation but not used"
+            }
+          ]
+        }
+      },
+      {
+        "mode": "apk-features",
+        "query": "approval-contract",
+        "response": {
+          "errors": [
+            {
+              "path": [
+                "mutation MobileGHWebApprovalContractValidation",
+                "approveMobileAuthDeviceRequest"
+              ],
+              "extensions": {
+                "code": "undefinedField",
+                "typeName": "Mutation",
+                "fieldName": "approveMobileAuthDeviceRequest"
+              },
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 67
+                }
+              ],
+              "message": "Field 'approveMobileAuthDeviceRequest' doesn't exist on type 'Mutation'"
+            },
+            {
+              "path": [
+                "mutation MobileGHWebApprovalContractValidation"
+              ],
+              "extensions": {
+                "code": "variableNotUsed",
+                "variableName": "probe"
+              },
+              "locations": [
+                {
+                  "line": 1,
+                  "column": 1
+                }
+              ],
+              "message": "Variable $probe is declared by MobileGHWebApprovalContractValidation but not used"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "websiteSession": {
+    "context": "own-website-session-apk-operation-id",
+    "http": 404,
+    "errors": [
+      {
+        "type": "unknownQuery",
+        "message": "No query with given identifier known",
+        "extensions": {
+          "code": "unknownQuery"
+        }
+      }
+    ],
+    "hasStatus": false,
+    "keyRegistered": null
+  },
+  "cleanup": [
+    {
+      "flow": "device",
+      "deleteStatus": 204,
+      "subsequentStatus": 401
+    },
+    {
+      "flow": "web",
+      "deleteStatus": 204,
+      "subsequentStatus": 401
+    }
+  ]
+}

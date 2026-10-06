@@ -243,3 +243,11 @@ query MobileGHMobile2FAParameterTypes {
 组织批准后，该真实 MobileGH OAuth 可以读取 iyuca-cn、cursimple；当前分别返回 9 和 6 个仓库，共 15 个，其中 iyuca-cn 有 4 个私有仓库。仓库数量是本次查询的快照，未来可变化。这是本应用自己的授权结果，不再以 CLI 或 Classic PAT 的返回代替 OAuth 验证。
 
 **当前实现结论：组织/仓库访问已在该账号上打通；数字匹配设备注册/批准仍没有在以上真实凭据上下文找到可调用契约，客户端流程尚未达到注册成功阶段。本地生成密钥和签名可实现，但它不能改变当前服务端暴露的接口集合。此结论限定为本轮验证的账号、凭据和请求条件，不宣称任何未来 GitHub 接口永远无法支持第三方。**
+
+## 官方请求范围及网页流程的后续对照
+
+[补充核验记录](MOBILE2FA_OAUTH_SCOPE_CHECK.md)读取了官方原生登录真正申请的 `user repo notifications admin:org read:discussion user:assets project workflow`。用户完成身份复核后，使用 MobileGH 自己的应用分别取得设备流程和 S256 PKCE 网页流程的 Token；实际 scope 均为 `admin:org,notifications,project,read:discussion,repo,user,workflow`，`user:assets` 没有出现。
+
+两种流程在基准／完整已知 APK feature headers 下，`User.mobileAuthStatus`、注册 mutation、批准 mutation 均不可见。刻意无效的输入仅用于 mutation 编译校验，均在执行前返回 `undefinedField`；没有提交真实密钥、请求 ID 或签名。[脱敏响应](MOBILE2FA_OAUTH_TEST_RESULTS.json)保留具体错误及清理结果。
+
+因此，当前已知协议没有在这两个真实 MobileGH 扩展授权上下文打通。公开 IPC 与认证通知的委托路径也未发现数字输入／批准契约。基于正常可见界面的辅助控制属于另一种架构，需要用户接受系统辅助权限，并在真实官方界面验证后才能报告可用。

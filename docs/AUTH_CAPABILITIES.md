@@ -220,3 +220,5 @@ APK：`/Users/sheep/Downloads/GitHub.apk.1`，大小 `41718693` 字节；清单�
 ## 本轮后续验证
 
 [实际 APK 协议和真实凭据对照](MOBILE2FA_PROTOCOL_CHECK.md)已补齐 CLI OAuth、临时 Classic PAT 和 MobileGH 自有 OAuth 的 baseline/原版请求头测试。三者的已知设备批准字段均不可见；临时 PAT 已撤销。用户完成身份复核后，两组织已批准 MobileGH，实际自有 OAuth 读取到 2 组织、15 仓库（4 私有）。组织访问已解决，设备批准尚未实现。
+
+[官方完整请求范围与授权方式的后续对照](MOBILE2FA_OAUTH_SCOPE_CHECK.md)进一步验证了 MobileGH 自有设备授权，以及带 S256 PKCE 的网页授权。两者实际签发同一组扩展范围，但状态、注册、批准字段仍返回 `undefinedField`；请求中的 `user:assets` 没有出现在实际 scope 列表。两枚本次测试 Token 已定向撤销，原有授权保留。当前 APK 仍未提供独立的两位数字批准，不把打开官方 App 当成该功能的完成证明。

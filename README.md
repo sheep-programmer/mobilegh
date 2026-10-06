@@ -57,6 +57,8 @@ Kotlin + Jetpack Compose（Material 3，GitHub Primer 配色），最低 Android
 
 [认证能力、APK 核对与组织权限说明](docs/AUTH_CAPABILITIES.md)记录了公开 schema 与官方资料。GitHub Mobile 的数字匹配设备注册及批准 API 未公开供第三方使用；通过 2FA 不会增加仓库权限。PAT、OAuth 和组织 SSO/策略均影响访问范围，不能保证与第一方特权应用相同。
 
+当前版本尚未支持在 MobileGH 内独立输入两位数字并批准 GitHub 登录。[自有 OAuth 实测](docs/MOBILE2FA_OAUTH_SCOPE_CHECK.md)已对照官方请求范围、设备授权、网页授权与 APK 请求头，设备注册／批准字段均未向被测授权暴露；现有入口只负责打开官方 App。
+
 ## 下载
 
 去 [Releases](../../releases) 页面下载。默认装 `arm64-v8a`（绝大多数现代手机）；老 32 位设备用 `armeabi-v7a`，模拟器 / x86 设备用 `x86_64`，不确定就用 `universal`。

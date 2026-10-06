@@ -24,13 +24,18 @@ object DeviceAuth {
         .readTimeout(25, TimeUnit.SECONDS).callTimeout(30, TimeUnit.SECONDS).build()
 
     suspend fun start(clientId: String): DeviceAuthorization {
-        val r = post("/login/device/code", "client_id" to clientId, "scope" to SCOPES)
+        return decodeAuthorization(post("/login/device/code", "client_id" to clientId, "scope" to SCOPES))
+    }
+
+    internal fun decodeAuthorization(r: JsonObject): DeviceAuthorization {
         val uri = r.str("verification_uri") ?: error("GitHub 未返回授权地址")
         require(uri == "https://github.com/login/device") { "GitHub 返回了未知的授权地址" }
+        val expires = r.str("expires_in")?.toIntOrNull()?.takeIf { it > 0 }
+            ?: error("GitHub 未返回有效的授权期限")
         return DeviceAuthorization(
             r.str("device_code") ?: error(r.str("error_description") ?: "无法获取设备码"),
             r.str("user_code") ?: error("无法获取授权码"), uri,
-            r.str("expires_in")?.toIntOrNull()?.coerceIn(30, 1800) ?: 900,
+            expires.coerceAtMost(1800),
             r.str("interval")?.toIntOrNull()?.coerceAtLeast(5) ?: 5,
         )
     }
@@ -67,9 +72,9 @@ object DeviceAuth {
             .header("Accept", "application/json").header("User-Agent", "MobileGH").build()
         return withContext(Dispatchers.IO) {
             client.newCall(request).await().use { r ->
+                if (!r.isSuccessful) throw ApiException(r.code, "授权请求失败 (${r.code})")
                 val payload = Api.plain.parseToJsonElement(r.body.string()) as? JsonObject
                     ?: error("GitHub 未返回有效的授权信息")
-                if (!r.isSuccessful) throw ApiException(r.code, "授权请求失败 (${r.code})")
                 payload
             }
         }

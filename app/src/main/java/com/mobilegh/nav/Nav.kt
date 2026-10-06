@@ -109,6 +109,12 @@ class Navigator {
         stack.clear()
     }
 
+    fun dispose() {
+        popToRoot()
+        root.dispose()
+        tabEntries.values.forEach { it.dispose() }
+    }
+
     fun select(t: Tab) {
         if (tab == t) reselect++ else tab = t
     }

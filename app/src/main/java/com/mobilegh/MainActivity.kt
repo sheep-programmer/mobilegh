@@ -20,11 +20,15 @@ class NavVm : ViewModel() {
 
     fun navFor(generation: Int): Navigator {
         if (generation != gen) {
-            if (gen != -1) current.popToRoot()
+            current.dispose()
             current = Navigator()
             gen = generation
         }
         return current
+    }
+
+    override fun onCleared() {
+        current.dispose()
     }
 }
 

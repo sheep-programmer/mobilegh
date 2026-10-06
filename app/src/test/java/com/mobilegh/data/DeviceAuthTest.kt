@@ -25,4 +25,16 @@ class DeviceAuthTest {
         assertTrue(decode("""{"access_token":"","error":"unknown"}""") is DevicePoll.Failed)
         assertTrue(decode("{}") is DevicePoll.Failed)
     }
+    @Test fun shortAuthorizationDeadlinesAreNeverExtendedLocally() {
+        val data = Json.parseToJsonElement("""{"device_code":"device-test","user_code":"ABCD-EFGH","verification_uri":"https://github.com/login/device","expires_in":5,"interval":5}""").jsonObject
+        assertEquals(5, DeviceAuth.decodeAuthorization(data).expiresIn)
+    }
+    @Test fun invalidAuthorizationLifetimeAndUnknownUrlsAreRejected() {
+        for (expires in listOf("0", "-1", "null")) {
+            val data = Json.parseToJsonElement("""{"device_code":"device-test","user_code":"ABCD-EFGH","verification_uri":"https://github.com/login/device","expires_in":$expires}""").jsonObject
+            assertThrows(IllegalStateException::class.java) { DeviceAuth.decodeAuthorization(data) }
+        }
+        val data = Json.parseToJsonElement("""{"device_code":"device-test","user_code":"ABCD-EFGH","verification_uri":"https://example.com/login","expires_in":900}""").jsonObject
+        assertThrows(IllegalArgumentException::class.java) { DeviceAuth.decodeAuthorization(data) }
+    }
 }

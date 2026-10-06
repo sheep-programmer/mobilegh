@@ -2,7 +2,9 @@
 
 核对日期：2026-10-06。**结论：已确认官方数字输入、批准／拒绝与结果提示的静态 UI 链路；普通 Android 辅助服务能否实际读取、输入、点击并可靠确认结果，仍未验证。不能承诺“在 MobileGH 输入两位数即可批准”可用。**
 
-候选架构是保留官方 App，由用户明确启用辅助控制，并在 MobileGH 对每笔请求手动输入数字、核对请求和确认后，辅助操作官方可见界面。用户对这项架构取舍仍待回复。本报告不构成实现授权，也没有实现 App 或运行任何设备组件。
+**用户已明确选择独立实现，不使用辅助控制。本方案已排除，不进入开发或运行时验证。** 以下仅保留此前的静态分析记录，没有实现 App 或运行任何设备组件。
+
+此前评估的候选架构是保留官方 App，由用户明确启用辅助控制，并在 MobileGH 对每笔请求手动输入数字、核对请求和确认后，辅助操作官方可见界面。它不满足当前独立实现要求。
 
 主流程的真实 MobileGH OAuth 对照与凭据清理已完成，本轮不重新执行授权或访问账号。此前三个字段 `User.mobileAuthStatus`、`Mutation.addMobileDevicePublicKey`、`Mutation.approveMobileAuthDeviceRequest` 返回 `undefinedField`，公开 IPC 与通知 RemoteInput 也未形成数字提交／批准契约。辅助 UI 是另一个待验证的交互路径，不能改变上述接口观察。已有依据见 [OAuth 检查](MOBILE2FA_OAUTH_SCOPE_CHECK.md)、[公开 IPC 检查](MOBILE2FA_PUBLIC_IPC_CHECK.md)、[通知 Action 检查](MOBILE2FA_NOTIFICATION_ACTIONS.md)。
 
@@ -141,7 +143,7 @@ APK 内存在通用 `TestTagsAsResourceId`：`classes.dex / cy20.<clinit> @0005�
 | 条件 | 需要真实 UI 证明的内容 |
 | --- | --- |
 | 官方账号／设备资格 | 官方 App 已登录正确账号，设备已合法注册，并且当前有用户本人发起的有效请求；MobileGH OAuth 成功不能替代这些条件 |
-| 用户是否接受架构 | 明确接受保留官方 App、可见 UI 操作及显式启用辅助控制；偏好问题仍待回复 |
+| 用户是否接受架构 | 已明确拒绝辅助控制；此方案排除，其他运行时条件不再继续验证 |
 | 系统与服务配置 | 实际 Android／OEM 版本、服务真实声明和用户启用状态；窗口内容能力与 Dialog 窗口事件可用，不冒充 accessibility tool |
 | 实际窗口与敏感传播 | Activity 与 Dialog 哪个窗口承载输入，是否敏感、是否因遮挡或窗口切换受限；XML 根保护对该弹窗的实际影响 |
 | 节点可读性与定位 | 正常服务能否合法读取当前输入与按钮；文字、hint、角色、动作、状态及节点唯一性；语言、字号、横竖屏和键盘对结构的影响 |

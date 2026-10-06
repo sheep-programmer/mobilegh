@@ -250,4 +250,4 @@ query MobileGHMobile2FAParameterTypes {
 
 两种流程在基准／完整已知 APK feature headers 下，`User.mobileAuthStatus`、注册 mutation、批准 mutation 均不可见。刻意无效的输入仅用于 mutation 编译校验，均在执行前返回 `undefinedField`；没有提交真实密钥、请求 ID 或签名。[脱敏响应](MOBILE2FA_OAUTH_TEST_RESULTS.json)保留具体错误及清理结果。
 
-因此，当前已知协议没有在这两个真实 MobileGH 扩展授权上下文打通。公开 IPC 与认证通知的委托路径也未发现数字输入／批准契约。基于正常可见界面的辅助控制属于另一种架构，需要用户接受系统辅助权限，并在真实官方界面验证后才能报告可用。
+因此，当前已知协议没有在这两个真实 MobileGH 扩展授权上下文打通。公开 IPC 与认证通知的委托路径也未发现数字输入／批准契约。用户已明确要求独立实现、不使用辅助控制；辅助 UI 路线排除。独立数字批准尚未实现，后续只能依赖可由 MobileGH 自有身份合法调用的注册、请求获取与批准协议。

@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.SubscriptionSettings
+import com.mobilegh.data.SubscriptionMode
 import com.mobilegh.data.Repo
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
@@ -92,10 +94,11 @@ fun RepoScreen(owner: String, name: String) {
     val readme = rememberLoader("readme:${ref.value}") { GitHub.readme(owner, name, ref.value, it) }
     val langs = rememberLoader("langs") { GitHub.languages(owner, name) }
     val starred = retain("starred") { mutableStateOf<Boolean?>(null) }
-    val watching = retain("watching") { mutableStateOf<Boolean?>(null) }
+    val watching = retain("watching-mode") { mutableStateOf<SubscriptionMode?>(null) }
     var starDelta by remember { mutableStateOf(0) }
     var showBranches by remember { mutableStateOf(false) }
     var showClone by remember { mutableStateOf(false) }
+    var showSubscription by remember { mutableStateOf(false) }
     var showLists by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -103,7 +106,7 @@ fun RepoScreen(owner: String, name: String) {
 
     LaunchedEffect(Unit) {
         if (starred.value == null) starred.value = runCatching { GitHub.isStarred(owner, name) }.getOrNull()
-        if (watching.value == null) watching.value = runCatching { GitHub.isWatching(owner, name) }.getOrNull()
+        if (watching.value == null) watching.value = runCatching { SubscriptionSettings.current(owner, name) }.getOrNull()
     }
     val r = repo.data
     val admin = r?.permissions?.admin == true
@@ -148,17 +151,16 @@ fun RepoScreen(owner: String, name: String) {
                                 starDelta += if (on) 1 else -1
                                 entry.act({ starred.value = !on; starDelta -= if (on) 1 else -1; ctx.toast(it) }) { GitHub.star(owner, name, on) }
                             }
-                            val w = watching.value == true
-                            GhButton(if (w) "Watching" else "Watch", Modifier.weight(1f), icon = R.drawable.oc_eye, enabled = watching.value != null) {
-                                val on = !w
-                                watching.value = on
-                                entry.act({ watching.value = !on; ctx.toast(it) }) { GitHub.watch(owner, name, on) }
+                            GhButton(watching.value?.title ?: "订阅设置", Modifier.weight(1f), icon = R.drawable.oc_eye) {
+                                showSubscription = true
                             }
                         }
                         Spacer(Modifier.height(16.dp))
                     }
                     item {
                         MenuGroup {
+                            MenuRow(R.drawable.oc_search, "查找文件") { nav.push(Screen.FileFinder(owner, name, branch)) }
+                            MenuRow(R.drawable.oc_code, "搜索代码") { nav.push(Screen.CodeSearch(owner, name)) }
                             MenuRow(R.drawable.oc_issue_opened, "Issues", Color(0xFF1A7F37)) { nav.push(Screen.Issues(owner, name, false)) }
                             MenuRow(R.drawable.oc_git_pull_request, "Pull Requests", Color(0xFF0969DA)) { nav.push(Screen.Issues(owner, name, true)) }
                             if (r.hasDiscussions) MenuRow(R.drawable.oc_comment_discussion, "Discussions", Color(0xFF8250DF)) { nav.push(Screen.Discussions(owner, name)) }
@@ -239,6 +241,7 @@ fun RepoScreen(owner: String, name: String) {
         }
     }
 
+    if (showSubscription) SubscriptionDialog(owner, name, { showSubscription = false }) { watching.value = it }
     if (showLists && r != null) AddToStarListsDialog(r) { showLists = false }
     if (showBranches && r != null) {
         BranchPicker(owner, name, branch ?: r.defaultBranch, onDismiss = { showBranches = false }) {

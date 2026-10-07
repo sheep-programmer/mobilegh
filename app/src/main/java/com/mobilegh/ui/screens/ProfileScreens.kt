@@ -212,6 +212,7 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
     val ctx = rememberCtx()
     val g = Gh.c
     val user = rememberLoader("user:$login") { if (isSelf) GitHub.viewer(it) else GitHub.user(login, it) }
+    if (isSelf) com.mobilegh.ui.components.RefreshProfileOnChange(user)
     val u = user.data
     if (u != null && u.type == "Organization") {
         OrgScreen(login)
@@ -232,7 +233,8 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
         actions = {
             if (me) OcButton(R.drawable.oc_gear, { nav.push(Screen.Settings) })
             MoreMenu(
-                listOf(
+                listOfNotNull(
+                    if (isSelf) MenuAction("编辑资料") { nav.push(Screen.EditProfile) } else null,
                     MenuAction("分享") { ctx.share("https://github.com/$login") },
                     MenuAction("复制链接") { ctx.copy("https://github.com/$login") },
                     MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$login") },

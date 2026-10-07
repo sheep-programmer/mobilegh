@@ -42,8 +42,9 @@ android {
         applicationId = "com.mobilegh"
         minSdk = 26
         targetSdk = 36
-        versionCode = 22
-        versionName = "0.22"
+        versionCode = 24
+        versionName = "0.24"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GITHUB_CLIENT_ID", "\"$clientId\"")
         buildConfigField("String", "GITHUB_CLIENT_SETTINGS_URL", "\"$clientSettingsUrl\"")
     }
@@ -115,6 +116,10 @@ kotlin {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

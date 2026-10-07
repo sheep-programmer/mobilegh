@@ -7,6 +7,7 @@ import com.mobilegh.data.Downloads
 import com.mobilegh.data.Net
 import com.mobilegh.data.Session
 import com.mobilegh.data.Update
+import com.mobilegh.data.History
 
 class App : Application() {
     override fun onCreate() {
@@ -15,6 +16,7 @@ class App : Application() {
         AppLog.init(this)
         Net.init(this)
         Session.init(this)
+        History.init(this)
         Downloads.init(this)
         // 启动后台静默检查一次新版本（走加速节点，失败不影响使用）
         Update.checkQuietly()

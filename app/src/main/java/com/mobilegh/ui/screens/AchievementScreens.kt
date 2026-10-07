@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -71,6 +72,7 @@ import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.Loading
+import com.mobilegh.ui.components.LoadBox
 import com.mobilegh.ui.components.NetImage
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.Pill
@@ -116,7 +118,7 @@ fun AchievementsStrip(login: String, self: Boolean) {
 }
 
 @Composable
-private fun AchievementBadge(badge: Achievement, modifier: Modifier = Modifier) {
+internal fun AchievementBadge(badge: Achievement, modifier: Modifier = Modifier) {
     val tier = when (badge.tier) { "bronze" -> "铜级"; "silver" -> "银级"; "gold" -> "金级"; else -> "" }
     Column(
         modifier.width(76.dp).semantics(mergeDescendants = true) {
@@ -133,15 +135,40 @@ private fun AchievementBadge(badge: Achievement, modifier: Modifier = Modifier) 
     }
 }
 
+@Composable
+fun AchievementsScreen(login: String) {
+    val ctx = rememberCtx()
+    val self = login.equals(Session.login, true)
+    val badges = rememberLoader("ach-public:${login.lowercase(Locale.ROOT)}") { Web.achievements(login, self) }
+    fun open(badge: Achievement) {
+        ctx.openBrowser("https://github.com/${Api.encodePath(login)}?achievement=${Api.q(badge.slug)}&tab=achievements")
+    }
+    Page(if (self) "我的成就" else "成就", subtitle = login, actions = {
+        TextButton({ ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=achievements") }) { Text("GitHub") }
+    }) { pad ->
+        LoadBox(badges, Modifier.padding(pad).fillMaxSize()) { data ->
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp)) {
+                item { Text("公开主页的徽章、等级和倍数", color = Gh.c.fgMuted, fontSize = 13.sp) }
+                if (data.isEmpty()) item { EmptyState("公开主页尚未显示成就；隐藏的徽章无法读取") }
+                else item {
+                    FlowRow(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalArrangement = Arrangement.spacedBy(24.dp), maxItemsInEachRow = 3) {
+                        data.forEach { badge -> AchievementBadge(badge, Modifier.clickable { open(badge) }) }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** All local detail/edit/picker states live inside the existing Screen.StarLists(login) route. */
 @Composable
-fun StarListsScreen(login: String) {
+fun StarListsScreen(login: String, initialListId: String? = null) {
     key(login.lowercase(Locale.ROOT), Session.generation) {
         var local by rememberSaveable(login, Session.generation) { mutableStateOf(false) }
         val self = Session.token != null && login.equals(Session.login, true)
         BackHandler(enabled = local) { local = false }
         if (local && self) StarListsContent(login, Session.generation) { local = false }
-        else GitHubListsContent(login, Session.generation, onLocal = if (self) ({ local = true }) else null)
+        else GitHubListsContent(login, Session.generation, initialListId, onLocal = if (self) ({ local = true }) else null)
     }
 }
 
@@ -459,7 +486,7 @@ private fun RepositoryListMembershipDialog(repo: Repo, account: StarListAccount,
 }
 
 @Composable
-private fun GitHubListsContent(login: String, generation: Int, onLocal: (() -> Unit)?) {
+private fun GitHubListsContent(login: String, generation: Int, initialListId: String?, onLocal: (() -> Unit)?) {
     val ctx = rememberCtx()
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
@@ -467,7 +494,7 @@ private fun GitHubListsContent(login: String, generation: Int, onLocal: (() -> U
     val self = login.equals(account.login, true)
     val revision by UserLists.changes.collectAsState()
     var lists by remember { mutableStateOf<List<GitHubStarList>?>(null) }
-    var selectedId by rememberSaveable(account, login) { mutableStateOf<String?>(null) }
+    var selectedId by rememberSaveable(account, login, initialListId) { mutableStateOf(initialListId) }
     var repositories by remember { mutableStateOf<List<UserListRepository>>(emptyList()) }
     var cursor by remember { mutableStateOf<String?>(null) }
     var detailTotal by remember { mutableIntStateOf(0) }

@@ -53,6 +53,9 @@ import com.mobilegh.ui.components.MarkdownPreview
 import com.mobilegh.ui.components.MarkdownToolbar
 import com.mobilegh.ui.components.MarkdownEditor
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.DraftValue
+import com.mobilegh.ui.components.rememberDraft
+import com.mobilegh.ui.components.DraftBinding
 import com.mobilegh.data.Issue
 import com.mobilegh.data.Pull
 import com.mobilegh.data.Review
@@ -143,7 +146,8 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
             IssueThread(i.await(), p?.await(), c.await(), r?.await().orEmpty())
         }
     }
-    var comment by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
+    val draft = rememberDraft("comment:${owner.lowercase()}/${name.lowercase()}:$number")
+    var comment by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(draft.initial.body)) }
     var previewComment by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var mergeDialog by remember { mutableStateOf(false) }
@@ -214,9 +218,12 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
                         OcButton(R.drawable.oc_upload, {
                             if (comment.text.isBlank() || sending) return@OcButton
                             sending = true
+                            val submitted = DraftValue(body = comment.text)
+                            draft.update(submitted)
                             entry.act({ sending = false; ctx.toast(it) }) {
-                                GitHub.addComment(owner, name, number, comment.text.trim())
-                                comment = TextFieldValue()
+                                GitHub.addComment(owner, name, number, submitted.body.trim())
+                                draft.submitted(submitted)
+                                if (comment.text == submitted.body) comment = TextFieldValue()
                                 previewComment = false
                                 sending = false
                                 ctx.toast("评论已发布")
@@ -224,6 +231,7 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
                             }
                         }, if (comment.text.isBlank()) g.fgMuted else g.accent, enabled = !sending)
                     }
+                    DraftBinding(draft, DraftValue(body = comment.text))
                 }
             }
         },
@@ -491,19 +499,24 @@ fun NewIssueScreen(owner: String, name: String) {
     val nav = LocalNav.current
     val entry = LocalEntry.current
     val ctx = rememberCtx()
-    var title by rememberSaveable { mutableStateOf("") }
-    var body by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
+    val draft = rememberDraft("new-issue:${owner.lowercase()}/${name.lowercase()}")
+    var title by rememberSaveable { mutableStateOf(draft.initial.title) }
+    var body by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(draft.initial.body)) }
     var busy by remember { mutableStateOf(false) }
     Page("新建 Issue", subtitle = "$owner/$name") { pad ->
         Column(Modifier.padding(pad).imePadding().verticalScroll(rememberScrollState()).padding(16.dp)) {
             GhField(title, { title = it }, "标题")
             Spacer(Modifier.height(12.dp))
             MarkdownEditor(body, { body = it }, placeholder = "描述（支持 Markdown）", contextRepo = "$owner/$name", minLines = 8)
+            DraftBinding(draft, DraftValue(title, body.text))
             Spacer(Modifier.height(16.dp))
             GhButton("提交", Modifier.fillMaxWidth(), primary = true, enabled = title.isNotBlank() && !busy) {
                 busy = true
+                val submitted = DraftValue(title, body.text)
+                draft.update(submitted)
                 entry.act({ busy = false; ctx.toast(it) }) {
-                    val i = GitHub.createIssue(owner, name, title.trim(), body.text)
+                    val i = GitHub.createIssue(owner, name, submitted.title.trim(), submitted.body)
+                    draft.submitted(submitted)
                     nav.replace(Screen.IssueDetail(owner, name, i.number, false))
                 }
             }

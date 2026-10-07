@@ -7,14 +7,23 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.SavedStateHandle
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.mobilegh.data.Session
 import com.mobilegh.data.Downloads
 import com.mobilegh.nav.Links
 import com.mobilegh.nav.Navigator
+import com.mobilegh.nav.IncomingLinks
+import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.AppRoot
 import com.mobilegh.ui.theme.MobileGhTheme
 
-class NavVm : ViewModel() {
+class NavVm(private val state: SavedStateHandle) : ViewModel() {
+    var pendingUrl by mutableStateOf(state.get<String>("pendingUrl"))
+        private set
     private var gen = -1
     private var current = Navigator()
 
@@ -25,6 +34,20 @@ class NavVm : ViewModel() {
             gen = generation
         }
         return current
+    }
+
+    fun receive(url: String) {
+        state["pendingUrl"] = url
+        pendingUrl = url
+    }
+
+    fun openPending(nav: Navigator) {
+        if (Session.token == null) return
+        val url = pendingUrl ?: return
+        state.remove<String>("pendingUrl")
+        pendingUrl = null
+        val target = Links.fromInput(url) ?: return
+        if (nav.top.screen != target) nav.push(target)
     }
 
     override fun onCleared() {
@@ -57,20 +80,23 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) handleIntent(intent)
         setContent {
+            val nav = vm.navFor(Session.generation)
+            LaunchedEffect(Session.generation, vm.pendingUrl) { vm.openPending(nav) }
             MobileGhTheme {
-                AppRoot(vm.navFor(Session.generation))
+                AppRoot(nav)
             }
         }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         handleIntent(intent)
     }
 
     private fun handleIntent(intent: Intent?) {
-        if (Session.token == null) return
-        val url = intent?.data?.toString() ?: return
-        Links.route(url)?.let { vm.navFor(Session.generation).push(it) }
+        val link = IncomingLinks.fromIntent(intent)
+        if (link != null) vm.receive(link.url)
+        else if (intent?.action == Intent.ACTION_SEND) toast("分享内容中没有可打开的 GitHub 链接")
     }
 }

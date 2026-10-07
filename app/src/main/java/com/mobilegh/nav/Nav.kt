@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import java.util.concurrent.atomic.AtomicLong
+import com.mobilegh.data.History
 
 /** 所有页面。使用轻量的自定义导航栈，无需 navigation 库，也无需参数序列化。 */
 sealed interface Screen {
@@ -20,6 +21,11 @@ sealed interface Screen {
     data class Repo(val owner: String, val name: String) : Screen
     data class Files(val owner: String, val name: String, val path: String, val ref: String?) : Screen
     data class FileView(val owner: String, val name: String, val path: String, val ref: String?) : Screen
+    data class FileFinder(val owner: String, val name: String, val ref: String?) : Screen
+    data class CodeSearch(val owner: String, val name: String) : Screen
+    data class Blame(val owner: String, val name: String, val path: String, val ref: String?) : Screen
+    data object RecentRepositories : Screen
+    data object EditProfile : Screen
     data class Commits(val owner: String, val name: String, val ref: String?, val path: String? = null,
         val author: String? = null, val since: String? = null, val until: String? = null) : Screen
     data class CommitDetail(val owner: String, val name: String, val sha: String) : Screen
@@ -48,7 +54,8 @@ sealed interface Screen {
     data class Gists(val login: String?) : Screen
     data class GistDetail(val id: String) : Screen
     data class Activity(val login: String) : Screen
-    data class StarLists(val login: String) : Screen
+    data class StarLists(val login: String, val initialListId: String? = null) : Screen
+    data class Achievements(val login: String) : Screen
     data object Settings : Screen
     data object Logs : Screen
     data object Authenticator : Screen
@@ -73,6 +80,7 @@ class Entry(val screen: Screen) {
 }
 
 class Navigator {
+    val clipboardLinks = ClipboardLinkTracker()
     var tab by mutableStateOf(Tab.Home)
     val root = Entry(Screen.Root)
     val tabEntries = Tab.entries.associateWith { Entry(Screen.Root) }
@@ -86,11 +94,13 @@ class Navigator {
     val top: Entry get() = stack.lastOrNull() ?: root
 
     fun push(s: Screen) {
+        History.navigation(s)
         lastWasPush = true
         stack.add(Entry(s))
     }
 
     fun replace(s: Screen) {
+        History.navigation(s)
         lastWasPush = true
         stack.removeLastOrNull()?.dispose()
         stack.add(Entry(s))
@@ -107,6 +117,11 @@ class Navigator {
         lastWasPush = false
         stack.forEach { it.dispose() }
         stack.clear()
+    }
+
+    fun parentFiles(owner: String, name: String, path: String, ref: String?) {
+        val parent = Screen.Files(owner, name, path.substringBeforeLast('/', ""), ref)
+        if (stack.dropLast(1).lastOrNull()?.screen == parent) pop() else replace(parent)
     }
 
     fun dispose() {

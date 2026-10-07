@@ -42,6 +42,9 @@ import com.mobilegh.data.DiscussionWindow
 import com.mobilegh.data.Discussions
 import com.mobilegh.data.DiscussionsClient
 import com.mobilegh.data.Session
+import com.mobilegh.data.DraftValue
+import com.mobilegh.ui.components.rememberDraft
+import com.mobilegh.ui.components.DraftBinding
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.friendly
@@ -242,6 +245,7 @@ fun DiscussionsScreen(
                 }
                 if (composing) {
                     DiscussionComposeDialog(
+                        draftKey = "new-discussion:${owner.lowercase()}/${name.lowercase()}",
                         title = "新讨论", categories = categories.items, initialCategory = categoryId,
                         enabled = allowed, onDismiss = { composing = false },
                         onSubmit = { category, title, body ->
@@ -350,6 +354,7 @@ fun DiscussionDetailScreen(
             }
             if (composing) {
                 DiscussionComposeDialog(
+                    draftKey = "discussion:${owner.lowercase()}/${name.lowercase()}:$number:${replyTo?.id ?: "root"}",
                     title = replyTo?.author?.login?.let { "回复 @$it" } ?: "回复讨论",
                     enabled = allowed, onDismiss = { composing = false },
                     onSubmit = { _, _, body ->
@@ -417,6 +422,7 @@ private fun DiscussionCommentCard(
 
 @Composable
 private fun DiscussionComposeDialog(
+    draftKey: String,
     title: String,
     enabled: Boolean,
     onDismiss: () -> Unit,
@@ -425,9 +431,10 @@ private fun DiscussionComposeDialog(
     onSubmit: suspend (categoryId: String?, title: String, body: String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var category by rememberSaveable { mutableStateOf(initialCategory ?: categories?.firstOrNull()?.id) }
-    var subject by rememberSaveable { mutableStateOf("") }
-    var body by rememberSaveable { mutableStateOf("") }
+    val draft = rememberDraft(draftKey)
+    var category by rememberSaveable(draftKey) { mutableStateOf(draft.initial.category?.takeIf { id -> categories?.any { it.id == id } == true } ?: initialCategory ?: categories?.firstOrNull()?.id) }
+    var subject by rememberSaveable(draftKey) { mutableStateOf(draft.initial.title) }
+    var body by rememberSaveable(draftKey) { mutableStateOf(draft.initial.body) }
     var sending by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val valid = enabled && !sending && body.isNotBlank() &&
@@ -443,7 +450,10 @@ private fun DiscussionComposeDialog(
                 val submittedBody = body
                 scope.launch {
                     try {
+                        val submitted = DraftValue(submittedTitle, submittedBody, selected)
+                        draft.update(submitted)
                         onSubmit(selected, submittedTitle, submittedBody)
+                        draft.submitted(submitted)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -463,6 +473,7 @@ private fun DiscussionComposeDialog(
                 GhField(subject, { if (!sending) subject = it }, "标题")
             }
             GhField(body, { if (!sending) body = it }, "正文（支持 Markdown）", singleLine = false, minLines = 6)
+            DraftBinding(draft, DraftValue(subject, body, category))
             if (!enabled) Text("当前无法发表，请检查账号权限或刷新讨论。", color = Gh.c.fgMuted, fontSize = 12.sp)
             error?.let { Text(it, color = Gh.c.danger, fontSize = 13.sp) }
         }

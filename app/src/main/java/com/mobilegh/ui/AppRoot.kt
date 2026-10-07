@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -46,6 +48,7 @@ import com.mobilegh.nav.Screen
 import com.mobilegh.nav.Tab
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.DownloadHost
+import com.mobilegh.ui.components.ClipboardLinkHost
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.screens.*
@@ -109,24 +112,35 @@ private fun Main(nav: Navigator) {
         ) { Text("授权可能已过期或被撤销。请重新登录，新的账号授权默认长期有效。", fontSize = 14.sp) }
     }
 
-    AnimatedContent(
-        targetState = nav.stack.lastOrNull(),
-        contentKey = { it?.id ?: "root" },
-        transitionSpec = {
-            if (nav.lastWasPush) {
-                (slideInHorizontally(tween(220)) { it / 4 } + fadeIn(tween(220))) togetherWith fadeOut(tween(120))
-            } else {
-                fadeIn(tween(180)) togetherWith (slideOutHorizontally(tween(200)) { it / 4 } + fadeOut(tween(200)))
-            }
+    Scaffold(
+        containerColor = Gh.c.canvas,
+        contentWindowInsets = WindowInsets(0),
+        bottomBar = { if (nav.stack.isEmpty()) RootNavigationBar(nav) },
+        snackbarHost = {
+            val insets = if (nav.stack.isEmpty()) Modifier else Modifier.navigationBarsPadding()
+            ClipboardLinkHost(nav, insets.imePadding())
         },
-        label = "nav",
-    ) { entry ->
-        if (entry == null) {
-            RootTabs(nav, holder)
-        } else {
-            CompositionLocalProvider(LocalEntry provides entry) {
-                holder.SaveableStateProvider(entry.id) {
-                    Box(Modifier.fillMaxSize().background(Gh.c.canvas)) { ScreenHost(entry.screen) }
+    ) { pad ->
+        AnimatedContent(
+            modifier = Modifier.padding(pad),
+            targetState = nav.stack.lastOrNull(),
+            contentKey = { it?.id ?: "root" },
+            transitionSpec = {
+                if (nav.lastWasPush) {
+                    (slideInHorizontally(tween(220)) { it / 4 } + fadeIn(tween(220))) togetherWith fadeOut(tween(120))
+                } else {
+                    fadeIn(tween(180)) togetherWith (slideOutHorizontally(tween(200)) { it / 4 } + fadeOut(tween(200)))
+                }
+            },
+            label = "nav",
+        ) { entry ->
+            if (entry == null) {
+                RootTabs(nav, holder)
+            } else {
+                CompositionLocalProvider(LocalEntry provides entry) {
+                    holder.SaveableStateProvider(entry.id) {
+                        Box(Modifier.fillMaxSize().background(Gh.c.canvas)) { ScreenHost(entry.screen) }
+                    }
                 }
             }
         }
@@ -134,59 +148,56 @@ private fun Main(nav: Navigator) {
 }
 
 @Composable
-private fun RootTabs(nav: Navigator, holder: SaveableStateHolder) {
+private fun RootNavigationBar(nav: Navigator) {
     val g = Gh.c
-    Scaffold(
-        containerColor = g.canvas,
-        contentWindowInsets = WindowInsets(0),
-        bottomBar = {
-            Column {
-                HDivider()
-                NavigationBar(containerColor = g.header, tonalElevation = androidx.compose.ui.unit.Dp.Hairline) {
-                    Tab.entries.forEach { t ->
-                        val sel = nav.tab == t
-                        val icon = when (t) {
-                            Tab.Home -> if (sel) R.drawable.oc_home_fill else R.drawable.oc_home
-                            Tab.Repos -> R.drawable.oc_repo
-                            Tab.Notifications -> if (sel) R.drawable.oc_bell_fill else R.drawable.oc_bell
-                            Tab.Explore -> R.drawable.oc_search
-                            Tab.Me -> if (sel) R.drawable.oc_person_fill else R.drawable.oc_person
-                        }
-                        NavigationBarItem(
-                            selected = sel,
-                            onClick = { nav.select(t) },
-                            icon = {
-                                if (t == Tab.Notifications && Badges.unread > 0) {
-                                    BadgedBox(badge = { Badge(containerColor = g.accent) { Text(if (Badges.unread > 99) "99+" else "${Badges.unread}", fontSize = 9.sp) } }) {
-                                        Oc(icon, if (sel) g.fg else g.fgMuted, 22.dp)
-                                    }
-                                } else {
-                                    Oc(icon, if (sel) g.fg else g.fgMuted, 22.dp)
-                                }
-                            },
-                            label = { Text(t.title, fontSize = 11.sp) },
-                            colors = NavigationBarItemDefaults.colors(
-                                indicatorColor = g.neutralMuted,
-                                selectedTextColor = g.fg,
-                                unselectedTextColor = g.fgMuted,
-                            ),
-                        )
-                    }
+    Column {
+        HDivider()
+        NavigationBar(containerColor = g.header, tonalElevation = androidx.compose.ui.unit.Dp.Hairline) {
+            Tab.entries.forEach { t ->
+                val sel = nav.tab == t
+                val icon = when (t) {
+                    Tab.Home -> if (sel) R.drawable.oc_home_fill else R.drawable.oc_home
+                    Tab.Repos -> R.drawable.oc_repo
+                    Tab.Notifications -> if (sel) R.drawable.oc_bell_fill else R.drawable.oc_bell
+                    Tab.Explore -> R.drawable.oc_search
+                    Tab.Me -> if (sel) R.drawable.oc_person_fill else R.drawable.oc_person
                 }
+                NavigationBarItem(
+                    selected = sel,
+                    onClick = { nav.select(t) },
+                    icon = {
+                        if (t == Tab.Notifications && Badges.unread > 0) {
+                            BadgedBox(badge = { Badge(containerColor = g.accent) { Text(if (Badges.unread > 99) "99+" else "${Badges.unread}", fontSize = 9.sp) } }) {
+                                Oc(icon, if (sel) g.fg else g.fgMuted, 22.dp)
+                            }
+                        } else {
+                            Oc(icon, if (sel) g.fg else g.fgMuted, 22.dp)
+                        }
+                    },
+                    label = { Text(t.title, fontSize = 11.sp) },
+                    colors = NavigationBarItemDefaults.colors(
+                        indicatorColor = g.neutralMuted,
+                        selectedTextColor = g.fg,
+                        unselectedTextColor = g.fgMuted,
+                    ),
+                )
             }
-        },
-    ) { pad ->
-        Box(Modifier.fillMaxSize().padding(pad)) {
-            val entry = nav.tabEntries.getValue(nav.tab)
-            CompositionLocalProvider(LocalEntry provides entry) {
-                holder.SaveableStateProvider("tab-${nav.tab.name}") {
-                    when (nav.tab) {
-                        Tab.Home -> HomeScreen()
-                        Tab.Repos -> ReposTab()
-                        Tab.Notifications -> NotificationsScreen()
-                        Tab.Explore -> ExploreScreen()
-                        Tab.Me -> MeScreen()
-                    }
+        }
+    }
+}
+
+@Composable
+private fun RootTabs(nav: Navigator, holder: SaveableStateHolder) {
+    Box(Modifier.fillMaxSize()) {
+        val entry = nav.tabEntries.getValue(nav.tab)
+        CompositionLocalProvider(LocalEntry provides entry) {
+            holder.SaveableStateProvider("tab-${nav.tab.name}") {
+                when (nav.tab) {
+                    Tab.Home -> HomeScreen()
+                    Tab.Repos -> ReposTab()
+                    Tab.Notifications -> NotificationsScreen()
+                    Tab.Explore -> ExploreScreen()
+                    Tab.Me -> MeScreen()
                 }
             }
         }
@@ -200,6 +211,11 @@ private fun ScreenHost(s: Screen) {
         is Screen.Repo -> RepoScreen(s.owner, s.name)
         is Screen.Files -> FilesScreen(s.owner, s.name, s.path, s.ref)
         is Screen.FileView -> FileViewScreen(s.owner, s.name, s.path, s.ref)
+        is Screen.FileFinder -> FileFinderScreen(s.owner, s.name, s.ref)
+        is Screen.CodeSearch -> CodeSearchScreen(s.owner, s.name)
+        is Screen.Blame -> BlameScreen(s.owner, s.name, s.path, s.ref)
+        Screen.RecentRepositories -> RecentRepositoriesScreen()
+        Screen.EditProfile -> EditProfileScreen()
         is Screen.Commits -> CommitsScreen(s.owner, s.name, s.ref, s.path, s.author, s.since, s.until)
         is Screen.CommitDetail -> CommitDetailScreen(s.owner, s.name, s.sha)
         is Screen.Compare -> CompareScreen(s.owner, s.name, s.base, s.head)
@@ -227,7 +243,8 @@ private fun ScreenHost(s: Screen) {
         is Screen.Gists -> GistsScreen(s.login)
         is Screen.GistDetail -> GistDetailScreen(s.id)
         is Screen.Activity -> ActivityScreen(s.login)
-        is Screen.StarLists -> StarListsScreen(s.login)
+        is Screen.StarLists -> StarListsScreen(s.login, s.initialListId)
+        is Screen.Achievements -> AchievementsScreen(s.login)
         Screen.Settings -> SettingsScreen()
         Screen.Logs -> LogsScreen()
         Screen.Authenticator -> AuthenticatorScreen()

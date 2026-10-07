@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -26,12 +29,16 @@ import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.Session
+import com.mobilegh.data.StarListAccount
+import com.mobilegh.data.UserLists
+import com.mobilegh.data.Web
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.RepoKind
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.Tab
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
+import com.mobilegh.nav.retain
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Chips
@@ -54,6 +61,18 @@ fun HomeScreen() {
     val g = Gh.c
     val login = Session.login ?: return
     val me = rememberLoader("me") { GitHub.viewer(it) }
+    val account = remember(login, Session.generation) { StarListAccount(login, Session.generation) }
+    val lists = rememberLoader("home-collections:$login") { UserLists.lists(account, login) }
+    val badges = rememberLoader("home-achievements:$login") { Web.achievements(login, self = true) }
+    val listsRevision by UserLists.changes.collectAsState()
+    val observedRevision = retain("home-collections-revision:$login") { mutableLongStateOf(listsRevision) }
+    LaunchedEffect(listsRevision) {
+        if (observedRevision.longValue != listsRevision) {
+            observedRevision.longValue = listsRevision
+            lists.refresh()
+        }
+    }
+    com.mobilegh.ui.components.RefreshProfileOnChange(me)
     val invites = rememberLoader("inv") { f ->
         GitHub.repoInvitations(f).size + runCatching { GitHub.orgInvitations(f).size }.getOrDefault(0)
     }
@@ -73,7 +92,7 @@ fun HomeScreen() {
         PagedList(
             feed, Modifier.padding(pad).fillMaxSize(), state,
             empty = "关注一些开发者或 star 一些仓库后，这里会显示动态",
-            onRefresh = { me.refresh(); invites.refresh(); contrib.refresh() },
+            onRefresh = { me.refresh(); invites.refresh(); contrib.refresh(); lists.refresh(); badges.refresh() },
             itemFilter = { cat == EventCat.All || eventCat(it) == cat },
             itemKey = { it.id },
             header = {
@@ -92,15 +111,25 @@ fun HomeScreen() {
                     }
                     HDivider()
                 }
+                item {
+                    HomeCollections(
+                        lists.data, badges.data, lists.error, badges.error,
+                        onLists = { nav.push(Screen.StarLists(login)) },
+                        onList = { nav.push(Screen.StarLists(login, it.id)) },
+                        onStars = { nav.push(Screen.Repos(RepoKind.Starred, login)) },
+                        onAchievements = { nav.push(Screen.Achievements(login)) },
+                        onRetryLists = { lists.load(true) },
+                        onRetryBadges = { badges.load(true) },
+                    )
+                }
                 item { SectionTitle("我的工作") }
                 item {
                     MenuGroup {
                         MenuRow(R.drawable.oc_issue_opened, "Issues", Color(0xFF1A7F37)) { nav.push(Screen.MyIssues(false)) }
                         MenuRow(R.drawable.oc_git_pull_request, "Pull Requests", Color(0xFF0969DA)) { nav.push(Screen.MyIssues(true)) }
                         MenuRow(R.drawable.oc_repo, "仓库（含协作与组织）", Color(0xFF59636E)) { nav.select(Tab.Repos) }
+                        MenuRow(R.drawable.oc_history, "最近浏览") { nav.push(Screen.RecentRepositories) }
                         MenuRow(R.drawable.oc_organization, "组织", Color(0xFFBC4C00)) { nav.push(Screen.Orgs) }
-                        MenuRow(R.drawable.oc_star, "已 Star", Color(0xFFBF8700)) { nav.push(Screen.Repos(RepoKind.Starred, login)) }
-                        MenuRow(R.drawable.oc_checklist, "自定义列表", Color(0xFFD4A72C)) { nav.push(Screen.StarLists(login)) }
                         MenuRow(R.drawable.oc_mail, "待处理邀请", Color(0xFF8250DF), count = invites.data?.takeIf { it > 0 }) { nav.push(Screen.Invitations) }
                         MenuRow(R.drawable.oc_code_square, "Gists", Color(0xFF24292F)) { nav.push(Screen.Gists(null)) }
                     }

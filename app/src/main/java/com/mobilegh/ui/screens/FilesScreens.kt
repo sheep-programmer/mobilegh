@@ -84,6 +84,7 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
             OcButton(R.drawable.oc_history, { nav.push(Screen.Commits(owner, name, ref, path.ifEmpty { null })) })
             MoreMenu(listOf(
                 MenuAction("复制路径") { ctx.copy(path.ifEmpty { "/" }) },
+                MenuAction("查找仓库文件") { nav.push(Screen.FileFinder(owner, name, ref)) },
                 MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name/tree/${ref ?: "HEAD"}/$path") },
             ))
         },
@@ -113,7 +114,7 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
                     }
                 }
                 if (hasUp) item {
-                    Row(box(upIdx).fillMaxWidth().clickable { nav.pop() }.padding(horizontal = 12.dp, vertical = 12.dp)) {
+                    Row(box(upIdx).fillMaxWidth().clickable { nav.parentFiles(owner, name, path, ref) }.padding(horizontal = 12.dp, vertical = 12.dp)) {
                         Oc(R.drawable.oc_file_directory_fill, Color(0xFF54AEFF))
                         Spacer(Modifier.width(12.dp))
                         Text("..", color = g.fg, fontSize = 14.sp)
@@ -191,6 +192,7 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
                 if (b is FileBody.Html) add(MenuAction(if (mdSource) "查看渲染" else "查看源码") { mdSource = !mdSource })
                 add(MenuAction(if (Session.codeWrap) "关闭自动换行" else "自动换行") { Session.toggleWrap() })
                 add(MenuAction("文件历史") { nav.push(Screen.Commits(owner, name, ref, path)) })
+                add(MenuAction("逐行归因（Blame）") { nav.push(Screen.Blame(owner, name, path, ref)) })
                 add(MenuAction("复制路径") { ctx.copy(path) })
                 add(MenuAction("分享链接") { ctx.share("https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/$path") })
                 add(MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/$path") })

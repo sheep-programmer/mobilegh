@@ -12,3 +12,4 @@ captures/
 keystore.properties
 *.keystore
 *.jks
+*.mgh2fa

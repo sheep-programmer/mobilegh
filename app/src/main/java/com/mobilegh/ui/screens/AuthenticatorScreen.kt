@@ -38,7 +38,7 @@ fun AuthenticatorScreen(onBack: (() -> Unit)? = null) {
         OcButton(R.drawable.oc_plus, { editing = true })
     }) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize().background(g.canvas), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(16.dp)) {
-            item { OfficialApprovalCard() }
+            item { MobileApprovalCard() }
             item { Text("验证器验证码", color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 16.sp) }
             item { Text("选择 GitHub 的「验证器应用」，复制这里的六位码完成验证。", color = g.fgMuted, fontSize = 14.sp) }
             if (accounts.isEmpty()) item {

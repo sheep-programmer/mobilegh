@@ -1,13 +1,9 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,12 +16,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.Session
@@ -39,7 +31,6 @@ import com.mobilegh.nav.Tab
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
 import com.mobilegh.nav.retain
-import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.EventCat
@@ -47,12 +38,11 @@ import com.mobilegh.ui.components.EventItem
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.eventCat
 import com.mobilegh.ui.components.IssueItem
-import com.mobilegh.ui.components.MenuRow
-import com.mobilegh.ui.components.MenuGroup
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.SectionTitle
+import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.theme.Gh
 
 @Composable
@@ -96,46 +86,41 @@ fun HomeScreen() {
             itemFilter = { cat == EventCat.All || eventCat(it) == cat },
             itemKey = { it.id },
             header = {
+                item { HomeProfile(login, me.data, Session.avatar) { nav.select(Tab.Me) } }
+                invites.data?.takeIf { it > 0 }?.let { n -> item { HomeInviteBanner(n) { nav.push(Screen.Invitations) } } }
                 item {
-                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(me.data?.avatarUrl ?: Session.avatar, 44.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("你好，${me.data?.name?.takeIf { it.isNotBlank() } ?: login}", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
-                            val u = me.data
-                            Text(
-                                if (u == null) "@$login" else "@$login · ${u.publicRepos + (u.ownedPrivateRepos ?: 0)} 个自有仓库 · ${u.followers} 关注者",
-                                fontSize = 13.sp, color = g.fgMuted,
-                            )
-                        }
-                    }
-                    HDivider()
-                }
-                item {
-                    HomeCollections(
-                        lists.data, badges.data, lists.error, badges.error,
-                        onLists = { nav.push(Screen.StarLists(login)) },
-                        onList = { nav.push(Screen.StarLists(login, it.id)) },
-                        onStars = { nav.push(Screen.Repos(RepoKind.Starred, login)) },
-                        onAchievements = { nav.push(Screen.Achievements(login)) },
-                        onRetryLists = { lists.load(true) },
-                        onRetryBadges = { badges.load(true) },
+                    HomeShortcuts(
+                        homeShortcuts(
+                            onIssues = { nav.push(Screen.MyIssues(false)) },
+                            onPulls = { nav.push(Screen.MyIssues(true)) },
+                            onRepos = { nav.select(Tab.Repos) },
+                            onOrgs = { nav.push(Screen.Orgs) },
+                            onStars = { nav.push(Screen.Repos(RepoKind.Starred, login)) },
+                            onLists = { nav.push(Screen.StarLists(login)) },
+                            onGists = { nav.push(Screen.Gists(null)) },
+                            onRecent = { nav.push(Screen.RecentRepositories) },
+                        ),
                     )
                 }
-                item { SectionTitle("我的工作") }
+                item { SectionTitle("收藏列表") { TextLink("全部") { nav.push(Screen.StarLists(login)) } } }
                 item {
-                    MenuGroup {
-                        MenuRow(R.drawable.oc_issue_opened, "Issues", Color(0xFF1A7F37)) { nav.push(Screen.MyIssues(false)) }
-                        MenuRow(R.drawable.oc_git_pull_request, "Pull Requests", Color(0xFF0969DA)) { nav.push(Screen.MyIssues(true)) }
-                        MenuRow(R.drawable.oc_repo, "仓库（含协作与组织）", Color(0xFF59636E)) { nav.select(Tab.Repos) }
-                        MenuRow(R.drawable.oc_history, "最近浏览") { nav.push(Screen.RecentRepositories) }
-                        MenuRow(R.drawable.oc_organization, "组织", Color(0xFFBC4C00)) { nav.push(Screen.Orgs) }
-                        MenuRow(R.drawable.oc_mail, "待处理邀请", Color(0xFF8250DF), count = invites.data?.takeIf { it > 0 }) { nav.push(Screen.Invitations) }
-                        MenuRow(R.drawable.oc_code_square, "Gists", Color(0xFF24292F)) { nav.push(Screen.Gists(null)) }
+                    HomeLists(
+                        lists.data, lists.error,
+                        onList = { nav.push(Screen.StarLists(login, it.id)) },
+                        onAll = { nav.push(Screen.StarLists(login)) },
+                        onRetry = { lists.load(true) },
+                    )
+                }
+                item { SectionTitle("贡献") { TextLink("详情") { nav.select(Tab.Me) } } }
+                item {
+                    Card(Modifier.padding(horizontal = 16.dp)) {
+                        Column {
+                            ContributionBody(contrib, full = false)
+                            HDivider()
+                            HomeAchievementsRow(badges.data, badges.error, onOpen = { nav.push(Screen.Achievements(login)) }, onRetry = { badges.load(true) })
+                        }
                     }
                 }
-                item { SectionTitle("贡献") { com.mobilegh.ui.components.TextLink("详情") { nav.select(Tab.Me) } } }
-                item { Card(Modifier.padding(horizontal = 16.dp)) { ContributionBody(contrib, full = false) } }
                 item { SectionTitle("动态") }
                 item {
                     Chips(EventCat.entries.map { it.label }, EventCat.entries.indexOf(cat)) { cat = EventCat.entries[it] }

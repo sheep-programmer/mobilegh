@@ -51,7 +51,8 @@ fun LoginScreen(adding: Boolean = false) {
     // Credentials are excluded from Android saved-instance-state.
     var token by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
-    var method by rememberSaveable { mutableIntStateOf(0) }
+    var method by rememberSaveable { mutableIntStateOf(1) }
+    val approvalSetup by MobileApprovalOAuth.state.collectAsState()
     var help by remember { mutableStateOf(false) }
     var authenticator by remember { mutableStateOf(false) }
     val flow = retain("login-flow") { entry ->
@@ -125,9 +126,17 @@ fun LoginScreen(adding: Boolean = false) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Oc(R.drawable.oc_shield_lock, g.accent, 28.dp)
                         Text("使用 GitHub 账号", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
-                        Text("在系统浏览器完成登录和两步验证，返回后自动连接。", color = g.fgMuted, fontSize = 14.sp)
+                        Text("登录后自动启用数字审批，验证请求会弹窗并通知你。", color = g.fgMuted, fontSize = 14.sp)
                         GhButton("继续", Modifier.fillMaxWidth(), primary = true,
-                            enabled = !busy && BuildConfig.GITHUB_CLIENT_ID.isNotBlank(), icon = R.drawable.oc_mark_github) { flow.authorize() }
+                            enabled = !busy && !approvalSetup.busy, icon = R.drawable.oc_mark_github) {
+                            runCatching { MobileApprovalOAuth.begin(ctx) }.onSuccess { ctx.openBrowser(it) }
+                        }
+                        if (approvalSetup.busy) {
+                            Text(if (approvalSetup.waitingForBrowser) "正在等待 GitHub 授权" else "正在自动启用数字审批…", color = g.fgMuted, fontSize = 13.sp)
+                            if (approvalSetup.waitingForBrowser) TextLink("取消授权") { MobileApprovalOAuth.cancel(ctx) }
+                        }
+                        approvalSetup.error?.let { Text(it, color = g.danger, fontSize = 13.sp) }
+                        TextLink("使用设备授权码登录") { flow.authorize() }
                     }
                 }
             }
@@ -138,7 +147,7 @@ fun LoginScreen(adding: Boolean = false) {
                     Text(if (flow.confirming) "正在确认账号" else "浏览器授权码", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
                     Text(d.userCode, fontSize = 28.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = g.accent)
                     if (!flow.confirming) Text("${remaining / 60}:${(remaining % 60).toString().padStart(2, '0')} 后过期", color = g.fgMuted, fontSize = 12.sp)
-                    Text("此码填写在浏览器；两位数字在官方 App 输入。", color = g.fgMuted, fontSize = 12.sp)
+                    Text("此码填写在浏览器；验证数字可在下方输入并批准。", color = g.fgMuted, fontSize = 12.sp)
                     GhButton("复制并打开 GitHub", Modifier.fillMaxWidth(), primary = true, enabled = !flow.confirming, icon = R.drawable.oc_link_external) {
                         ctx.copy(d.userCode); ctx.openBrowser(d.verificationUri)
                     }
@@ -151,10 +160,7 @@ fun LoginScreen(adding: Boolean = false) {
                 }
             }
             Spacer(Modifier.height(12.dp))
-            if (!flow.confirming) OfficialApprovalCard(waitingForOAuth = true, onContinueInBrowser = {
-                ctx.copy(d.userCode)
-                ctx.openBrowser(d.verificationUri)
-            })
+            if (!flow.confirming) MobileApprovalCard()
         }
         if (busy && device == null) CircularProgressIndicator(Modifier.padding(16.dp).size(24.dp), color = g.fgMuted)
         flow.error?.let { Text(it, Modifier.padding(vertical = 12.dp), color = g.danger, fontSize = 14.sp) }
@@ -167,7 +173,7 @@ fun LoginScreen(adding: Boolean = false) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Token：查看组织需 read:org，私有仓库需 repo。有效期由 GitHub 设置决定。", fontSize = 14.sp)
             Text("OAuth：使用系统浏览器登录，支持 GitHub 提供的验证器、通行密钥等两步验证方式。", fontSize = 14.sp)
-            Text("数字批准：在两步验证页面打开已登录的 GitHub Mobile，输入浏览器显示的两位数字。", fontSize = 14.sp)
+            Text("数字审批：GitHub 登录后自动注册本机，收到请求时在弹窗输入浏览器显示的数字。", fontSize = 14.sp)
             Text("组织仓库仍受应用批准、Token 策略和 SSO 限制，可在设置的组织访问诊断中检查。", fontSize = 14.sp)
         }
     }

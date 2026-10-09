@@ -67,11 +67,13 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         startedActivities++
         Downloads.setForeground(true)
+        com.mobilegh.data.MobileApprovalMonitor.setForeground(this, true)
     }
 
     override fun onStop() {
         startedActivities = (startedActivities - 1).coerceAtLeast(0)
         Downloads.setForeground(startedActivities > 0)
+        com.mobilegh.data.MobileApprovalMonitor.setForeground(this, startedActivities > 0)
         super.onStop()
     }
 
@@ -95,6 +97,17 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
+        val uri = intent?.dataString
+        if (uri != null && com.mobilegh.data.MobileApprovalOAuth.handles(uri)) {
+            com.mobilegh.data.MobileApprovalOAuth.complete(this, uri)
+            return
+        }
+        if (intent?.getBooleanExtra(com.mobilegh.data.MobileApprovalNotifications.EXTRA_OPEN, false) == true) {
+            val id = intent.getIntExtra(com.mobilegh.data.MobileApprovalNotifications.EXTRA_REQUEST, -1)
+            if (id > 0) com.mobilegh.data.MobileApprovalMonitor.openNotification(this, id)
+            else vm.navFor(Session.generation).push(com.mobilegh.nav.Screen.Authenticator)
+            return
+        }
         val link = IncomingLinks.fromIntent(intent)
         if (link != null) vm.receive(link.url)
         else if (intent?.action == Intent.ACTION_SEND) toast("分享内容中没有可打开的 GitHub 链接")

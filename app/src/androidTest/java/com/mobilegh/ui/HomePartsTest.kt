@@ -12,7 +12,10 @@ import com.mobilegh.data.GitHubStarList
 import com.mobilegh.nav.Navigator
 import com.mobilegh.nav.RepoKind
 import com.mobilegh.nav.Screen
-import com.mobilegh.ui.screens.HomeCollections
+import com.mobilegh.ui.screens.HomeAchievementsRow
+import com.mobilegh.ui.screens.HomeLists
+import com.mobilegh.ui.screens.HomeShortcuts
+import com.mobilegh.ui.screens.homeShortcuts
 import com.mobilegh.ui.theme.MobileGhTheme
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -21,7 +24,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
-class HomeCollectionsTest {
+class HomePartsTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val nav = Navigator()
     private val list = GitHubStarList("list-1", "Learning", "", false, "learning", "mona", 8)
@@ -31,22 +34,19 @@ class HomeCollectionsTest {
             MobileGhTheme {
                 Column(Modifier.fillMaxSize().padding(top = 20.dp)) {
                     Text("你好，mona", Modifier.padding(16.dp))
-                    HomeCollections(
-                        if (error) null else listOf(list), emptyList(),
-                        if (error) "unavailable" else null, if (error) "unavailable" else null,
-                        { nav.push(Screen.StarLists("mona")) },
-                        { nav.push(Screen.StarLists("mona", it.id)) },
-                        { nav.push(Screen.Repos(RepoKind.Starred, "mona")) },
-                        { nav.push(Screen.Achievements("mona")) },
-                        {}, {},
+                    HomeShortcuts(homeShortcuts({}, {}, {}, {}, { nav.push(Screen.Repos(RepoKind.Starred, "mona")) }, { nav.push(Screen.StarLists("mona")) }, {}, {}))
+                    HomeLists(
+                        if (error) null else listOf(list), if (error) "unavailable" else null,
+                        { nav.push(Screen.StarLists("mona", it.id)) }, { nav.push(Screen.StarLists("mona")) }, {},
                     )
+                    HomeAchievementsRow(if (error) null else emptyList(), if (error) "unavailable" else null, { nav.push(Screen.Achievements("mona")) }, {})
                 }
             }
         }
     }
     @Test fun highlightedListOpensTheSelectedListDirectly() {
         show()
-        compose.onNodeWithText("Learning").assertIsDisplayed().performClick()
+        compose.onNodeWithContentDescription("打开列表 Learning").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(Screen.StarLists("mona", "list-1"), nav.top.screen) }
     }
     @Test fun achievementsAreVisibleAndOpenTheirNativePage() {
@@ -56,7 +56,8 @@ class HomeCollectionsTest {
     }
     @Test fun entriesRemainUsableIfTheirPreviewsCannotBeLoaded() {
         show(error = true)
-        compose.onNodeWithContentDescription("打开收藏列表").performClick()
+        compose.onNodeWithText("列表暂时无法读取").assertIsDisplayed()
+        compose.onNodeWithContentDescription("打开列表").performClick()
         compose.runOnIdle { assertEquals(Screen.StarLists("mona"), nav.top.screen) }
         compose.onNodeWithContentDescription("打开已 Star").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(Screen.Repos(RepoKind.Starred, "mona"), nav.top.screen) }

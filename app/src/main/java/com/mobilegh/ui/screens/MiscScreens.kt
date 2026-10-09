@@ -1,5 +1,7 @@
 package com.mobilegh.ui.screens
 
+import com.mobilegh.ui.components.ApprovalSettingsRows
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -206,6 +208,7 @@ private fun TwoFactorSection() {
     val nav = LocalNav.current
     SectionTitle("两步验证")
     MenuGroup {
+        ApprovalSettingsRows()
         MenuRow(R.drawable.oc_shield_lock, "两步验证与数字批准", count = Session.totpAccounts().size.takeIf { it > 0 }) {
             nav.push(Screen.Authenticator)
         }

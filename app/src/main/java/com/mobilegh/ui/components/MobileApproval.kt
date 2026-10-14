@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -35,8 +36,9 @@ fun MobileApprovalCard(modifier: Modifier = Modifier) {
             Text("GitHub 数字审批", color = g.fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             val device = state.device
             if (device == null) {
-                Text("登录 GitHub 后自动启用。收到验证请求时，直接输入浏览器显示的数字。", color = g.fgMuted, fontSize = 13.sp)
-                GhButton(if (setup.busy) "正在启用…" else "登录并启用", primary = true, enabled = !setup.busy) {
+                Text(if (Session.token == null) "登录 GitHub 后自动启用。收到验证请求时，直接输入浏览器显示的数字。"
+                    else "当前登录方式未注册本机验证设备，验证请求不会弹窗。授权一次即可启用。", color = g.fgMuted, fontSize = 13.sp)
+                GhButton(if (setup.busy) "正在启用…" else if (Session.token == null) "登录并启用" else "授权启用", primary = true, enabled = !setup.busy) {
                     runCatching { MobileApprovalOAuth.begin(ctx) }.onSuccess { ctx.openBrowser(it) }
                 }
                 if (setup.waitingForBrowser) TextLink("取消授权") { MobileApprovalOAuth.cancel(ctx) }
@@ -82,6 +84,25 @@ fun MobileApprovalHost() {
         }
     }
     LaunchedEffect(state.approvedId) { if (state.approvedId != null) ctx.toast("GitHub 验证已批准") }
+    ApprovalSetupPrompt()
+}
+
+/** 已登录但本机未注册验证设备时（旧版本升级、设备码或 Token 登录），监听不会运行；提示一次去授权 */
+@Composable
+private fun ApprovalSetupPrompt() {
+    val ctx = rememberCtx()
+    val state by MobileApprovalMonitor.state.collectAsStateWithLifecycle()
+    val setup by MobileApprovalOAuth.state.collectAsStateWithLifecycle()
+    val prefs = remember { ctx.getSharedPreferences("permissions", android.content.Context.MODE_PRIVATE) }
+    var prompted by remember { mutableStateOf(prefs.getBoolean("approval_setup_prompted", false)) }
+    if (prompted || Session.token == null || state.device != null || setup.busy) return
+    fun done() { prefs.edit().putBoolean("approval_setup_prompted", true).apply(); prompted = true }
+    GhDialog("启用 GitHub 数字审批", ::done, confirm = "授权启用", onConfirm = {
+        done()
+        runCatching { MobileApprovalOAuth.begin(ctx) }.onSuccess { ctx.openBrowser(it) }.onFailure { ctx.toast(it.message ?: "无法开始授权") }
+    }) {
+        Text("当前登录方式没有注册本机验证设备，GitHub 两步验证请求不会弹窗。授权一次后自动启用，之后可在设置 → 两步验证中管理。", color = Gh.c.fgMuted, fontSize = 14.sp)
+    }
 }
 
 private fun approvalRequestLabel(type: String) = when (type) {
@@ -128,7 +149,20 @@ fun ApprovalSettingsRows() {
         notificationsAllowed = MobileApprovalNotifications.allowed(ctx)
         backgroundAllowed = ctx.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
     }
-    SwitchRow("自动检测 2FA 请求", "收到请求后弹窗并发送通知", state.enabled) { MobileApprovalMonitor.setEnabled(ctx, it) }
+    val setup by MobileApprovalOAuth.state.collectAsStateWithLifecycle()
+    val device = state.device
+    if (device == null) ApprovalSetupRow(setup)
+    else {
+        val status = when {
+            !state.enabled -> "已关闭，验证请求不会弹窗"
+            state.request != null -> "@${device.login} · 有一条验证请求等待确认"
+            state.connected -> "@${device.login} · 正在检测，收到请求后弹窗并通知"
+            state.error != null -> "@${device.login} · ${state.error}"
+            else -> "@${device.login} · 正在连接 GitHub…"
+        }
+        SwitchRow("自动检测 2FA 请求", status, state.enabled) { MobileApprovalMonitor.setEnabled(ctx, it) }
+        if (state.enabled && !state.connected && state.error != null) ApprovalSetupRow(setup, "连接失败，重新授权可恢复检测", "重新授权")
+    }
     SwitchRow("系统通知", if (notificationsAllowed) "已允许 GitHub 验证提醒" else "开启后可在后台收到验证提醒", notificationsAllowed) {
         runCatching { ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName)) }
             .onFailure { ctx.toast("请在系统设置中开启 mobilegh 通知") }
@@ -137,5 +171,24 @@ fun ApprovalSettingsRows() {
         val intent = if (backgroundAllowed) Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
             else Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}"))
         runCatching { ctx.startActivity(intent) }.onFailure { ctx.toast("请在系统设置中允许 mobilegh 后台运行") }
+    }
+}
+
+/** 未注册本机验证设备（或需重新授权）时显示真实状态和授权入口，而不是一个不起作用的开关 */
+@Composable
+private fun ApprovalSetupRow(setup: ApprovalSetupState, idle: String = "授权一次后，验证请求会自动弹窗并通知", action: String = "授权启用") {
+    val ctx = rememberCtx()
+    val g = Gh.c
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(if (action == "授权启用") "数字审批未启用" else "数字审批", fontSize = 15.sp, color = g.fg)
+            Text(setup.error ?: if (setup.waitingForBrowser) "正在等待 GitHub 授权" else if (setup.busy) "正在注册本机验证设备…" else idle,
+                fontSize = 12.sp, color = if (setup.error != null) g.danger else g.fgMuted)
+        }
+        Spacer(Modifier.width(12.dp))
+        if (setup.waitingForBrowser) GhButton("取消") { MobileApprovalOAuth.cancel(ctx) }
+        else GhButton(if (setup.busy) "启用中…" else action, primary = true, enabled = !setup.busy) {
+            runCatching { MobileApprovalOAuth.begin(ctx) }.onSuccess { ctx.openBrowser(it) }.onFailure { ctx.toast(it.message ?: "无法开始授权") }
+        }
     }
 }

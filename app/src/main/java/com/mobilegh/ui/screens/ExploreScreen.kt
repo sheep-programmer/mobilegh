@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
@@ -96,8 +97,9 @@ fun ExploreScreen() {
                         SearchHistorySection(History.data().searches, { submit(it.query, it.type) }, History::removeSearch, History::clearSearches)
                     }
                     item {
-                        Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                            Text("🔥 新晋热门仓库", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = g.fg, modifier = Modifier.weight(1f))
+                        Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Oc(R.drawable.oc_flame, g.attention, 18.dp, Modifier.padding(end = 6.dp))
+                            Text("新晋热门仓库", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = g.fg, modifier = Modifier.weight(1f))
                             Dropdown(trendRanges[trend].second, trendRanges.map { it.second }, { trend = it })
                         }
                         HDivider()

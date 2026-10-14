@@ -1,5 +1,8 @@
 package com.mobilegh.data
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonArray
@@ -143,9 +146,12 @@ object GitHub {
         else listOf(Api.json.decodeFromJsonElement(Content.serializer(), el))
     }
 
-    /** 源码原文：公开仓库优先走加速节点，失败或私有时回退到 API */
-    suspend fun fileRaw(o: String, n: String, path: String, ref: String?): String {
-        Net.freshRawUrl(o, n, ref ?: "HEAD", Api.encodePath(path))?.let { url ->
+    /**
+     * 源码原文。公开仓库优先走加速节点（该节点的分支内容有几秒到几分钟的缓存），
+     * 刚提交过文件时用 [force] 跳过它直接读 API，保证看到的就是最新内容。
+     */
+    suspend fun fileRaw(o: String, n: String, path: String, ref: String?, force: Boolean = false): String {
+        if (!force) Net.freshRawUrl(o, n, ref ?: "HEAD", Api.encodePath(path))?.let { url ->
             runCatching {
                 val resp = Api.call("GET", url)
                 // 个别代理被拦截时会返回 200 的 HTML 页面，需排除
@@ -153,11 +159,62 @@ object GitHub {
                 if (resp.code == 200 && (!html || path.endsWith(".html") || path.endsWith(".htm"))) return resp.body
             }
         }
-        return Api.text("${r(o, n)}/contents/${Api.encodePath(path)}" + (ref?.let { "?ref=${Api.q(it)}" } ?: ""), Api.RAW)
+        return Api.text("${r(o, n)}/contents/${Api.encodePath(path)}" + (ref?.let { "?ref=${Api.q(it)}" } ?: ""), Api.RAW, force)
     }
 
-    suspend fun fileHtml(o: String, n: String, path: String, ref: String?) =
-        Api.text("${r(o, n)}/contents/${Api.encodePath(path)}" + (ref?.let { "?ref=${Api.q(it)}" } ?: ""), Api.HTML)
+    suspend fun fileHtml(o: String, n: String, path: String, ref: String?, force: Boolean = false) =
+        Api.text("${r(o, n)}/contents/${Api.encodePath(path)}" + (ref?.let { "?ref=${Api.q(it)}" } ?: ""), Api.HTML, force)
+
+    // ---------------- 文件写入 ----------------
+    /** 单个文件的元数据 + Base64 内容（编辑前读取，拿到当前 blob sha） */
+    suspend fun fileContent(o: String, n: String, path: String, ref: String?, force: Boolean = true) =
+        Api.get<Content>("${r(o, n)}/contents/${Api.encodePath(path)}" + (ref?.let { "?ref=${Api.q(it)}" } ?: ""), force)
+
+    /** 新建或更新文件：sha 为空表示新建；GitHub 会在该分支上生成一个提交 */
+    suspend fun putFile(o: String, n: String, path: String, text: String, message: String, sha: String?, branch: String) =
+        Api.send<FileCommit>("PUT", "${r(o, n)}/contents/${Api.encodePath(path)}", buildJsonObject {
+            put("message", message)
+            put("content", RepoWrite.encode(text))
+            if (sha != null) put("sha", sha)
+            put("branch", branch)
+        })
+
+    suspend fun deleteFile(o: String, n: String, path: String, sha: String, message: String, branch: String) =
+        Api.send<FileCommit>("DELETE", "${r(o, n)}/contents/${Api.encodePath(path)}", buildJsonObject {
+            put("message", message)
+            put("sha", sha)
+            put("branch", branch)
+        })
+
+    // ---------------- 分支 ----------------
+    /** 分支、标签或提交 SHA 对应的提交 SHA */
+    suspend fun resolveSha(o: String, n: String, ref: String) =
+        Api.text("${r(o, n)}/commits/${Api.encodePath(ref)}", "application/vnd.github.sha", force = true).trim()
+
+    suspend fun branch(o: String, n: String, branch: String, force: Boolean = true) = Api.get<Branch>("${r(o, n)}/branches/${Api.encodePath(branch)}", force)
+
+    /** 该名称是否为现有分支（标签或 SHA 返回 false） */
+    suspend fun isBranch(o: String, n: String, ref: String): Boolean = try {
+        branch(o, n, ref); true
+    } catch (e: ApiException) {
+        if (e.code == 404) false else throw e
+    }
+
+    suspend fun createBranch(o: String, n: String, branch: String, sha: String) =
+        Api.send<GitRef>("POST", "${r(o, n)}/git/refs", buildJsonObject {
+            put("ref", "refs/heads/$branch")
+            put("sha", sha)
+        })
+
+
+    suspend fun createPull(o: String, n: String, title: String, body: String, head: String, base: String, draft: Boolean = false) =
+        Api.send<Pull>("POST", "${r(o, n)}/pulls", buildJsonObject {
+            put("title", title)
+            put("body", body)
+            put("head", head)
+            put("base", base)
+            if (draft) put("draft", true)
+        })
 
     suspend fun branches(o: String, n: String, page: Int, force: Boolean) = Api.get<List<Branch>>("${r(o, n)}/branches?per_page=100&page=$page", force)
     suspend fun tags(o: String, n: String, page: Int, force: Boolean) = Api.get<List<Tag>>("${r(o, n)}/tags?per_page=100&page=$page", force)
@@ -188,10 +245,15 @@ object GitHub {
     suspend fun commit(o: String, n: String, sha: String) = Api.get<Commit>("${r(o, n)}/commits/$sha")
 
     // ---------------- Issue / PR ----------------
-    suspend fun issues(o: String, n: String, state: String, page: Int, force: Boolean) =
-        Api.get<List<Issue>>("${r(o, n)}/issues?state=$state&per_page=$PER&page=$page", force).filter { it.pullRequest == null }
-    suspend fun pulls(o: String, n: String, state: String, page: Int, force: Boolean) =
-        Api.get<List<Pull>>("${r(o, n)}/pulls?state=$state&sort=updated&direction=desc&per_page=$PER&page=$page", force)
+    /**
+     * sort: created / updated / comments。列表接口会混入 PR；这里不做过滤，
+     * 以免一页过滤后不足 PER 条被分页器误判为最后一页，由界面按 pullRequest 过滤。
+     */
+    suspend fun issues(o: String, n: String, state: String, page: Int, force: Boolean, sort: String = "created", direction: String = "desc") =
+        Api.get<List<Issue>>("${r(o, n)}/issues?state=$state&sort=$sort&direction=$direction&per_page=$PER&page=$page", force)
+    /** sort: created / updated / popularity / long-running */
+    suspend fun pulls(o: String, n: String, state: String, page: Int, force: Boolean, sort: String = "updated", direction: String = "desc") =
+        Api.get<List<Pull>>("${r(o, n)}/pulls?state=$state&sort=$sort&direction=$direction&per_page=$PER&page=$page", force)
     suspend fun issue(o: String, n: String, num: Int, force: Boolean) = Api.get<Issue>("${r(o, n)}/issues/$num", force, Api.FULL)
     suspend fun issueComments(o: String, n: String, num: Int, force: Boolean) =
         Api.get<List<Comment>>("${r(o, n)}/issues/$num/comments?per_page=100", force, Api.FULL)
@@ -208,15 +270,180 @@ object GitHub {
         })
     suspend fun setPullState(o: String, n: String, num: Int, open: Boolean) =
         Api.send<Pull>("PATCH", "${r(o, n)}/pulls/$num", buildJsonObject { put("state", if (open) "open" else "closed") })
-    suspend fun merge(o: String, n: String, num: Int, method: String) =
-        Api.exec("PUT", "${r(o, n)}/pulls/$num/merge", buildJsonObject { put("merge_method", method) })
+    /** title/message 为空时由 GitHub 生成默认提交信息；sha 用于防止合并时头部已被更新 */
+    suspend fun merge(o: String, n: String, num: Int, method: String, title: String? = null, message: String? = null, sha: String? = null) =
+        Api.exec("PUT", "${r(o, n)}/pulls/$num/merge", buildJsonObject {
+            put("merge_method", method)
+            title?.takeIf { it.isNotBlank() }?.let { put("commit_title", it) }
+            message?.takeIf { it.isNotBlank() }?.let { put("commit_message", it) }
+            sha?.takeIf { it.isNotBlank() }?.let { put("sha", it) }
+        })
+    suspend fun deleteBranch(o: String, n: String, branch: String) = Api.exec("DELETE", "${r(o, n)}/git/refs/heads/${Api.encodePath(branch)}")
     suspend fun review(o: String, n: String, num: Int, event: String, body: String) =
         Api.exec("POST", "${r(o, n)}/pulls/$num/reviews", buildJsonObject {
             put("event", event)
             if (body.isNotBlank()) put("body", body)
         })
-    suspend fun createIssue(o: String, n: String, title: String, body: String) =
-        Api.send<Issue>("POST", "${r(o, n)}/issues", buildJsonObject { put("title", title); put("body", body) })
+
+    // ---------------- PR 审查意见（行内评论） ----------------
+    suspend fun reviewComments(o: String, n: String, num: Int, force: Boolean): List<ReviewComment> {
+        val all = ArrayList<ReviewComment>()
+        for (page in 1..10) {
+            val l = Api.get<List<ReviewComment>>("${r(o, n)}/pulls/$num/comments?per_page=100&page=$page", force, Api.FULL)
+            all += l
+            if (l.size < 100) break
+        }
+        // 「已解决」与精确的「已过时」状态只有 GraphQL 提供；拿不到时退回 REST 的行号判断
+        val threads = try { reviewThreads(o, n, num) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
+            AppLog.warn("network", "审查会话状态读取失败：${e.message}")
+            emptyMap()
+        }
+        return all.map { c -> threads[c.id]?.let { t -> c.copy(resolved = t.resolved, isOutdated = t.outdated, threadId = t.id) } ?: c }
+    }
+
+    private class ThreadState(val id: String, val resolved: Boolean, val outdated: Boolean)
+
+    private const val THREADS_Q = """
+        query(${'$'}owner: String!, ${'$'}name: String!, ${'$'}number: Int!, ${'$'}cursor: String) {
+          repository(owner: ${'$'}owner, name: ${'$'}name) {
+            pullRequest(number: ${'$'}number) {
+              reviewThreads(first: 100, after: ${'$'}cursor) {
+                pageInfo { hasNextPage endCursor }
+                nodes { id isResolved isOutdated comments(first: 100) { nodes { databaseId } } }
+              }
+            }
+          }
+        }"""
+
+    /** 评论 databaseId → 所属会话的状态 */
+    private suspend fun reviewThreads(o: String, n: String, num: Int): Map<Long, ThreadState> {
+        val map = HashMap<Long, ThreadState>()
+        var cursor: String? = null
+        repeat(5) {
+            val conn = Api.graphql(THREADS_Q, mapOf("owner" to o, "name" to n, "number" to num, "cursor" to cursor))
+                .obj("repository").obj("pullRequest").obj("reviewThreads") ?: return map
+            conn.arr("nodes")?.objects()?.forEach { t ->
+                val st = ThreadState(t.str("id").orEmpty(), t.str("isResolved") == "true", t.str("isOutdated") == "true")
+                t.obj("comments").arr("nodes")?.objects()?.forEach { c -> c.str("databaseId")?.toLongOrNull()?.let { map[it] = st } }
+            }
+            val page = conn.obj("pageInfo")
+            if (page.str("hasNextPage") != "true") return map
+            cursor = page.str("endCursor") ?: return map
+        }
+        return map
+    }
+
+    /**
+     * 发表行内评论。line 为 null 时是文件级评论（subject_type=file）；
+     * side：RIGHT=新文件的行（新增/上下文），LEFT=旧文件的行（删除）。
+     */
+    suspend fun addReviewComment(
+        o: String, n: String, num: Int, body: String, commitId: String, path: String,
+        line: Int?, side: String = "RIGHT", startLine: Int? = null, startSide: String? = null,
+    ) = Api.send<ReviewComment>("POST", "${r(o, n)}/pulls/$num/comments", buildJsonObject {
+        put("body", body)
+        put("commit_id", commitId)
+        put("path", path)
+        if (line == null) put("subject_type", "file") else {
+            put("line", line)
+            put("side", side)
+            if (startLine != null && startLine < line) {
+                put("start_line", startLine)
+                put("start_side", startSide ?: side)
+            }
+        }
+    })
+    suspend fun replyReviewComment(o: String, n: String, num: Int, commentId: Long, body: String) =
+        Api.send<ReviewComment>("POST", "${r(o, n)}/pulls/$num/comments/$commentId/replies", buildJsonObject { put("body", body) })
+    suspend fun editReviewComment(o: String, n: String, commentId: Long, body: String) =
+        Api.send<ReviewComment>("PATCH", "${r(o, n)}/pulls/comments/$commentId", buildJsonObject { put("body", body) })
+    suspend fun deleteReviewComment(o: String, n: String, commentId: Long) = Api.exec("DELETE", "${r(o, n)}/pulls/comments/$commentId")
+
+    /** GraphQL 变更：出错时 data 中对应字段为 null，需要单独判断 */
+    private suspend fun mutate(field: String, query: String, vars: Map<String, Any?>) {
+        val data = Api.graphql(query, vars)
+        if (data.obj(field) == null) throw ApiException(403, "操作失败（可能没有权限）")
+    }
+
+    suspend fun resolveThread(threadId: String, resolve: Boolean) {
+        val m = if (resolve) "resolveReviewThread" else "unresolveReviewThread"
+        mutate(m, "mutation(${'$'}id: ID!) { $m(input: { threadId: ${'$'}id }) { thread { isResolved } } }", mapOf("id" to threadId))
+    }
+
+    /** 草稿 ↔ 可评审：REST 没有对应接口，只能走 GraphQL */
+    suspend fun setPullDraft(nodeId: String, draft: Boolean) {
+        val m = if (draft) "convertPullRequestToDraft" else "markPullRequestReadyForReview"
+        mutate(m, "mutation(${'$'}id: ID!) { $m(input: { pullRequestId: ${'$'}id }) { pullRequest { isDraft } } }", mapOf("id" to nodeId))
+    }
+
+    // ---------------- PR 审查者 ----------------
+    /** 可请求审查的人：协作者列表需要推送权限，读不到时退回可指派人列表 */
+    suspend fun reviewerCandidates(o: String, n: String): List<Assignable> = try {
+        Api.get<List<Assignable>>("${r(o, n)}/collaborators?per_page=100", true)
+    } catch (e: ApiException) {
+        if (e.code == 403 || e.code == 404) repoAssignees(o, n) else throw e
+    }
+    suspend fun requestReviewers(o: String, n: String, num: Int, logins: List<String>) =
+        Api.exec("POST", "${r(o, n)}/pulls/$num/requested_reviewers", buildJsonObject { put("reviewers", JsonArray(logins.map { JsonPrimitive(it) })) })
+    suspend fun removeReviewers(o: String, n: String, num: Int, logins: List<String>) =
+        Api.exec("DELETE", "${r(o, n)}/pulls/$num/requested_reviewers", buildJsonObject { put("reviewers", JsonArray(logins.map { JsonPrimitive(it) })) })
+
+    // ---------------- 检查（check runs + commit status） ----------------
+    suspend fun checkRuns(o: String, n: String, sha: String, force: Boolean) =
+        Api.get<CheckRuns>("${r(o, n)}/commits/$sha/check-runs?per_page=100", force).checkRuns
+    suspend fun combinedStatus(o: String, n: String, sha: String, force: Boolean) =
+        Api.get<CombinedStatus>("${r(o, n)}/commits/$sha/status?per_page=100", force)
+
+    /** 两类检查各自读取；只有都失败时才报错（细粒度 Token 可能只授权了其中一种） */
+    suspend fun checks(o: String, n: String, sha: String, force: Boolean): Checks = coroutineScope {
+        val runs = async { runCatching { checkRuns(o, n, sha, force) } }
+        val statuses = async { runCatching { combinedStatus(o, n, sha, force).statuses } }
+        val a = runs.await()
+        val b = statuses.await()
+        if (a.isFailure && b.isFailure) throw a.exceptionOrNull()!!
+        Checks(a.getOrDefault(emptyList()), b.getOrDefault(emptyList()))
+    }
+
+    /** 没有推送权限时，GitHub 会静默忽略 labels / assignees / milestone */
+    suspend fun createIssue(
+        o: String, n: String, title: String, body: String,
+        labels: List<String> = emptyList(), assignees: List<String> = emptyList(), milestone: Int? = null,
+    ) = Api.send<Issue>("POST", "${r(o, n)}/issues", buildJsonObject {
+        put("title", title)
+        put("body", body)
+        if (labels.isNotEmpty()) put("labels", JsonArray(labels.map { JsonPrimitive(it) }))
+        if (assignees.isNotEmpty()) put("assignees", JsonArray(assignees.map { JsonPrimitive(it) }))
+        milestone?.let { put("milestone", it) }
+    })
+
+    /**
+     * 读取 .github/ISSUE_TEMPLATE/ 下的模板与 config.yml；目录不存在时返回空集合。
+     * 单个文件读取失败只跳过该文件。
+     */
+    suspend fun issueTemplates(o: String, n: String, force: Boolean): IssueTemplateSet {
+        val files = try {
+            contents(o, n, IssueTemplates.DIR, null, force)
+        } catch (e: ApiException) {
+            if (e.code == 404) return IssueTemplateSet() else throw e
+        }
+        val wanted = files.filter { it.type == "file" && (IssueTemplates.isConfig(it.name) || IssueTemplates.isForm(it.name) || IssueTemplates.isMarkdown(it.name)) }
+            .take(IssueTemplates.MAX_FILES)
+        val texts = coroutineScope {
+            wanted.map { f ->
+                async {
+                    try {
+                        f.name to Api.text("${r(o, n)}/contents/${Api.encodePath(f.path)}", Api.RAW, force)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        AppLog.warn("network", "Issue 模板读取失败：${f.path}")
+                        null
+                    }
+                }
+            }.awaitAll().filterNotNull()
+        }
+        return IssueTemplates.build(texts)
+    }
 
     // ---------------- 评论 / 表情 / 元数据 ----------------
     suspend fun editComment(o: String, n: String, commentId: Long, body: String) =
@@ -268,6 +495,32 @@ object GitHub {
         if (e.code == 404) null else throw e
     }
 
+    suspend fun release(o: String, n: String, id: Long, force: Boolean = true) = Api.get<Release>("${r(o, n)}/releases/$id", force)
+
+    /** 新建 / 编辑 Release；target 只在标签尚不存在时用于创建标签 */
+    private fun releaseBody(form: ReleaseEdit) = buildJsonObject {
+        put("tag_name", form.tag)
+        form.target?.let { put("target_commitish", it) }
+        put("name", form.title)
+        put("body", form.notes)
+        put("draft", form.draft)
+        put("prerelease", form.prerelease)
+        // 草稿与预发布不能设为最新；GitHub 只接受字符串 "true" / "false" / "legacy"
+        if (!form.draft) put("make_latest", if (form.latest && !form.prerelease) "true" else "false")
+    }
+
+    suspend fun createRelease(o: String, n: String, form: ReleaseEdit) = Api.send<Release>("POST", "${r(o, n)}/releases", releaseBody(form))
+    suspend fun updateRelease(o: String, n: String, id: Long, form: ReleaseEdit) = Api.send<Release>("PATCH", "${r(o, n)}/releases/$id", releaseBody(form))
+    suspend fun deleteRelease(o: String, n: String, id: Long) = Api.exec("DELETE", "${r(o, n)}/releases/$id")
+
+    /** 让 GitHub 根据两次发布之间合并的 PR 生成说明 */
+    suspend fun generateNotes(o: String, n: String, tag: String, target: String?, previousTag: String?) =
+        Api.send<ReleaseNotes>("POST", "${r(o, n)}/releases/generate-notes", buildJsonObject {
+            put("tag_name", tag)
+            target?.let { put("target_commitish", it) }
+            previousTag?.let { put("previous_tag_name", it) }
+        })
+
     // ---------------- Actions ----------------
     suspend fun runs(o: String, n: String, workflowId: Long?, page: Int, force: Boolean) =
         Api.get<Runs>((if (workflowId != null) "${r(o, n)}/actions/workflows/$workflowId/runs" else "${r(o, n)}/actions/runs") + "?per_page=$PER&page=$page", force).workflowRuns
@@ -279,8 +532,17 @@ object GitHub {
     suspend fun cancelRun(o: String, n: String, runId: Long) = Api.exec("POST", "${r(o, n)}/actions/runs/$runId/cancel")
     suspend fun jobLog(o: String, n: String, jobId: Long) = Api.text("${r(o, n)}/actions/jobs/$jobId/logs", force = true)
     suspend fun workflows(o: String, n: String, force: Boolean) = Api.get<Workflows>("${r(o, n)}/actions/workflows?per_page=100", force).workflows
-    suspend fun dispatch(o: String, n: String, workflowId: Long, ref: String) =
-        Api.exec("POST", "${r(o, n)}/actions/workflows/$workflowId/dispatches", buildJsonObject { put("ref", ref) })
+    suspend fun dispatch(o: String, n: String, workflowId: Long, ref: String, inputs: Map<String, String> = emptyMap()) =
+        Api.exec("POST", "${r(o, n)}/actions/workflows/$workflowId/dispatches", buildJsonObject {
+            put("ref", ref)
+            if (inputs.isNotEmpty()) put("inputs", JsonObject(inputs.mapValues { JsonPrimitive(it.value) }))
+        })
+
+    /** 工作流 YAML 原文（解析 workflow_dispatch 的输入参数） */
+    suspend fun workflowFile(o: String, n: String, path: String, ref: String?) =
+        Api.text("${r(o, n)}/contents/${Api.encodePath(path)}" + (ref?.let { "?ref=${Api.q(it)}" } ?: ""), Api.RAW, force = true)
+
+    suspend fun environments(o: String, n: String) = Api.get<Environments>("${r(o, n)}/environments?per_page=100").environments.map { it.name }
     suspend fun setWorkflowEnabled(o: String, n: String, workflowId: Long, on: Boolean) =
         Api.exec("PUT", "${r(o, n)}/actions/workflows/$workflowId/" + if (on) "enable" else "disable")
 
@@ -343,6 +605,10 @@ object GitHub {
     suspend fun markRead(id: String) = Api.exec("PATCH", "/notifications/threads/$id")
     suspend fun markDone(id: String) = Api.exec("DELETE", "/notifications/threads/$id")
     suspend fun markAllRead() = Api.exec("PUT", "/notifications", buildJsonObject { put("read", true) })
+    /** 取消订阅线程：之后不再收到该会话的通知，直到再次评论或被 @ */
+    suspend fun unsubscribeThread(id: String) = Api.exec("DELETE", "/notifications/threads/$id/subscription")
+    /** 忽略线程：即使被 @ 也不再收到该会话的通知 */
+    suspend fun ignoreThread(id: String) = Api.exec("PUT", "/notifications/threads/$id/subscription", buildJsonObject { put("ignored", true) })
 
     // ---------------- 动态 ----------------
     suspend fun received(login: String, page: Int, force: Boolean) = Api.get<List<Event>>("/users/$login/received_events?per_page=$PER&page=$page", force)
@@ -361,12 +627,39 @@ object GitHub {
     // ---------------- 搜索 ----------------
     suspend fun searchRepos(q: String, sort: String?, page: Int) = Api.get<SearchResult<Repo>>("/search/repositories?q=${Api.q(q)}&per_page=$PER&page=$page" + (sort?.let { "&sort=$it" } ?: ""))
     suspend fun searchUsers(q: String, page: Int) = Api.get<SearchResult<User>>("/search/users?q=${Api.q(q)}&per_page=$PER&page=$page")
-    suspend fun searchIssues(q: String, page: Int) = Api.get<SearchResult<Issue>>("/search/issues?q=${Api.q(q)}&per_page=$PER&page=$page&advanced_search=true")
+    suspend fun searchIssues(q: String, page: Int, sort: String? = null, order: String? = null, force: Boolean = false) =
+        Api.get<SearchResult<Issue>>(
+            "/search/issues?q=${Api.q(q)}&per_page=$PER&page=$page&advanced_search=true" +
+                (sort?.let { "&sort=$it" } ?: "") + (order?.let { "&order=$it" } ?: ""),
+            force,
+        )
 
     // ---------------- Gist ----------------
     suspend fun gists(login: String?, page: Int, force: Boolean) = Api.get<List<Gist>>((if (login == null) "/gists" else "/users/$login/gists") + "?per_page=$PER&page=$page", force)
     suspend fun starredGists(page: Int, force: Boolean) = Api.get<List<Gist>>("/gists/starred?per_page=$PER&page=$page", force)
     suspend fun gist(id: String, force: Boolean) = Api.get<Gist>("/gists/$id", force)
+
+    /** 新建 / 编辑 Gist；请求体由 [gistCreatePayload] / [gistPatchPayload] 构造 */
+    suspend fun createGist(payload: JsonObject) = Api.send<Gist>("POST", "/gists", payload)
+    suspend fun editGist(id: String, payload: JsonObject) = Api.send<Gist>("PATCH", "/gists/$id", payload)
+    suspend fun deleteGist(id: String) = Api.exec("DELETE", "/gists/$id")
+
+    suspend fun isGistStarred(id: String) = Api.exists("/gists/$id/star")
+    suspend fun starGist(id: String, on: Boolean) = Api.exec(if (on) "PUT" else "DELETE", "/gists/$id/star")
+
+    suspend fun forkGist(id: String) = Api.send<Gist>("POST", "/gists/$id/forks")
+
+    /** full+json 带回 body_html；个别情况下缺失时由调用方用 /markdown 补渲染 */
+    suspend fun gistComments(id: String, force: Boolean) =
+        Api.get<List<Comment>>("/gists/$id/comments?per_page=100", force, Api.FULL)
+
+    suspend fun addGistComment(id: String, body: String) =
+        Api.send<Comment>("POST", "/gists/$id/comments", buildJsonObject { put("body", body) })
+
+    suspend fun editGistComment(id: String, commentId: Long, body: String) =
+        Api.send<Comment>("PATCH", "/gists/$id/comments/$commentId", buildJsonObject { put("body", body) })
+
+    suspend fun deleteGistComment(id: String, commentId: Long) = Api.exec("DELETE", "/gists/$id/comments/$commentId")
 
     suspend fun rateLimit() = Api.get<RateLimit>("/rate_limit", force = true)
 
@@ -400,7 +693,10 @@ object GitHub {
         else mapOf("login" to login, "from" to "$year-01-01T00:00:00Z", "to" to "$year-12-31T23:59:59Z")
         val data = Api.graphql(CONTRIB_Q, vars)
         val c = data.obj("user")?.get("contributionsCollection") ?: throw ApiException(404, "用户不存在")
-        return Api.plain.decodeFromJsonElement(c)
+        val result: Contributions = Api.plain.decodeFromJsonElement(c)
+        // 自己最近一年的数据同步给桌面贡献图小组件
+        if (year == null && login.equals(Session.login, true)) WidgetStore.saveContributions(login, result.contributionCalendar)
+        return result
     }
 
     private const val PINNED_Q = """

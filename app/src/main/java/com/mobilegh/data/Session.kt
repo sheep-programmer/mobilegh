@@ -12,6 +12,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -163,6 +165,32 @@ object Session {
 
     fun totpAccounts(): List<String> = prefs.all.keys.filter { it.startsWith("totp_") }
         .map { it.removePrefix("totp_") }.sorted()
+
+    /** 「已查看」状态变化时自增，PR 详情页的进度据此刷新 */
+    var viewedRevision by mutableIntStateOf(0)
+        private set
+
+    private fun viewedKey(owner: String, name: String, number: Int) =
+        "viewed_${login?.lowercase().orEmpty()}_${owner.lowercase()}/${name.lowercase()}#$number"
+
+    /**
+     * PR 中已查看的文件：文件名 → 查看时的 blob sha。
+     * 与 GitHub 网页一致，文件之后再有改动（sha 变化）就不再算已查看。
+     */
+    fun viewedFiles(owner: String, name: String, number: Int): Map<String, String> {
+        if (login == null) return emptyMap()
+        val raw = prefs.getString(viewedKey(owner, name, number), null) ?: return emptyMap()
+        return runCatching { Api.plain.decodeFromString(MapSerializer(String.serializer(), String.serializer()), raw) }.getOrDefault(emptyMap())
+    }
+
+    fun setViewedFiles(owner: String, name: String, number: Int, files: Map<String, String>) {
+        if (login == null) return
+        val e = prefs.edit()
+        if (files.isEmpty()) e.remove(viewedKey(owner, name, number))
+        else e.putString(viewedKey(owner, name, number), Api.plain.encodeToString(MapSerializer(String.serializer(), String.serializer()), files))
+        e.apply()
+        viewedRevision++
+    }
 
     fun setTheme(mode: Int) {
         themeMode = mode

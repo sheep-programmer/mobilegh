@@ -9,7 +9,23 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import com.mobilegh.data.BuiltinShortcut
+import com.mobilegh.data.FavoriteRepo
+import com.mobilegh.data.HomeLayout
+import com.mobilegh.data.SavedSearch
+import com.mobilegh.ui.components.MenuIcon
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,7 +60,7 @@ fun HomeProfile(login: String, user: User?, avatar: String?, onClick: () -> Unit
         Avatar(user?.avatarUrl ?: avatar, 40.dp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(user?.name?.takeIf { it.isNotBlank() } ?: login, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(user?.name?.takeIf { it.isNotBlank() } ?: login, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 if (user == null) "@$login" else "@$login · ${fmtCount(user.publicRepos + (user.ownedPrivateRepos ?: 0))} 仓库 · ${fmtCount(user.followers)} 关注者",
                 fontSize = 13.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -54,7 +70,8 @@ fun HomeProfile(login: String, user: User?, avatar: String?, onClick: () -> Unit
     }
 }
 
-data class HomeShortcut(@DrawableRes val icon: Int, val label: String, val color: Color, val onClick: () -> Unit)
+/** id 对应 [BuiltinShortcut.id] 或保存的搜索的 slot id，用于按用户布局排序 */
+data class HomeShortcut(@DrawableRes val icon: Int, val label: String, val color: Color, val onClick: () -> Unit, val id: String = label)
 
 /** 首页默认的八个入口；颜色取自 Primer，暗色模式用对应的亮色版本 */
 @Composable
@@ -63,18 +80,61 @@ fun homeShortcuts(
     onStars: () -> Unit, onLists: () -> Unit, onGists: () -> Unit, onRecent: () -> Unit,
 ): List<HomeShortcut> {
     val g = Gh.c
-    val severe = if (g.dark) Color(0xFFDB6D28) else Color(0xFFBC4C00)
-    val sponsors = if (g.dark) Color(0xFFDB61A2) else Color(0xFFBF3989)
     return listOf(
-        HomeShortcut(R.drawable.oc_issue_opened, "Issues", g.success, onIssues),
-        HomeShortcut(R.drawable.oc_git_pull_request, "PR", g.accent, onPulls),
-        HomeShortcut(R.drawable.oc_repo, "仓库", g.fgMuted, onRepos),
-        HomeShortcut(R.drawable.oc_organization, "组织", severe, onOrgs),
-        HomeShortcut(R.drawable.oc_star_fill, "已 Star", g.attention, onStars),
-        HomeShortcut(R.drawable.oc_checklist, "列表", g.done, onLists),
-        HomeShortcut(R.drawable.oc_code_square, "Gists", sponsors, onGists),
-        HomeShortcut(R.drawable.oc_history, "最近浏览", g.accent, onRecent),
+        HomeShortcut(R.drawable.oc_issue_opened, "Issues", g.success, onIssues, BuiltinShortcut.Issues.id),
+        HomeShortcut(R.drawable.oc_git_pull_request, "PR", g.accent, onPulls, BuiltinShortcut.Pulls.id),
+        HomeShortcut(R.drawable.oc_repo, "仓库", g.fgMuted, onRepos, BuiltinShortcut.Repos.id),
+        HomeShortcut(R.drawable.oc_organization, "组织", g.severe, onOrgs, BuiltinShortcut.Orgs.id),
+        HomeShortcut(R.drawable.oc_star_fill, "已 Star", g.attention, onStars, BuiltinShortcut.Stars.id),
+        HomeShortcut(R.drawable.oc_checklist, "列表", g.done, onLists, BuiltinShortcut.Lists.id),
+        HomeShortcut(R.drawable.oc_code_square, "Gists", g.sponsors, onGists, BuiltinShortcut.Gists.id),
+        HomeShortcut(R.drawable.oc_history, "最近浏览", g.accent, onRecent, BuiltinShortcut.Recent.id),
     )
+}
+
+/** 保存的搜索在首页显示为快捷入口：Issue 用绿色、PR 用蓝色 */
+@Composable
+fun savedSearchShortcut(s: SavedSearch, onClick: () -> Unit): HomeShortcut =
+    HomeShortcut(savedSearchIcon(s.icon), s.name, if (s.query.pulls) Gh.c.accent else Gh.c.success, onClick, HomeLayout.searchSlotId(s.id))
+
+/** 按用户布局排出首页快捷入口；从未编辑过时与默认的八个入口完全一致 */
+@Composable
+fun arrangedShortcuts(layout: HomeLayout, builtins: List<HomeShortcut>, onSearch: (SavedSearch) -> Unit): List<HomeShortcut> {
+    val byId = builtins.associateBy { it.id }
+    return layout.visibleSlots().mapNotNull { slot ->
+        byId[slot.id] ?: layout.search(slot.id)?.let { s -> savedSearchShortcut(s) { onSearch(s) } }
+    }
+}
+
+/** 首页收藏的仓库：点按打开，长按可调整顺序或移出 */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun HomeFavoriteRow(repo: FavoriteRepo, canUp: Boolean, canDown: Boolean, onOpen: () -> Unit, onMove: (Int) -> Unit, onRemove: () -> Unit) {
+    val g = Gh.c
+    var menu by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth()
+            .combinedClickable(onClickLabel = "打开仓库", onLongClickLabel = "调整收藏", onLongClick = { menu = true }, onClick = onOpen)
+            .padding(horizontal = 16.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        MenuIcon(R.drawable.oc_repo, g.fgMuted)
+        Spacer(Modifier.width(14.dp))
+        Text(
+            buildAnnotatedString {
+                withStyle(SpanStyle(color = g.fgMuted)) { append(repo.owner + " / ") }
+                withStyle(SpanStyle(color = g.fg, fontWeight = FontWeight.SemiBold)) { append(repo.name) }
+            },
+            Modifier.weight(1f), fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.width(6.dp))
+        Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
+        DropdownMenu(menu, { menu = false }, containerColor = g.canvas) {
+            if (canUp) DropdownMenuItem(text = { Text("上移", color = g.fg) }, onClick = { menu = false; onMove(-1) })
+            if (canDown) DropdownMenuItem(text = { Text("下移", color = g.fg) }, onClick = { menu = false; onMove(1) })
+            DropdownMenuItem(text = { Text("移出首页收藏", color = g.danger) }, onClick = { menu = false; onRemove() })
+        }
+    }
 }
 
 /** 四列快捷入口：浅色底图标 + 短标签，暗色模式下同样协调 */

@@ -2,6 +2,7 @@ package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -52,7 +53,7 @@ fun CompareScreen(owner: String, name: String, initialBase: String = "HEAD~1", i
                 }
             }
             Row(Modifier.padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GhButton("交换", icon = R.drawable.oc_git_branch) { val before = base; base = head; head = before }
+                GhButton("交换", icon = R.drawable.oc_arrow_switch) { val before = base; base = head; head = before }
                 GhButton("比较", Modifier.weight(1f), primary = true, enabled = base.isNotBlank() && head.isNotBlank()) {
                     if (appliedBase == base.trim() && appliedHead == head.trim()) compare.refresh()
                     else { appliedBase = base.trim(); appliedHead = head.trim() }
@@ -64,9 +65,10 @@ fun CompareScreen(owner: String, name: String, initialBase: String = "HEAD~1", i
                     Text("${c.totalCommits} 个提交 · 领先 ${c.aheadBy} · 落后 ${c.behindBy}", Modifier.padding(horizontal = 16.dp), color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     Chips(listOf("文件 ${files.size}", "提交 ${c.totalCommits}"), tab) { tab = it }
                     if (tab == 0) {
-                        LazyColumn(Modifier.fillMaxSize()) {
+                        val listState = rememberLazyListState()
+                        LazyColumn(Modifier.fillMaxSize(), state = listState) {
                             if (files.size >= 300) item { Text("GitHub 比较接口最多返回 300 个文件，此列表可能不完整。", Modifier.padding(16.dp), color = g.attention, fontSize = 12.sp) }
-                            if (files.isEmpty()) item { EmptyState("两个版本没有可显示的文件差异") }
+                            if (files.isEmpty()) emptyItem(listState, "两个版本没有可显示的文件差异", R.drawable.oc_diff)
                             fileDiffs(files, collapsed, g) { f -> nav.push(Screen.FileView(owner, name, f.filename, appliedHead)) }
                             item { Spacer(Modifier.height(24.dp)) }
                         }

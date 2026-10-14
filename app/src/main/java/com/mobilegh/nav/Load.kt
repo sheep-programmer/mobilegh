@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.mobilegh.data.ApiException
+import com.mobilegh.data.Session
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -158,6 +159,62 @@ fun Entry.act(onError: (String) -> Unit = {}, onDone: () -> Unit = {}, block: su
             throw e
         } catch (e: Throwable) {
             onError(e.friendly())
+        }
+    }
+}
+
+/**
+ * 该仓库发生写入（提交文件、分支、Release、触发工作流）后刷新本页数据。
+ * 记下页面创建时的版本，页面重新显示时版本变了才刷新，首次打开不会重复加载。
+ */
+@Composable
+fun OnRepoChanged(owner: String, name: String, kind: String = com.mobilegh.data.RepoWrite.CODE, refresh: () -> Unit) {
+    val v = com.mobilegh.data.RepoChanges.version(owner, name, kind)
+    val seen = retain("repo-change:$kind") { intArrayOf(v) }
+    androidx.compose.runtime.LaunchedEffect(v) {
+        if (v != seen[0]) {
+            seen[0] = v
+            refresh()
+        }
+    }
+}
+
+/** 当前账号仍是打开此页面时的账号 */
+fun Entry.sameAccount(): Boolean = Session.token != null && Session.generation == generation && Session.login == login
+
+/**
+ * 写操作（发评论、加星标、删除等）：发出前确认仍是打开页面时的账号；
+ * 完成后再确认一次，账号已切换时不再把结果写回页面。
+ */
+fun <T> Entry.write(onError: (String) -> Unit = {}, onDone: (T) -> Unit = {}, block: suspend () -> T) {
+    scope.launch {
+        try {
+            val result = guarded(block)
+            onDone(result)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            onError(e.friendly())
+        }
+    }
+}
+
+/** 在调用方自己的协程里执行写操作，前后各确认一次账号未切换 */
+suspend fun <T> Entry.guarded(block: suspend () -> T): T {
+    check(sameAccount()) { "账号已切换，请重新打开页面" }
+    val result = block()
+    check(sameAccount()) { "账号已切换，旧账号的操作结果不再更新当前页面" }
+    return result
+}
+
+/** 写入成功后刷新导航栈中其他页面保留的数据（如返回后的列表），只刷新符合条件的页面 */
+fun Navigator.refreshRetained(match: (Screen) -> Boolean) {
+    stack.forEach { e ->
+        if (e != top && match(e.screen)) e.bag.values.forEach { v ->
+            when (v) {
+                is Pager<*> -> v.refresh()
+                is Loader<*> -> v.load(true)
+            }
         }
     }
 }

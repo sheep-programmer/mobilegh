@@ -92,6 +92,8 @@ class FeatureFlowsTest {
                 }
             }
         }
+        // 先读取仓库的 Issue 模板；读不到（测试 Token 无效）时回落到空白表单
+        compose.waitUntil(15_000) { compose.onAllNodesWithText("标题").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("标题").performTextInput("draft-title")
         compose.onNodeWithText("描述（支持 Markdown）").performTextInput("draft-body")
         compose.runOnIdle { visible.value = false }

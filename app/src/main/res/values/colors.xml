@@ -1,3 +1,15 @@
 <resources>
     <color name="ic_bg">#0D1117</color>
+
+    <!-- 桌面小组件：与 ui/theme/Theme.kt 中的 Primer 令牌保持一致（浅色） -->
+    <color name="widget_canvas">#FFFFFFFF</color>
+    <color name="widget_border">#FFD1D9E0</color>
+    <color name="widget_fg">#FF1F2328</color>
+    <color name="widget_fg_muted">#FF59636E</color>
+    <color name="widget_accent">#FF0969DA</color>
+    <color name="widget_heat_0">#FFEFF2F5</color>
+    <color name="widget_heat_1">#FFACEEBB</color>
+    <color name="widget_heat_2">#FF4AC26B</color>
+    <color name="widget_heat_3">#FF2DA44E</color>
+    <color name="widget_heat_4">#FF116329</color>
 </resources>

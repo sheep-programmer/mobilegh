@@ -1,3 +1,16 @@
 <resources>
     <string name="app_name">mobilegh</string>
+
+    <string name="widget_contrib_label">贡献图</string>
+    <string name="widget_contrib_desc">最近 20 周的 GitHub 贡献，点按打开个人主页</string>
+    <string name="widget_inbox_label">通知收件箱</string>
+    <string name="widget_inbox_desc">未读通知数与最新 3 条未读通知</string>
+    <string name="widget_preview_contrib_total">386 次贡献</string>
+    <string name="widget_preview_contrib_range">近 20 周</string>
+    <string name="widget_preview_inbox_title">通知</string>
+    <string name="widget_preview_inbox_count">3 条未读</string>
+    <string name="widget_preview_inbox_repo_1">octocat/hello-world</string>
+    <string name="widget_preview_inbox_title_1">修复深色模式下登录页的显示问题</string>
+    <string name="widget_preview_inbox_repo_2">octocat/spoon-knife</string>
+    <string name="widget_preview_inbox_title_2">请求你审查：重构网络层缓存</string>
 </resources>

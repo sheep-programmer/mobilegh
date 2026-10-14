@@ -39,6 +39,12 @@ data class Discussion(
     val closed: Boolean,
     // Only detail queries request HTML. List pages retain metadata, not entire bodies.
     val bodyHtml: String? = null,
+    /** 原始 Markdown，仅详情页请求；编辑时作为初值 */
+    val body: String? = null,
+    val viewerHasUpvoted: Boolean = false,
+    val viewerCanUpvote: Boolean = false,
+    val viewerCanUpdate: Boolean = false,
+    val viewerCanDelete: Boolean = false,
 ) {
     fun canReply(repository: DiscussionRepository, allowed: Boolean) =
         repository.canWrite(allowed) && !locked && !closed
@@ -59,6 +65,17 @@ data class DiscussionComment(
     val isAnswer: Boolean,
     val isMinimized: Boolean,
     val replyCount: Int,
+    /** 原始 Markdown（编辑用） */
+    val body: String? = null,
+    val upvoteCount: Int = 0,
+    val viewerHasUpvoted: Boolean = false,
+    val viewerCanUpvote: Boolean = false,
+    val viewerCanUpdate: Boolean = false,
+    val viewerCanDelete: Boolean = false,
+    val viewerCanMarkAsAnswer: Boolean = false,
+    val viewerCanUnmarkAsAnswer: Boolean = false,
+    /** 顶层评论随正文一起返回的第一页回复；回复自身为 null */
+    val replies: DiscussionPage<DiscussionComment>? = null,
 )
 
 data class DiscussionPage<T>(
@@ -202,6 +219,58 @@ open class DiscussionsClient(
         return parseComment(node)
     }
 
+    /** 点赞 / 取消点赞讨论或评论；返回服务端确认后的 (点赞数, 是否已点赞) */
+    suspend fun upvote(subjectId: String, on: Boolean): Pair<Int, Boolean> {
+        require(subjectId.isNotBlank())
+        val field = if (on) "addUpvote" else "removeUpvote"
+        val subject = graphql(if (on) ADD_UPVOTE_MUTATION else REMOVE_UPVOTE_MUTATION, mapOf("input" to idInput("subjectId", subjectId)))
+            .obj(field)?.obj("subject") ?: throw ApiException(400, "GitHub 未确认点赞结果，请刷新后查看")
+        return subject.requiredInt("upvoteCount") to subject.requiredBoolean("viewerHasUpvoted")
+    }
+
+    /** 采纳 / 取消采纳答案（仅可采纳答案的分类）；返回讨论现在是否已解答 */
+    suspend fun markAnswer(commentId: String, on: Boolean): Boolean {
+        require(commentId.isNotBlank())
+        val field = if (on) "markDiscussionCommentAsAnswer" else "unmarkDiscussionCommentAsAnswer"
+        val discussion = graphql(if (on) MARK_ANSWER_MUTATION else UNMARK_ANSWER_MUTATION, mapOf("input" to idInput("id", commentId)))
+            .obj(field)?.obj("discussion") ?: throw ApiException(400, "GitHub 未确认采纳结果，请刷新后查看")
+        return discussion.bool("isAnswered") ?: on
+    }
+
+    /** 编辑讨论标题与正文 */
+    suspend fun update(discussionId: String, title: String, body: String) {
+        require(title.isNotBlank() && body.isNotBlank()) { "请填写标题和正文" }
+        val input = buildJsonObject {
+            put("discussionId", discussionId)
+            put("title", title.trim())
+            put("body", body)
+        }
+        graphql(UPDATE_MUTATION, mapOf("input" to input)).obj("updateDiscussion")?.obj("discussion")
+            ?: throw ApiException(400, "GitHub 未确认保存成功，请刷新后查看")
+    }
+
+    suspend fun delete(discussionId: String) {
+        graphql(DELETE_MUTATION, mapOf("input" to idInput("id", discussionId))).obj("deleteDiscussion")
+            ?: throw ApiException(400, "GitHub 未确认删除成功，请刷新后查看")
+    }
+
+    suspend fun updateComment(commentId: String, body: String) {
+        require(body.isNotBlank()) { "请填写评论内容" }
+        val input = buildJsonObject {
+            put("commentId", commentId)
+            put("body", body)
+        }
+        graphql(UPDATE_COMMENT_MUTATION, mapOf("input" to input)).obj("updateDiscussionComment")?.obj("comment")
+            ?: throw ApiException(400, "GitHub 未确认保存成功，请刷新后查看")
+    }
+
+    suspend fun deleteComment(commentId: String) {
+        graphql(DELETE_COMMENT_MUTATION, mapOf("input" to idInput("id", commentId))).obj("deleteDiscussionComment")
+            ?: throw ApiException(400, "GitHub 未确认删除成功，请刷新后查看")
+    }
+
+    private fun idInput(key: String, id: String) = buildJsonObject { put(key, id) }
+
     private fun repoVariables(owner: String, name: String): Map<String, Any?> = mapOf("owner" to owner, "name" to name)
 
     private fun repositoryNode(root: JsonObject) =
@@ -228,13 +297,32 @@ open class DiscussionsClient(
         upvoteCount = node.requiredInt("upvoteCount"), answered = node.bool("isAnswered") ?: false,
         locked = node.requiredBoolean("locked"), closed = node.requiredBoolean("closed"),
         bodyHtml = if (withBody) node.requiredString("bodyHTML") else null,
+        body = if (withBody) node.str("body") else null,
+        viewerHasUpvoted = node.bool("viewerHasUpvoted") ?: false,
+        viewerCanUpvote = node.bool("viewerCanUpvote") ?: false,
+        viewerCanUpdate = node.bool("viewerCanUpdate") ?: false,
+        viewerCanDelete = node.bool("viewerCanDelete") ?: false,
     )
 
-    private fun parseComment(node: JsonObject) = DiscussionComment(
-        node.requiredString("id"), node.requiredString("url"), parseAuthor(node.obj("author")),
-        node.str("createdAt"), node.requiredString("bodyHTML"), node.requiredBoolean("isAnswer"),
-        node.requiredBoolean("isMinimized"), node.requiredObject("replies").requiredInt("totalCount"),
-    )
+    private fun parseComment(node: JsonObject): DiscussionComment {
+        val replies = node.obj("replies")
+        // 顶层评论带第一页回复；回复自身只有总数，没有嵌套 replies 字段
+        val preview = replies?.let { r -> if (r["nodes"] is JsonArray) connection(r, null, ::parseComment) else null }
+        return DiscussionComment(
+            node.requiredString("id"), node.requiredString("url"), parseAuthor(node.obj("author")),
+            node.str("createdAt"), node.requiredString("bodyHTML"), node.requiredBoolean("isAnswer"),
+            node.requiredBoolean("isMinimized"), replies?.requiredInt("totalCount") ?: 0,
+            body = node.str("body"),
+            upvoteCount = node.int("upvoteCount") ?: 0,
+            viewerHasUpvoted = node.bool("viewerHasUpvoted") ?: false,
+            viewerCanUpvote = node.bool("viewerCanUpvote") ?: false,
+            viewerCanUpdate = node.bool("viewerCanUpdate") ?: false,
+            viewerCanDelete = node.bool("viewerCanDelete") ?: false,
+            viewerCanMarkAsAnswer = node.bool("viewerCanMarkAsAnswer") ?: false,
+            viewerCanUnmarkAsAnswer = node.bool("viewerCanUnmarkAsAnswer") ?: false,
+            replies = preview,
+        )
+    }
 
     private fun <T> connection(node: JsonObject, after: String?, parse: (JsonObject) -> T): DiscussionPage<T> {
         val nodes = node["nodes"] as? JsonArray ?: malformed("nodes")
@@ -265,16 +353,28 @@ open class DiscussionsClient(
         const val MAX_COMMENTS = 100
         const val MAX_REPLIES = 60
         const val MAX_CATEGORIES = 100
+        /** 每条顶层评论随正文一起取回的回复数 */
+        const val REPLY_PREVIEW = 5
 
         private const val REPO_FIELDS = "id hasDiscussionsEnabled isArchived"
         private const val CATEGORY_FIELDS = "id name emoji description isAnswerable"
         private const val AUTHOR_FIELDS = "author { login avatarUrl }"
+        private const val VIEWER_STATE = "viewerHasUpvoted viewerCanUpvote"
         private const val DISCUSSION_FIELDS = """
             id number title url createdAt updatedAt upvoteCount isAnswered locked closed
+            $VIEWER_STATE viewerCanUpdate viewerCanDelete
             $AUTHOR_FIELDS category { $CATEGORY_FIELDS }
         """
-        private const val COMMENT_FIELDS = """
-            id url createdAt bodyHTML isAnswer isMinimized $AUTHOR_FIELDS replies { totalCount }
+        private const val COMMENT_BASE = """
+            id url createdAt body bodyHTML isAnswer isMinimized upvoteCount
+            $VIEWER_STATE viewerCanUpdate viewerCanDelete viewerCanMarkAsAnswer viewerCanUnmarkAsAnswer
+            $AUTHOR_FIELDS
+        """
+        private const val COMMENT_FIELDS = "$COMMENT_BASE replies { totalCount }"
+        /** 顶层评论带上第一页回复，详情页可以直接展开 */
+        private const val ROOT_COMMENT_FIELDS = """
+            $COMMENT_BASE
+            replies(first: $REPLY_PREVIEW) { pageInfo { endCursor hasNextPage } totalCount nodes { $COMMENT_FIELDS } }
         """
         private const val PAGE_INFO = "pageInfo { endCursor hasNextPage } totalCount"
         private const val REPOSITORY_QUERY = """
@@ -304,8 +404,8 @@ open class DiscussionsClient(
                 repository(owner: ${'$'}owner, name: ${'$'}name) {
                     $REPO_FIELDS
                     discussion(number: ${'$'}number) {
-                        $DISCUSSION_FIELDS bodyHTML answer { $COMMENT_FIELDS }
-                        comments(first: $PAGE_SIZE) { $PAGE_INFO nodes { $COMMENT_FIELDS } }
+                        $DISCUSSION_FIELDS body bodyHTML answer { $COMMENT_FIELDS }
+                        comments(first: $PAGE_SIZE) { pageInfo { endCursor hasNextPage } totalCount nodes { $ROOT_COMMENT_FIELDS } }
                     }
                 }
             }
@@ -314,7 +414,7 @@ open class DiscussionsClient(
             query DiscussionComments(${'$'}owner: String!, ${'$'}name: String!, ${'$'}number: Int!, ${'$'}after: String) {
                 repository(owner: ${'$'}owner, name: ${'$'}name) {
                     discussion(number: ${'$'}number) {
-                        comments(first: $PAGE_SIZE, after: ${'$'}after) { $PAGE_INFO nodes { $COMMENT_FIELDS } }
+                        comments(first: $PAGE_SIZE, after: ${'$'}after) { pageInfo { endCursor hasNextPage } totalCount nodes { $ROOT_COMMENT_FIELDS } }
                     }
                 }
             }
@@ -329,6 +429,46 @@ open class DiscussionsClient(
         private const val CREATE_MUTATION = """
             mutation CreateRepositoryDiscussion(${'$'}input: CreateDiscussionInput!) {
                 createDiscussion(input: ${'$'}input) { discussion { $DISCUSSION_FIELDS comments { totalCount } } }
+            }
+        """
+        private const val ADD_UPVOTE_MUTATION = """
+            mutation AddDiscussionUpvote(${'$'}input: AddUpvoteInput!) {
+                addUpvote(input: ${'$'}input) { subject { upvoteCount viewerHasUpvoted } }
+            }
+        """
+        private const val REMOVE_UPVOTE_MUTATION = """
+            mutation RemoveDiscussionUpvote(${'$'}input: RemoveUpvoteInput!) {
+                removeUpvote(input: ${'$'}input) { subject { upvoteCount viewerHasUpvoted } }
+            }
+        """
+        private const val MARK_ANSWER_MUTATION = """
+            mutation MarkDiscussionAnswer(${'$'}input: MarkDiscussionCommentAsAnswerInput!) {
+                markDiscussionCommentAsAnswer(input: ${'$'}input) { discussion { id isAnswered } }
+            }
+        """
+        private const val UNMARK_ANSWER_MUTATION = """
+            mutation UnmarkDiscussionAnswer(${'$'}input: UnmarkDiscussionCommentAsAnswerInput!) {
+                unmarkDiscussionCommentAsAnswer(input: ${'$'}input) { discussion { id isAnswered } }
+            }
+        """
+        private const val UPDATE_MUTATION = """
+            mutation UpdateRepositoryDiscussion(${'$'}input: UpdateDiscussionInput!) {
+                updateDiscussion(input: ${'$'}input) { discussion { id } }
+            }
+        """
+        private const val DELETE_MUTATION = """
+            mutation DeleteRepositoryDiscussion(${'$'}input: DeleteDiscussionInput!) {
+                deleteDiscussion(input: ${'$'}input) { discussion { id } }
+            }
+        """
+        private const val UPDATE_COMMENT_MUTATION = """
+            mutation UpdateDiscussionComment(${'$'}input: UpdateDiscussionCommentInput!) {
+                updateDiscussionComment(input: ${'$'}input) { comment { id } }
+            }
+        """
+        private const val DELETE_COMMENT_MUTATION = """
+            mutation DeleteDiscussionComment(${'$'}input: DeleteDiscussionCommentInput!) {
+                deleteDiscussionComment(input: ${'$'}input) { comment { id } }
             }
         """
         private const val REPLY_MUTATION = """

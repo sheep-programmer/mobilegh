@@ -51,7 +51,7 @@ fun OrgDiagnosticsScreen() {
                 }
             }
             if (directory.loading) item { Loading(Modifier.fillMaxWidth().height(64.dp)) }
-            directory.error?.let { msg -> item { Text(msg, color = g.danger, fontSize = 13.sp) } }
+            directory.error?.let { msg -> item { InlineError(msg) { directory.refresh() } } }
             directory.data?.warnings.orEmpty().forEach { warning -> item { Text(warning, color = g.attention, fontSize = 13.sp) } }
             item {
                 Text("核对指定组织", fontWeight = FontWeight.SemiBold, color = g.fg)
@@ -79,7 +79,7 @@ fun OrgDiagnosticsScreen() {
                     }
                 }
             } }
-            error?.let { msg -> item { Text(msg, color = g.danger, fontSize = 13.sp) } }
+            error?.let { msg -> item { InlineError(msg) } }
             item {
                 MenuGroup(Modifier.fillMaxWidth()) {
                     MenuRow(R.drawable.oc_shield_lock, "检查 OAuth 组织授权") {

@@ -2,6 +2,9 @@ package com.mobilegh
 
 import android.app.Application
 import com.mobilegh.data.Api
+import com.mobilegh.data.AppLock
+import com.mobilegh.data.WidgetStore
+import com.mobilegh.widget.Widgets
 import com.mobilegh.data.AppLog
 import com.mobilegh.data.Downloads
 import com.mobilegh.data.Net
@@ -16,8 +19,12 @@ class App : Application() {
         AppLog.init(this)
         Net.init(this)
         Session.init(this)
+        AppLock.init(this)
+        WidgetStore.init(this)
+        WidgetStore.listener = { kind -> Widgets.update(this, kind) }
         com.mobilegh.data.MobileApprovalMonitor.reload(this)
         History.init(this)
+        com.mobilegh.data.HomePrefs.init(this)
         Downloads.init(this)
         // 启动后台静默检查一次新版本（走加速节点，失败不影响使用）
         Update.checkQuietly()

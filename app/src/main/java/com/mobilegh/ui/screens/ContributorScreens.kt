@@ -274,7 +274,7 @@ private fun ContributionMetricGrid(metrics: List<ContributionMetric>) {
                             Text(metric.label, color = Gh.c.fgMuted, fontSize = 11.sp)
                             Text(
                                 if (metric.count == null) "—" else metric.prefix + contributionCount(metric.count),
-                                color = metric.color, fontSize = 19.sp, fontWeight = FontWeight.SemiBold,
+                                color = metric.color, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
                                 fontFamily = FontFamily.Monospace,
                             )
                         }

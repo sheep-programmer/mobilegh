@@ -46,13 +46,10 @@ fun SubscriptionDialog(owner: String, name: String, onDismiss: () -> Unit, onSav
             }
         }) {
         Column {
-            if (state.loading && state.data == null) Text("正在读取订阅设置…")
+            if (state.loading && state.data == null) Loading(Modifier.fillMaxWidth().height(96.dp))
             state.error?.let { Text(it, color = Gh.c.danger); TextLink("重试") { state.load(true) } }
             if (state.data != null) SubscriptionMode.entries.forEach { mode ->
-                Column(Modifier.fillMaxWidth().clickable(enabled = !saving) { selected = mode }.padding(vertical = 10.dp)) {
-                    Text("${if ((selected ?: state.data) == mode) "●" else "○"} ${mode.title}", color = Gh.c.fg, fontSize = 15.sp)
-                    Text(mode.description, color = Gh.c.fgMuted, fontSize = 12.sp)
-                }
+                RadioRow((selected ?: state.data) == mode, mode.title, mode.description, enabled = !saving) { selected = mode }
             }
             error?.let { Text(it, color = Gh.c.danger, fontSize = 12.sp) }
         }

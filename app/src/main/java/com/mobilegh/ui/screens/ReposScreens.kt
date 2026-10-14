@@ -130,7 +130,8 @@ fun ReposTab() {
                         SORTS[sort].first, query.trim(), hideForks, directory.data?.warnings.orEmpty(), Modifier.weight(1f), directory::refresh)
                 }
             } else {
-                PagedList(pager, Modifier.weight(1f), state = state, empty = "没有匹配的仓库", itemKey = { it.id }, itemFilter = {
+                PagedList(pager, Modifier.weight(1f), state = state, empty = "没有匹配的仓库", emptyIcon = R.drawable.oc_repo,
+                    emptyAction = "新建仓库", onEmptyAction = { nav.push(Screen.CreateRepo) }, itemKey = { it.id }, itemFilter = {
                     (visibility == 0 || (visibility == 2) == it.isPrivate) && (!hideForks || !it.fork) &&
                         (query.isBlank() || it.fullName.contains(query.trim(), true) || it.description?.contains(query.trim(), true) == true)
                 }) { RepoItem(it) }
@@ -210,7 +211,11 @@ fun RepoListScreen(kind: RepoKind, login: String, name: String) {
                 Row(Modifier.padding(12.dp)) { Dropdown(SORTS[sort].second, SORTS.map { it.second }, { sort = it }) }
                 HDivider()
             }
-            PagedList(pager) { RepoItem(it, extra = if (kind == RepoKind.Forks) "创建于 ${relTime(it.createdAt)}" else null) }
+            PagedList(pager, empty = when (kind) {
+                RepoKind.Starred -> if (isMe) "还没有 Star 任何仓库" else "$login 还没有 Star 任何仓库"
+                RepoKind.Forks -> "还没有人 Fork 这个仓库"
+                else -> "没有可见的仓库"
+            }, emptyIcon = if (kind == RepoKind.Starred) R.drawable.oc_star else R.drawable.oc_repo) { RepoItem(it, extra = if (kind == RepoKind.Forks) "创建于 ${relTime(it.createdAt)}" else null) }
         }
     }
 }

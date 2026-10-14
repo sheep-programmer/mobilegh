@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,13 +33,23 @@ import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.Session
+import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
+import com.mobilegh.nav.act
+import com.mobilegh.ui.components.GhDialog
+import com.mobilegh.ui.components.GhField
+import com.mobilegh.ui.components.toast
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.rememberLoader
+import com.mobilegh.nav.OnRepoChanged
+import com.mobilegh.data.RepoWrite
+import androidx.compose.runtime.remember
 import com.mobilegh.ui.components.Avatar
+import com.mobilegh.ui.components.ErrorState
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.CodeView
 import com.mobilegh.ui.components.EmptyState
+import com.mobilegh.ui.components.emptyItem
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.HtmlView
@@ -77,12 +88,14 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
     val ctx = rememberCtx()
     val items = rememberLoader("dir") { f -> GitHub.contents(owner, name, path, ref, f).sortedWith(compareBy({ it.type != "dir" }, { it.name.lowercase() })) }
     val last = rememberLoader("last") { GitHub.commits(owner, name, ref, path.ifEmpty { null }, 1, it).firstOrNull() }
+    OnRepoChanged(owner, name) { items.refresh(); last.refresh() }
     Page(
         if (path.isEmpty()) name else path.substringAfterLast('/'),
         subtitle = listOfNotNull(ref, path.takeIf { it.isNotEmpty() }?.let { "/$it" }).joinToString(" · ").ifEmpty { "$owner/$name" },
         actions = {
             OcButton(R.drawable.oc_history, { nav.push(Screen.Commits(owner, name, ref, path.ifEmpty { null })) })
             MoreMenu(listOf(
+                MenuAction("新建文件") { nav.push(Screen.EditFile(owner, name, ref, null, path)) },
                 MenuAction("复制路径") { ctx.copy(path.ifEmpty { "/" }) },
                 MenuAction("查找仓库文件") { nav.push(Screen.FileFinder(owner, name, ref)) },
                 MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name/tree/${ref ?: "HEAD"}/$path") },
@@ -96,7 +109,8 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
             val upIdx = if (hasLast) 1 else 0
             val base = upIdx + if (hasUp) 1 else 0
             fun box(i: Int) = Modifier.groupItem(i == 0, i == total - 1, g.border, if (i == 0 && hasLast) g.canvasSubtle else g.canvas)
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp)) {
+            val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+            LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp)) {
                 last.data?.let { c ->
                     item {
                         Row(
@@ -115,7 +129,7 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
                 }
                 if (hasUp) item {
                     Row(box(upIdx).fillMaxWidth().clickable { nav.parentFiles(owner, name, path, ref) }.padding(horizontal = 12.dp, vertical = 12.dp)) {
-                        Oc(R.drawable.oc_file_directory_fill, Color(0xFF54AEFF))
+                        Oc(R.drawable.oc_file_directory_fill, g.folder)
                         Spacer(Modifier.width(12.dp))
                         Text("..", color = g.fg, fontSize = 14.sp)
                     }
@@ -132,7 +146,7 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         when (c.type) {
-                            "dir" -> Oc(R.drawable.oc_file_directory_fill, Color(0xFF54AEFF))
+                            "dir" -> Oc(R.drawable.oc_file_directory_fill, g.folder)
                             "submodule" -> Oc(R.drawable.oc_file_submodule, g.fgMuted)
                             "symlink" -> Oc(R.drawable.oc_link, g.fgMuted)
                             else -> Oc(if (ext(c.name) in IMAGE_EXT) R.drawable.oc_file_media else R.drawable.oc_file, g.fgMuted)
@@ -142,7 +156,7 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
                         if (c.type == "file") Text(fmtSize(c.size), fontSize = 12.sp, color = g.fgMuted)
                     }
                 }
-                if (list.isEmpty()) item { EmptyState("空目录") }
+                if (list.isEmpty()) emptyItem(listState, "空目录", R.drawable.oc_file_directory)
             }
         }
     }
@@ -163,31 +177,38 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
     val sc = syntaxColors(g)
     val e = ext(path)
     val rawUrl = "https://raw.githubusercontent.com/$owner/$name/${ref ?: "HEAD"}/${com.mobilegh.data.Api.encodePath(path)}"
-    val body = rememberLoader("file:${g.dark}") {
+    val body = rememberLoader("file:${g.dark}") { force ->
         when {
             e in IMAGE_EXT -> FileBody.Image
             e in BINARY_EXT -> FileBody.Binary
             e in MD_EXT -> {
-                val html = GitHub.fileHtml(owner, name, path, ref)
+                val html = GitHub.fileHtml(owner, name, path, ref, force)
                 FileBody.Html(html, "")
             }
             else -> {
-                val text = GitHub.fileRaw(owner, name, path, ref)
+                val text = GitHub.fileRaw(owner, name, path, ref, force)
                 if (text.take(8000).contains('\u0000')) FileBody.Binary
                 else FileBody.Code(text, withContext(Dispatchers.Default) { highlightLines(text, path, sc) })
             }
         }
     }
     var mdSource by rememberSaveable { mutableStateOf(false) }
-    val source = rememberLoader("src:$mdSource:${g.dark}") {
-        if (!mdSource) null else GitHub.fileRaw(owner, name, path, ref).let { t -> t to withContext(Dispatchers.Default) { highlightLines(t, "x.txt", sc) } }
+    val source = rememberLoader("src:$mdSource:${g.dark}") { force ->
+        if (!mdSource) null else GitHub.fileRaw(owner, name, path, ref, force).let { t -> t to withContext(Dispatchers.Default) { highlightLines(t, "x.txt", sc) } }
     }
+    val canPush = rememberLoader("can-push") { GitHub.repo(owner, name, it).let { r -> r.permissions?.push == true && !r.archived } }
+    OnRepoChanged(owner, name) { body.refresh(); if (mdSource) source.refresh(); canPush.refresh() }
+    var deleting by remember { mutableStateOf(false) }
+    if (deleting) DeleteFileDialog(owner, name, path, ref) { deleting = false }
     val fileName = path.substringAfterLast('/')
     Page(
         fileName, subtitle = "${ref ?: "默认分支"} · $path",
         actions = {
             val b = body.data
+            val editable = (b is FileBody.Code && b.text.length <= RepoWrite.MAX_EDIT_BYTES) || b is FileBody.Html
+            if (editable) OcButton(R.drawable.oc_pencil, { nav.push(Screen.EditFile(owner, name, ref, path)) })
             MoreMenu(buildList {
+                if (editable) add(MenuAction("编辑文件") { nav.push(Screen.EditFile(owner, name, ref, path)) })
                 if (b is FileBody.Code) add(MenuAction("复制全部内容") { ctx.copy(b.text) })
                 if (b is FileBody.Html) add(MenuAction(if (mdSource) "查看渲染" else "查看源码") { mdSource = !mdSource })
                 add(MenuAction(if (Session.codeWrap) "关闭自动换行" else "自动换行") { Session.toggleWrap() })
@@ -196,6 +217,7 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
                 add(MenuAction("复制路径") { ctx.copy(path) })
                 add(MenuAction("分享链接") { ctx.share("https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/$path") })
                 add(MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/$path") })
+                if (canPush.data == true) add(MenuAction("删除文件", danger = true) { deleting = true })
             })
         },
     ) { pad ->
@@ -211,7 +233,11 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
                 }
                 is FileBody.Html -> if (mdSource) {
                     val s = source.data
-                    if (s != null) CodeView(s.second, Session.codeWrap) else com.mobilegh.ui.components.Loading()
+                    when {
+                        s != null -> CodeView(s.second, Session.codeWrap)
+                        source.error != null -> ErrorState(source.error!!) { source.refresh() }
+                        else -> com.mobilegh.ui.components.Loading()
+                    }
                 } else {
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 12.dp)) {
                         HtmlView(b.html, baseUrl = "https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/${path.substringBeforeLast('/', "").let { if (it.isEmpty()) "" else "$it/" }}")
@@ -236,44 +262,165 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
 @Composable
 fun BranchesScreen(owner: String, name: String) {
     val nav = LocalNav.current
+    val ctx = rememberCtx()
     val g = Gh.c
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
     val branches = com.mobilegh.nav.rememberPager("branches", 100) { p, f -> GitHub.branches(owner, name, p, f) }
     val tags = com.mobilegh.nav.rememberPager("tags", 100) { p, f -> GitHub.tags(owner, name, p, f) }
-    Page("分支与标签", subtitle = "$owner/$name") { pad ->
+    OnRepoChanged(owner, name) { branches.refresh(); tags.refresh() }
+    val r = repo.data
+    val canPush = r?.permissions?.push == true && !r.archived
+    // 新建分支的来源；null 表示弹窗关闭
+    var creatingFrom by remember { mutableStateOf<String?>(null) }
+    var deleting by remember { mutableStateOf<com.mobilegh.data.Branch?>(null) }
+    Page(
+        "分支与标签", subtitle = "$owner/$name",
+        actions = {
+            if (canPush) OcButton(R.drawable.oc_plus, { creatingFrom = r?.defaultBranch ?: "" })
+        },
+    ) { pad ->
         Column(Modifier.padding(pad)) {
             Chips(listOf("分支", "标签"), tab) { tab = it }
             HDivider()
             if (tab == 0) {
                 com.mobilegh.ui.components.PagedList(branches) { b ->
+                    val isDefault = b.name == r?.defaultBranch
                     Row(
-                        Modifier.fillMaxWidth().clickable { nav.push(Screen.Files(owner, name, "", b.name)) }.padding(horizontal = 16.dp, vertical = 12.dp),
+                        Modifier.fillMaxWidth().clickable { nav.push(Screen.Files(owner, name, "", b.name)) }.padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Oc(R.drawable.oc_git_branch, g.fgMuted)
                         Spacer(Modifier.width(10.dp))
                         Text(b.name, color = g.fg, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (b.name == repo.data?.defaultBranch) { Pill("默认", g.accent); Spacer(Modifier.width(6.dp)) }
-                        if (b.protected) Oc(R.drawable.oc_shield_lock, g.attention)
+                        if (isDefault) { Spacer(Modifier.width(6.dp)); Pill("默认", g.accent) }
+                        if (b.protected) {
+                            Spacer(Modifier.width(6.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Oc(R.drawable.oc_shield_lock, g.attention, 12.dp)
+                                Spacer(Modifier.width(2.dp))
+                                Pill("受保护", g.attention)
+                            }
+                        }
                         Spacer(Modifier.width(6.dp))
                         Text(b.commit.sha.take(7), fontSize = 12.sp, color = g.fgMuted, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                             modifier = Modifier.clickable { nav.push(Screen.CommitDetail(owner, name, b.commit.sha)) })
+                        MoreMenu(buildList {
+                            add(MenuAction("浏览代码") { nav.push(Screen.Files(owner, name, "", b.name)) })
+                            add(MenuAction("提交历史") { nav.push(Screen.Commits(owner, name, b.name)) })
+                            if (canPush) add(MenuAction("从此分支新建分支") { creatingFrom = b.name })
+                            if (!isDefault && r != null) add(MenuAction("与 ${r.defaultBranch} 比较") { nav.push(Screen.Compare(owner, name, r.defaultBranch, b.name)) })
+                            if (!isDefault && r != null && canPush) add(MenuAction("发起拉取请求") { nav.push(Screen.NewPull(owner, name, b.name, r.defaultBranch, b.name)) })
+                            add(MenuAction("复制分支名") { ctx.copy(b.name) })
+                            if (canPush && !isDefault) add(MenuAction("删除分支", danger = true) { deleting = b })
+                        }, g.fgMuted)
                     }
                 }
             } else {
                 com.mobilegh.ui.components.PagedList(tags, empty = "没有标签") { t ->
                     Row(
-                        Modifier.fillMaxWidth().clickable { nav.push(Screen.Files(owner, name, "", t.name)) }.padding(horizontal = 16.dp, vertical = 12.dp),
+                        Modifier.fillMaxWidth().clickable { nav.push(Screen.Files(owner, name, "", t.name)) }.padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Oc(R.drawable.oc_tag, g.fgMuted)
                         Spacer(Modifier.width(10.dp))
-                        Text(t.name, color = g.fg, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        Text(t.name, color = g.fg, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(t.commit.sha.take(7), fontSize = 12.sp, color = g.fgMuted, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                        MoreMenu(buildList {
+                            add(MenuAction("浏览代码") { nav.push(Screen.Files(owner, name, "", t.name)) })
+                            if (canPush) add(MenuAction("从此标签新建分支") { creatingFrom = t.name })
+                            add(MenuAction("复制标签名") { ctx.copy(t.name) })
+                        }, g.fgMuted)
                     }
                 }
             }
+        }
+    }
+    creatingFrom?.let { from ->
+        NewBranchDialog(owner, name, from, onDismiss = { creatingFrom = null }) { created ->
+            creatingFrom = null
+            tab = 0
+            ctx.toast("已创建分支 $created")
+        }
+    }
+    deleting?.let { b ->
+        DeleteBranchDialog(owner, name, b, onDismiss = { deleting = null }) {
+            deleting = null
+            branches.update { list -> list.removeAll { it.name == b.name } }
+            ctx.toast("已删除分支 ${b.name}")
+        }
+    }
+}
+
+@Composable
+private fun NewBranchDialog(owner: String, name: String, initialSource: String, onDismiss: () -> Unit, onCreated: (String) -> Unit) {
+    val g = Gh.c
+    val entry = LocalEntry.current
+    var branch by rememberSaveable { mutableStateOf("") }
+    var source by rememberSaveable { mutableStateOf(initialSource) }
+    var picking by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val nameOk = RepoWrite.validBranch(branch.trim())
+    GhDialog(
+        "新建分支", onDismiss = { if (!busy) onDismiss() },
+        confirm = if (busy) "创建中…" else "创建", confirmEnabled = nameOk && source.isNotBlank() && !busy,
+        onConfirm = {
+            busy = true
+            error = null
+            entry.act({ busy = false; error = if (it.contains("already exists", true)) "分支 ${branch.trim()} 已存在" else it }) {
+                val sha = GitHub.resolveSha(owner, name, source.trim())
+                GitHub.createBranch(owner, name, branch.trim(), sha)
+                RepoWrite.changed(owner, name)
+                busy = false
+                onCreated(branch.trim())
+            }
+        },
+    ) {
+        Column {
+            GhField(branch, { branch = it }, "分支名称", placeholder = "例如 feature/login")
+            if (branch.isNotBlank() && !nameOk) Text("分支名称无效：不能包含空格、..、~ ^ : ? * [ 等字符", fontSize = 12.sp, color = g.danger)
+            Spacer(Modifier.height(8.dp))
+            GhField(
+                source, { source = it }, "来源（分支、标签或提交 SHA）",
+                trailing = { OcButton(R.drawable.oc_git_branch, { picking = true }, g.fgMuted, enabled = !busy) },
+            )
+            Text("新分支将指向来源当前所在的提交", Modifier.padding(top = 4.dp), fontSize = 12.sp, color = g.fgMuted)
+            error?.let { com.mobilegh.ui.components.InlineError(it) }
+        }
+    }
+    if (picking) BranchPicker(owner, name, source, onDismiss = { picking = false }) { source = it; picking = false }
+}
+
+@Composable
+private fun DeleteBranchDialog(owner: String, name: String, b: com.mobilegh.data.Branch, onDismiss: () -> Unit, onDeleted: () -> Unit) {
+    val g = Gh.c
+    val entry = LocalEntry.current
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    GhDialog(
+        "删除分支", onDismiss = { if (!busy) onDismiss() },
+        confirm = if (busy) "删除中…" else "删除", danger = true, confirmEnabled = !busy,
+        onConfirm = {
+            busy = true
+            error = null
+            entry.act({ busy = false; error = it }) {
+                GitHub.deleteBranch(owner, name, b.name)
+                RepoWrite.changed(owner, name)
+                busy = false
+                onDeleted()
+            }
+        },
+    ) {
+        Column {
+            Text("确定删除分支 ${b.name} 吗？", fontSize = 14.sp, color = g.fg)
+            Spacer(Modifier.height(6.dp))
+            Text("最新提交 ${b.commit.sha.take(7)}。只存在于该分支上的提交在删除后只能通过 SHA 找回；以该分支发起的拉取请求会被关闭。", fontSize = 13.sp, color = g.fgMuted)
+            if (b.protected) {
+                Spacer(Modifier.height(6.dp))
+                Text("该分支受保护，GitHub 可能拒绝删除。", fontSize = 13.sp, color = g.attention)
+            }
+            error?.let { com.mobilegh.ui.components.InlineError(it) }
         }
     }
 }

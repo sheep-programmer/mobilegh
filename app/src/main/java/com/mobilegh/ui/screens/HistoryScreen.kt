@@ -62,11 +62,12 @@ fun RecentRepositoriesScreen() {
     var filter by rememberSaveable { mutableStateOf("") }
     val all = History.data().repositories
     val shown = all.filter { it.fullName.contains(filter.trim(), true) }
-    Page("最近浏览", actions = { if (all.isNotEmpty()) TextButton({ History.clearRepositories() }) { Text("清空") } }) { pad ->
+    Page("最近浏览", actions = { if (all.isNotEmpty()) OcButton(R.drawable.oc_trash, { History.clearRepositories() }) }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             GhField(filter, { filter = it }, "搜索最近浏览的仓库", Modifier.padding(12.dp))
             Text("仅保存在本机，按账号区分", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
-            if (shown.isEmpty()) EmptyState(if (all.isEmpty()) "还没有浏览过仓库" else "没有匹配的仓库")
+            if (all.isEmpty()) EmptyState("还没有浏览过仓库", R.drawable.oc_history)
+            else if (shown.isEmpty()) EmptyState("没有匹配的仓库", R.drawable.oc_search, action = "清除搜索") { filter = "" }
             else LazyColumn {
                 items(shown, key = { it.fullName.lowercase() }) { repo ->
                     Row(Modifier.fillMaxWidth().clickable { nav.push(Screen.Repo(repo.owner, repo.name)) }.padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {

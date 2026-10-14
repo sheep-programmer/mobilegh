@@ -14,6 +14,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import java.util.concurrent.atomic.AtomicLong
 import com.mobilegh.data.History
+import com.mobilegh.data.IssueQuery
+import com.mobilegh.data.Session
+import com.mobilegh.data.ProjectOwnerKind
 
 /** 所有页面。使用轻量的自定义导航栈，无需 navigation 库，也无需参数序列化。 */
 sealed interface Screen {
@@ -24,15 +27,23 @@ sealed interface Screen {
     data class FileFinder(val owner: String, val name: String, val ref: String?) : Screen
     data class CodeSearch(val owner: String, val name: String) : Screen
     data class Blame(val owner: String, val name: String, val path: String, val ref: String?) : Screen
+    /** path == null 表示在 dir 目录下新建文件 */
+    data class EditFile(val owner: String, val name: String, val ref: String?, val path: String?, val dir: String = "") : Screen
+    data class NewPull(val owner: String, val name: String, val head: String, val base: String, val title: String = "", val body: String = "") : Screen
+    /** releaseId == null 表示新建 */
+    data class EditRelease(val owner: String, val name: String, val releaseId: Long? = null) : Screen
+    data class RunWorkflow(val owner: String, val name: String, val workflowId: Long, val path: String, val title: String, val ref: String? = null) : Screen
     data object RecentRepositories : Screen
     data object EditProfile : Screen
     data class Commits(val owner: String, val name: String, val ref: String?, val path: String? = null,
         val author: String? = null, val since: String? = null, val until: String? = null) : Screen
     data class CommitDetail(val owner: String, val name: String, val sha: String) : Screen
     data class Compare(val owner: String, val name: String, val base: String = "HEAD~1", val head: String = "HEAD") : Screen
-    data class Issues(val owner: String, val name: String, val pulls: Boolean) : Screen
+    /** preset：从首页保存的搜索打开时带入的筛选条件 */
+    data class Issues(val owner: String, val name: String, val pulls: Boolean, val preset: IssueQuery? = null) : Screen
     data class IssueDetail(val owner: String, val name: String, val number: Int, val isPull: Boolean) : Screen
     data class PullFiles(val owner: String, val name: String, val number: Int) : Screen
+    data class PullChecks(val owner: String, val name: String, val number: Int, val sha: String) : Screen
     data class NewIssue(val owner: String, val name: String) : Screen
     data class Actions(val owner: String, val name: String) : Screen
     data class RunDetail(val owner: String, val name: String, val runId: Long) : Screen
@@ -44,6 +55,9 @@ sealed interface Screen {
     data class Discussions(val owner: String, val name: String) : Screen
     data class DiscussionDetail(val owner: String, val name: String, val number: Int) : Screen
     data class RepoSettings(val owner: String, val name: String) : Screen
+    /** 用户/组织/仓库的 Projects 列表；kind 为 Repo 时 login 是仓库 owner，name 是仓库名 */
+    data class Projects(val kind: ProjectOwnerKind, val login: String, val name: String = "") : Screen
+    data class ProjectDetail(val id: String, val title: String) : Screen
     data class Collaborators(val owner: String, val name: String) : Screen
     data class Profile(val login: String) : Screen
     data class Org(val login: String) : Screen
@@ -53,6 +67,8 @@ sealed interface Screen {
     data object Invitations : Screen
     data class Gists(val login: String?) : Screen
     data class GistDetail(val id: String) : Screen
+    /** id == null 表示新建 */
+    data class GistEditor(val id: String? = null) : Screen
     data class Activity(val login: String) : Screen
     data class StarLists(val login: String, val initialListId: String? = null) : Screen
     data class Achievements(val login: String) : Screen
@@ -62,7 +78,8 @@ sealed interface Screen {
     data object OrgDiagnostics : Screen
     data object CreateRepo : Screen
     data object Login : Screen
-    data class MyIssues(val pulls: Boolean) : Screen
+    data class MyIssues(val pulls: Boolean, val preset: IssueQuery? = null) : Screen
+    data object HomeCustomize : Screen
 }
 
 enum class UserKind { Followers, Following, Stargazers, Watchers, Contributors, Members }
@@ -74,6 +91,9 @@ private val ids = AtomicLong()
 
 class Entry(val screen: Screen) {
     val id: String = "e${ids.incrementAndGet()}"
+    /** 打开页面时的账号；写操作据此确认没有在中途切换账号 */
+    val login: String? = Session.login
+    val generation: Int = Session.generation
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val bag = HashMap<String, Any>()
     fun dispose() = scope.cancel()

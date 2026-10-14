@@ -86,6 +86,30 @@
             </intent-filter>
         </receiver>
 
+        <!-- 桌面小组件（Jetpack Glance） -->
+        <receiver
+            android:name=".widget.ContributionWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_contrib_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_contrib_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.InboxWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_inbox_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_inbox_info" />
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

@@ -44,7 +44,7 @@ fun CodeSearchScreen(owner: String, name: String) {
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { submit() }),
                 trailing = { OcButton(R.drawable.oc_search, { submit() }) })
-            if (query.isBlank()) EmptyState("输入关键词搜索该仓库的默认分支")
+            if (query.isBlank()) EmptyState("输入关键词搜索该仓库的默认分支", R.drawable.oc_search)
             else CodeSearchResults(CodeReading.searchQuery(query, owner, name))
         }
     }
@@ -69,10 +69,9 @@ fun CodeSearchResults(query: String) {
             nav.push(target)
         }.padding(16.dp)) {
             Text(hit.repository.fullName.ifBlank { "${hit.repository.owner.login}/${hit.repository.name}" }, color = Gh.c.fgMuted, fontSize = 12.sp)
-            Text(hit.path, color = Gh.c.accent, fontSize = 14.sp)
+            Text(hit.path, color = Gh.c.accent, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             hit.textMatches.firstOrNull()?.fragment?.let { Text(it.take(1200), Modifier.padding(top = 8.dp), fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Gh.c.fg, maxLines = 7, overflow = TextOverflow.Ellipsis) }
         }
-        HDivider()
     }
 }
 
@@ -89,20 +88,20 @@ fun FileFinderScreen(owner: String, name: String, ref: String?) {
     }
     Page("查找文件", subtitle = "$owner/$name · ${ref ?: "默认分支"}") { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            GhField(input, { input = it }, "输入文件名或路径", Modifier.padding(12.dp), placeholder = "如 README 或 src Main")
+            GhField(input, { input = it }, "输入文件名或路径", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), placeholder = "如 README 或 src Main")
             LoadBox(index, Modifier.weight(1f)) { data ->
                 Column {
                     Text("${matches.count} 个匹配路径 · ${data.commit.take(7)}", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
                     if (data.truncated) Text("仓库很大，GitHub 只返回了部分路径；未找到时可继续按目录浏览", Modifier.padding(horizontal = 16.dp), color = Gh.c.attention, fontSize = 12.sp)
                     if (matches.count > matches.entries.size) Text("显示前 ${matches.entries.size} 项，请继续输入以缩小范围", Modifier.padding(horizontal = 16.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
-                    if (matches.entries.isEmpty()) EmptyState("没有匹配的文件或目录")
+                    if (matches.entries.isEmpty()) EmptyState("没有匹配的文件或目录", R.drawable.oc_search, action = if (input.isNotBlank()) "清除输入" else null) { input = "" }
                     else LazyColumn {
                         items(matches.entries, key = { it.path }) { file ->
                             Row(Modifier.fillMaxWidth().clickable {
                                 nav.push(if (file.type == "tree") Screen.Files(owner, name, file.path, data.commit) else Screen.FileView(owner, name, file.path, data.commit))
                             }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Oc(if (file.type == "tree") R.drawable.oc_file_directory else R.drawable.oc_file_code)
-                                Text(file.path, Modifier.weight(1f).padding(start = 12.dp), color = Gh.c.fg, fontSize = 14.sp)
+                                if (file.type == "tree") Oc(R.drawable.oc_file_directory_fill, Gh.c.folder) else Oc(R.drawable.oc_file_code)
+                                Text(file.path, Modifier.weight(1f).padding(start = 12.dp), color = Gh.c.fg, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                             HDivider()
                         }

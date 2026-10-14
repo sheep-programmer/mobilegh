@@ -42,11 +42,23 @@ import com.mobilegh.nav.act
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
 import com.mobilegh.nav.retain
+import com.mobilegh.nav.OnRepoChanged
+import com.mobilegh.data.ReleaseEdit
+import com.mobilegh.data.RepoWrite
+import com.mobilegh.ui.components.DraftBinding
+import com.mobilegh.ui.components.MarkdownEditor
+import com.mobilegh.ui.components.MenuAction
+import com.mobilegh.ui.components.MoreMenu
+import com.mobilegh.ui.components.rememberDraft
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.ui.text.input.TextFieldValue
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.BarChart
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.ErrorState
+import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
@@ -85,30 +97,87 @@ import kotlinx.serialization.json.buildJsonObject
 
 @Composable
 fun ReleasesScreen(owner: String, name: String) {
+    val nav = LocalNav.current
+    val ctx = rememberCtx()
     val pager = rememberPager("releases", 10) { p, f -> GitHub.releases(owner, name, p, f) }
+    val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
+    val latest = rememberLoader("latest") { GitHub.latestRelease(owner, name, it)?.id }
     val expanded = retain("expanded") { mutableStateMapOf<Long, Boolean>() }
-    Page("Releases", subtitle = "$owner/$name") { pad ->
-        PagedList(pager, Modifier.padding(pad), empty = "还没有发布版本", divider = false, boxed = false) { r ->
-            ReleaseCard(owner, name, r, first = pager.items.firstOrNull() == r, expanded[r.id] == true) { expanded[r.id] = !(expanded[r.id] ?: false) }
+    OnRepoChanged(owner, name) { pager.refresh(); latest.refresh() }
+    val canPush = repo.data?.let { it.permissions?.push == true && !it.archived } == true
+    var deleting by remember { mutableStateOf<Release?>(null) }
+    Page(
+        "Releases", subtitle = "$owner/$name",
+        actions = { if (canPush) OcButton(R.drawable.oc_plus, { nav.push(Screen.EditRelease(owner, name)) }) },
+    ) { pad ->
+        PagedList(
+            pager, Modifier.padding(pad), empty = "还没有发布版本", divider = false, boxed = false,
+            emptyAction = if (canPush) "新建 Release" else "刷新",
+            onEmptyAction = if (canPush) ({ nav.push(Screen.EditRelease(owner, name)) }) else null,
+        ) { r ->
+            val isLatest = latest.data?.let { it == r.id } ?: (pager.items.firstOrNull() == r)
+            ReleaseCard(
+                owner, name, r, isLatest, expanded[r.id] == true,
+                menu = buildList {
+                    if (canPush) add(MenuAction("编辑") { nav.push(Screen.EditRelease(owner, name, r.id)) })
+                    if (r.htmlUrl.isNotEmpty()) add(MenuAction("在浏览器打开") { ctx.openBrowser(r.htmlUrl) })
+                    if (canPush) add(MenuAction("删除", danger = true) { deleting = r })
+                },
+            ) { expanded[r.id] = !(expanded[r.id] ?: false) }
+        }
+    }
+    deleting?.let { r -> DeleteReleaseDialog(owner, name, r, { deleting = null }) { deleting = null; pager.update { l -> l.removeAll { it.id == r.id } } } }
+}
+
+@Composable
+private fun DeleteReleaseDialog(owner: String, name: String, r: Release, onDismiss: () -> Unit, onDeleted: () -> Unit) {
+    val g = Gh.c
+    val ctx = rememberCtx()
+    val entry = LocalEntry.current
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    GhDialog(
+        "删除 Release", onDismiss = { if (!busy) onDismiss() },
+        confirm = if (busy) "删除中…" else "删除", danger = true, confirmEnabled = !busy,
+        onConfirm = {
+            busy = true
+            error = null
+            entry.act({ busy = false; error = it }) {
+                GitHub.deleteRelease(owner, name, r.id)
+                RepoWrite.changed(owner, name)
+                ctx.toast("已删除 ${r.name?.takeIf { it.isNotBlank() } ?: r.tagName}")
+                onDeleted()
+            }
+        },
+    ) {
+        Column {
+            Text("确定删除 ${r.name?.takeIf { it.isNotBlank() } ?: r.tagName} 吗？发布说明和上传的资源文件会一并删除，且无法恢复。", fontSize = 14.sp, color = g.fg)
+            Spacer(Modifier.height(6.dp))
+            Text("标签 ${r.tagName} 不会被删除。", fontSize = 13.sp, color = g.fgMuted)
+            error?.let { InlineError(it) }
         }
     }
 }
 
 @Composable
-private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean, expanded: Boolean, onToggle: () -> Unit) {
+private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean, expanded: Boolean, menu: List<MenuAction>, onToggle: () -> Unit) {
     val priv = com.mobilegh.data.Net.isPrivateRepo("$owner/$name")
     val g = Gh.c
     var info by remember { mutableStateOf<FileInfo?>(null) }
     info?.let { FileInfoDialog(it) { info = null } }
-    Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-        Column(Modifier.padding(vertical = 12.dp)) {
-            Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(r.name?.takeIf { it.isNotBlank() } ?: r.tagName, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = g.fg, modifier = Modifier.weight(1f, false))
+    Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+        Column(Modifier.padding(top = if (menu.isEmpty()) 12.dp else 2.dp, bottom = 12.dp)) {
+            Row(Modifier.padding(start = 12.dp, end = if (menu.isEmpty()) 12.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(r.name?.takeIf { it.isNotBlank() } ?: r.tagName, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg, modifier = Modifier.weight(1f, false))
                 Spacer(Modifier.width(8.dp))
                 when {
                     r.draft -> Pill("草稿", g.fgMuted)
                     r.prerelease -> Pill("预发布", g.attention)
                     first -> Pill("最新", g.success)
+                }
+                if (menu.isNotEmpty()) {
+                    Spacer(Modifier.weight(1f))
+                    MoreMenu(menu, g.fgMuted)
                 }
             }
             Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -123,8 +192,8 @@ private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean,
             val body = r.bodyHtml
             if (!body.isNullOrBlank()) {
                 if (expanded) {
-                    HtmlView(body, Modifier.padding(horizontal = 0.dp, vertical = 4.dp))
-                    TextLink("收起", onClick = onToggle)
+                    HtmlView(body, Modifier.padding(horizontal = 4.dp, vertical = 4.dp))
+                    Row(Modifier.padding(horizontal = 8.dp)) { TextLink("收起", onClick = onToggle) }
                 } else {
                     Text(
                         r.body.orEmpty().replace(Regex("[#*`>_]"), "").trim(), Modifier.padding(horizontal = 12.dp),
@@ -191,6 +260,169 @@ private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean,
             }
         }
     }
+}
+
+// ======================= 新建 / 编辑 Release =======================
+
+private class ReleaseSeed(val repo: Repo, val release: Release?, val latestId: Long?, val tags: List<String>)
+
+@Composable
+fun EditReleaseScreen(owner: String, name: String, releaseId: Long?) {
+    val seed = rememberLoader("seed") { f ->
+        val repo = GitHub.repo(owner, name, f)
+        val release = releaseId?.let { GitHub.release(owner, name, it) }
+        val latest = runCatching { GitHub.latestRelease(owner, name, true)?.id }.getOrNull()
+        val tags = runCatching { GitHub.tags(owner, name, 1, f).map { it.name } }.getOrDefault(emptyList())
+        ReleaseSeed(repo, release, latest, tags)
+    }
+    Page(if (releaseId == null) "新建 Release" else "编辑 Release", subtitle = "$owner/$name") { pad ->
+        val s = seed.data
+        when {
+            s != null -> ReleaseForm(owner, name, s, Modifier.padding(pad))
+            seed.error != null -> ErrorState(seed.error!!, Modifier.padding(pad)) { seed.load(true) }
+            else -> Loading(Modifier.padding(pad))
+        }
+    }
+}
+
+@Composable
+private fun ReleaseForm(owner: String, name: String, seed: ReleaseSeed, modifier: Modifier) {
+    val g = Gh.c
+    val nav = LocalNav.current
+    val ctx = rememberCtx()
+    val entry = LocalEntry.current
+    val rel = seed.release
+    val editing = rel != null
+    val draft = rememberDraft("release:${owner.lowercase()}/${name.lowercase()}:${rel?.id ?: "new"}")
+    val seedTitle = rel?.name.orEmpty()
+    val seedNotes = rel?.body.orEmpty()
+    var tag by rememberSaveable { mutableStateOf(rel?.tagName.orEmpty()) }
+    var target by rememberSaveable { mutableStateOf(rel?.targetCommitish ?: seed.repo.defaultBranch) }
+    var title by rememberSaveable { mutableStateOf(if (draft.initial.empty) seedTitle else draft.initial.title) }
+    var notes by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(if (draft.initial.empty) seedNotes else draft.initial.body)) }
+    var prerelease by rememberSaveable { mutableStateOf(rel?.prerelease ?: false) }
+    var isDraft by rememberSaveable { mutableStateOf(rel?.draft ?: false) }
+    var latest by rememberSaveable { mutableStateOf(rel == null || seed.latestId == rel.id) }
+    var pickTag by remember { mutableStateOf(false) }
+    var pickTarget by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var generating by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val canPush = seed.repo.permissions?.push == true && !seed.repo.archived
+    val tagName = tag.trim()
+    val existingTag = tagName in seed.tags
+    val tagOk = tagName.isNotEmpty() && tagName.none { it.isWhitespace() }
+
+    Column(modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
+        if (!canPush) NoPushNotice(seed.repo.archived, "https://github.com/$owner/$name/releases/new")
+        if (!draft.initial.empty && editing) {
+            Text("已恢复本机草稿中的标题和说明", Modifier.padding(horizontal = 16.dp), fontSize = 12.sp, color = g.accent)
+        }
+        Column(Modifier.padding(horizontal = 16.dp)) {
+            GhField(
+                tag, { tag = it }, "标签", placeholder = "例如 v1.0.0",
+                trailing = { OcButton(R.drawable.oc_tag, { pickTag = true }, g.fgMuted, enabled = seed.tags.isNotEmpty()) },
+            )
+            Spacer(Modifier.height(4.dp))
+            when {
+                tagName.isEmpty() -> Text("选择已有标签，或输入新标签名", fontSize = 12.sp, color = g.fgMuted)
+                !tagOk -> Text("标签名不能包含空格", fontSize = 12.sp, color = g.danger)
+                existingTag -> Text("使用已有标签 $tagName", fontSize = 12.sp, color = g.fgMuted)
+                else -> Text("发布时将从目标分支创建新标签 $tagName", fontSize = 12.sp, color = g.success)
+            }
+        }
+        if (!existingTag) {
+            Row(
+                Modifier.fillMaxWidth().clickable(enabled = !busy) { pickTarget = true }.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Oc(R.drawable.oc_git_branch, g.fgMuted)
+                Spacer(Modifier.width(10.dp))
+                Text("目标分支", Modifier.weight(1f), fontSize = 15.sp, color = g.fg)
+                Text(target, fontSize = 14.sp, color = g.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.width(4.dp))
+                Oc(R.drawable.oc_chevron_down, g.fgMuted, 12.dp)
+            }
+        } else Spacer(Modifier.height(12.dp))
+        Column(Modifier.padding(horizontal = 16.dp)) {
+            GhField(title, { title = it }, "标题", placeholder = tagName.ifEmpty { null })
+            Row(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("发布说明", Modifier.weight(1f), fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = g.fg)
+                GhButton(if (generating) "生成中…" else "自动生成说明", enabled = tagOk && !generating && !busy) {
+                    generating = true
+                    error = null
+                    entry.act({ generating = false; error = "生成失败：$it" }) {
+                        val n = GitHub.generateNotes(owner, name, tagName, if (existingTag) null else target, null)
+                        val text = notes.text
+                        val merged = if (text.isBlank()) n.body else text.trimEnd() + "\n\n" + n.body
+                        notes = TextFieldValue(merged, androidx.compose.ui.text.TextRange(merged.length))
+                        if (title.isBlank()) title = n.name
+                        generating = false
+                    }
+                }
+            }
+            MarkdownEditor(notes, { notes = it }, placeholder = "这个版本有哪些变化（支持 Markdown）", contextRepo = "$owner/$name", minLines = 8)
+            DraftBinding(draft, if (title == seedTitle && notes.text == seedNotes) com.mobilegh.data.DraftValue() else com.mobilegh.data.DraftValue(title, notes.text))
+        }
+        Spacer(Modifier.height(8.dp))
+        SwitchRow("设为预发布", "标记为非正式版本，不会成为最新版本", prerelease, enabled = !busy) { prerelease = it }
+        SwitchRow("保存为草稿", "草稿只对有写入权限的人可见，暂不创建标签", isDraft, enabled = !busy) { isDraft = it }
+        SwitchRow(
+            "设为最新", if (prerelease || isDraft) "预发布和草稿不能设为最新" else "在仓库首页显示为最新版本",
+            latest && !prerelease && !isDraft, enabled = !busy && !prerelease && !isDraft,
+        ) { latest = it }
+        Column(Modifier.padding(horizontal = 16.dp)) {
+            error?.let { InlineError(it) }
+            Spacer(Modifier.height(12.dp))
+            GhButton(
+                when {
+                    busy -> if (editing) "保存中…" else if (isDraft) "保存中…" else "发布中…"
+                    editing -> "保存修改"
+                    isDraft -> "保存草稿"
+                    else -> "发布 Release"
+                },
+                Modifier.fillMaxWidth(), primary = true, enabled = canPush && tagOk && !busy && !generating,
+            ) {
+                busy = true
+                error = null
+                val form = ReleaseEdit(tagName, if (existingTag) null else target, title.trim(), notes.text, isDraft, prerelease, latest)
+                val submitted = com.mobilegh.data.DraftValue(title, notes.text)
+                entry.act({
+                    busy = false
+                    error = if (it.contains("already_exists", true) || it.contains("already exists", true)) "标签 $tagName 已有对应的 Release" else it
+                }) {
+                    val saved = if (rel == null) GitHub.createRelease(owner, name, form) else GitHub.updateRelease(owner, name, rel.id, form)
+                    RepoWrite.changed(owner, name)
+                    draft.submitted(submitted)
+                    ctx.toast(if (rel != null) "已保存" else if (saved.draft) "已保存草稿" else "已发布 ${saved.name?.takeIf { n -> n.isNotBlank() } ?: saved.tagName}")
+                    nav.pop()
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+
+    if (pickTag) {
+        var q by remember { mutableStateOf("") }
+        GhDialog("选择标签", onDismiss = { pickTag = false }) {
+            Column {
+                GhField(q, { q = it }, "筛选")
+                Spacer(Modifier.height(8.dp))
+                val list = seed.tags.filter { it.contains(q, true) }
+                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                    boxedItems(list) { t ->
+                        Row(Modifier.fillMaxWidth().clickable { tag = t; pickTag = false }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Oc(if (t == tagName) R.drawable.oc_check else R.drawable.oc_tag, if (t == tagName) g.accent else g.fgMuted)
+                            Spacer(Modifier.width(10.dp))
+                            Text(t, color = g.fg, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    if (list.isEmpty()) item { Text("无匹配结果", Modifier.padding(24.dp), color = g.fgMuted) }
+                }
+            }
+        }
+    }
+    if (pickTarget) BranchPicker(owner, name, target, onDismiss = { pickTarget = false }) { target = it; pickTarget = false }
 }
 
 // ======================= Insights（官方 App 没有） =======================
@@ -281,10 +513,10 @@ private fun <T> InsightBody(l: Loader<T>, content: @Composable (T) -> Unit) {
     val d = l.data
     when {
         d != null -> Column { content(d) }
-        l.error != null -> Text(
-            if (l.error!!.contains("未找到") || l.error!!.contains("403") || l.error!!.contains("push access", true)) "需要该仓库的写入权限才能查看" else l.error!!,
-            Modifier.padding(horizontal = 16.dp), color = Gh.c.fgMuted, fontSize = 13.sp,
-        )
+        l.error != null -> {
+            val denied = l.error!!.contains("未找到") || l.error!!.contains("403") || l.error!!.contains("push access", true)
+            InlineError(if (denied) "需要该仓库的写入权限才能查看" else l.error!!, Modifier.padding(horizontal = 16.dp), retry = if (denied) null else ({ l.refresh() }))
+        }
         else -> Loading(Modifier.fillMaxWidth().height(80.dp))
     }
 }
@@ -454,11 +686,11 @@ fun CollaboratorsScreen(owner: String, name: String) {
                     item { SectionTitle("待接受的邀请") }
                     boxedItems(inv) { i ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Oc(R.drawable.oc_mail, g.fgMuted)
+                            if (i.invitee != null) Avatar(i.invitee.avatarUrl, 32.dp) else Oc(R.drawable.oc_mail, g.fgMuted)
                             Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(i.inviter?.let { "邀请已发出" } ?: "", fontSize = 12.sp, color = g.fgMuted)
-                                Text("权限：${permZh(i.permissions)} · ${relTime(i.createdAt)}", fontSize = 13.sp, color = g.fg)
+                                Text(i.invitee?.login ?: "邮箱邀请", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("权限：${permZh(i.permissions)} · ${if (i.expired) "已过期" else relTime(i.createdAt)}", fontSize = 12.sp, color = if (i.expired) g.attention else g.fgMuted)
                             }
                             GhButton("撤销", danger = true) { entry.act({ ctx.toast(it) }, ::reload) { GitHub.cancelInvite(owner, name, i.id) } }
                         }

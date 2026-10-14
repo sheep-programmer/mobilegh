@@ -1,7 +1,9 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -20,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -129,7 +133,7 @@ fun CommitDetailScreen(owner: String, name: String, sha: String) {
                         val msg = c.commit.message
                         SelectionContainer {
                             Column {
-                                MdText(msg.lineSequence().first(), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                                MdText(msg.lineSequence().first(), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                                 val rest = msg.substringAfter('\n', "").trim()
                                 if (rest.isNotEmpty()) {
                                     Spacer(Modifier.height(8.dp))
@@ -204,13 +208,27 @@ fun LazyListScope.fileDiffs(
     }
 }
 
+/**
+ * 文件标题行。PR 文件页额外传入：viewed（「已查看」复选框）、comments（行内评论数）与 menu（文件操作），
+ * 此时右侧的「查看文件」按钮并入菜单。
+ */
 @Composable
-private fun FileDiffHeader(f: CommitFile, collapsed: Boolean, onToggle: () -> Unit, onOpen: () -> Unit) {
+fun FileDiffHeader(
+    f: CommitFile,
+    collapsed: Boolean,
+    onToggle: () -> Unit,
+    onOpen: () -> Unit,
+    viewed: Boolean? = null,
+    onViewed: (Boolean) -> Unit = {},
+    comments: Int = 0,
+    menu: List<MenuAction>? = null,
+) {
     val g = Gh.c
     Column {
         HDivider()
         Row(
-            Modifier.fillMaxWidth().background(g.canvasSubtle).clickable(onClick = onToggle).padding(horizontal = 12.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().background(g.canvasSubtle).clickable(onClick = onToggle)
+                .padding(start = 12.dp, end = if (menu != null) 0.dp else 12.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Oc(if (collapsed) R.drawable.oc_chevron_right else R.drawable.oc_chevron_down, g.fgMuted, 14.dp)
@@ -224,13 +242,46 @@ private fun FileDiffHeader(f: CommitFile, collapsed: Boolean, onToggle: () -> Un
             Text(label, fontSize = 11.sp, color = color, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.width(6.dp))
             Column(Modifier.weight(1f)) {
-                Text(f.filename, fontSize = 13.sp, fontFamily = FontFamily.Monospace, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                f.previousFilename?.let { Text("← $it", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = g.fgMuted, maxLines = 1) }
+                Text(f.filename, fontSize = 13.sp, fontFamily = FontFamily.Monospace, color = if (viewed == true) g.fgMuted else g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                f.previousFilename?.let { Text("重命名自 $it", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = g.fgMuted, maxLines = 1) }
+                if (viewed != null) Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("+${f.additions}", fontSize = 12.sp, color = g.success, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.width(4.dp))
+                    Text("−${f.deletions}", fontSize = 12.sp, color = g.danger, fontWeight = FontWeight.SemiBold)
+                    if (comments > 0) {
+                        Spacer(Modifier.width(10.dp))
+                        Oc(R.drawable.oc_comment, g.fgMuted, 12.dp)
+                        Spacer(Modifier.width(3.dp))
+                        Text("$comments", fontSize = 12.sp, color = g.fgMuted)
+                    }
+                }
             }
-            Text("+${f.additions}", fontSize = 12.sp, color = g.success, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.width(4.dp))
-            Text("−${f.deletions}", fontSize = 12.sp, color = g.danger, fontWeight = FontWeight.SemiBold)
-            if (f.status != "removed") {
+            if (viewed == null) {
+                Text("+${f.additions}", fontSize = 12.sp, color = g.success, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.width(4.dp))
+                Text("−${f.deletions}", fontSize = 12.sp, color = g.danger, fontWeight = FontWeight.SemiBold)
+            } else {
+                Spacer(Modifier.width(6.dp))
+                Row(
+                    Modifier.clip(RoundedCornerShape(6.dp))
+                        .border(1.dp, if (viewed) g.accent.copy(alpha = 0.6f) else g.border, RoundedCornerShape(6.dp))
+                        .background(if (viewed) g.accentSubtle else g.canvas, RoundedCornerShape(6.dp))
+                        .clickable { onViewed(!viewed) }
+                        .padding(horizontal = 8.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier.size(14.dp)
+                            .background(if (viewed) g.accent else g.canvas, RoundedCornerShape(3.dp))
+                            .border(1.dp, if (viewed) g.accent else g.fgMuted, RoundedCornerShape(3.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) { if (viewed) Oc(R.drawable.oc_check, g.canvas, 12.dp) }
+                    Spacer(Modifier.width(6.dp))
+                    Text("已查看", fontSize = 12.sp, color = if (viewed) g.accent else g.fg, fontWeight = FontWeight.Medium)
+                }
+            }
+            if (menu != null) MoreMenu(menu, g.fgMuted)
+            else if (f.status != "removed") {
                 Spacer(Modifier.width(4.dp))
                 com.mobilegh.ui.components.OcButton(R.drawable.oc_file_code, onOpen, g.fgMuted)
             }

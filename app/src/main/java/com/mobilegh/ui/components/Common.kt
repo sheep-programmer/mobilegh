@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -143,25 +144,86 @@ fun Loading(modifier: Modifier = Modifier.fillMaxSize()) {
 }
 
 @Composable
-fun ErrorState(msg: String, modifier: Modifier = Modifier.fillMaxSize(), retry: (() -> Unit)? = null) {
+fun ErrorState(
+    msg: String,
+    modifier: Modifier = Modifier.fillMaxSize(),
+    retry: (() -> Unit)? = null,
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
     Column(modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Oc(R.drawable.oc_alert, Gh.c.attention, 32.dp)
         Spacer(Modifier.height(12.dp))
         Text(msg, color = Gh.c.fgMuted, textAlign = TextAlign.Center)
-        if (retry != null) {
+        if (action != null && onAction != null) {
             Spacer(Modifier.height(16.dp))
+            GhButton(action, primary = true, onClick = onAction)
+        }
+        if (retry != null) {
+            Spacer(Modifier.height(if (action != null && onAction != null) 8.dp else 16.dp))
             GhButton("重试", onClick = retry)
         }
     }
 }
 
+/** 卡片、弹窗内的小块错误：图标 + 文字 + 可选重试 */
 @Composable
-fun EmptyState(msg: String, @DrawableRes icon: Int = R.drawable.oc_inbox, modifier: Modifier = Modifier.fillMaxWidth()) {
-    Column(modifier.padding(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+fun InlineError(msg: String, modifier: Modifier = Modifier, retry: (() -> Unit)? = null) {
+    val g = Gh.c
+    Row(modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Oc(R.drawable.oc_alert, g.attention, 16.dp)
+        Spacer(Modifier.width(8.dp))
+        Text(msg, Modifier.weight(1f), color = g.fgMuted, fontSize = 13.sp)
+        if (retry != null) TextLink("重试", onClick = retry)
+    }
+}
+
+/** 空状态：在可用空间内居中；懒列表中用 [emptyItem] 撑满剩余高度 */
+@Composable
+fun EmptyState(
+    msg: String,
+    @DrawableRes icon: Int = R.drawable.oc_inbox,
+    modifier: Modifier = Modifier.fillMaxSize(),
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Column(modifier.padding(horizontal = 32.dp, vertical = 48.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Oc(icon, Gh.c.fgMuted, 32.dp)
         Spacer(Modifier.height(12.dp))
         Text(msg, color = Gh.c.fgMuted, textAlign = TextAlign.Center)
+        if (action != null && onAction != null) {
+            Spacer(Modifier.height(16.dp))
+            GhButton(action, onClick = onAction)
+        }
     }
+}
+
+private const val EMPTY_KEY = "__empty__"
+private const val FOOTER_KEY = "__footer__"
+private const val GROUP_KEY = "__group__"
+
+/** 懒列表末尾的空状态，撑满列表剩余的可见高度 */
+fun LazyListScope.emptyItem(
+    state: LazyListState,
+    msg: String,
+    @DrawableRes icon: Int = R.drawable.oc_inbox,
+    action: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    item(key = EMPTY_KEY) { EmptyState(msg, icon, Modifier.fillMaxWidth().heightIn(min = remainingHeight(state, EMPTY_KEY)), action, onAction) }
+}
+
+/** 指定条目到可见区域底部的高度；条目偏移不受自身高度影响，因此不会循环测量 */
+@Composable
+private fun remainingHeight(state: LazyListState, key: Any): Dp {
+    val px by remember(state, key) {
+        derivedStateOf {
+            val li = state.layoutInfo
+            val self = li.visibleItemsInfo.firstOrNull { it.key == key } ?: return@derivedStateOf 0
+            (li.viewportEndOffset - li.afterContentPadding - self.offset).coerceAtLeast(0)
+        }
+    }
+    return with(LocalDensity.current) { px.toDp() }
 }
 
 /** 加载容器：加载中/错误/内容 + 下拉刷新 */
@@ -182,6 +244,9 @@ fun <T> PagedList(
     modifier: Modifier = Modifier.fillMaxSize(),
     state: LazyListState = rememberLazyListState(),
     empty: String = "暂无内容",
+    @DrawableRes emptyIcon: Int = R.drawable.oc_inbox,
+    emptyAction: String = "刷新",
+    onEmptyAction: (() -> Unit)? = null,
     divider: Boolean = true,
     boxed: Boolean = true,
     contentPadding: PaddingValues = PaddingValues(top = 8.dp, bottom = 16.dp),
@@ -189,6 +254,11 @@ fun <T> PagedList(
     itemFilter: ((T) -> Boolean)? = null,
     itemKey: ((T) -> Any)? = null,
     header: LazyListScope.() -> Unit = {},
+    /** 已加载条目全部被 [itemFilter] 过滤掉时的提示 */
+    filteredEmpty: String = "没有匹配的内容",
+    /** 非空时按该键分组（保持首次出现的顺序），每组前插入 [groupHeader]，组内单独成框 */
+    groupKey: ((T) -> Any)? = null,
+    groupHeader: @Composable LazyItemScope.(List<T>) -> Unit = {},
     item: @Composable LazyItemScope.(T) -> Unit,
 ) {
     val near by remember(state) {
@@ -206,22 +276,32 @@ fun <T> PagedList(
             header()
             val filtered = if (itemFilter == null) pager.items else pager.items.filter(itemFilter)
             val shown = if (itemKey == null) filtered else filtered.distinctBy(itemKey)
-            itemsIndexed(shown, key = if (itemKey == null) null else { _, value -> itemKey(value) }) { i, it ->
+            fun rows(list: List<T>) = itemsIndexed(list, key = if (itemKey == null) null else { _, value -> itemKey(value) }) { i, it ->
                 if (boxed) {
-                    Column(Modifier.groupItem(i == 0, i == shown.lastIndex, Gh.c.border, Gh.c.canvas)) { item(it) }
+                    Column(Modifier.groupItem(i == 0, i == list.lastIndex, Gh.c.border, Gh.c.canvas)) { item(it) }
                 } else {
                     item(it)
                     if (divider) HDivider()
                 }
             }
-            item {
+            if (groupKey == null) rows(shown)
+            else shown.groupBy(groupKey).forEach { (k, list) ->
+                item(key = "$GROUP_KEY$k") { groupHeader(list) }
+                rows(list)
+            }
+            item(key = FOOTER_KEY) {
+                // 列表为空时，加载、错误与空状态都在剩余可见区域居中
+                val fill = if (shown.isEmpty()) Modifier.fillMaxWidth().heightIn(min = remainingHeight(state, FOOTER_KEY)) else Modifier.fillMaxWidth()
                 when {
-                    pager.error != null && pager.items.isEmpty() -> ErrorState(pager.error!!, Modifier.fillMaxWidth().padding(top = 40.dp)) { pager.error = null; pager.loadMore() }
+                    pager.error != null && pager.items.isEmpty() -> ErrorState(pager.error!!, fill) { pager.error = null; pager.loadMore() }
                     pager.error != null -> Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                         TextLink("加载失败，点击重试") { pager.error = null; pager.loadMore() }
                     }
-                    pager.loading && !pager.refreshing -> Loading(Modifier.fillMaxWidth().padding(24.dp))
-                    pager.end && shown.isEmpty() -> EmptyState(if (pager.items.isEmpty()) empty else "没有匹配的内容")
+                    pager.loading && !pager.refreshing -> Loading(fill.padding(24.dp))
+                    pager.end && shown.isEmpty() -> EmptyState(
+                        if (pager.items.isEmpty()) empty else filteredEmpty, emptyIcon, fill, emptyAction,
+                        onEmptyAction ?: { pager.refresh(); onRefresh() },
+                    )
                 }
             }
         }
@@ -268,7 +348,7 @@ fun GhButton(
 
 @Composable
 fun TextLink(text: String, color: Color = Gh.c.accent, onClick: () -> Unit) {
-    Text(text, color = color, fontSize = 14.sp, modifier = Modifier.clickable(onClick = onClick).padding(4.dp))
+    Text(text, color = color, fontSize = 14.sp, modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 8.dp))
 }
 
 @Composable
@@ -369,6 +449,14 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier, trailing: @Composa
     }
 }
 
+/** 菜单图标：与首页快捷入口一致的浅色底 + 彩色图标，深色模式同样清晰 */
+@Composable
+fun MenuIcon(@DrawableRes icon: Int, tint: Color = Gh.c.fgMuted) {
+    Box(Modifier.size(30.dp).background(tint.copy(alpha = if (Gh.c.dark) 0.18f else 0.11f), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+        Oc(icon, tint, 16.dp)
+    }
+}
+
 /** GitHub 风格的菜单行（带图标、标题、计数和箭头） */
 @Composable
 fun MenuRow(
@@ -383,13 +471,7 @@ fun MenuRow(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (iconBg != null) {
-            Box(Modifier.size(30.dp).background(iconBg, RoundedCornerShape(7.dp)), contentAlignment = Alignment.Center) {
-                Oc(icon, Color.White, 16.dp)
-            }
-        } else {
-            Oc(icon, Gh.c.fgMuted, 18.dp)
-        }
+        MenuIcon(icon, iconBg ?: Gh.c.fgMuted)
         Spacer(Modifier.width(14.dp))
         Text(title, Modifier.weight(1f), fontSize = 15.sp, color = Gh.c.fg)
         if (count != null) Counter(count)
@@ -423,7 +505,7 @@ fun Modifier.groupItem(first: Boolean, last: Boolean, border: Color, bg: Color):
     val r = 8.dp
     val shape = RoundedCornerShape(topStart = if (first) r else 0.dp, topEnd = if (first) r else 0.dp, bottomStart = if (last) r else 0.dp, bottomEnd = if (last) r else 0.dp)
     return this
-        .padding(horizontal = 12.dp)
+        .padding(horizontal = 16.dp)
         .clip(shape)
         .background(bg)
         .drawWithContent {

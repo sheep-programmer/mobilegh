@@ -173,6 +173,8 @@ data class PrBranch(val label: String = "", val ref: String = "", val sha: Strin
 @Serializable
 data class Pull(
     val id: Long = 0,
+    /** GraphQL 节点 id，用于「标记为可评审」等仅 GraphQL 提供的操作 */
+    val nodeId: String = "",
     val number: Int = 0,
     val title: String = "",
     val user: User? = null,
@@ -211,6 +213,157 @@ data class Review(
     val state: String = "",
     val submittedAt: String? = null,
 )
+
+/** 审查意见（行内评论）/pulls/{n}/comments —— 与普通 Issue 评论是不同的接口 */
+@Serializable
+data class ReviewComment(
+    val id: Long = 0,
+    val nodeId: String? = null,
+    /** 回复某条评论时回填的父评论 id */
+    val inReplyToId: Long? = null,
+    val user: User? = null,
+    val body: String? = null,
+    val bodyHtml: String? = null,
+    val path: String? = null,
+    /** 评论所在行；null 表示文件级评论或位置已失效 */
+    val line: Int? = null,
+    val originalLine: Int? = null,
+    val side: String? = null,
+    val originalSide: String? = null,
+    val startLine: Int? = null,
+    val startSide: String? = null,
+    val originalStartLine: Int? = null,
+    val commitId: String? = null,
+    val originalCommitId: String? = null,
+    val subjectType: String? = null,
+    val diffHunk: String? = null,
+    /** 位置已失效：行号对不上当前 diff（2019 年前的接口字段，老评论可能没有） */
+    val position: Int? = null,
+    val originalPosition: Int? = null,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+    val htmlUrl: String = "",
+    val authorAssociation: String? = null,
+    val reactions: Reactions? = null,
+    // 以下三项 REST 不返回，由 GraphQL 的 reviewThreads 补充
+    val resolved: Boolean = false,
+    val isOutdated: Boolean = false,
+    val threadId: String? = null,
+) {
+    val fileLevel: Boolean get() = subjectType == "file"
+    /** 代码已变更，评论无法再对应到当前 diff 的行 */
+    val outdated: Boolean get() = isOutdated || (!fileLevel && line == null)
+}
+
+/** 评论正文里的一段 ```suggestion 代码块 */
+class Suggestion(val startLine: Int, val endLine: Int, val newText: String)
+
+/** 评论正文按「普通 Markdown 段落 / 建议块」切分后的片段 */
+sealed interface BodySegment {
+    data class Text(val text: String) : BodySegment
+    data class Suggest(val suggestion: Suggestion, val raw: String) : BodySegment
+}
+
+private val SUGGESTION_FENCE = Regex("^`{3,}\\s*suggestion\\s*$", RegexOption.IGNORE_CASE)
+private val SUGGESTION_RANGE = Regex("""^\{-(\d+)(?:-(\d+))?#-\}$""")
+private val FENCE_END = Regex("^`{3,}\\s*$")
+
+/**
+ * 把评论正文切成普通段落与建议块。
+ *
+ * GitHub 只识别 ```suggestion（可选带 {-起始行-结束行#-} 续行标记）这一种建议语法；
+ * 建议块自身没有行号，实际作用范围由评论挂在哪一行决定。
+ */
+fun splitSuggestions(body: String, fallbackLine: Int = 1): List<BodySegment> {
+    val lines = body.split('\n')
+    val out = ArrayList<BodySegment>()
+    val buffer = StringBuilder()
+    var i = 0
+    fun flush() {
+        if (buffer.isNotEmpty()) out.add(BodySegment.Text(buffer.toString()))
+        buffer.clear()
+    }
+    while (i < lines.size) {
+        val line = lines[i]
+        if (!SUGGESTION_FENCE.matches(line.trim())) {
+            buffer.append(line).append('\n')
+            i++
+            continue
+        }
+        flush()
+        val raw = StringBuilder(line).append('\n')
+        var j = i + 1
+        var start = fallbackLine
+        var end = fallbackLine
+        SUGGESTION_RANGE.find(lines.getOrNull(j)?.trim().orEmpty())?.let {
+            start = it.groupValues[1].toIntOrNull() ?: fallbackLine
+            end = it.groupValues[2].toIntOrNull() ?: start
+            raw.append(lines[j]).append('\n')
+            j++
+        }
+        val content = ArrayList<String>()
+        while (j < lines.size && !FENCE_END.matches(lines[j].trim())) {
+            content.add(lines[j])
+            raw.append(lines[j]).append('\n')
+            j++
+        }
+        if (j < lines.size) raw.append(lines[j]).append('\n')
+        if (end < start) end = start
+        out.add(BodySegment.Suggest(Suggestion(start, end, content.joinToString("\n")), raw.toString()))
+        i = maxOf(j + 1, i + 1)
+    }
+    flush()
+    return out
+}
+
+/** 检查项：把 Actions 的 check run 与旧的 commit status 统一成一行 */
+@Serializable
+data class CheckRun(
+    val id: Long = 0,
+    val name: String = "",
+    val status: String? = null,
+    val conclusion: String? = null,
+    val startedAt: String? = null,
+    val completedAt: String? = null,
+    val htmlUrl: String? = null,
+    val detailsUrl: String? = null,
+    val output: CheckOutput? = null,
+    val app: CheckApp? = null,
+)
+
+@Serializable
+data class CheckOutput(val title: String? = null, val summary: String? = null)
+
+@Serializable
+data class CheckApp(val name: String? = null, val slug: String? = null)
+
+@Serializable
+data class CheckRuns(val totalCount: Int = 0, val checkRuns: List<CheckRun> = emptyList())
+
+@Serializable
+data class CommitStatus(
+    val id: Long = 0,
+    val state: String = "",
+    val context: String = "",
+    val description: String? = null,
+    val targetUrl: String? = null,
+    val createdAt: String? = null,
+)
+
+@Serializable
+data class CombinedStatus(val state: String = "", val statuses: List<CommitStatus> = emptyList())
+
+/** 检查汇总结果 */
+class Checks(val runs: List<CheckRun>, val statuses: List<CommitStatus>) {
+    val total: Int get() = runs.size + statuses.size
+    val failed: Int get() = runs.count { it.conclusion in FAILED } + statuses.count { it.state in setOf("failure", "error") }
+    val pending: Int get() = runs.count { it.status != "completed" } + statuses.count { it.state == "pending" }
+    val passed: Int get() = maxOf(0, total - failed - pending)
+
+    companion object {
+        private val FAILED = setOf("failure", "timed_out", "startup_failure", "action_required", "cancelled")
+    }
+}
 
 @Serializable
 data class CommitFile(
@@ -255,6 +408,19 @@ data class Branch(val name: String = "", val protected: Boolean = false, val com
 data class Tag(val name: String = "", val commit: ShaRef = ShaRef())
 
 @Serializable
+data class GitObject(val sha: String = "", val type: String = "")
+
+@Serializable
+data class GitRef(val ref: String = "", @SerialName("object") val target: GitObject = GitObject())
+
+/** PUT / DELETE contents 的返回：新的文件元数据（删除时为 null）和生成的提交 */
+@Serializable
+data class FileCommitInfo(val sha: String = "", val htmlUrl: String? = null, val message: String = "")
+
+@Serializable
+data class FileCommit(val content: Content? = null, val commit: FileCommitInfo = FileCommitInfo())
+
+@Serializable
 data class Content(
     val name: String = "",
     val path: String = "",
@@ -297,7 +463,22 @@ data class Release(
     val author: User? = null,
     val assets: List<Asset> = emptyList(),
     val htmlUrl: String = "",
+    val targetCommitish: String? = null,
 )
+
+/** 新建 / 编辑 Release 的表单内容；target 为新标签指向的分支或提交 */
+data class ReleaseEdit(
+    val tag: String,
+    val target: String?,
+    val title: String,
+    val notes: String,
+    val draft: Boolean,
+    val prerelease: Boolean,
+    val latest: Boolean,
+)
+
+@Serializable
+data class ReleaseNotes(val name: String = "", val body: String = "")
 
 @Serializable
 data class Subject(val title: String = "", val url: String? = null, val latestCommentUrl: String? = null, val type: String = "")
@@ -358,6 +539,12 @@ data class Jobs(val totalCount: Int = 0, val jobs: List<Job> = emptyList())
 data class Workflow(val id: Long = 0, val name: String = "", val path: String = "", val state: String = "", val htmlUrl: String = "")
 
 @Serializable
+data class Environment(val name: String = "")
+
+@Serializable
+data class Environments(val totalCount: Int = 0, val environments: List<Environment> = emptyList())
+
+@Serializable
 data class Workflows(val totalCount: Int = 0, val workflows: List<Workflow> = emptyList())
 
 @Serializable
@@ -391,6 +578,7 @@ data class Invitation(
     val id: Long = 0,
     val repository: Repo = Repo(),
     val inviter: User? = null,
+    val invitee: User? = null,
     val permissions: String = "",
     val createdAt: String? = null,
     val expired: Boolean = false,

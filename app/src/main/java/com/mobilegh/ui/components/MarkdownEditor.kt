@@ -28,13 +28,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
@@ -72,18 +71,9 @@ private fun insert(v: TextFieldValue, s: String): TextFieldValue {
 @Composable
 private fun FmtBtn(onClick: () -> Unit, content: @Composable () -> Unit) {
     Box(
-        Modifier.size(34.dp).clickable(onClick = onClick),
+        Modifier.size(40.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { content() }
-}
-
-@Composable
-private fun Glyph(s: String, weight: FontWeight = FontWeight.Normal, italic: Boolean = false, strike: Boolean = false) {
-    Text(
-        s, fontSize = 15.sp, color = Gh.c.fgMuted, fontWeight = weight,
-        fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
-        textDecoration = if (strike) TextDecoration.LineThrough else null,
-    )
 }
 
 /** Markdown 格式工具栏 + 编辑/预览切换。preview 状态由外部持有，方便预览时替换输入框。 */
@@ -99,15 +89,15 @@ fun MarkdownToolbar(
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
             if (!preview) {
-                FmtBtn({ onValueChange(linePrefix(value, "### ")) }) { Glyph("H", FontWeight.Bold) }
-                FmtBtn({ onValueChange(wrap(value, "**")) }) { Glyph("B", FontWeight.Bold) }
-                FmtBtn({ onValueChange(wrap(value, "_")) }) { Glyph("I", italic = true) }
-                FmtBtn({ onValueChange(wrap(value, "~~")) }) { Glyph("S", strike = true) }
+                FmtBtn({ onValueChange(linePrefix(value, "### ")) }) { Oc(R.drawable.oc_heading, g.fgMuted, 18.dp) }
+                FmtBtn({ onValueChange(wrap(value, "**")) }) { Oc(R.drawable.oc_bold, g.fgMuted, 18.dp) }
+                FmtBtn({ onValueChange(wrap(value, "_")) }) { Oc(R.drawable.oc_italic, g.fgMuted, 18.dp) }
+                FmtBtn({ onValueChange(wrap(value, "~~")) }) { Oc(R.drawable.oc_strikethrough, g.fgMuted, 18.dp) }
                 FmtBtn({ onValueChange(wrap(value, "`")) }) { Oc(R.drawable.oc_code, g.fgMuted, 18.dp) }
                 FmtBtn({ onValueChange(wrap(value, "[", "](url)")) }) { Oc(R.drawable.oc_link, g.fgMuted, 18.dp) }
-                FmtBtn({ onValueChange(linePrefix(value, "> ")) }) { Glyph("“", FontWeight.Bold) }
-                FmtBtn({ onValueChange(linePrefix(value, "- ")) }) { Glyph("•", FontWeight.Bold) }
-                FmtBtn({ onValueChange(linePrefix(value, "1. ")) }) { Glyph("1.", FontWeight.Bold) }
+                FmtBtn({ onValueChange(linePrefix(value, "> ")) }) { Oc(R.drawable.oc_quote, g.fgMuted, 18.dp) }
+                FmtBtn({ onValueChange(linePrefix(value, "- ")) }) { Oc(R.drawable.oc_list_unordered, g.fgMuted, 18.dp) }
+                FmtBtn({ onValueChange(linePrefix(value, "1. ")) }) { Oc(R.drawable.oc_list_ordered, g.fgMuted, 18.dp) }
                 FmtBtn({ onValueChange(linePrefix(value, "- [ ] ")) }) { Oc(R.drawable.oc_checklist, g.fgMuted, 18.dp) }
                 FmtBtn({ onValueChange(insert(value, "@")) }) { Oc(R.drawable.oc_mention, g.fgMuted, 18.dp) }
             }
@@ -127,9 +117,9 @@ fun MarkdownToolbar(
 private fun SegBtn(icon: Int, label: String, active: Boolean, onClick: () -> Unit) {
     val g = Gh.c
     Row(
-        Modifier.clickable(onClick = onClick)
+        Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick)
             .background(if (active) g.canvas else androidx.compose.ui.graphics.Color.Transparent, RoundedCornerShape(6.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Oc(icon, if (active) g.fg else g.fgMuted, 14.dp)

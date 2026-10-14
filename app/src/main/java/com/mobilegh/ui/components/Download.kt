@@ -98,9 +98,9 @@ fun DownloadHost() {
                 when {
                     selected.state == DownloadState.Complete -> TextButton({
                         if (selected.filename.endsWith(".apk", true)) Downloads.installApk(ctx, selected) else Downloads.open(ctx, selected)
-                    }) { Text(if (selected.filename.endsWith(".apk", true)) "安装更新" else "打开文件", color = g.accent) }
-                    selected.active -> TextButton({ Downloads.selectedKey = null }) { Text("后台下载", color = g.accent) }
-                    else -> TextButton({ Downloads.retry(selected) }) { Text("重新下载", color = g.accent) }
+                    }) { Text(if (selected.filename.endsWith(".apk", true)) "安装更新" else "打开文件", color = g.accent, fontWeight = FontWeight.SemiBold) }
+                    selected.active -> TextButton({ Downloads.selectedKey = null }) { Text("后台下载", color = g.accent, fontWeight = FontWeight.SemiBold) }
+                    else -> TextButton({ Downloads.retry(selected) }) { Text("重新下载", color = g.accent, fontWeight = FontWeight.SemiBold) }
                 }
             },
             dismissButton = {
@@ -118,7 +118,7 @@ fun DownloadHost() {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("下载记录", color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     if (Downloads.tasks.isNotEmpty()) {
-                        TextButton({ clearDialog = true }) { Text("清空", color = g.danger, fontSize = 13.sp) }
+                        TextButton({ clearDialog = true }) { Text("清空", color = g.danger) }
                     }
                 }
             },
@@ -183,7 +183,7 @@ fun DownloadHost() {
                     }
                 }
             },
-            confirmButton = { TextButton({ Downloads.showHistory = false }) { Text("关闭", color = g.accent) } },
+            confirmButton = { TextButton({ Downloads.showHistory = false }) { Text("关闭", color = g.fgMuted) } },
         )
         if (clearDialog) {
             AlertDialog(
@@ -199,7 +199,7 @@ fun DownloadHost() {
                             val (n, f) = Downloads.clearHistory(ctx, true)
                             ctx.toast("已清空 $n 条记录，删除 $f 个文件")
                         }
-                    }) { Text("同时删除文件", color = g.danger) }
+                    }) { Text("同时删除文件", color = g.danger, fontWeight = FontWeight.SemiBold) }
                 },
                 dismissButton = {
                     Row {
@@ -210,7 +210,7 @@ fun DownloadHost() {
                                 ctx.toast("已清空 $n 条记录，文件保留在「下载」文件夹")
                             }
                         }) { Text("仅清空记录", color = g.fgMuted) }
-                        TextButton({ clearDialog = false }) { Text("取消", color = g.accent) }
+                        TextButton({ clearDialog = false }) { Text("取消", color = g.fgMuted) }
                     }
                 },
             )
@@ -330,13 +330,13 @@ fun FileInfoDialog(info: FileInfo, onDismiss: () -> Unit) {
         },
         confirmButton = {
             when {
-                running != null -> TextButton({ onDismiss(); Downloads.selectedKey = running.key }) { Text("查看进度", color = g.accent) }
+                running != null -> TextButton({ onDismiss(); Downloads.selectedKey = running.key }) { Text("查看进度", color = g.accent, fontWeight = FontWeight.SemiBold) }
                 done != null -> Row {
                     TextButton({ onDismiss(); Downloads.start(info.url, info.name, info.isPrivate, info.mimeType) }) { Text("重新下载", color = g.fgMuted) }
                     TextButton({
                         onDismiss()
                         if (done.filename.endsWith(".apk", true)) Downloads.installApk(ctx, done) else Downloads.open(ctx, done)
-                    }) { Text("打开", color = g.accent) }
+                    }) { Text("打开", color = g.accent, fontWeight = FontWeight.SemiBold) }
                 }
                 else -> TextButton({ onDismiss(); Downloads.start(info.url, info.name, info.isPrivate, info.mimeType) }) {
                     Text("下载", color = g.accent, fontWeight = FontWeight.SemiBold)

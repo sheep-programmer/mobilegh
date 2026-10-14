@@ -12,15 +12,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
@@ -38,25 +37,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import androidx.compose.ui.text.input.TextFieldValue
+import com.mobilegh.data.Checks
 import com.mobilegh.data.Comment
+import com.mobilegh.data.CopilotAssign
 import com.mobilegh.data.Session
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import com.mobilegh.ui.components.MarkdownPreview
-import com.mobilegh.ui.components.MarkdownToolbar
 import com.mobilegh.ui.components.MarkdownEditor
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.DraftValue
 import com.mobilegh.ui.components.rememberDraft
 import com.mobilegh.ui.components.DraftBinding
 import com.mobilegh.data.Issue
+import com.mobilegh.data.IssueQuery
 import com.mobilegh.data.Pull
 import com.mobilegh.data.Review
 import com.mobilegh.data.User
@@ -71,6 +70,7 @@ import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
+import com.mobilegh.ui.components.RadioRow
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.HtmlView
@@ -80,7 +80,6 @@ import com.mobilegh.ui.components.LoadBox
 import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MoreMenu
 import com.mobilegh.ui.components.Oc
-import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.PullItem
@@ -103,14 +102,19 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
 @Composable
-fun IssuesScreen(owner: String, name: String, pulls: Boolean) {
+fun IssuesScreen(owner: String, name: String, pulls: Boolean, preset: IssueQuery? = null) {
     val nav = LocalNav.current
-    var st by rememberSaveable { mutableIntStateOf(0) }
-    val states = listOf("open" to "开启", "closed" to "已关闭", "all" to "全部")
-    val issues = rememberPager("issues:$st") { p, f -> GitHub.issues(owner, name, states[st].first, p, f) }
-    val prs = rememberPager("pulls:$st") { p, f -> GitHub.pulls(owner, name, states[st].first, p, f) }
+    val query = rememberIssueQuery((preset ?: IssueQuery()).copy(pulls = pulls, repo = "$owner/$name"))
+    var saving by remember { mutableStateOf(false) }
+    val q = query.value
     Page(
         if (pulls) "Pull Requests" else "Issues", subtitle = "$owner/$name",
+        actions = {
+            MoreMenu(buildList {
+                add(MenuAction("保存到首页…") { saving = true })
+                if (q.hasFilters) add(MenuAction("清除筛选") { query.value = q.cleared() })
+            })
+        },
         floating = {
             if (!pulls) FloatingActionButton({ nav.push(Screen.NewIssue(owner, name)) }, containerColor = Gh.c.btnPrimary, contentColor = Color.White) {
                 Oc(R.drawable.oc_plus, Color.White, 20.dp)
@@ -118,18 +122,14 @@ fun IssuesScreen(owner: String, name: String, pulls: Boolean) {
         },
     ) { pad ->
         Column(Modifier.padding(pad)) {
-            Chips(states.map { it.second }, st) { st = it }
-            HDivider()
-            if (pulls) {
-                PagedList(prs, empty = "没有 Pull Request") { pr -> PullItem(pr) { nav.push(Screen.IssueDetail(owner, name, pr.number, true)) } }
-            } else {
-                PagedList(issues, empty = "没有 Issue") { i -> IssueItem(i) { nav.push(Screen.IssueDetail(owner, name, i.number, false)) } }
-            }
+            IssueFilterBar(q, { query.value = it.normalized() }, owner, name)
+            IssueResults(q, { query.value = it.normalized() }, owner, name)
         }
     }
+    if (saving) SaveSearchDialog(q, "$name ${if (pulls) "PR" else "Issues"}") { saving = false }
 }
 
-class IssueThread(val issue: Issue, val pull: Pull?, val comments: List<Comment>, val reviews: List<Review>)
+class IssueThread(val issue: Issue, val pull: Pull?, val comments: List<Comment>, val reviews: List<Review>, val checks: Checks? = null)
 
 @Composable
 fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean) {
@@ -141,9 +141,14 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
         coroutineScope {
             val i = async { GitHub.issue(owner, name, number, f) }
             val c = async { GitHub.issueComments(owner, name, number, f) }
-            val p = if (isPull) async { GitHub.pull(owner, name, number, f) } else null
+            val p = if (isPull) async {
+                val pr = GitHub.pull(owner, name, number, f)
+                // 检查结果依赖 head 提交；读取失败（如 Token 没有 checks 权限）时只是不显示
+                pr to runCatching { GitHub.checks(owner, name, pr.head.sha, f) }.getOrNull()
+            } else null
             val r = if (isPull) async { runCatching { GitHub.pullReviews(owner, name, number, f) }.getOrDefault(emptyList<Review>()) } else null
-            IssueThread(i.await(), p?.await(), c.await(), r?.await().orEmpty())
+            val pc = p?.await()
+            IssueThread(i.await(), pc?.first, c.await(), r?.await().orEmpty(), pc?.second)
         }
     }
     val draft = rememberDraft("comment:${owner.lowercase()}/${name.lowercase()}:$number")
@@ -156,10 +161,22 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
     /** 正在编辑的评论：id=null 表示编辑 Issue/PR 正文 */
     var editing by remember { mutableStateOf<Pair<Long?, String>?>(null) }
     var deleting by remember { mutableStateOf<Long?>(null) }
+    var copilotConfirm by remember { mutableStateOf(false) }
+    var copilotBusy by remember { mutableStateOf(false) }
+    var copilotUnavailable by remember { mutableStateOf(false) }
     val url = "https://github.com/$owner/$name/${if (isPull) "pull" else "issues"}/$number"
     val t = data.data
 
     fun reload() = data.load(true)
+
+    fun setDraft(draft: Boolean) {
+        val id = t?.pull?.nodeId
+        if (id.isNullOrBlank()) return
+        entry.act({ ctx.toast(it) }, ::reload) {
+            GitHub.setPullDraft(id, draft)
+            ctx.toast(if (draft) "已转为草稿" else "已标记为可评审")
+        }
+    }
 
     Page(
         "#$number", subtitle = "$owner/$name",
@@ -170,8 +187,11 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
                     if (isPull) {
                         val pr = t.pull
                         if (open && pr != null && !pr.merged) {
-                            add(MenuAction("合并 Pull Request…") { mergeDialog = true })
+                            if (pr.draft) add(MenuAction("标记为可评审") { setDraft(false) })
+                            else add(MenuAction("合并 Pull Request…") { mergeDialog = true })
                             add(MenuAction("提交审查…") { reviewDialog = true })
+                            add(MenuAction("请求审查…") { metaKind = "reviewers" })
+                            if (!pr.draft) add(MenuAction("转为草稿") { setDraft(true) })
                             add(MenuAction("关闭 Pull Request", danger = true) {
                                 entry.act({ ctx.toast(it) }, ::reload) { GitHub.setPullState(owner, name, number, false) }
                             })
@@ -193,53 +213,29 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
         },
         bottomBar = {
             if (t != null && !t.issue.locked) {
-                Column(Modifier.background(g.header).navigationBarsPadding().imePadding()) {
-                    HDivider()
-                    MarkdownToolbar(
-                        comment, { comment = it }, previewComment, { previewComment = it },
-                        Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                    )
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (previewComment) {
-                            Box(Modifier.weight(1f).heightIn(min = 44.dp, max = 200.dp).verticalScroll(rememberScrollState())) {
-                                MarkdownPreview(comment.text, "$owner/$name")
-                            }
-                        } else {
-                            androidx.compose.material3.OutlinedTextField(
-                                comment, { comment = it },
-                                Modifier.weight(1f).heightIn(max = 160.dp),
-                                placeholder = { Text("发表评论（支持 Markdown）", color = g.fgMuted) },
-                                singleLine = false,
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-                            )
-                        }
-                        Spacer(Modifier.width(6.dp))
-                        OcButton(R.drawable.oc_upload, {
-                            if (comment.text.isBlank() || sending) return@OcButton
-                            sending = true
-                            val submitted = DraftValue(body = comment.text)
-                            draft.update(submitted)
-                            entry.act({ sending = false; ctx.toast(it) }) {
-                                GitHub.addComment(owner, name, number, submitted.body.trim())
-                                draft.submitted(submitted)
-                                if (comment.text == submitted.body) comment = TextFieldValue()
-                                previewComment = false
-                                sending = false
-                                ctx.toast("评论已发布")
-                                reload()
-                            }
-                        }, if (comment.text.isBlank()) g.fgMuted else g.accent, enabled = !sending)
+                CommentComposerBar(comment, { comment = it }, previewComment, { previewComment = it }, "$owner/$name", sending, draft) {
+                    if (comment.text.isBlank() || sending) return@CommentComposerBar
+                    sending = true
+                    val submitted = DraftValue(body = comment.text)
+                    draft.update(submitted)
+                    entry.act({ sending = false; ctx.toast(it) }) {
+                        GitHub.addComment(owner, name, number, submitted.body.trim())
+                        draft.submitted(submitted)
+                        if (comment.text == submitted.body) comment = TextFieldValue()
+                        previewComment = false
+                        sending = false
+                        ctx.toast("评论已发布")
+                        reload()
                     }
-                    DraftBinding(draft, DraftValue(body = comment.text))
                 }
             }
         },
     ) { pad ->
         LoadBox(data, Modifier.padding(pad).fillMaxSize()) { th ->
             LazyColumn(Modifier.fillMaxSize()) {
-                item { ThreadHeader(owner, name, th) }
-                item { MetaBlock(th.issue) { metaKind = it } }
+                item { ThreadHeader(owner, name, th, onReady = { setDraft(false) }) }
+                val copilot = if (!isPull && th.issue.state == "open") CopilotAction(copilotBusy) { copilotConfirm = true } else null
+                item { MetaBlock(th.issue, reviewers = th.pull?.let { reviewerStates(it, th.reviews) }, copilot = copilot) { metaKind = it } }
                 item { Spacer(Modifier.height(8.dp)) }
                 val base = "https://github.com/$owner/$name/"
                 val me = Session.login
@@ -265,7 +261,13 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
                 }
                 val entries = (th.comments.map { it.createdAt to it as Any } + th.reviews.filter { it.state != "PENDING" }.map { it.submittedAt to it as Any })
                     .sortedBy { it.first ?: "" }
-                items(entries.size, key = { i -> (entries[i].second as? Comment)?.id?.let { "c$it" } ?: "r$i" }) { idx ->
+                items(entries.size, key = { i ->
+                    when (val e = entries[i].second) {
+                        is Comment -> "c${e.id}"
+                        is Review -> "r${e.id}"
+                        else -> "x$i"
+                    }
+                }) { idx ->
                     when (val e = entries[idx].second) {
                         is Comment -> TimelineCard(
                             e.user, e.createdAt, assoc(e.authorAssociation), e.bodyHtml, base,
@@ -289,9 +291,16 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
                             }
                             if (!e.bodyHtml.isNullOrBlank()) TimelineCard(e.user, e.submittedAt, label, e.bodyHtml, base, menu = emptyList())
                             else Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(8.dp).background(color, CircleShape))
+                                val icon = when (e.state) {
+                                    "APPROVED" -> R.drawable.oc_check_circle
+                                    "CHANGES_REQUESTED" -> R.drawable.oc_file_diff
+                                    else -> R.drawable.oc_eye
+                                }
+                                Oc(icon, color, 16.dp)
                                 Spacer(Modifier.width(8.dp))
-                                Text("${e.user?.login ?: ""} $label · ${relTime(e.submittedAt)}", fontSize = 13.sp, color = g.fgMuted)
+                                Avatar(e.user?.avatarUrl, 20.dp, Modifier.clickable { e.user?.let { nav.push(Screen.Profile(it.login)) } })
+                                Spacer(Modifier.width(6.dp))
+                                Text("${e.user?.login ?: ""} $label · ${relTime(e.submittedAt)}", fontSize = 13.sp, color = g.fgMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
@@ -305,7 +314,7 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
     }
 
     metaKind?.let { k ->
-        t?.let { th -> MetaDialog(k, owner, name, number, th.issue, onDismiss = { metaKind = null }, onSaved = ::reload) }
+        t?.let { th -> MetaDialog(k, owner, name, number, th.issue, pull = th.pull, onDismiss = { metaKind = null }, onSaved = ::reload) }
     }
     editing?.let { (cid, text) ->
         EditDialog(
@@ -320,6 +329,33 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
             }
         }
     }
+    if (copilotConfirm) GhDialog("指派给 Copilot", { copilotConfirm = false }, confirm = "指派", onConfirm = {
+        copilotConfirm = false
+        copilotBusy = true
+        entry.act({ copilotBusy = false; ctx.toast(it) }) {
+            when (CopilotAssign.assign(owner, name, number)) {
+                CopilotAssign.Result.Assigned -> { ctx.toast("已指派给 Copilot，它会创建分支并提交 Pull Request"); reload() }
+                CopilotAssign.Result.AlreadyAssigned -> ctx.toast("Copilot 已是指派人")
+                CopilotAssign.Result.Unavailable -> copilotUnavailable = true
+            }
+            copilotBusy = false
+        }
+    }) {
+        Row(verticalAlignment = Alignment.Top) {
+            Oc(R.drawable.oc_copilot, g.fg, 20.dp)
+            Spacer(Modifier.width(10.dp))
+            Text("Copilot 编程助手会根据此 Issue 的内容开始工作，完成后提交 Pull Request 并请你审查。每次任务会消耗 Copilot 高级请求额度。", fontSize = 14.sp, color = g.fg)
+        }
+    }
+    if (copilotUnavailable) GhDialog("无法指派给 Copilot", { copilotUnavailable = false }, confirm = "查看文档", onConfirm = {
+        copilotUnavailable = false
+        ctx.openBrowser(CopilotAssign.DOCS_URL)
+    }) {
+        Text(
+            "此仓库未启用 Copilot 编程助手，或你的账号暂无使用权限。需要 Copilot Pro、Pro+、Business 或 Enterprise 订阅；组织仓库还需管理员在策略中启用 Copilot 编程助手。",
+            fontSize = 14.sp, color = g.fg,
+        )
+    }
     deleting?.let { cid ->
         GhDialog("删除评论", { deleting = null }, confirm = "删除", danger = true, onConfirm = {
             deleting = null
@@ -328,9 +364,18 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
     }
 
     val pr = t?.pull
-    if (mergeDialog && pr != null) MergeDialog(pr, onDismiss = { mergeDialog = false }) { method ->
+    if (mergeDialog && pr != null) MergeDialog(pr, onDismiss = { mergeDialog = false }) { m ->
         mergeDialog = false
-        entry.act({ ctx.toast(it) }, ::reload) { GitHub.merge(owner, name, number, method); ctx.toast("已合并") }
+        entry.act({ ctx.toast(it) }, ::reload) {
+            GitHub.merge(owner, name, number, m.method, m.title, m.message, pr.head.sha)
+            val repo = pr.head.repo
+            if (m.deleteBranch && repo != null) {
+                val err = runCatching { GitHub.deleteBranch(repo.owner.login, repo.name, pr.head.ref) }.exceptionOrNull()
+                ctx.toast(if (err == null) "已合并，并删除分支 ${pr.head.ref}" else "已合并，但删除分支失败：${err.message}")
+            } else {
+                ctx.toast("已合并")
+            }
+        }
     }
     if (reviewDialog) ReviewDialog(onDismiss = { reviewDialog = false }) { ev, body ->
         reviewDialog = false
@@ -339,7 +384,7 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
 }
 
 @Composable
-private fun ThreadHeader(owner: String, name: String, th: IssueThread) {
+private fun ThreadHeader(owner: String, name: String, th: IssueThread, onReady: () -> Unit) {
     val g = Gh.c
     val nav = LocalNav.current
     val i = th.issue
@@ -375,23 +420,38 @@ private fun ThreadHeader(owner: String, name: String, th: IssueThread) {
                     Text("${pr.changedFiles} 个文件  ", fontSize = 13.sp, color = g.fg)
                     Text("+${pr.additions} ", fontSize = 13.sp, color = g.success, fontWeight = FontWeight.SemiBold)
                     Text("−${pr.deletions}", fontSize = 13.sp, color = g.danger, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.weight(1f))
+                    // 本机记录的「已查看」文件数（文件页里逐个勾选）
+                    val viewed = remember(Session.viewedRevision, Session.login) { Session.viewedFiles(owner, name, pr.number).size }
+                    if (pr.changedFiles > 0) Text(
+                        "${viewed.coerceAtMost(pr.changedFiles)}/${pr.changedFiles} 个文件已查看",
+                        fontSize = 12.sp, color = if (viewed >= pr.changedFiles) g.success else g.fgMuted,
+                    )
+                }
+                th.checks?.let { c ->
+                    ChecksSummaryRow(c) { nav.push(Screen.PullChecks(owner, name, pr.number, pr.head.sha)) }
                 }
                 if (pr.state == "open") {
-                    val (txt, c) = when (pr.mergeableState) {
-                        "clean" -> "✓ 可以合并" to g.success
-                        "dirty" -> "✗ 存在冲突，需要解决后才能合并" to g.danger
-                        "blocked" -> "⊘ 被分支保护规则阻止（需要审查或检查通过）" to g.attention
-                        "behind" -> "↓ 落后于目标分支" to g.attention
-                        "unstable" -> "! 有检查未通过" to g.attention
-                        "draft" -> "草稿状态" to g.fgMuted
-                        else -> "正在检查合并状态…" to g.fgMuted
+                    val (txt, c, icon) = when (pr.mergeableState) {
+                        "clean" -> Triple("可以合并", g.success, R.drawable.oc_check)
+                        "dirty" -> Triple("存在冲突，需要解决后才能合并", g.danger, R.drawable.oc_x)
+                        "blocked" -> Triple("被分支保护规则阻止（需要审查或检查通过）", g.attention, R.drawable.oc_circle_slash)
+                        "behind" -> Triple("落后于目标分支", g.attention, R.drawable.oc_git_branch)
+                        "unstable" -> Triple("有检查未通过", g.attention, R.drawable.oc_alert)
+                        "draft" -> Triple("草稿状态", g.fgMuted, R.drawable.oc_git_pull_request_draft)
+                        else -> Triple("正在检查合并状态…", g.fgMuted, R.drawable.oc_clock)
                     }
-                    Text(txt, fontSize = 13.sp, color = c, fontWeight = FontWeight.Medium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Oc(icon, c, 14.dp)
+                        Spacer(Modifier.width(6.dp))
+                        Text(txt, fontSize = 13.sp, color = c, fontWeight = FontWeight.Medium)
+                    }
                 } else if (pr.merged) {
                     Text("已由 ${pr.mergedBy?.login ?: ""} 于 ${relTime(pr.mergedAt)} 合并", fontSize = 13.sp, color = g.done)
                 }
-                if (pr.requestedReviewers.isNotEmpty()) {
-                    Text("等待审查：" + pr.requestedReviewers.joinToString { it.login }, fontSize = 12.sp, color = g.fgMuted)
+                if (pr.draft && pr.state == "open") {
+                    Text("这是一个草稿 PR，标记为可评审后才能合并，并会通知审查者。", fontSize = 12.sp, color = g.fgMuted)
+                    GhButton("标记为可评审", Modifier.fillMaxWidth(), primary = true, icon = R.drawable.oc_eye, onClick = onReady)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     GhButton("文件变更", icon = R.drawable.oc_file_diff) { nav.push(Screen.PullFiles(owner, name, pr.number)) }
@@ -415,21 +475,76 @@ private fun assoc(a: String?): String? = when (a) {
     else -> null
 }
 
+private class MergeRequest(val method: String, val title: String, val message: String, val deleteBranch: Boolean)
+
+/** 合并：方式 + 提交标题/说明（变基合并不生成合并提交，故不显示）+ 合并后删除分支 */
 @Composable
-private fun MergeDialog(pr: Pull, onDismiss: () -> Unit, onMerge: (String) -> Unit) {
+private fun MergeDialog(pr: Pull, onDismiss: () -> Unit, onMerge: (MergeRequest) -> Unit) {
     val g = Gh.c
     var method by remember { mutableStateOf("merge") }
-    GhDialog("合并 #${pr.number}", onDismiss, confirm = "确认合并", onConfirm = { onMerge(method) }) {
-        Column {
+    fun defaultTitle(m: String) = when (m) {
+        "squash" -> "${pr.title} (#${pr.number})"
+        else -> "Merge pull request #${pr.number} from ${pr.head.label.replaceFirst(':', '/')}"
+    }
+    fun defaultMessage(m: String) = if (m == "squash") "" else pr.title
+    var title by remember { mutableStateOf(defaultTitle("merge")) }
+    var message by remember { mutableStateOf(defaultMessage("merge")) }
+    var edited by remember { mutableStateOf(false) }
+    // 只有分支在同一仓库、或在自己的 Fork 里时才能删除
+    val repo = pr.head.repo
+    val canDelete = repo != null && (repo.fullName.equals(pr.base.repo?.fullName, true) || repo.owner.login.equals(Session.login, true)) &&
+        pr.head.ref != repo.defaultBranch
+    var deleteBranch by remember { mutableStateOf(false) }
+    GhDialog(
+        "合并 #${pr.number}", onDismiss, confirm = "确认合并",
+        confirmEnabled = method == "rebase" || title.isNotBlank(),
+        onConfirm = { onMerge(MergeRequest(method, if (method == "rebase") "" else title.trim(), if (method == "rebase") "" else message, deleteBranch && canDelete)) },
+    ) {
+        Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
             listOf("merge" to "创建合并提交", "squash" to "压缩合并（Squash）", "rebase" to "变基合并（Rebase）").forEach { (k, v) ->
-                Row(Modifier.fillMaxWidth().clickable { method = k }, verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(method == k, { method = k }, colors = RadioButtonDefaults.colors(selectedColor = g.btnPrimary))
-                    Text(v, color = g.fg)
+                RadioRow(method == k, v) {
+                    method = k
+                    if (!edited) {
+                        title = defaultTitle(k)
+                        message = defaultMessage(k)
+                    }
+                }
+            }
+            if (method != "rebase") {
+                Spacer(Modifier.height(8.dp))
+                GhField(title, { title = it; edited = true }, "提交标题")
+                Spacer(Modifier.height(8.dp))
+                GhField(message, { message = it; edited = true }, "提交说明（可选）", singleLine = false, minLines = 2)
+            } else {
+                Text("变基合并会把每个提交依次应用到目标分支，不生成合并提交。", fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(top = 4.dp))
+            }
+            if (canDelete) {
+                Spacer(Modifier.height(4.dp))
+                Row(Modifier.fillMaxWidth().clickable { deleteBranch = !deleteBranch }, verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(deleteBranch, { deleteBranch = it }, colors = CheckboxDefaults.colors(checkedColor = g.btnPrimary))
+                    Column {
+                        Text("合并后删除分支", fontSize = 14.sp, color = g.fg)
+                        Text(pr.head.ref, fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
             if (pr.mergeableState == "dirty") Text("注意：存在冲突，合并可能会失败", color = g.danger, fontSize = 13.sp)
         }
     }
+}
+
+/** 审查者及其最新状态：已请求但未审查的为 null */
+private fun reviewerStates(pr: Pull, reviews: List<Review>): List<Pair<User, String?>> {
+    val latest = LinkedHashMap<String, Pair<User, String?>>()
+    reviews.filter { it.state != "PENDING" && it.user != null && it.user.login != pr.user?.login }
+        .sortedBy { it.submittedAt ?: "" }
+        .forEach { r ->
+            // 「仅评论」不覆盖之前的批准/请求修改，与 GitHub 侧栏一致
+            val prev = latest[r.user!!.login]?.second
+            if (r.state != "COMMENTED" || prev == null || prev == "COMMENTED") latest[r.user.login] = r.user to r.state
+        }
+    pr.requestedReviewers.forEach { u -> latest[u.login] = u to null }
+    return latest.values.toList()
 }
 
 @Composable
@@ -449,75 +564,6 @@ private fun ReviewDialog(onDismiss: () -> Unit, onSubmit: (String, String) -> Un
                 Row(Modifier.fillMaxWidth().clickable { ev = k }, verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(ev == k, { ev = k }, colors = RadioButtonDefaults.colors(selectedColor = g.btnPrimary))
                     Text(v, color = g.fg)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun PullFilesScreen(owner: String, name: String, number: Int) {
-    val g = Gh.c
-    val nav = LocalNav.current
-    val files = rememberLoader("files") {
-        val all = ArrayList<com.mobilegh.data.CommitFile>()
-        var page = 1
-        while (page <= 20) {
-            val l = GitHub.pullFiles(owner, name, number, page)
-            all.addAll(l)
-            if (l.size < 50) break
-            page++
-        }
-        withContext(Dispatchers.Default) { all.map { ParsedFile(it, it.patch?.let(::parsePatch).orEmpty()) } }
-    }
-    val pr = rememberLoader("pr") { GitHub.pull(owner, name, number, it) }
-    val collapsed = retain("collapsed") { mutableStateMapOf<String, Boolean>() }
-    Page("文件变更", subtitle = "$owner/$name #$number") { pad ->
-        LoadBox(files, Modifier.padding(pad).fillMaxSize()) { list ->
-            LazyColumn(Modifier.fillMaxSize()) {
-                item {
-                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("${list.size} 个文件  ", fontSize = 14.sp, color = g.fg, fontWeight = FontWeight.SemiBold)
-                        Text("+${list.sumOf { it.file.additions }} ", fontSize = 14.sp, color = g.success, fontWeight = FontWeight.SemiBold)
-                        Text("−${list.sumOf { it.file.deletions }}", fontSize = 14.sp, color = g.danger, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.weight(1f))
-                        com.mobilegh.ui.components.TextLink("全部折叠") { list.forEach { collapsed[it.file.filename] = true } }
-                    }
-                }
-                fileDiffs(list, collapsed, g) { f ->
-                    val head = pr.data?.head
-                    nav.push(Screen.FileView(head?.repo?.owner?.login ?: owner, head?.repo?.name ?: name, f.filename, head?.sha))
-                }
-                item { Spacer(Modifier.height(32.dp)) }
-            }
-        }
-    }
-}
-
-@Composable
-fun NewIssueScreen(owner: String, name: String) {
-    val nav = LocalNav.current
-    val entry = LocalEntry.current
-    val ctx = rememberCtx()
-    val draft = rememberDraft("new-issue:${owner.lowercase()}/${name.lowercase()}")
-    var title by rememberSaveable { mutableStateOf(draft.initial.title) }
-    var body by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(draft.initial.body)) }
-    var busy by remember { mutableStateOf(false) }
-    Page("新建 Issue", subtitle = "$owner/$name") { pad ->
-        Column(Modifier.padding(pad).imePadding().verticalScroll(rememberScrollState()).padding(16.dp)) {
-            GhField(title, { title = it }, "标题")
-            Spacer(Modifier.height(12.dp))
-            MarkdownEditor(body, { body = it }, placeholder = "描述（支持 Markdown）", contextRepo = "$owner/$name", minLines = 8)
-            DraftBinding(draft, DraftValue(title, body.text))
-            Spacer(Modifier.height(16.dp))
-            GhButton("提交", Modifier.fillMaxWidth(), primary = true, enabled = title.isNotBlank() && !busy) {
-                busy = true
-                val submitted = DraftValue(title, body.text)
-                draft.update(submitted)
-                entry.act({ busy = false; ctx.toast(it) }) {
-                    val i = GitHub.createIssue(owner, name, submitted.title.trim(), submitted.body)
-                    draft.submitted(submitted)
-                    nav.replace(Screen.IssueDetail(owner, name, i.number, false))
                 }
             }
         }

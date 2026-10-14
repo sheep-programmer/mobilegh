@@ -19,7 +19,7 @@ sealed interface DevicePoll {
 
 /** Public OAuth device flow. Never inherits API tokens, web cookies or mirror settings. */
 object DeviceAuth {
-    const val SCOPES = "repo read:org notifications user gist workflow"
+    const val SCOPES = "repo read:org notifications user gist workflow project"
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(25, TimeUnit.SECONDS).callTimeout(30, TimeUnit.SECONDS).build()
 

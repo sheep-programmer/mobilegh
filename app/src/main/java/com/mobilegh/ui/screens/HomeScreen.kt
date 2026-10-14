@@ -18,8 +18,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.HomePrefs
+import com.mobilegh.data.Involvement
+import com.mobilegh.data.IssueQuery
 import com.mobilegh.data.Session
 import com.mobilegh.data.StarListAccount
 import com.mobilegh.data.UserLists
@@ -32,6 +36,9 @@ import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
 import com.mobilegh.nav.retain
 import com.mobilegh.ui.components.Card
+import com.mobilegh.ui.components.MenuAction
+import com.mobilegh.ui.components.MenuGroup
+import com.mobilegh.ui.components.MoreMenu
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.EventCat
 import com.mobilegh.ui.components.EventItem
@@ -70,6 +77,20 @@ fun HomeScreen() {
     val feed = rememberPager("feed") { p, f -> GitHub.received(login, p, f) }
     var cat by rememberSaveable { mutableStateOf(EventCat.All) }
     val state = rememberLazyListState()
+    val layout = HomePrefs.layout()
+    val shortcuts = arrangedShortcuts(
+        layout,
+        homeShortcuts(
+            onIssues = { nav.push(Screen.MyIssues(false)) },
+            onPulls = { nav.push(Screen.MyIssues(true)) },
+            onRepos = { nav.select(Tab.Repos) },
+            onOrgs = { nav.push(Screen.Orgs) },
+            onStars = { nav.push(Screen.Repos(RepoKind.Starred, login)) },
+            onLists = { nav.push(Screen.StarLists(login)) },
+            onGists = { nav.push(Screen.Gists(null)) },
+            onRecent = { nav.push(Screen.RecentRepositories) },
+        ),
+    ) { nav.push(savedSearchScreen(it.query)) }
     LaunchedEffect(nav.reselect) { if (nav.reselect > 0 && nav.tab == Tab.Home) state.animateScrollToItem(0) }
 
     Page(
@@ -82,25 +103,35 @@ fun HomeScreen() {
         PagedList(
             feed, Modifier.padding(pad).fillMaxSize(), state,
             empty = "关注一些开发者或 star 一些仓库后，这里会显示动态",
+            emptyIcon = R.drawable.oc_pulse, emptyAction = "去探索", onEmptyAction = { nav.select(Tab.Explore) },
             onRefresh = { me.refresh(); invites.refresh(); contrib.refresh(); lists.refresh(); badges.refresh() },
             itemFilter = { cat == EventCat.All || eventCat(it) == cat },
             itemKey = { it.id },
             header = {
                 item { HomeProfile(login, me.data, Session.avatar) { nav.select(Tab.Me) } }
                 invites.data?.takeIf { it > 0 }?.let { n -> item { HomeInviteBanner(n) { nav.push(Screen.Invitations) } } }
+                item { SectionTitle("我的工作") { TextLink("编辑") { nav.push(Screen.HomeCustomize) } } }
                 item {
-                    HomeShortcuts(
-                        homeShortcuts(
-                            onIssues = { nav.push(Screen.MyIssues(false)) },
-                            onPulls = { nav.push(Screen.MyIssues(true)) },
-                            onRepos = { nav.select(Tab.Repos) },
-                            onOrgs = { nav.push(Screen.Orgs) },
-                            onStars = { nav.push(Screen.Repos(RepoKind.Starred, login)) },
-                            onLists = { nav.push(Screen.StarLists(login)) },
-                            onGists = { nav.push(Screen.Gists(null)) },
-                            onRecent = { nav.push(Screen.RecentRepositories) },
-                        ),
-                    )
+                    if (shortcuts.isEmpty()) {
+                        Text("所有快捷入口都已隐藏，点「编辑」可重新显示", Modifier.padding(horizontal = 16.dp), fontSize = 13.sp, color = g.fgMuted)
+                    } else {
+                        HomeShortcuts(shortcuts)
+                    }
+                }
+                if (layout.favorites.isNotEmpty()) {
+                    item { SectionTitle("收藏仓库") { TextLink("编辑") { nav.push(Screen.HomeCustomize) } } }
+                    item {
+                        MenuGroup {
+                            layout.favorites.forEachIndexed { i, f ->
+                                HomeFavoriteRow(
+                                    f, canUp = i > 0, canDown = i < layout.favorites.lastIndex,
+                                    onOpen = { nav.push(Screen.Repo(f.owner, f.name)) },
+                                    onMove = { d -> HomePrefs.moveFavorite(i, d) },
+                                    onRemove = { HomePrefs.removeFavorite(f) },
+                                )
+                            }
+                        }
+                    }
                 }
                 item { SectionTitle("收藏列表") { TextLink("全部") { nav.push(Screen.StarLists(login)) } } }
                 item {
@@ -132,26 +163,24 @@ fun HomeScreen() {
 
 /** 我的 Issues / PR（官方网页的 github.com/issues 页面） */
 @Composable
-fun MyIssuesScreen(pulls: Boolean) {
-    val nav = LocalNav.current
-    val kinds = if (pulls) listOf("我创建的" to "author:@me", "待我审查" to "review-requested:@me", "指派给我" to "assignee:@me", "提及我" to "mentions:@me")
-    else listOf("我创建的" to "author:@me", "指派给我" to "assignee:@me", "提及我" to "mentions:@me")
-    var kind by rememberSaveable { mutableIntStateOf(0) }
-    var st by rememberSaveable { mutableIntStateOf(0) }
-    val q = "is:${if (pulls) "pr" else "issue"} is:${if (st == 0) "open" else "closed"} ${kinds[kind].second} archived:false"
-    val pager = rememberPager("my:$q") { p, _ -> GitHub.searchIssues(q, p).items }
-    Page(if (pulls) "我的 Pull Requests" else "我的 Issues") { pad ->
+fun MyIssuesScreen(pulls: Boolean, preset: IssueQuery? = null) {
+    val start = (preset ?: IssueQuery()).copy(pulls = pulls, repo = null)
+    val query = rememberIssueQuery(if (start.involves == null) start.copy(involves = Involvement.Created) else start)
+    var saving by remember { mutableStateOf(false) }
+    val q = query.value
+    Page(
+        if (pulls) "我的 Pull Requests" else "我的 Issues",
+        actions = {
+            MoreMenu(buildList {
+                add(MenuAction("保存到首页…") { saving = true })
+                if (q.hasFilters) add(MenuAction("清除筛选") { query.value = q.cleared() })
+            })
+        },
+    ) { pad ->
         Column(Modifier.padding(pad)) {
-            Chips(kinds.map { it.first }, kind) { kind = it }
-            Chips(listOf("开启", "已关闭"), st, Modifier.padding(top = 0.dp)) { st = it }
-            HDivider()
-            PagedList(pager, empty = "没有匹配的${if (pulls) " PR" else " Issue"}") { issue ->
-                val repo = issue.repositoryUrl?.substringAfter("/repos/") ?: ""
-                IssueItem(issue, repoName = repo) {
-                    val (o, r) = repo.split('/').let { it[0] to it.getOrElse(1) { "" } }
-                    nav.push(Screen.IssueDetail(o, r, issue.number, issue.pullRequest != null))
-                }
-            }
+            IssueFilterBar(q, { query.value = it.normalized() }, segments = true)
+            IssueResults(q, { query.value = it.normalized() }, null, null)
         }
     }
+    if (saving) SaveSearchDialog(q, "${q.involves?.label ?: ""}${if (pulls) " PR" else " Issues"}".trim()) { saving = false }
 }

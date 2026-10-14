@@ -1,6 +1,11 @@
 package com.mobilegh.ui.screens
 
 import com.mobilegh.ui.components.ApprovalSettingsRows
+import com.mobilegh.data.AppLock
+import com.mobilegh.ui.components.Biometrics
+import com.mobilegh.ui.components.findFragmentActivity
+import com.mobilegh.ui.components.InlineError
+import com.mobilegh.ui.components.RadioRow
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,12 +20,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -29,16 +31,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,7 +49,6 @@ import com.mobilegh.data.Api
 import com.mobilegh.data.AppLog
 import com.mobilegh.data.Downloads
 import com.mobilegh.data.GitHub
-import com.mobilegh.data.Gist
 import com.mobilegh.data.Net
 import com.mobilegh.data.NodeType
 import com.mobilegh.data.Session
@@ -61,141 +59,26 @@ import kotlinx.coroutines.delay
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.rememberLoader
-import com.mobilegh.nav.rememberPager
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Card
-import com.mobilegh.ui.components.Chips
+import com.mobilegh.ui.components.MenuIcon
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.HDivider
-import com.mobilegh.ui.components.LoadBox
-import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MenuRow
 import com.mobilegh.ui.components.MenuGroup
-import com.mobilegh.ui.components.MoreMenu
-import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
-import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.SwitchRow
-import com.mobilegh.ui.components.copy
-import com.mobilegh.ui.components.fmtDateTime
 import com.mobilegh.ui.components.fmtSize
-import com.mobilegh.ui.components.highlightLines
 import com.mobilegh.ui.components.openBrowser
-import com.mobilegh.ui.components.relTime
 import com.mobilegh.ui.components.rememberCtx
-import com.mobilegh.ui.components.share
-import com.mobilegh.ui.components.syntaxColors
 import com.mobilegh.ui.components.toast
-import com.mobilegh.ui.theme.CodeStyle
-import com.mobilegh.ui.components.MdText
 import com.mobilegh.ui.theme.Gh
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-
-// ======================= Gist =======================
-
-@Composable
-fun GistsScreen(login: String?) {
-    val nav = LocalNav.current
-    var tab by rememberSaveable { mutableIntStateOf(0) }
-    val mine = rememberPager("gists:$login") { p, f -> GitHub.gists(login, p, f) }
-    val starred = rememberPager("gists:starred") { p, f -> GitHub.starredGists(p, f) }
-    Page("Gists", subtitle = login ?: Session.login) { pad ->
-        Column(Modifier.padding(pad)) {
-            if (login == null) {
-                Chips(listOf("我的", "已 Star"), tab) { tab = it }
-                HDivider()
-            }
-            PagedList(if (tab == 0 || login != null) mine else starred, empty = "没有 Gist") { gist ->
-                GistRow(gist) { nav.push(Screen.GistDetail(gist.id)) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GistRow(g0: Gist, onClick: () -> Unit) {
-    val g = Gh.c
-    val first = g0.files.keys.firstOrNull() ?: g0.id
-    Column(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Avatar(g0.owner?.avatarUrl, 18.dp)
-            Spacer(Modifier.width(8.dp))
-            Text("${g0.owner?.login ?: ""} / ", color = g.fgMuted, fontSize = 14.sp)
-            Text(first, fontWeight = FontWeight.SemiBold, color = g.fg, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, false))
-            Spacer(Modifier.width(6.dp))
-            if (!g0.public) Pill("私密")
-        }
-        if (!g0.description.isNullOrBlank()) {
-            MdText(g0.description, Modifier.padding(top = 4.dp), fontSize = 13.sp, color = g.fgMuted, maxLines = 2)
-        }
-        Text("${g0.files.size} 个文件 · ${g0.comments} 条评论 · 更新于 ${relTime(g0.updatedAt)}", fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(top = 4.dp))
-    }
-}
-
-@Composable
-fun GistDetailScreen(id: String) {
-    val g = Gh.c
-    val ctx = rememberCtx()
-    val sc = syntaxColors(g)
-    val gist = rememberLoader("gist:${g.dark}") { f ->
-        val d = GitHub.gist(id, f)
-        d to withContext(Dispatchers.Default) {
-            d.files.values.map { file -> file.filename to highlightLines(file.content.orEmpty(), file.filename, sc) }
-        }
-    }
-    Page(
-        gist.data?.first?.files?.keys?.firstOrNull() ?: "Gist", subtitle = gist.data?.first?.owner?.login,
-        actions = {
-            MoreMenu(listOf(
-                MenuAction("分享") { ctx.share("https://gist.github.com/$id") },
-                MenuAction("在浏览器打开") { ctx.openBrowser("https://gist.github.com/$id") },
-            ))
-        },
-    ) { pad ->
-        LoadBox(gist, Modifier.padding(pad).fillMaxSize()) { (d, files) ->
-            SelectionContainer {
-                LazyColumn(Modifier.fillMaxSize()) {
-                    item {
-                        Column(Modifier.padding(16.dp)) {
-                            if (!d.description.isNullOrBlank()) Text(d.description, fontSize = 15.sp, color = g.fg)
-                            Text("创建于 ${fmtDateTime(d.createdAt)} · ${if (d.public) "公开" else "私密"}", fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(top = 4.dp))
-                        }
-                    }
-                    files.forEach { (fname, lines) ->
-                        item(key = "h:$fname") {
-                            HDivider()
-                            Row(Modifier.fillMaxWidth().background(g.canvasSubtle).padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Oc(R.drawable.oc_file_code, g.fgMuted)
-                                Spacer(Modifier.width(8.dp))
-                                Text(fname, fontFamily = FontFamily.Monospace, fontSize = 13.sp, color = g.fg, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                                OcButton(R.drawable.oc_copy, { ctx.copy(d.files[fname]?.content.orEmpty()) }, g.fgMuted)
-                            }
-                            HDivider()
-                        }
-                        itemsIndexed(lines, key = { i, _ -> "$fname:$i" }) { i, line -> GistLine(i, line) }
-                    }
-                    item { Spacer(Modifier.height(32.dp)) }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GistLine(i: Int, line: AnnotatedString) {
-    val g = Gh.c
-    Row(Modifier.fillMaxWidth()) {
-        Text("${i + 1}", Modifier.width(40.dp).padding(end = 8.dp), style = CodeStyle, color = g.fgMuted.copy(alpha = 0.7f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
-        Text(line, Modifier.weight(1f).padding(end = 8.dp), style = CodeStyle, color = g.fg)
-    }
-}
 
 // ======================= 两步验证（TOTP） =======================
 
@@ -217,6 +100,52 @@ private fun TwoFactorSection() {
 }
 
 // ======================= 设置 =======================
+
+/** 应用锁：开关本身（开启和关闭）都需要先通过一次系统验证 */
+@Composable
+private fun AppLockSection() {
+    val g = Gh.c
+    val ctx = rememberCtx()
+    var pickTimeout by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun toggle(on: Boolean) {
+        val activity = ctx.findFragmentActivity() ?: return
+        error = null
+        if (!Biometrics.available(ctx)) {
+            if (on) error = "请先在系统设置中设置锁屏密码或录入指纹、面容" else AppLock.setLockEnabled(false)
+            return
+        }
+        Biometrics.authenticate(
+            activity, if (on) "开启应用锁" else "关闭应用锁", "验证身份以更改设置",
+            onSuccess = {
+                AppLock.setLockEnabled(on)
+                ctx.toast(if (on) "应用锁已开启" else "应用锁已关闭")
+            },
+            onError = { error = it },
+        )
+    }
+
+    SectionTitle("应用锁")
+    MenuGroup {
+        SwitchRow("启动时需要验证", "使用指纹、面容或锁屏密码保护 MobileGH", AppLock.enabled) { toggle(it) }
+        if (AppLock.enabled) {
+            MenuRow(R.drawable.oc_clock, "离开后重新锁定", value = AppLock.timeouts[AppLock.timeoutIndex].second) { pickTimeout = true }
+        }
+    }
+    error?.let { InlineError(it, Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) }
+
+    if (pickTimeout) GhDialog("离开后重新锁定", { pickTimeout = false }) {
+        Column {
+            AppLock.timeouts.forEachIndexed { i, (_, label) ->
+                RadioRow(i == AppLock.timeoutIndex, label, if (i == 0) "每次回到应用都需要验证" else "离开超过 $label 后需要验证") {
+                    AppLock.setTimeout(i)
+                    pickTimeout = false
+                }
+            }
+        }
+    }
+}
 
 @Composable
 fun SettingsScreen() {
@@ -250,11 +179,11 @@ fun SettingsScreen() {
             }
 
             SectionTitle("登录时长")
-            Card(Modifier.padding(horizontal = 16.dp)) {
+            MenuGroup {
                 Column(Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Oc(R.drawable.oc_clock, g.success, 18.dp)
-                        Spacer(Modifier.width(10.dp))
+                        MenuIcon(R.drawable.oc_clock, g.success)
+                        Spacer(Modifier.width(14.dp))
                         Text("授权有效期", Modifier.weight(1f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
                         Pill("由 GitHub 决定", g.fgMuted)
                     }
@@ -264,24 +193,19 @@ fun SettingsScreen() {
                             "Token 登录的有效期由你在 GitHub 设置的到期日决定；授权被撤销时仍需重新登录。",
                         fontSize = 12.sp, lineHeight = 18.sp, color = g.fgMuted,
                     )
-                    Spacer(Modifier.height(10.dp))
-                    MenuRow(R.drawable.oc_mark_github, "重新登录，获取新授权") {
-                        nav.push(Screen.Login)
-                    }
-                    MenuRow(R.drawable.oc_link_external, "检查 OAuth 过期设置") {
-                        ctx.openBrowser(BuildConfig.GITHUB_CLIENT_SETTINGS_URL)
-                    }
-                    Text(
-                        "仅 OAuth 应用所有者可修改。Opt-in 表示固定过期已关闭；若显示 Opt-out，点击它并完成身份验证即可关闭。",
-                        fontSize = 12.sp, lineHeight = 18.sp, color = g.fgMuted,
-                    )
                 }
+                MenuRow(R.drawable.oc_mark_github, "重新登录，获取新授权") { nav.push(Screen.Login) }
+                MenuRow(R.drawable.oc_link_external, "检查 OAuth 过期设置") { ctx.openBrowser(BuildConfig.GITHUB_CLIENT_SETTINGS_URL) }
             }
+            Text(
+                "仅 OAuth 应用所有者可修改。Opt-in 表示固定过期已关闭；若显示 Opt-out，点击它并完成身份验证即可关闭。",
+                Modifier.padding(horizontal = 20.dp, vertical = 6.dp), fontSize = 12.sp, lineHeight = 18.sp, color = g.fgMuted,
+            )
 
             SectionTitle("外观")
             MenuGroup {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Oc(if (Gh.c.dark) R.drawable.oc_moon else R.drawable.oc_sun, g.fgMuted, 18.dp)
+                MenuIcon(if (Gh.c.dark) R.drawable.oc_moon else R.drawable.oc_sun)
                 Spacer(Modifier.width(14.dp))
                 Text("主题", Modifier.weight(1f), fontSize = 15.sp, color = g.fg)
                 val modes = listOf("跟随系统", "浅色", "深色")
@@ -289,6 +213,8 @@ fun SettingsScreen() {
             }
             SwitchRow("代码自动换行", "查看源码和日志时自动折行", Session.codeWrap) { Session.toggleWrap() }
             }
+
+            AppLockSection()
 
             TwoFactorSection()
 
@@ -338,7 +264,7 @@ fun SettingsScreen() {
                     else -> "v${BuildConfig.VERSION_NAME}"
                 },
             ) { showUpdate = true }
-            MenuRow(R.drawable.oc_info, "MobileGH", value = "v${BuildConfig.VERSION_NAME}") {}
+            MenuRow(R.drawable.oc_mark_github, "MobileGH 源码", value = "v${BuildConfig.VERSION_NAME}") { nav.push(Screen.Repo("sheep-programmer", "mobilegh")) }
             MenuRow(R.drawable.oc_link_external, "管理 GitHub Token") { ctx.openBrowser("https://github.com/settings/tokens") }
             MenuRow(R.drawable.oc_shield_lock, "已授权的 OAuth 应用") { ctx.openBrowser("https://github.com/settings/applications") }
             MenuRow(R.drawable.oc_bell, "GitHub 通知设置") { ctx.openBrowser("https://github.com/settings/notifications") }
@@ -378,7 +304,7 @@ fun SettingsScreen() {
         }) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "⚠️ 所有 API 请求（包括你的 Token）都会经过该地址。只填写你自己部署的代理（如 Cloudflare Worker 反代 api.github.com），切勿使用来路不明的公共代理。留空则使用官方 api.github.com。",
+                    "所有 API 请求（包括你的 Token）都会经过该地址。只填写你自己部署的代理（如 Cloudflare Worker 反代 api.github.com），切勿使用来路不明的公共代理。留空则使用官方 api.github.com。",
                     fontSize = 13.sp, color = g.attention,
                 )
                 GhField(url, { url = it }, "代理地址", placeholder = "https://gh-api.example.workers.dev")
@@ -428,9 +354,9 @@ fun SettingsScreen() {
                         showUpdate = false
                         Update.download(info)
                         ctx.toast("正在下载，完成后在下载记录中安装")
-                    }) { Text("下载更新", color = g.accent) }
+                    }) { Text("下载更新", color = g.accent, fontWeight = FontWeight.SemiBold) }
                 } else {
-                    TextButton({ scope.launch { Update.check() } }) { Text("重新检查", color = g.accent) }
+                    TextButton({ scope.launch { Update.check() } }) { Text("重新检查", color = g.accent, fontWeight = FontWeight.SemiBold) }
                 }
             },
             dismissButton = { TextButton({ showUpdate = false }) { Text("关闭", color = g.fgMuted) } },
@@ -450,8 +376,9 @@ private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit) {
         if (Net.testing) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = g.fgMuted)
         else com.mobilegh.ui.components.TextLink("立即测速") { Net.speedTestAsync() }
     }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Oc(R.drawable.oc_zap, g.fgMuted, 18.dp)
+    MenuGroup {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        MenuIcon(R.drawable.oc_zap, g.attention)
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text("加速模式", fontSize = 15.sp, color = g.fg)
@@ -467,7 +394,9 @@ private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit) {
         val modes = listOf("自动（推荐）", "手动选择", "关闭")
         Dropdown(modes[Net.mode], modes, { Net.changeMode(it) })
     }
-    Card(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+    }
+    Spacer(Modifier.height(8.dp))
+    MenuGroup {
         Column {
             val raw = Net.rawNode().id
             val dl = Net.downloadNode().id
@@ -475,7 +404,7 @@ private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit) {
                 if (i > 0) HDivider()
                 val ms = Net.latency[n.id]
                 Row(
-                    Modifier.fillMaxWidth().clickable { Net.setManual(n.id) }.padding(horizontal = 12.dp, vertical = 9.dp),
+                    Modifier.fillMaxWidth().clickable { Net.setManual(n.id) }.padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(
@@ -485,7 +414,7 @@ private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit) {
                                 ms < 0 -> g.danger
                                 ms < 600 -> g.success
                                 ms < 1500 -> g.attention
-                                else -> Color(0xFFBC4C00)
+                                else -> g.severe
                             },
                             CircleShape,
                         ),
@@ -516,9 +445,8 @@ private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit) {
     }
     Text(
         "加速仅用于公开内容：README 图片、源码原文、Release 下载与克隆地址。Token 不会发送给加速节点；私有仓库始终直连。点按节点可手动指定。",
-        Modifier.padding(horizontal = 16.dp), fontSize = 12.sp, color = g.fgMuted,
+        Modifier.padding(horizontal = 20.dp, vertical = 6.dp), fontSize = 12.sp, lineHeight = 18.sp, color = g.fgMuted,
     )
-    Spacer(Modifier.height(10.dp))
     MenuGroup {
     MenuRow(R.drawable.oc_plus, "添加自定义节点", onClick = onAdd)
     MenuRow(R.drawable.oc_globe, "API 反向代理（高级）", value = if (Net.apiProxy.isBlank()) "官方" else "已启用", onClick = onApi)

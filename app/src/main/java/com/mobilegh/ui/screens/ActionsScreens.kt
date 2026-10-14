@@ -46,6 +46,8 @@ import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.act
+import com.mobilegh.nav.OnRepoChanged
+import com.mobilegh.data.RepoWrite
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
 import com.mobilegh.ui.components.Avatar
@@ -92,7 +94,7 @@ fun runVisual(status: String?, conclusion: String?): Pair<Int, Color> {
     }
 }
 
-private fun eventZh(e: String) = when (e) {
+internal fun eventZh(e: String) = when (e) {
     "push" -> "推送"
     "pull_request" -> "PR"
     "workflow_dispatch" -> "手动"
@@ -113,13 +115,25 @@ fun ActionsScreen(owner: String, name: String) {
     val list = wfs.data.orEmpty()
     val wfId = if (sel == 0) null else list.getOrNull(sel - 1)?.id
     val runs = rememberPager("runs:$wfId") { p, f -> GitHub.runs(owner, name, wfId, p, f) }
-    var dispatch by remember { mutableStateOf(false) }
+    var choose by remember { mutableStateOf(false) }
+    val selected = if (sel == 0) null else list.getOrNull(sel - 1)
+    fun run(w: com.mobilegh.data.Workflow) = nav.push(Screen.RunWorkflow(owner, name, w.id, w.path, w.name))
+    // 触发工作流后，GitHub 需要一点时间才会生成新的运行记录
+    OnRepoChanged(owner, name, RepoWrite.ACTIONS) {
+        entry.scope.launch { delay(2500); runs.refresh() }
+    }
 
     Page(
         "Actions", subtitle = "$owner/$name",
         actions = {
-            OcButton(R.drawable.oc_play, { dispatch = true })
-            MoreMenu(listOf(MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name/actions") }))
+            OcButton(R.drawable.oc_play, { if (selected != null) run(selected) else choose = true })
+            MoreMenu(buildList {
+                selected?.let { w ->
+                    add(MenuAction("运行此工作流") { run(w) })
+                    if (w.path.startsWith(".github/workflows/")) add(MenuAction("查看工作流文件") { nav.push(Screen.FileView(owner, name, w.path, null)) })
+                }
+                add(MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name/actions") })
+            })
         },
     ) { pad ->
         Column(Modifier.padding(pad)) {
@@ -129,28 +143,31 @@ fun ActionsScreen(owner: String, name: String) {
         }
     }
 
-    if (dispatch) {
-        var wi by remember { mutableIntStateOf(if (sel > 0) sel - 1 else 0) }
-        var ref by remember { mutableStateOf(repo.data?.defaultBranch ?: "main") }
-        GhDialog(
-            "手动运行工作流", onDismiss = { dispatch = false }, confirm = "运行", confirmEnabled = list.isNotEmpty() && ref.isNotBlank(),
-            onConfirm = {
-                val w = list[wi]
-                dispatch = false
-                entry.act({ ctx.toast(it) }) {
-                    AppLog.info("actions", "手动触发工作流：" + w.name + " @ " + ref.trim())
-                    GitHub.dispatch(owner, name, w.id, ref.trim())
-                    ctx.toast("已触发 ${w.name}")
-                    delay(2500)
-                    runs.refresh()
+    if (choose) {
+        // 动态工作流（如 Dependabot、Pages）不在 .github/workflows 中，不能手动触发
+        val runnable = list.filter { it.path.startsWith(".github/workflows/") && it.state == "active" }
+        GhDialog("选择要运行的工作流", onDismiss = { choose = false }, confirm = "取消", onConfirm = { choose = false }) {
+            Column {
+                when {
+                    wfs.data == null && wfs.error == null -> Text("加载中…", color = g.fgMuted)
+                    wfs.error != null -> Text(wfs.error!!, color = g.fgMuted, fontSize = 13.sp)
+                    runnable.isEmpty() -> Text("该仓库没有可手动运行的工作流", color = g.fgMuted)
+                    else -> runnable.forEach { w ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable { choose = false; run(w) }.padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Oc(R.drawable.oc_workflow, g.fgMuted)
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(w.name, fontSize = 15.sp, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(w.path.removePrefix(".github/workflows/"), fontSize = 12.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
                 }
-            },
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (list.isEmpty()) Text("该仓库没有工作流", color = g.fgMuted)
-                else Dropdown(list[wi].name, list.map { it.name }, { wi = it })
-                GhField(ref, { ref = it }, "分支或标签")
-                Text("工作流需要声明 workflow_dispatch 触发器才能手动运行。", fontSize = 12.sp, color = g.fgMuted)
+                Spacer(Modifier.height(6.dp))
+                Text("只有声明了 workflow_dispatch 触发器的工作流可以手动运行，下一步会读取工作流文件中的输入参数。", fontSize = 12.sp, color = g.fgMuted)
             }
         }
     }
@@ -217,7 +234,7 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Oc(icon, color, 20.dp)
                             Spacer(Modifier.width(8.dp))
-                            MdText(rr.displayTitle ?: rr.name ?: "", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                            MdText(rr.displayTitle ?: rr.name ?: "", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                         }
                         Spacer(Modifier.height(8.dp))
                         Text(
@@ -255,7 +272,7 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                 val js = jobs.data
                 if (js == null) item { com.mobilegh.ui.components.Loading(Modifier.fillMaxWidth().height(120.dp)) }
                 else itemsIndexed(js, key = { _, j -> j.id }) { _, j ->
-                    Card(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                         Column {
                             val (ji, jc) = runVisual(j.status, j.conclusion)
                             val expanded = expandedJobs[j.id] == true
@@ -331,7 +348,7 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
     }
 }
 
-private fun statusZh(s: String?, c: String?) = when {
+internal fun statusZh(s: String?, c: String?) = when {
     s == "in_progress" -> "运行中"
     s == "queued" -> "排队中"
     s == "waiting" -> "等待中"
@@ -377,7 +394,7 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String) {
     Page(
         title, subtitle = "作业日志",
         actions = {
-            OcButton(R.drawable.oc_alert, { onlyErrors = !onlyErrors }, if (onlyErrors) g.danger else g.fg)
+            OcButton(if (onlyErrors) R.drawable.oc_filter_remove else R.drawable.oc_filter, { onlyErrors = !onlyErrors }, if (onlyErrors) g.danger else g.fg)
             MoreMenu(listOf(
                 MenuAction(if (showTs) "隐藏时间戳" else "显示时间戳") { showTs = !showTs },
                 MenuAction(if (Session.codeWrap) "关闭自动换行" else "自动换行") { Session.toggleWrap() },

@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import com.mobilegh.R
+import com.mobilegh.data.AppLock
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.Session
 import com.mobilegh.nav.LocalEntry
@@ -46,6 +47,7 @@ import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Navigator
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.Tab
+import com.mobilegh.ui.components.AppLockScreen
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.DownloadHost
 import com.mobilegh.ui.components.ClipboardLinkHost
@@ -69,17 +71,28 @@ fun AppRoot(nav: Navigator) {
             isAppearanceLightNavigationBars = !dark
         }
     }
+    // 锁定时整体移出内容（连同其中的弹窗），可保存的界面状态由 holder 保留，解锁后原样恢复。
+    // 两步验证弹窗也在内容内：锁定期间不弹出，请求保留在 MobileApprovalMonitor 中，解锁后再显示。
+    val holder = rememberSaveableStateHolder()
     CompositionLocalProvider(LocalNav provides nav) {
         Box(Modifier.fillMaxSize().background(Gh.c.canvas)) {
-            if (Session.token == null) {
-                CompositionLocalProvider(LocalEntry provides nav.root) { LoginScreen() }
+            if (AppLock.locked && Session.token != null) {
+                AppLockScreen()
             } else {
-                Main(nav)
+                holder.SaveableStateProvider("app") {
+                    Box(Modifier.fillMaxSize()) {
+                        if (Session.token == null) {
+                            CompositionLocalProvider(LocalEntry provides nav.root) { LoginScreen() }
+                        } else {
+                            Main(nav)
+                        }
+                        Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.BottomEnd) { DownloadHost() }
+                        com.mobilegh.ui.components.ImageViewerHost()
+                        com.mobilegh.ui.components.MobileApprovalHost()
+                        com.mobilegh.ui.components.NotificationPermissionHost()
+                    }
+                }
             }
-            Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.BottomEnd) { DownloadHost() }
-            com.mobilegh.ui.components.ImageViewerHost()
-            com.mobilegh.ui.components.MobileApprovalHost()
-            com.mobilegh.ui.components.NotificationPermissionHost()
         }
     }
 }
@@ -99,7 +112,12 @@ private fun Main(nav: Navigator) {
     }
     // 启动时拉取未读通知数
     LaunchedEffect(Unit) {
-        runCatching { Badges.unread = GitHub.notifications(false, false, 1, true).count { it.unread } }
+        runCatching {
+            val login = Session.login
+            val list = GitHub.notifications(false, false, 1, true)
+            Badges.unread = list.count { it.unread }
+            if (login != null && login == Session.login) com.mobilegh.data.WidgetStore.saveInbox(login, list, list.size >= GitHub.PER)
+        }
     }
     // Token 被 GitHub 判定失效（账号登录的授权过期等）：引导重新登录
     if (Session.authExpired && nav.stack.lastOrNull()?.screen != Screen.Login) {
@@ -216,14 +234,19 @@ private fun ScreenHost(s: Screen) {
         is Screen.FileFinder -> FileFinderScreen(s.owner, s.name, s.ref)
         is Screen.CodeSearch -> CodeSearchScreen(s.owner, s.name)
         is Screen.Blame -> BlameScreen(s.owner, s.name, s.path, s.ref)
+        is Screen.EditFile -> EditFileScreen(s.owner, s.name, s.ref, s.path, s.dir)
+        is Screen.NewPull -> NewPullScreen(s.owner, s.name, s.head, s.base, s.title, s.body)
+        is Screen.EditRelease -> EditReleaseScreen(s.owner, s.name, s.releaseId)
+        is Screen.RunWorkflow -> RunWorkflowScreen(s.owner, s.name, s.workflowId, s.path, s.title, s.ref)
         Screen.RecentRepositories -> RecentRepositoriesScreen()
         Screen.EditProfile -> EditProfileScreen()
         is Screen.Commits -> CommitsScreen(s.owner, s.name, s.ref, s.path, s.author, s.since, s.until)
         is Screen.CommitDetail -> CommitDetailScreen(s.owner, s.name, s.sha)
         is Screen.Compare -> CompareScreen(s.owner, s.name, s.base, s.head)
-        is Screen.Issues -> IssuesScreen(s.owner, s.name, s.pulls)
+        is Screen.Issues -> IssuesScreen(s.owner, s.name, s.pulls, s.preset)
         is Screen.IssueDetail -> IssueDetailScreen(s.owner, s.name, s.number, s.isPull)
         is Screen.PullFiles -> PullFilesScreen(s.owner, s.name, s.number)
+        is Screen.PullChecks -> PullChecksScreen(s.owner, s.name, s.number, s.sha)
         is Screen.NewIssue -> NewIssueScreen(s.owner, s.name)
         is Screen.Actions -> ActionsScreen(s.owner, s.name)
         is Screen.RunDetail -> RunDetailScreen(s.owner, s.name, s.runId)
@@ -235,6 +258,8 @@ private fun ScreenHost(s: Screen) {
         is Screen.Discussions -> DiscussionsScreen(s.owner, s.name)
         is Screen.DiscussionDetail -> DiscussionDetailScreen(s.owner, s.name, s.number)
         is Screen.RepoSettings -> RepoSettingsScreen(s.owner, s.name)
+        is Screen.Projects -> ProjectsScreen(s.kind, s.login, s.name)
+        is Screen.ProjectDetail -> ProjectDetailScreen(s.id, s.title)
         is Screen.Collaborators -> CollaboratorsScreen(s.owner, s.name)
         is Screen.Profile -> ProfileScreen(s.login)
         is Screen.Org -> OrgScreen(s.login)
@@ -244,6 +269,7 @@ private fun ScreenHost(s: Screen) {
         Screen.Invitations -> InvitationsScreen()
         is Screen.Gists -> GistsScreen(s.login)
         is Screen.GistDetail -> GistDetailScreen(s.id)
+        is Screen.GistEditor -> GistEditorScreen(s.id)
         is Screen.Activity -> ActivityScreen(s.login)
         is Screen.StarLists -> StarListsScreen(s.login, s.initialListId)
         is Screen.Achievements -> AchievementsScreen(s.login)
@@ -253,6 +279,7 @@ private fun ScreenHost(s: Screen) {
         Screen.OrgDiagnostics -> OrgDiagnosticsScreen()
         Screen.CreateRepo -> CreateRepoScreen()
         Screen.Login -> LoginScreen(adding = true)
-        is Screen.MyIssues -> MyIssuesScreen(s.pulls)
+        is Screen.MyIssues -> MyIssuesScreen(s.pulls, s.preset)
+        Screen.HomeCustomize -> HomeCustomizeScreen()
     }
 }

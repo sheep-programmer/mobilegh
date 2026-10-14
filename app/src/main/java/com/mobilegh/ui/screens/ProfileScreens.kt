@@ -40,6 +40,7 @@ import com.mobilegh.R
 import com.mobilegh.data.Contributions
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.PinnedRepo
+import com.mobilegh.data.ProjectOwnerKind
 import com.mobilegh.data.Session
 import com.mobilegh.data.User
 import com.mobilegh.nav.LocalEntry
@@ -179,7 +180,7 @@ fun ContributionBody(state: ContribState, full: Boolean) {
                                     val (o, r) = name.split('/').let { it[0] to it.getOrElse(1) { "" } }
                                     nav.push(Screen.Repo(o, r))
                                 }) {
-                                    RatioRow(name + if (rc.repository.isPrivate) " 🔒" else "", rc.contributions.totalCount, max, g.success)
+                                    RatioRow(name, rc.contributions.totalCount, max, g.success)
                                 }
                             }
                         }
@@ -268,21 +269,22 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
                     item { Spacer(Modifier.height(16.dp)) }
                     item {
                         MenuGroup {
-                            MenuRow(R.drawable.oc_repo, "仓库", Color(0xFF59636E), count = u.publicRepos + (if (isSelf) u.ownedPrivateRepos ?: 0 else 0)) {
+                            MenuRow(R.drawable.oc_repo, "仓库", g.fgMuted, count = u.publicRepos + (if (isSelf) u.ownedPrivateRepos ?: 0 else 0)) {
                                 if (isSelf) nav.select(Tab.Repos).also { nav.popToRoot() } else nav.push(Screen.Repos(RepoKind.User, login))
                             }
-                            MenuRow(R.drawable.oc_star, "Star", Color(0xFFBF8700)) { nav.push(Screen.Repos(RepoKind.Starred, login)) }
-                            MenuRow(R.drawable.oc_checklist, "Star 列表", Color(0xFFD4A72C)) { nav.push(Screen.StarLists(login)) }
-                            MenuRow(R.drawable.oc_organization, "组织", Color(0xFFBC4C00), count = orgList.size.takeIf { it > 0 }) {
+                            MenuRow(R.drawable.oc_star, "Star", g.attention) { nav.push(Screen.Repos(RepoKind.Starred, login)) }
+                            MenuRow(R.drawable.oc_checklist, "Star 列表", g.done) { nav.push(Screen.StarLists(login)) }
+                            MenuRow(R.drawable.oc_table, "项目", g.success) { nav.push(Screen.Projects(ProjectOwnerKind.User, login)) }
+                            MenuRow(R.drawable.oc_organization, "组织", g.severe, count = orgList.size.takeIf { it > 0 }) {
                                 if (isSelf) nav.push(Screen.Orgs) else orgList.firstOrNull()?.let { nav.push(Screen.Org(it.login)) }
                             }
-                            MenuRow(R.drawable.oc_code_square, "Gists", Color(0xFF24292F), count = u.publicGists + (u.privateGists ?: 0)) {
+                            MenuRow(R.drawable.oc_code_square, "Gists", g.sponsors, count = u.publicGists + (u.privateGists ?: 0)) {
                                 nav.push(Screen.Gists(if (isSelf) null else login))
                             }
-                            MenuRow(R.drawable.oc_pulse, "公开动态", Color(0xFF0969DA)) { nav.push(Screen.Activity(login)) }
+                            MenuRow(R.drawable.oc_pulse, "公开动态", g.accent) { nav.push(Screen.Activity(login)) }
                             if (isSelf) {
-                                MenuRow(R.drawable.oc_mail, "待处理邀请", Color(0xFF8250DF)) { nav.push(Screen.Invitations) }
-                                MenuRow(R.drawable.oc_gear, "设置", Color(0xFF6E7781)) { nav.push(Screen.Settings) }
+                                MenuRow(R.drawable.oc_mail, "待处理邀请", g.done) { nav.push(Screen.Invitations) }
+                                MenuRow(R.drawable.oc_gear, "设置", g.fgMuted) { nav.push(Screen.Settings) }
                             }
                         }
                     }
@@ -322,9 +324,9 @@ private fun ProfileHeader(u: User, isSelf: Boolean, following: Boolean?, onFollo
             Avatar(u.avatarUrl, 72.dp)
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                if (!u.name.isNullOrBlank()) Text(u.name, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+                if (!u.name.isNullOrBlank()) Text(u.name, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(u.login, fontSize = 17.sp, color = g.fgMuted)
+                    Text(u.login, fontSize = 18.sp, color = g.fgMuted)
                     if (u.siteAdmin) { Spacer(Modifier.width(6.dp)); Pill("Staff", g.done) }
                 }
             }
@@ -414,6 +416,7 @@ fun OrgScreen(login: String) {
         actions = {
             MoreMenu(listOf(
                 MenuAction("成员") { nav.push(Screen.Users(UserKind.Members, login)) },
+                MenuAction("项目") { nav.push(Screen.Projects(ProjectOwnerKind.Org, login)) },
                 MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$login") },
                 MenuAction("分享") { ctx.share("https://github.com/$login") },
             ))
@@ -441,10 +444,13 @@ fun OrgScreen(login: String) {
                         o?.blog?.takeIf { it.isNotBlank() }?.let { b -> IconText(R.drawable.oc_link, b, g.accent, Modifier.clickable { ctx.openBrowser(if (b.startsWith("http")) b else "https://$b") }) }
                     }
                     Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         GhButton("成员", icon = R.drawable.oc_people) { nav.push(Screen.Users(UserKind.Members, login)) }
-                        o?.let { GhButton("${fmtCount(it.publicRepos + (it.totalPrivateRepos ?: 0))} 个仓库", icon = R.drawable.oc_repo) {} }
+                        o?.let { IconText(R.drawable.oc_repo, "${fmtCount(it.publicRepos + (it.totalPrivateRepos ?: 0))} 个仓库") }
                     }
+                }
+                MenuGroup(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) {
+                    MenuRow(R.drawable.oc_table, "项目", g.success) { nav.push(Screen.Projects(ProjectOwnerKind.Org, login)) }
                 }
                 HDivider()
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {

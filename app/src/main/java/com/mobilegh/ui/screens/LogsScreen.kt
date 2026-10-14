@@ -27,11 +27,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.width
+import com.mobilegh.R
 import com.mobilegh.data.AppLog
 import com.mobilegh.data.AppLogEntry
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Chips
+import com.mobilegh.ui.components.EmptyState
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.MenuAction
@@ -86,11 +88,11 @@ fun LogsScreen() {
                 query,
                 { query = it },
                 "筛选日志",
-                Modifier.padding(horizontal = 12.dp).padding(bottom = 8.dp),
+                Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp),
                 placeholder = "搜索错误、请求路径或文件名",
             )
             if (filtered.isEmpty()) {
-                Text("没有匹配的日志", Modifier.padding(24.dp), color = g.fgMuted)
+                EmptyState(if (query.isBlank()) "暂无日志" else "没有匹配的日志", R.drawable.oc_log, action = if (query.isBlank()) null else "清除搜索", onAction = { query = "" })
             } else {
                 LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
                     items(filtered, key = { it.id }) { entry ->
@@ -127,7 +129,7 @@ private fun LogRow(entry: AppLogEntry, expanded: Boolean, onClick: () -> Unit) {
         "WARN" -> g.attention
         else -> g.fgMuted
     }
-    Card(Modifier.padding(horizontal = 12.dp).clickable(onClick = onClick)) {
+    Card(Modifier.padding(horizontal = 16.dp).clickable(onClick = onClick)) {
         Column(Modifier.padding(12.dp)) {
             Row {
                 Text(entry.level, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(52.dp))

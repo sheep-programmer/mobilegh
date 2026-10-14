@@ -3,5 +3,7 @@
         <item name="android:windowBackground">#FF0D1117</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <!-- Android 8.x 上 androidx.biometric 的指纹弹窗是 AppCompat AlertDialog，需要 AppCompat 弹窗主题 -->
+        <item name="alertDialogTheme">@style/Theme.AppCompat.Dialog.Alert</item>
     </style>
 </resources>

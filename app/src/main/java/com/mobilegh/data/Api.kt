@@ -111,6 +111,12 @@ object Api {
 
     fun clearCache() = runCatching { cache.evictAll() }
 
+    /** 只丢弃路径中包含 [fragment] 的缓存条目（写入仓库后使用，需在 IO 线程调用） */
+    fun invalidate(fragment: String) = runCatching {
+        val it = cache.urls()
+        while (it.hasNext()) if (it.next().contains(fragment, ignoreCase = true)) it.remove()
+    }
+
     fun url(path: String) = if (path.startsWith("http")) path else BASE + path
 
     suspend fun call(
@@ -193,6 +199,18 @@ object Api {
     }
 
     suspend fun graphql(query: String, vars: Map<String, Any?> = emptyMap()): JsonObject {
+        val root = graphqlRoot(query, vars)
+        val data = root["data"]
+        val errors = root["errors"] as? JsonArray
+        if ((data == null || data is JsonNull) && errors != null) {
+            val msg = errors.firstOrNull()?.jsonObject?.get("message")?.jsonPrimitive?.content
+            throw ApiException(400, msg ?: "GraphQL 错误")
+        }
+        return data!!.jsonObject
+    }
+
+    /** 完整的 GraphQL 响应（data 与 errors），供需要识别错误类型（如 INSUFFICIENT_SCOPES）的调用方使用 */
+    suspend fun graphqlRoot(query: String, vars: Map<String, Any?> = emptyMap()): JsonObject {
         val body = buildJsonObject {
             put("query", JsonPrimitive(query))
             put("variables", JsonObject(vars.mapValues { (_, v) ->
@@ -206,14 +224,7 @@ object Api {
             }))
         }
         val r = ensureOk(call("POST", "/graphql", body))
-        val root = plain.parseToJsonElement(r.body).jsonObject
-        val data = root["data"]
-        val errors = root["errors"] as? JsonArray
-        if ((data == null || data is JsonNull) && errors != null) {
-            val msg = errors.firstOrNull()?.jsonObject?.get("message")?.jsonPrimitive?.content
-            throw ApiException(400, msg ?: "GraphQL 错误")
-        }
-        return data!!.jsonObject
+        return plain.parseToJsonElement(r.body).jsonObject
     }
 
     fun encodePath(path: String) = path.split('/').joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") }

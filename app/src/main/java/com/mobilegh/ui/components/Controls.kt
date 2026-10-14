@@ -3,8 +3,10 @@ package com.mobilegh.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -64,27 +66,37 @@ fun Chips(options: List<String>, selected: Int, modifier: Modifier = Modifier, o
     }
 }
 
-/** 下拉选择按钮 */
+/** 下拉选择按钮；active 时以强调色显示（表示已设置筛选） */
 @Composable
-fun Dropdown(label: String, options: List<String>, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+fun Dropdown(label: String, options: List<String>, onSelect: (Int) -> Unit, modifier: Modifier = Modifier, active: Boolean = false) {
     var open by remember { mutableStateOf(false) }
     val g = Gh.c
-    Row(
-        modifier
-            .border(1.dp, g.border, RoundedCornerShape(6.dp))
-            .background(g.btnBg, RoundedCornerShape(6.dp))
-            .clickable { open = true }
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, fontSize = 13.sp, color = g.fg, fontWeight = FontWeight.Medium)
-        Spacer(Modifier.width(4.dp))
-        Oc(R.drawable.oc_chevron_down, g.fgMuted, 12.dp)
+    DropdownButton(label, modifier, active, menu = {
         DropdownMenu(open, { open = false }, containerColor = g.canvas) {
             options.forEachIndexed { i, s ->
                 DropdownMenuItem(text = { Text(s, color = g.fg) }, onClick = { open = false; onSelect(i) })
             }
         }
+    }) { open = true }
+}
+
+/** 与 [Dropdown] 外观一致的按钮，点按后由调用方决定打开什么（如选择弹窗） */
+@Composable
+fun DropdownButton(label: String, modifier: Modifier = Modifier, active: Boolean = false, menu: @Composable () -> Unit = {}, onClick: () -> Unit) {
+    val g = Gh.c
+    Row(
+        modifier
+            .border(1.dp, if (active) g.accent.copy(alpha = 0.6f) else g.border, RoundedCornerShape(6.dp))
+            .background(if (active) g.accentSubtle else g.btnBg, RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(6.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, fontSize = 13.sp, color = if (active) g.accent else g.fg, fontWeight = FontWeight.Medium, maxLines = 1)
+        Spacer(Modifier.width(4.dp))
+        Oc(R.drawable.oc_chevron_down, if (active) g.accent else g.fgMuted, 12.dp)
+        menu()
     }
 }
 
@@ -160,6 +172,42 @@ fun SwitchRow(title: String, desc: String? = null, checked: Boolean, enabled: Bo
             checked, onChange, enabled = enabled,
             colors = SwitchDefaults.colors(checkedTrackColor = g.btnPrimary, checkedThumbColor = Color.White, uncheckedTrackColor = g.neutralMuted, uncheckedBorderColor = g.border),
         )
+    }
+}
+
+/** 分段切换（如 GitHub / 本机），选中项为实底 */
+@Composable
+fun Segmented(options: List<String>, selected: Int, modifier: Modifier = Modifier, enabled: Boolean = true, onSelect: (Int) -> Unit) {
+    val g = Gh.c
+    Row(modifier.background(g.canvasSubtle, RoundedCornerShape(8.dp)).border(1.dp, g.borderMuted, RoundedCornerShape(8.dp)).padding(3.dp)) {
+        options.forEachIndexed { i, label ->
+            val sel = i == selected
+            Box(
+                Modifier.weight(1f).clip(RoundedCornerShape(6.dp))
+                    .then(if (sel) Modifier.background(g.canvas, RoundedCornerShape(6.dp)).border(1.dp, g.border, RoundedCornerShape(6.dp)) else Modifier)
+                    .clickable(enabled && !sel, role = androidx.compose.ui.semantics.Role.Tab) { onSelect(i) }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(label, fontSize = 14.sp, fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal, color = if (sel) g.fg else g.fgMuted) }
+        }
+    }
+}
+
+/** 单选行：整行可点，带说明文字；用于弹窗中的选项 */
+@Composable
+fun RadioRow(selected: Boolean, title: String, desc: String? = null, enabled: Boolean = true, onClick: () -> Unit) {
+    val g = Gh.c
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).clickable(enabled, role = androidx.compose.ui.semantics.Role.RadioButton, onClick = onClick)
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.material3.RadioButton(selected, null, enabled = enabled,
+            colors = androidx.compose.material3.RadioButtonDefaults.colors(selectedColor = g.accent, unselectedColor = g.fgMuted))
+        Column(Modifier.weight(1f).padding(start = 4.dp)) {
+            Text(title, fontSize = 15.sp, color = if (enabled) g.fg else g.fgMuted)
+            if (desc != null) Text(desc, fontSize = 12.sp, lineHeight = 16.sp, color = g.fgMuted)
+        }
     }
 }
 

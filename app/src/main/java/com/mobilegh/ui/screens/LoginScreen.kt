@@ -30,7 +30,7 @@ import kotlinx.coroutines.*
 import okhttp3.CacheControl
 import okhttp3.Request
 
-private const val TOKEN_URL = "https://github.com/settings/tokens/new?description=MobileGH&scopes=repo%2Cread%3Aorg%2Cnotifications%2Cuser%2Cgist%2Cworkflow"
+private const val TOKEN_URL = "https://github.com/settings/tokens/new?description=MobileGH&scopes=repo%2Cread%3Aorg%2Cnotifications%2Cuser%2Cgist%2Cworkflow%2Cproject"
 
 private suspend fun verify(token: String): User = withContext(Dispatchers.IO) {
     val req = Request.Builder().url("${Api.BASE}/user").header("Authorization", "Bearer $token")

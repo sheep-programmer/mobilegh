@@ -1,6 +1,7 @@
 package com.mobilegh.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -277,14 +278,19 @@ fun LazyListScope.diffLines(key: String, lines: List<DiffLine>, g: GhColors) {
 }
 
 @Composable
-fun DiffRow(d: DiffLine, g: GhColors, file: String = "") {
+fun DiffRow(d: DiffLine, g: GhColors, file: String = "", onLineClick: (() -> Unit)? = null) {
     val bg = when (d.kind) {
         '+' -> g.diffAdd
         '-' -> g.diffDel
         '@' -> g.diffHunk
         else -> g.canvasSubtle
     }
-    Row(Modifier.fillMaxWidth().background(bg).padding(vertical = 2.dp)) {
+    Row(
+        Modifier.fillMaxWidth().background(bg).then(
+            // 代码行（含上下文行）可点按发表行内评论；hunk 头与「\ 无换行」标记不可
+            if (onLineClick != null && d.kind != '@' && d.kind != '\\') Modifier.clickable(onClick = onLineClick) else Modifier,
+        ).padding(vertical = 2.dp),
+    ) {
         val no = when (d.kind) {
             '+' -> d.newNo?.toString() ?: ""
             '-' -> d.oldNo?.toString() ?: ""

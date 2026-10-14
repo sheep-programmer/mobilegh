@@ -2,6 +2,7 @@ package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -34,11 +35,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
+import com.mobilegh.data.ProjectOwnerKind
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.HomePrefs
 import com.mobilegh.data.SubscriptionSettings
 import com.mobilegh.data.SubscriptionMode
 import com.mobilegh.data.Repo
@@ -54,6 +58,7 @@ import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.boxedItems
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.ErrorState
+import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
@@ -120,6 +125,15 @@ fun RepoScreen(owner: String, name: String) {
                 add(MenuAction("复制链接") { ctx.copy("https://github.com/$owner/$name") })
                 add(MenuAction("克隆地址…") { showClone = true })
                 if (r != null) add(MenuAction("加入自定义列表") { showLists = true })
+                if (HomePrefs.layout().isFavorite(owner, name)) add(MenuAction("移出首页收藏") {
+                    HomePrefs.toggleFavorite(owner, name)
+                    ctx.toast("已移出首页收藏")
+                }) else add(MenuAction("加入首页收藏") {
+                    // 使用仓库返回的规范大小写，避免收藏里出现 Owner/Repo 与 owner/repo 两种写法
+                    runCatching { HomePrefs.toggleFavorite(r?.owner?.login ?: owner, r?.name ?: name) }
+                        .onSuccess { ctx.toast("已加入首页收藏") }
+                        .onFailure { ctx.toast(it.message ?: "收藏失败") }
+                })
                 add(MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name") })
                 add(MenuAction("Fork 此仓库") {
                     entry.act({ ctx.toast(it) }) {
@@ -159,18 +173,19 @@ fun RepoScreen(owner: String, name: String) {
                     }
                     item {
                         MenuGroup {
-                            MenuRow(R.drawable.oc_search, "查找文件") { nav.push(Screen.FileFinder(owner, name, branch)) }
-                            MenuRow(R.drawable.oc_code, "搜索代码") { nav.push(Screen.CodeSearch(owner, name)) }
-                            MenuRow(R.drawable.oc_issue_opened, "Issues", Color(0xFF1A7F37)) { nav.push(Screen.Issues(owner, name, false)) }
-                            MenuRow(R.drawable.oc_git_pull_request, "Pull Requests", Color(0xFF0969DA)) { nav.push(Screen.Issues(owner, name, true)) }
-                            if (r.hasDiscussions) MenuRow(R.drawable.oc_comment_discussion, "Discussions", Color(0xFF8250DF)) { nav.push(Screen.Discussions(owner, name)) }
-                            MenuRow(R.drawable.oc_play, "Actions", Color(0xFF6E7781)) { nav.push(Screen.Actions(owner, name)) }
-                            MenuRow(R.drawable.oc_tag, "Releases", Color(0xFF2DA44E)) { nav.push(Screen.Releases(owner, name)) }
-                            MenuRow(R.drawable.oc_people, "贡献者统计", Color(0xFFBC4C00)) { nav.push(Screen.Contributors(owner, name)) }
-                            MenuRow(R.drawable.oc_graph, "洞察 · 流量统计", Color(0xFF8250DF)) { nav.push(Screen.Insights(owner, name)) }
+                            MenuRow(R.drawable.oc_search, "查找文件", g.fgMuted) { nav.push(Screen.FileFinder(owner, name, branch)) }
+                            MenuRow(R.drawable.oc_code, "搜索代码", g.fgMuted) { nav.push(Screen.CodeSearch(owner, name)) }
+                            MenuRow(R.drawable.oc_issue_opened, "Issues", g.success) { nav.push(Screen.Issues(owner, name, false)) }
+                            MenuRow(R.drawable.oc_git_pull_request, "Pull Requests", g.accent) { nav.push(Screen.Issues(owner, name, true)) }
+                            if (r.hasDiscussions) MenuRow(R.drawable.oc_comment_discussion, "Discussions", g.done) { nav.push(Screen.Discussions(owner, name)) }
+                            MenuRow(R.drawable.oc_table, "项目", g.success) { nav.push(Screen.Projects(ProjectOwnerKind.Repo, owner, name)) }
+                            MenuRow(R.drawable.oc_play, "Actions", g.fgMuted) { nav.push(Screen.Actions(owner, name)) }
+                            MenuRow(R.drawable.oc_tag, "Releases", g.success) { nav.push(Screen.Releases(owner, name)) }
+                            MenuRow(R.drawable.oc_people, "贡献者统计", g.severe) { nav.push(Screen.Contributors(owner, name)) }
+                            MenuRow(R.drawable.oc_graph, "洞察 · 流量统计", g.done) { nav.push(Screen.Insights(owner, name)) }
                             if (admin) {
-                                MenuRow(R.drawable.oc_person, "协作者管理", Color(0xFFBF3989)) { nav.push(Screen.Collaborators(owner, name)) }
-                                MenuRow(R.drawable.oc_gear, "仓库设置", Color(0xFF424A53)) { nav.push(Screen.RepoSettings(owner, name)) }
+                                MenuRow(R.drawable.oc_person, "协作者管理", g.sponsors) { nav.push(Screen.Collaborators(owner, name)) }
+                                MenuRow(R.drawable.oc_gear, "仓库设置", g.fgMuted) { nav.push(Screen.RepoSettings(owner, name)) }
                             }
                         }
                     }
@@ -256,12 +271,19 @@ fun RepoScreen(owner: String, name: String) {
                 val fast = if (r.isPrivate) null else com.mobilegh.data.Net.cloneUrl(https)
                 (listOf("HTTPS" to https) + listOfNotNull(fast?.let { "HTTPS 加速（${it.first}）" to "git clone ${it.second}" }) +
                     listOf("SSH" to (r.sshUrl ?: "git@github.com:${r.fullName}.git"), "GitHub CLI" to "gh repo clone ${r.fullName}")).forEach { (k, v) ->
-                    Column(Modifier.fillMaxWidth().clickable { ctx.copy(v) }) {
-                        Text(k, fontSize = 12.sp, color = g.fgMuted)
-                        Text(v, fontSize = 13.sp, fontFamily = FontFamily.Monospace, color = g.fg)
+                    Column {
+                        Text(k, fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(bottom = 4.dp))
+                        Row(
+                            Modifier.fillMaxWidth().border(1.dp, g.border, RoundedCornerShape(6.dp)).background(g.canvasSubtle, RoundedCornerShape(6.dp))
+                                .clip(RoundedCornerShape(6.dp)).clickable { ctx.copy(v) }.padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(v, Modifier.weight(1f), fontSize = 13.sp, fontFamily = FontFamily.Monospace, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Spacer(Modifier.width(8.dp))
+                            Oc(R.drawable.oc_copy, g.fgMuted, 16.dp)
+                        }
                     }
                 }
-                Text("点按即可复制", fontSize = 12.sp, color = g.fgMuted)
             }
         }
     }
@@ -347,9 +369,9 @@ fun BranchPicker(owner: String, name: String, current: String, onDismiss: () -> 
                             Text(b, color = g.fg, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
-                    if (list.isEmpty()) item { Text("无结果", color = g.fgMuted, modifier = Modifier.padding(12.dp)) }
+                    if (list.isEmpty()) item { Text(if (q.isBlank()) (if (tab == 0) "没有分支" else "没有标签") else "无匹配结果", color = g.fgMuted, modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = TextAlign.Center) }
                 }
-                l.error != null -> Text(l.error!!, color = g.danger)
+                l.error != null -> InlineError(l.error!!) { l.refresh() }
                 else -> Loading(Modifier.fillMaxWidth().height(120.dp))
             }
         }

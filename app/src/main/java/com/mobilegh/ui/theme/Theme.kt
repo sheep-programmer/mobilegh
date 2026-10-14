@@ -14,7 +14,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mobilegh.data.ProjectColor
 import com.mobilegh.data.Session
 
 /** GitHub Primer 设计令牌 */
@@ -38,6 +40,11 @@ data class GhColors(
     val doneSubtle: Color,
     val attention: Color,
     val attentionSubtle: Color,
+    val severe: Color,
+    val severeSubtle: Color,
+    val sponsors: Color,
+    val sponsorsSubtle: Color,
+    val folder: Color,
     val neutralMuted: Color,
     val btnPrimary: Color,
     val btnBg: Color,
@@ -69,6 +76,11 @@ val LightGh = GhColors(
     doneSubtle = Color(0xFFFBEFFF),
     attention = Color(0xFF9A6700),
     attentionSubtle = Color(0xFFFFF8C5),
+    severe = Color(0xFFBC4C00),
+    severeSubtle = Color(0xFFFFF1E5),
+    sponsors = Color(0xFFBF3989),
+    sponsorsSubtle = Color(0xFFFFEFF7),
+    folder = Color(0xFF54AEFF),
     neutralMuted = Color(0x33AFB8C1),
     btnPrimary = Color(0xFF1F883D),
     btnBg = Color(0xFFF6F8FA),
@@ -100,6 +112,11 @@ val DarkGh = GhColors(
     doneSubtle = Color(0x26AB7DF8),
     attention = Color(0xFFD29922),
     attentionSubtle = Color(0x26BB8009),
+    severe = Color(0xFFDB6D28),
+    severeSubtle = Color(0x1ADB6D28),
+    sponsors = Color(0xFFDB61A2),
+    sponsorsSubtle = Color(0x1ADB61A2),
+    folder = Color(0xFF7D8590),
     neutralMuted = Color(0x66656C76),
     btnPrimary = Color(0xFF238636),
     btnBg = Color(0xFF212830),
@@ -114,12 +131,56 @@ val DarkGh = GhColors(
 
 val LocalGh = staticCompositionLocalOf { LightGh }
 
+/** GitHub Projects 单选选项颜色 → Primer 前景色（圆点、文字） */
+fun GhColors.projectFg(c: ProjectColor): Color = when (c) {
+    ProjectColor.Gray -> fgMuted
+    ProjectColor.Blue -> accent
+    ProjectColor.Green -> success
+    ProjectColor.Yellow -> attention
+    ProjectColor.Orange -> severe
+    ProjectColor.Red -> danger
+    ProjectColor.Pink -> sponsors
+    ProjectColor.Purple -> done
+}
+
+/** GitHub Projects 单选选项颜色 → Primer 浅底色（标签底） */
+fun GhColors.projectBg(c: ProjectColor): Color = when (c) {
+    ProjectColor.Gray -> neutralMuted
+    ProjectColor.Blue -> accentSubtle
+    ProjectColor.Green -> successSubtle
+    ProjectColor.Yellow -> attentionSubtle
+    ProjectColor.Orange -> severeSubtle
+    ProjectColor.Red -> dangerSubtle
+    ProjectColor.Pink -> sponsorsSubtle
+    ProjectColor.Purple -> doneSubtle
+}
+
 object Gh {
     val c: GhColors
         @Composable @ReadOnlyComposable get() = LocalGh.current
 }
 
 val Mono = FontFamily.Monospace
+
+/** 统一的圆角与间距：页面内容左右 16dp，卡片 8dp 圆角，按钮 6dp，标签胶囊用 50% */
+object Dimens {
+    val page = 16.dp
+    val radiusSmall = 6.dp
+    val radius = 8.dp
+    val radiusLarge = 12.dp
+}
+
+/** 字号层级：页面标题 20 · 区块标题 16 · 列表标题 15 · 正文 14 · 次要 13 · 说明 12 · 角标 11 */
+object TextSizes {
+    val display = 24.sp
+    val title = 20.sp
+    val section = 16.sp
+    val item = 15.sp
+    val body = 14.sp
+    val secondary = 13.sp
+    val caption = 12.sp
+    val tiny = 11.sp
+}
 
 @Composable
 fun isDarkMode(): Boolean = when (Session.themeMode) {

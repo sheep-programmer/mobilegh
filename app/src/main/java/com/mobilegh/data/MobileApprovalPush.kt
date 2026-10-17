@@ -87,7 +87,9 @@ internal class MobileApprovalPush(private val credentials: JsonObject, private v
     fun close() { runCatching { socket?.close() } }
 
     suspend fun listen(onConnected: suspend (Boolean) -> Unit, onAuthRequest: suspend (Int, String?) -> Unit) = withContext(Dispatchers.IO) {
-        val raw = Socket()
+        // 配置了代理时让推送长连接也走代理，否则 SOCKS/HTTP 模式下此 Socket 会绕过代理直连失败
+        val proxy = AppNetwork.config.takeIf { it.mode != ProxyMode.System }?.proxy()
+        val raw = proxy?.let { Socket(it) } ?: Socket()
         socket = raw
         try {
             raw.connect(InetSocketAddress("mtalk.google.com", 5228), 15_000)

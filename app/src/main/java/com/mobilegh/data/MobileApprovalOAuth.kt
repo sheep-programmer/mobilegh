@@ -138,7 +138,9 @@ object MobileApprovalOAuth {
                 AppLog.info("2fa_setup", "数字审批已自动启用")
             } catch (e: CancellationException) { throw e
             } catch (e: Exception) {
-                val hint = e.networkHint() ?: (e as? ApiException)?.takeIf { it.code == -1 }?.message
+                val raw = e.networkHint() ?: (e as? ApiException)?.takeIf { it.code == -1 }?.message
+                // 注册推送设备阶段连接的是 Google 的服务而非 GitHub，提示要如实反映
+                val hint = if (raw != null && stage == "registration") raw.replace("GitHub", "Google 推送服务") else raw
                 AppLog.warn("2fa_setup", "数字审批自动启用失败：$stage，${e.javaClass.simpleName}")
                 if (hint == null) {
                     prefs.edit().remove("pending").apply()

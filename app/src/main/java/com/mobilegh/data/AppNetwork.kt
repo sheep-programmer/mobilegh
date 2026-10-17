@@ -88,7 +88,13 @@ object AppNetwork {
     /** 仅在用户点按时检查官方 HTTPS 地址，不携带登录凭据，也不跟随跳转。 */
     suspend fun check(value: NetworkProxy): List<Connection> = coroutineScope {
         val valid = value.validated()
-        listOf("GitHub 登录" to "https://github.com/", "GitHub API" to "https://api.github.com/").map { (label, url) ->
+        // 数字审批注册推送设备还需要 Google 的两个接口，一并检查避免「GitHub 全绿却启用失败」
+        listOf(
+            "GitHub 登录" to "https://github.com/",
+            "GitHub API" to "https://api.github.com/",
+            "Google 推送注册" to "https://android.clients.google.com/",
+            "Google 设备凭证" to "https://firebaseinstallations.googleapis.com/",
+        ).map { (label, url) ->
             async(Dispatchers.IO) {
                 val client = OkHttpClient.Builder().proxy(valid.proxy())
                     .connectTimeout(10, TimeUnit.SECONDS).callTimeout(15, TimeUnit.SECONDS)

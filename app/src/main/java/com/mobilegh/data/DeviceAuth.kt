@@ -71,7 +71,7 @@ object DeviceAuth {
         val request = Request.Builder().url("https://github.com$path").post(body)
             .header("Accept", "application/json").header("User-Agent", "MobileGH").build()
         return withContext(Dispatchers.IO) {
-            client.newCall(request).await().use { r ->
+            client.routed().newCall(request).await().use { r ->
                 if (!r.isSuccessful) throw ApiException(r.code, "授权请求失败 (${r.code})")
                 val payload = Api.plain.parseToJsonElement(r.body.string()) as? JsonObject
                     ?: error("GitHub 未返回有效的授权信息")

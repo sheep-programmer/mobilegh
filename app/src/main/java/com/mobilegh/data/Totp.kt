@@ -65,6 +65,16 @@ object Totp {
     fun secondsRemaining(periodSec: Int = 30): Int =
         (periodSec - (System.currentTimeMillis() / 1000L % periodSec)).toInt()
 
+    /**
+     * 校验输入的 6 位验证码（允许前后各一个时间片的时钟漂移，与 GitHub 服务端行为一致）。
+     * 用于导入密钥后的自检：输入网页当前要求的码，确认两端一致。
+     */
+    fun verify(secret: String, code: String, timeMs: Long = System.currentTimeMillis(), periodSec: Int = 30): Boolean {
+        if (code.length != 6 || code.any { !it.isDigit() }) return false
+        val counter = timeMs / 1000L / periodSec
+        return (counter - 1..counter + 1).any { runCatching { now(secret, it * periodSec * 1000L) == code }.getOrDefault(false) }
+    }
+
     private fun base32Decode(s: String): ByteArray {
         val clean = s.trim().trimEnd('=').uppercase(Locale.ROOT)
         require(clean.isNotEmpty() && clean.all { it in BASE32 }) { "invalid Base32 secret" }

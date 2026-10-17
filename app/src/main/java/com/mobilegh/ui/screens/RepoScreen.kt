@@ -98,7 +98,8 @@ fun RepoScreen(owner: String, name: String) {
     val ref = retain("ref") { mutableStateOf<String?>(null) }
     val readme = rememberLoader("readme:${ref.value}") { GitHub.readme(owner, name, ref.value, it) }
     val langs = rememberLoader("langs") { GitHub.languages(owner, name) }
-    val starred = retain("starred") { mutableStateOf<Boolean?>(null) }
+    val starStatus = rememberLoader("star-status") { GitHub.isStarred(owner, name) }
+    var starBusy by remember { mutableStateOf(false) }
     val watching = retain("watching-mode") { mutableStateOf<SubscriptionMode?>(null) }
     var starDelta by remember { mutableStateOf(0) }
     var showBranches by remember { mutableStateOf(false) }
@@ -110,7 +111,6 @@ fun RepoScreen(owner: String, name: String) {
     val density = LocalDensity.current
 
     LaunchedEffect(Unit) {
-        if (starred.value == null) starred.value = runCatching { GitHub.isStarred(owner, name) }.getOrNull()
         if (watching.value == null) watching.value = runCatching { SubscriptionSettings.current(owner, name) }.getOrNull()
     }
     val r = repo.data
@@ -149,26 +149,30 @@ fun RepoScreen(owner: String, name: String) {
         when {
             r == null && repo.error != null -> ErrorState(repo.error!!, Modifier.padding(pad)) { repo.load(true) }
             r == null -> Loading(Modifier.padding(pad).fillMaxSize())
-            else -> PullToRefreshBox(repo.refreshing, { repo.refresh(); readme.refresh(); langs.refresh() }, Modifier.padding(pad)) {
+            else -> PullToRefreshBox(repo.refreshing, { repo.refresh(); readme.refresh(); langs.refresh(); starStatus.refresh() }, Modifier.padding(pad)) {
                 LazyColumn(Modifier.fillMaxSize(), state = listState) {
                     item { RepoHeader(r) }
                     item {
                         // Star / Watch / Fork
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            val s = starred.value == true
+                            val s = starStatus.data == true
                             GhButton(
                                 "${if (s) "已 Star" else "Star"} ${fmtCount(r.stargazersCount + starDelta)}",
-                                Modifier.weight(1f), icon = if (s) R.drawable.oc_star_fill else R.drawable.oc_star, enabled = starred.value != null,
+                                Modifier.weight(1f), icon = if (s) R.drawable.oc_star_fill else R.drawable.oc_star, enabled = starStatus.data != null && !starBusy && !starStatus.loading,
                             ) {
                                 val on = !s
-                                starred.value = on
+                                starStatus.accept(on)
                                 starDelta += if (on) 1 else -1
-                                entry.act({ starred.value = !on; starDelta -= if (on) 1 else -1; ctx.toast(it) }) { GitHub.star(owner, name, on) }
+                                starBusy = true
+                                entry.act({ starStatus.accept(!on); starDelta -= if (on) 1 else -1; ctx.toast(it) }) {
+                                    try { GitHub.star(owner, name, on) } finally { starBusy = false }
+                                }
                             }
                             GhButton(watching.value?.title ?: "订阅设置", Modifier.weight(1f), icon = R.drawable.oc_eye) {
                                 showSubscription = true
                             }
                         }
+                        starStatus.error?.let { InlineError("Star 状态读取失败：$it", Modifier.padding(horizontal = 16.dp)) { starStatus.refresh() } }
                         Spacer(Modifier.height(16.dp))
                     }
                     item {

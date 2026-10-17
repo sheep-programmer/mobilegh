@@ -87,7 +87,7 @@ fun OrgDiagnosticsScreen() {
                     }
                     MenuRow(R.drawable.oc_key, "检查 Token 权限与 SSO") { ctx.openBrowser("https://github.com/settings/tokens") }
                     MenuRow(R.drawable.oc_mail, "待处理组织邀请") { nav.push(Screen.Invitations) }
-                    MenuRow(R.drawable.oc_key, "更换授权") { nav.push(Screen.Login) }
+                    MenuRow(R.drawable.oc_key, "更换授权") { nav.push(Screen.Reauthorize) }
                 }
             }
         }

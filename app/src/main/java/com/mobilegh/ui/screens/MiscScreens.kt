@@ -194,7 +194,7 @@ fun SettingsScreen() {
                         fontSize = 12.sp, lineHeight = 18.sp, color = g.fgMuted,
                     )
                 }
-                MenuRow(R.drawable.oc_mark_github, "重新登录，获取新授权") { nav.push(Screen.Login) }
+                MenuRow(R.drawable.oc_mark_github, "重新登录，获取新授权") { nav.push(Screen.Reauthorize) }
                 MenuRow(R.drawable.oc_link_external, "检查 OAuth 过期设置") { ctx.openBrowser(BuildConfig.GITHUB_CLIENT_SETTINGS_URL) }
             }
             Text(
@@ -215,6 +215,11 @@ fun SettingsScreen() {
             }
 
             AppLockSection()
+            SectionTitle("桌面小组件")
+            MenuGroup {
+                SwitchRow("隐藏通知详情", "桌面仅显示未读数量，不显示仓库名称和标题；应用锁不保护桌面内容",
+                    com.mobilegh.data.WidgetStore.hideInboxDetails) { com.mobilegh.data.WidgetStore.changeInboxPrivacy(it) }
+            }
 
             TwoFactorSection()
 
@@ -449,6 +454,7 @@ private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit) {
     )
     MenuGroup {
     MenuRow(R.drawable.oc_plus, "添加自定义节点", onClick = onAdd)
+    com.mobilegh.ui.components.NetworkSettingsRow()
     MenuRow(R.drawable.oc_globe, "API 反向代理（高级）", value = if (Net.apiProxy.isBlank()) "官方" else "已启用", onClick = onApi)
     }
 }

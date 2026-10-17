@@ -17,10 +17,12 @@ class App : Application() {
         super.onCreate()
         Api.cacheDir = cacheDir
         AppLog.init(this)
+        com.mobilegh.data.AppNetwork.init(this)
         Net.init(this)
         Session.init(this)
         AppLock.init(this)
         WidgetStore.init(this)
+        com.mobilegh.data.NotificationStore.init(this)
         WidgetStore.listener = { kind -> Widgets.update(this, kind) }
         com.mobilegh.data.MobileApprovalMonitor.reload(this)
         History.init(this)

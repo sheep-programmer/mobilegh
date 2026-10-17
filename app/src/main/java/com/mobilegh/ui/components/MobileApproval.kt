@@ -53,7 +53,8 @@ fun MobileApprovalCard(modifier: Modifier = Modifier) {
                     runCatching { MobileApprovalOAuth.begin(ctx) }.onSuccess { ctx.openBrowser(it) }
                 }
             }
-            setup.error?.let { Text(it, color = g.danger, fontSize = 13.sp) }
+            setup.notice?.let { Text(it, color = g.fgMuted, fontSize = 13.sp) }
+            setup.error?.let { InlineError(it, retry = if (setup.canRetry) ({ MobileApprovalOAuth.retry(ctx) }) else null) }
             if (state.request == null) state.error?.let { Text(it, color = g.danger, fontSize = 13.sp) }
         }
     }
@@ -182,11 +183,12 @@ private fun ApprovalSetupRow(setup: ApprovalSetupState, idle: String = "授权�
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(if (action == "授权启用") "数字审批未启用" else "数字审批", fontSize = 15.sp, color = g.fg)
-            Text(setup.error ?: if (setup.waitingForBrowser) "正在等待 GitHub 授权" else if (setup.busy) "正在注册本机验证设备…" else idle,
+            Text(setup.error ?: setup.notice ?: if (setup.waitingForBrowser) "正在等待 GitHub 授权" else if (setup.busy) "正在注册本机验证设备…" else idle,
                 fontSize = 12.sp, color = if (setup.error != null) g.danger else g.fgMuted)
         }
         Spacer(Modifier.width(12.dp))
         if (setup.waitingForBrowser) GhButton("取消") { MobileApprovalOAuth.cancel(ctx) }
+        else if (setup.canRetry) GhButton("重试", primary = true) { MobileApprovalOAuth.retry(ctx) }
         else GhButton(if (setup.busy) "启用中…" else action, primary = true, enabled = !setup.busy) {
             runCatching { MobileApprovalOAuth.begin(ctx) }.onSuccess { ctx.openBrowser(it) }.onFailure { ctx.toast(it.message ?: "无法开始授权") }
         }

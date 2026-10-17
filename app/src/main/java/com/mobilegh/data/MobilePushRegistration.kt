@@ -139,7 +139,7 @@ internal object MobilePushRegistration {
     }
 
     private suspend fun execute(request: Request): ByteArray = withContext(Dispatchers.IO) {
-        client.newCall(request).await().use { response ->
+        client.routed().newCall(request).await().use { response ->
             check(response.isSuccessful) { "验证设备注册连接失败 (${response.code})" }
             response.body.bytes().also { require(it.size <= 65536) { "验证设备注册响应过大" } }
         }

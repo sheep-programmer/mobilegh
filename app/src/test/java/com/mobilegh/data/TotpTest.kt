@@ -28,4 +28,23 @@ class TotpTest {
         assertEquals(Totp.now(rfcSecret, 30_000), Totp.now(rfcSecret, 59_999))
         assertNotEquals(Totp.now(rfcSecret, 59_999), Totp.now(rfcSecret, 60_000))
     }
+
+    @Test fun verifyAcceptsAdjacentWindowsOnly() {
+        // 当前码与前后各一个时间片都应通过（时钟漂移容错）
+        val t = 1_234_567_890_000L
+        val period = 30
+        val current = Totp.now(rfcSecret, t)
+        val before = Totp.now(rfcSecret, t - period * 1000L)
+        val after = Totp.now(rfcSecret, t + period * 1000L)
+        assertTrue(Totp.verify(rfcSecret, current, t))
+        assertTrue(Totp.verify(rfcSecret, before, t))
+        assertTrue(Totp.verify(rfcSecret, after, t))
+        // 两个时间片之外不算有效
+        val far = Totp.now(rfcSecret, t + 3 * period * 1000L)
+        assertFalse(Totp.verify(rfcSecret, far, t))
+        // 非六位数字或非数字输入直接拒绝
+        assertFalse(Totp.verify(rfcSecret, "12345", t))
+        assertFalse(Totp.verify(rfcSecret, "abcdef", t))
+        assertFalse(Totp.verify(rfcSecret, "", t))
+    }
 }

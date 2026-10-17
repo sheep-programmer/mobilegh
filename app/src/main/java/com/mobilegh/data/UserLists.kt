@@ -273,7 +273,7 @@ object UserLists {
         val raw = withContext(Dispatchers.IO) {
             currentCoroutineContext().ensureActive()
             check(Session.token == token && currentAccount()?.let { it.generation == account.generation && it.login.equals(account.login, true) } == true) { "账号已切换或退出" }
-            http.newCall(request).await().use { response ->
+            http.routed().newCall(request).await().use { response ->
                 val bytes = ByteArrayOutputStream()
                 response.body.byteStream().use { input ->
                     val buffer = ByteArray(8192)
@@ -317,7 +317,7 @@ object UserLists {
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            val reason = failure.message ?: "请求失败"
+            val reason = failure.networkHint() ?: failure.message ?: "请求失败"
             throw IllegalStateException("已完成 $completed 个仓库；$reason。请刷新后查看，重试会保留已有分类。", failure)
         }
     }

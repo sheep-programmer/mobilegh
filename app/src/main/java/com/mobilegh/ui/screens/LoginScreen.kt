@@ -35,7 +35,7 @@ private const val TOKEN_URL = "https://github.com/settings/tokens/new?descriptio
 private suspend fun verify(token: String): User = withContext(Dispatchers.IO) {
     val req = Request.Builder().url("${Api.BASE}/user").header("Authorization", "Bearer $token")
         .header("Accept", "application/vnd.github+json").cacheControl(CacheControl.FORCE_NETWORK).build()
-    Api.http.newCall(req).await().use {
+    Api.http.routed().newCall(req).await().use {
         if (it.code == 401) throw ApiException(401, "Token 无效或已过期")
         if (!it.isSuccessful) throw ApiException(it.code, "验证失败 (${it.code})")
         Api.json.decodeFromString(User.serializer(), it.body.string())
@@ -44,7 +44,7 @@ private suspend fun verify(token: String): User = withContext(Dispatchers.IO) {
 
 /** Native UI; account authentication takes place in the system browser. */
 @Composable
-fun LoginScreen(adding: Boolean = false) {
+fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
     val g = Gh.c
     val ctx = rememberCtx()
     val nav = LocalNav.current
@@ -54,20 +54,27 @@ fun LoginScreen(adding: Boolean = false) {
     var method by rememberSaveable { mutableIntStateOf(1) }
     val approvalSetup by MobileApprovalOAuth.state.collectAsState()
     var help by remember { mutableStateOf(false) }
+    var networkSettings by remember { mutableStateOf(false) }
     var authenticator by remember { mutableStateOf(false) }
     val flow = retain("login-flow") { entry ->
+        fun checkAccount(user: User) {
+            check(Session.generation == entry.generation) { "账号已切换，请重新登录" }
+            check(!reauthorizing || entry.login.equals(user.login, true)) { "请授权当前账号 @${entry.login}" }
+        }
         LoginFlow(entry.scope,
             start = { DeviceAuth.start(BuildConfig.GITHUB_CLIENT_ID) },
             poll = { code -> DeviceAuth.poll(BuildConfig.GITHUB_CLIENT_ID, code) },
             complete = { result ->
                 val user = verify(result.token)
                 currentCoroutineContext().ensureActive()
+                checkAccount(user)
                 Session.signIn(result.token, user, result.refreshToken, result.expiresIn, BuildConfig.GITHUB_CLIENT_ID)
                 AppLog.info("auth", "OAuth 登录成功")
             },
             tokenLogin = { clean ->
                 val user = verify(clean)
                 currentCoroutineContext().ensureActive()
+                checkAccount(user)
                 Session.signIn(clean, user)
                 AppLog.info("auth", "Token 登录成功")
             },
@@ -81,6 +88,10 @@ fun LoginScreen(adding: Boolean = false) {
     BackHandler(device != null) { flow.cancel() }
     LaunchedEffect(device) {
         if (device == null) return@LaunchedEffect
+        // 参考同类客户端：拿到验证码后自动复制并打开浏览器，减少手动步骤
+        ctx.copy(device.userCode, "验证码 ${device.userCode} 已复制，请在浏览器粘贴")
+        runCatching { ctx.openBrowser(device.verificationUri) }
+            .onFailure { flow.notice = "浏览器未能打开，请手动访问 ${device.verificationUri}" }
         while (isActive) {
             remaining = ((flow.deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0) / 1000).toInt()
             delay(1000)
@@ -97,13 +108,13 @@ fun LoginScreen(adding: Boolean = false) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            if (adding) OcButton(R.drawable.oc_arrow_left, { nav.pop() }) else Spacer(Modifier.width(40.dp))
-            OcButton(R.drawable.oc_light_bulb, { help = true })
+            if (adding || reauthorizing) OcButton(R.drawable.oc_arrow_left, { nav.pop() }) else Spacer(Modifier.width(40.dp))
+            OcButton(R.drawable.oc_light_bulb, { help = true }, description = "登录帮助")
         }
         Spacer(Modifier.height(if (device == null) 32.dp else 12.dp))
         Oc(R.drawable.oc_mark_github, g.fg, if (device == null) 56.dp else 32.dp)
         Spacer(Modifier.height(if (device == null) 16.dp else 12.dp))
-        Text(if (device != null) "连接 GitHub" else if (adding) "添加 GitHub 账号" else "欢迎使用 mobilegh",
+        Text(if (device != null) "连接 GitHub" else if (reauthorizing) "重新授权 GitHub 账号" else if (adding) "添加 GitHub 账号" else "欢迎使用 mobilegh",
             fontSize = if (device == null) 24.sp else 22.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
         if (device == null) Text("代码、协作与动态，随时掌握", Modifier.padding(top = 8.dp), fontSize = 14.sp, color = g.fgMuted)
         Spacer(Modifier.height(if (device == null) 28.dp else 20.dp))
@@ -115,7 +126,7 @@ fun LoginScreen(adding: Boolean = false) {
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { if (token.isNotBlank()) flow.signIn(token) }),
                     visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailing = { OcButton(if (visible) R.drawable.oc_eye else R.drawable.oc_lock, { visible = !visible }, g.fgMuted) },
+                    trailing = { OcButton(if (visible) R.drawable.oc_eye else R.drawable.oc_lock, { visible = !visible }, g.fgMuted, description = if (visible) "隐藏 Token" else "显示 Token") },
                 )
                 Spacer(Modifier.height(16.dp))
                 GhButton(if (busy) "正在登录…" else "登录", Modifier.fillMaxWidth(), primary = true,
@@ -129,13 +140,15 @@ fun LoginScreen(adding: Boolean = false) {
                         Text("登录后自动启用数字审批，验证请求会弹窗并通知你。", color = g.fgMuted, fontSize = 14.sp)
                         GhButton("继续", Modifier.fillMaxWidth(), primary = true,
                             enabled = !busy && !approvalSetup.busy, icon = R.drawable.oc_mark_github) {
-                            runCatching { MobileApprovalOAuth.begin(ctx) }.onSuccess { ctx.openBrowser(it) }
+                            runCatching { MobileApprovalOAuth.begin(ctx, if (reauthorizing) ApprovalOAuthPurpose.Reauthorize else ApprovalOAuthPurpose.SignIn) }.onSuccess { ctx.openBrowser(it) }
                         }
                         if (approvalSetup.busy) {
-                            Text(if (approvalSetup.waitingForBrowser) "正在等待 GitHub 授权" else "正在自动启用数字审批…", color = g.fgMuted, fontSize = 13.sp)
+                            Text(approvalSetup.notice ?: if (approvalSetup.waitingForBrowser) "正在等待 GitHub 授权" else "正在自动启用数字审批…", color = g.fgMuted, fontSize = 13.sp)
                             if (approvalSetup.waitingForBrowser) TextLink("取消授权") { MobileApprovalOAuth.cancel(ctx) }
                         }
-                        approvalSetup.error?.let { Text(it, color = g.danger, fontSize = 13.sp) }
+                        approvalSetup.error?.let {
+                            InlineError(it, retry = if (approvalSetup.canRetry) ({ MobileApprovalOAuth.retry(ctx) }) else null)
+                        }
                         TextLink("使用设备授权码登录") { flow.authorize() }
                     }
                 }
@@ -151,6 +164,7 @@ fun LoginScreen(adding: Boolean = false) {
                     GhButton("复制并打开 GitHub", Modifier.fillMaxWidth(), primary = true, enabled = !flow.confirming, icon = R.drawable.oc_link_external) {
                         ctx.copy(d.userCode); ctx.openBrowser(d.verificationUri)
                     }
+                    TextLink("仅复制验证码") { ctx.copy(d.userCode) }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = g.fgMuted)
                         Text(if (flow.confirming) "GitHub 已授权，正在连接账号" else "等待 GitHub 授权", color = g.fgMuted, fontSize = 13.sp)
@@ -163,12 +177,14 @@ fun LoginScreen(adding: Boolean = false) {
             if (!flow.confirming) MobileApprovalCard()
         }
         if (busy && device == null) CircularProgressIndicator(Modifier.padding(16.dp).size(24.dp), color = g.fgMuted)
-        flow.error?.let { Text(it, Modifier.padding(vertical = 12.dp), color = g.danger, fontSize = 14.sp) }
+        flow.error?.let { InlineError(it, Modifier.padding(vertical = 4.dp)) }
         Spacer(Modifier.height(if (device == null) 24.dp else 12.dp))
+        TextLink("网络连接：${AppNetwork.config.mode.label}") { networkSettings = true }
         TextLink(if (device == null) "两步验证与数字批准" else "使用验证器验证码") { authenticator = true }
         if (device == null) Text("凭据仅加密保存在本机", Modifier.padding(top = 12.dp, bottom = 32.dp), color = g.fgMuted, fontSize = 12.sp)
         else Spacer(Modifier.height(16.dp))
     }
+    if (networkSettings) NetworkSettingsDialog { networkSettings = false }
     if (help) GhDialog("登录帮助", { help = false }, confirm = "知道了", onConfirm = { help = false }) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Token：查看组织需 read:org，私有仓库需 repo。有效期由 GitHub 设置决定。", fontSize = 14.sp)

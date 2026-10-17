@@ -260,7 +260,9 @@ private fun InboxContent(ctx: Context, state: Load<InboxSnapshot>) {
                     val s = state.value
                     val count = if (s.more) "${s.unread}+" else "${s.unread}"
                     Header(R.drawable.oc_bell, "通知", if (s.unread > 0) "$count 条未读" else null, Accent)
-                    if (s.items.isEmpty()) {
+                    if (WidgetStore.hideInboxDetails) {
+                        Message(if (s.unread == 0) "没有未读通知" else "已隐藏通知详情，点按打开应用")
+                    } else if (s.items.isEmpty()) {
                         Message("没有未读通知")
                     } else {
                         // 标题区约 24dp，每条约 36dp：按实际高度决定显示几条

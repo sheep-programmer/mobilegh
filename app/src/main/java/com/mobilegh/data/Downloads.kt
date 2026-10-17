@@ -123,7 +123,7 @@ object Downloads {
             } catch (e: Exception) {
                 AppLog.error("download", "无法开始下载：" + task.filename, e)
                 if (tasks.firstOrNull { it.key == task.key }?.state != DownloadState.Cancelled) {
-                    update(task.copy(state = DownloadState.Failed, message = e.message ?: "无法开始下载"))
+                    update(task.copy(state = DownloadState.Failed, message = e.networkHint() ?: e.message ?: "无法开始下载"))
                     save()
                 }
             }
@@ -181,7 +181,7 @@ object Downloads {
             if (url.host !in authHosts) return url.toString() to null
             val req = Request.Builder().url(url).header("Authorization", "Bearer " + token)
                 .header("Accept", "application/octet-stream").build()
-            privateHttp.newCall(req).execute().use { response ->
+            privateHttp.routed().newCall(req).execute().use { response ->
                 if (response.code in 300..399) {
                     val next = response.header("Location")?.let(url::resolve) ?: error("下载跳转缺少地址")
                     require(next.isHttps) { "下载跳转必须使用 HTTPS" }

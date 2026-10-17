@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.mobilegh.data.ApiException
 import com.mobilegh.data.Session
+import com.mobilegh.data.networkHint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -17,7 +18,7 @@ import kotlinx.coroutines.withContext
 fun Throwable.friendly(): String = when (this) {
     is ApiException -> message
     is kotlinx.serialization.SerializationException -> "数据解析失败：${message?.take(160)}"
-    else -> message ?: javaClass.simpleName
+    else -> networkHint() ?: message ?: javaClass.simpleName
 }
 
 /** 单个异步数据 */
@@ -27,30 +28,38 @@ class Loader<T>(private val scope: CoroutineScope, private val block: suspend (f
     var loading by mutableStateOf(false)
     var refreshing by mutableStateOf(false)
     private var job: Job? = null
+    private var operation = 0
 
     fun load(force: Boolean = false) {
+        val id = ++operation
         job?.cancel()
         loading = true
+        refreshing = force
+        error = null
         job = scope.launch {
             try {
-                // 网络 + JSON 解析 + 高亮等全部在后台线程执行，避免卡主线程
-                data = withContext(Dispatchers.Default) { block(force) }
-                error = null
+                val result = withContext(Dispatchers.Default) { block(force) }
+                if (id == operation) { data = result; error = null }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                error = e.friendly()
+                if (id == operation) error = e.friendly()
             } finally {
-                loading = false
-                refreshing = false
+                if (id == operation) { loading = false; refreshing = false }
             }
         }
     }
 
-    fun refresh() {
-        refreshing = true
-        load(true)
+    fun accept(value: T) {
+        operation++
+        job?.cancel()
+        data = value
+        error = null
+        loading = false
+        refreshing = false
     }
+
+    fun refresh() = load(true)
 }
 
 /** 分页列表 */
@@ -67,73 +76,58 @@ class Pager<T>(
     var loadedOnce by mutableStateOf(false)
     private var page = 0
     private var job: Job? = null
+    private var operation = 0
+    private enum class Request { More, Refresh, All }
+    private var failed: Request? = null
 
     fun loadMore() {
-        if (loading || end) return
-        loading = true
-        val next = page + 1
-        job = scope.launch {
-            try {
-                val list = withContext(Dispatchers.Default) { fetch(next, false) }
-                items.addAll(list)
-                page = next
-                if (list.size < pageSize) end = true
-                error = null
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                error = e.friendly()
-            } finally {
-                loading = false
-                loadedOnce = true
-            }
-        }
+        if (!loading && !end) request(Request.More)
     }
 
-    fun refresh() {
-        job?.cancel()
-        refreshing = true
-        loading = true
-        job = scope.launch {
-            try {
-                val list = withContext(Dispatchers.Default) { fetch(1, true) }
-                items.clear()
-                items.addAll(list)
-                page = 1
-                end = list.size < pageSize
-                error = null
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                error = e.friendly()
-            } finally {
-                loading = false
-                refreshing = false
-                loadedOnce = true
-            }
-        }
-    }
+    fun refresh() = request(Request.Refresh)
 
     /** 加载全部剩余页（用于本地搜索过滤） */
     fun loadAll() {
-        if (loading || end) return
+        if (!loading && !end) request(Request.All)
+    }
+
+    fun retry() {
+        if (loading) return
+        when (failed) {
+            Request.Refresh -> refresh()
+            Request.All -> loadAll()
+            else -> loadMore()
+        }
+    }
+
+    private fun request(kind: Request) {
+        val id = ++operation
+        job?.cancel()
         loading = true
+        refreshing = kind == Request.Refresh
+        error = null
+        failed = null
         job = scope.launch {
             try {
-                while (!end) {
-                    val list = withContext(Dispatchers.Default) { fetch(page + 1, false) }
+                do {
+                    val next = if (kind == Request.Refresh) 1 else page + 1
+                    val list = withContext(Dispatchers.Default) { fetch(next, kind == Request.Refresh) }
+                    if (id != operation) return@launch
+                    if (kind == Request.Refresh) items.clear()
                     items.addAll(list)
-                    page++
-                    if (list.size < pageSize) end = true
-                }
-                error = null
+                    page = next
+                    end = list.size < pageSize
+                } while (kind == Request.All && !end)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                error = e.friendly()
+                if (id == operation) { error = e.friendly(); failed = kind }
             } finally {
-                loading = false
-                loadedOnce = true
+                if (id == operation) {
+                    loading = false
+                    refreshing = false
+                    loadedOnce = true
+                }
             }
         }
     }

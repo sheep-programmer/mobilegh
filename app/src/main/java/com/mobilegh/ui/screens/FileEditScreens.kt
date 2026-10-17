@@ -360,10 +360,10 @@ private fun CommitDialog(
                 throw err
             } catch (err: Throwable) {
                 busy = false
-                // 文件没写进去时，把刚建的空分支删掉，避免留下无用分支
-                created?.let { b -> runCatching { GitHub.deleteBranch(owner, name, b) } }
+                // 响应丢失不代表远端没有提交，保留新分支，避免删除已经写入的内容。
                 when {
-                    created == null && newBranch && RepoWrite.isAlreadyExists(err) -> error = "分支 $branch 已存在，请换一个名称"
+                    created != null -> error = "提交结果需确认，分支 $created 已保留。请先查看该分支的文件和提交记录，再决定是否重试。\n${err.friendly()}"
+                    newBranch && RepoWrite.isAlreadyExists(err) -> error = "分支 $branch 已存在，请换一个名称"
                     RepoWrite.isShaConflict(err) -> onConflict()
                     else -> error = "提交失败：" + err.friendly()
                 }

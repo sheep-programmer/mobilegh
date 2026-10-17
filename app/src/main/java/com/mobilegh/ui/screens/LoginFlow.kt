@@ -34,8 +34,8 @@ internal class LoginFlow(
         private set
     var error by mutableStateOf<String?>(null)
         private set
+    /** 授权过程中的临时提示（浏览器未打开、网络重试等），界面可直接补充 */
     var notice by mutableStateOf<String?>(null)
-        private set
     var deadline = 0L
         private set
     private var job: Job? = null

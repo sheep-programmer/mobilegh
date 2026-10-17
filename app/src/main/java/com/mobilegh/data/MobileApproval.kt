@@ -8,6 +8,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyInfo
 import android.os.Build
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import okhttp3.MediaType.Companion.toMediaType
@@ -100,10 +101,11 @@ object MobileApproval {
     }
 
     /** Generates this phone's signing key and registers it directly. No exported device bundle. */
-    suspend fun activate(context: Context, token: String, expectedLogin: String? = null): MobileApprovalDevice = withContext(Dispatchers.IO) {
+    suspend fun activate(context: Context, token: String, expectedLogin: String? = null, checkSession: () -> Unit = {}): MobileApprovalDevice = withContext(Dispatchers.IO) {
         val viewer = graph(token, "query { viewer { login mobileAuthStatus { hasValidDeviceAuthKey } } }").getValue("viewer").jsonObject
         val login = viewer.getValue("login").jsonPrimitive.content
         require(expectedLogin == null || expectedLogin.equals(login, true)) { "请授权当前账号 @$expectedLogin" }
+        checkSession()
         val suffix = MessageDigest.getInstance("SHA-256").digest(token.toByteArray()).take(12).joinToString("") { "%02x".format(it) }
         val alias = "mobilegh_2fa_${login.lowercase()}_$suffix"
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -121,6 +123,7 @@ object MobileApproval {
             @Suppress("DEPRECATION")
             KeyFactory.getInstance("EC", "AndroidKeyStore").getKeySpec(privateKey, KeyInfo::class.java).isInsideSecureHardware
         }.getOrDefault(false)
+        checkSession()
         graph(token, REGISTER_QUERY, buildJsonObject {
             put("publicKey", Base64.getEncoder().encodeToString(pem.toByteArray()))
             put("message", verification); put("signature", sign(alias, verification.toByteArray()))
@@ -132,8 +135,13 @@ object MobileApproval {
         refreshRouting(token, push)
         val stored = buildJsonObject { put("login", login); put("token", token)
             listOf("fcmToken", "encryptionKey", "hmacKey", "androidId", "securityToken").forEach { key -> push[key]?.let { put(key, it) } } }
-        check(prefs.edit().putString("login", login).putString("alias", alias)
-            .putString("credentials", Crypto.encrypt(stored.toString())).putBoolean("enabled", true).commit()) { "无法保存验证设备" }
+        val encrypted = Crypto.encrypt(stored.toString())
+        withContext(Dispatchers.Main.immediate) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            checkSession()
+            check(prefs.edit().putString("login", login).putString("alias", alias)
+                .putString("credentials", encrypted).putBoolean("enabled", true).commit()) { "无法保存验证设备" }
+        }
         MobileApprovalDevice(login, alias)
     }
 
@@ -266,7 +274,7 @@ object MobileApproval {
             .header("Accept", "application/vnd.github.v4+json").header("Cache-Control", "no-store")
             .post(body.toString().toRequestBody("application/json".toMediaType())).build()
         return withContext(Dispatchers.IO) {
-            client.newCall(request).await().use { response ->
+            client.routed().newCall(request).await().use { response ->
                 check(response.isSuccessful) { "GitHub 验证请求失败 (${response.code})" }
                 val data = Api.plain.parseToJsonElement(response.body.string()).jsonObject
                 val errors = data["errors"] as? JsonArray

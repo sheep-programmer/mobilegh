@@ -15,6 +15,7 @@ import com.mobilegh.data.*
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.Loader
+import com.mobilegh.nav.friendly
 import com.mobilegh.ui.components.*
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.CancellationException
@@ -41,7 +42,7 @@ fun SubscriptionDialog(owner: String, name: String, onDismiss: () -> Unit, onSav
                     onSaved(target)
                     onDismiss()
                 } catch (e: CancellationException) { throw e }
-                catch (e: Exception) { error = e.message }
+                catch (e: Exception) { error = e.friendly() }
                 finally { saving = false }
             }
         }) {
@@ -76,7 +77,7 @@ fun EditProfileScreen() {
                 scope.launch {
                     try { ProfileEditing.save(original, fields); nav.pop() }
                     catch (e: CancellationException) { throw e }
-                    catch (e: Exception) { error = e.message }
+                    catch (e: Exception) { error = e.friendly() }
                     finally { saving = false }
                 }
             }

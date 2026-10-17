@@ -67,7 +67,7 @@ object ImageFetch {
     }
 
     private fun get(url: String, force: Boolean): Result? =
-        http.newCall(Request.Builder().url(url).apply { if (force) cacheControl(CacheControl.FORCE_NETWORK) }.build()).execute().use { resp ->
+        http.routed().newCall(Request.Builder().url(url).apply { if (force) cacheControl(CacheControl.FORCE_NETWORK) }.build()).execute().use { resp ->
             if (!resp.isSuccessful) return null
             val type = resp.header("Content-Type")?.substringBefore(';')?.trim()?.lowercase()
             if (type != null && (type.startsWith("text/html") || type.startsWith("application/json"))) return null

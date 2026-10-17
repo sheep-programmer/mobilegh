@@ -68,7 +68,7 @@ fun ExploreScreen() {
         if (target != null) nav.push(target) else query = text
     }
     LaunchedEffect(query, type, sort, trend) { state.scrollToItem(0) }
-    LaunchedEffect(nav.reselect) { if (nav.reselect > 0 && nav.tab == Tab.Explore) state.animateScrollToItem(0) }
+    com.mobilegh.nav.OnTabReselect(Tab.Explore) { state.animateScrollToItem(0) }
 
     Page("探索", back = false, contentWindowInsets = WindowInsets(0)) { pad ->
         Column(Modifier.padding(pad)) {

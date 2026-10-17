@@ -120,14 +120,14 @@ private fun Main(nav: Navigator) {
         }
     }
     // Token 被 GitHub 判定失效（账号登录的授权过期等）：引导重新登录
-    if (Session.authExpired && nav.stack.lastOrNull()?.screen != Screen.Login) {
+    if (Session.authExpired && nav.stack.lastOrNull()?.screen !in listOf(Screen.Login, Screen.Reauthorize)) {
         GhDialog(
             "GitHub 授权已失效",
             onDismiss = { Session.authExpired = false },
             confirm = "重新登录",
             onConfirm = {
                 Session.authExpired = false
-                nav.push(Screen.Login)
+                nav.push(Screen.Reauthorize)
             },
         ) { Text("授权可能已过期或被撤销。请重新登录，新的账号授权默认长期有效。", fontSize = 14.sp) }
     }
@@ -279,6 +279,7 @@ private fun ScreenHost(s: Screen) {
         Screen.OrgDiagnostics -> OrgDiagnosticsScreen()
         Screen.CreateRepo -> CreateRepoScreen()
         Screen.Login -> LoginScreen(adding = true)
+        Screen.Reauthorize -> LoginScreen(reauthorizing = true)
         is Screen.MyIssues -> MyIssuesScreen(s.pulls, s.preset)
         Screen.HomeCustomize -> HomeCustomizeScreen()
     }

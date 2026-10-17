@@ -87,8 +87,22 @@ fun Oc(@DrawableRes icon: Int, tint: Color = Gh.c.fgMuted, size: Dp = 16.dp, mod
 }
 
 @Composable
-fun OcButton(@DrawableRes icon: Int, onClick: () -> Unit, tint: Color = Gh.c.fg, enabled: Boolean = true) {
-    IconButton(onClick = onClick, enabled = enabled) { Oc(icon, if (enabled) tint else Gh.c.fgMuted, 20.dp) }
+fun OcButton(@DrawableRes icon: Int, onClick: () -> Unit, tint: Color = Gh.c.fg, enabled: Boolean = true, description: String? = null) {
+    val label = description ?: when (icon) {
+        R.drawable.oc_arrow_left -> "返回"
+        R.drawable.oc_kebab_horizontal -> "更多操作"
+        R.drawable.oc_x -> "关闭"
+        R.drawable.oc_plus -> "添加"
+        R.drawable.oc_gear -> "设置"
+        R.drawable.oc_sync -> "刷新"
+        R.drawable.oc_copy -> "复制"
+        R.drawable.oc_light_bulb -> "帮助"
+        R.drawable.oc_search -> "搜索"
+        else -> "操作"
+    }
+    IconButton(onClick = onClick, enabled = enabled) {
+        Icon(painterResource(icon), label, Modifier.size(20.dp), tint = if (enabled) tint else Gh.c.fgMuted)
+    }
 }
 
 // ---------------- 页面骨架 ----------------
@@ -256,6 +270,7 @@ fun <T> PagedList(
     header: LazyListScope.() -> Unit = {},
     /** 已加载条目全部被 [itemFilter] 过滤掉时的提示 */
     filteredEmpty: String = "没有匹配的内容",
+    extraItems: List<T> = emptyList(),
     /** 非空时按该键分组（保持首次出现的顺序），每组前插入 [groupHeader]，组内单独成框 */
     groupKey: ((T) -> Any)? = null,
     groupHeader: @Composable LazyItemScope.(List<T>) -> Unit = {},
@@ -274,7 +289,8 @@ fun <T> PagedList(
     PullToRefreshBox(pager.refreshing, onRefresh = { pager.refresh(); onRefresh() }, modifier) {
         LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = contentPadding) {
             header()
-            val filtered = if (itemFilter == null) pager.items else pager.items.filter(itemFilter)
+            val combined = pager.items + extraItems
+            val filtered = if (itemFilter == null) combined else combined.filter(itemFilter)
             val shown = if (itemKey == null) filtered else filtered.distinctBy(itemKey)
             fun rows(list: List<T>) = itemsIndexed(list, key = if (itemKey == null) null else { _, value -> itemKey(value) }) { i, it ->
                 if (boxed) {
@@ -293,9 +309,9 @@ fun <T> PagedList(
                 // 列表为空时，加载、错误与空状态都在剩余可见区域居中
                 val fill = if (shown.isEmpty()) Modifier.fillMaxWidth().heightIn(min = remainingHeight(state, FOOTER_KEY)) else Modifier.fillMaxWidth()
                 when {
-                    pager.error != null && pager.items.isEmpty() -> ErrorState(pager.error!!, fill) { pager.error = null; pager.loadMore() }
+                    pager.error != null && pager.items.isEmpty() -> ErrorState(pager.error!!, fill) { pager.retry() }
                     pager.error != null -> Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                        TextLink("加载失败，点击重试") { pager.error = null; pager.loadMore() }
+                        TextLink("加载失败，点击重试") { pager.retry() }
                     }
                     pager.loading && !pager.refreshing -> Loading(fill.padding(24.dp))
                     pager.end && shown.isEmpty() -> EmptyState(

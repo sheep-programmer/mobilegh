@@ -167,11 +167,11 @@ private fun ProjectRow(p: ProjectSummary, onClick: () -> Unit) {
 private fun ProjectErrorState(msg: String, modifier: Modifier = Modifier.fillMaxSize(), retry: () -> Unit) {
     val nav = LocalNav.current
     when (ProjectErrors.ofMessage(msg)) {
-        ProjectErrorKind.Scope -> ErrorState(msg, modifier, retry, action = "重新授权") { nav.push(Screen.Login) }
+        ProjectErrorKind.Scope -> ErrorState(msg, modifier, retry, action = "重新授权") { nav.push(Screen.Reauthorize) }
         ProjectErrorKind.Forbidden -> ErrorState(
             "$msg\n\n若组织启用了 OAuth 应用访问限制，需由组织管理员批准本应用；也可以重新授权后再试。",
             modifier, retry, action = "重新授权",
-        ) { nav.push(Screen.Login) }
+        ) { nav.push(Screen.Reauthorize) }
         else -> ErrorState(msg, modifier, retry)
     }
 }
@@ -182,7 +182,7 @@ private fun WriteError(msg: String) {
     val nav = LocalNav.current
     Column {
         InlineError(msg)
-        if (ProjectErrors.ofMessage(msg) == ProjectErrorKind.Scope) TextLink("重新授权") { nav.push(Screen.Login) }
+        if (ProjectErrors.ofMessage(msg) == ProjectErrorKind.Scope) TextLink("重新授权") { nav.push(Screen.Reauthorize) }
     }
 }
 

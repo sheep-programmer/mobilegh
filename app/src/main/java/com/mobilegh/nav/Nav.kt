@@ -78,6 +78,7 @@ sealed interface Screen {
     data object OrgDiagnostics : Screen
     data object CreateRepo : Screen
     data object Login : Screen
+    data object Reauthorize : Screen
     data class MyIssues(val pulls: Boolean, val preset: IssueQuery? = null) : Screen
     data object HomeCustomize : Screen
 }
@@ -164,4 +165,14 @@ val LocalEntry = staticCompositionLocalOf<Entry> { error("no entry") }
 fun <T : Any> retain(key: String, init: (Entry) -> T): T {
     val e = LocalEntry.current
     return remember(e, key) { e.bag.getOrPut(key) { init(e) } as T }
+}
+
+/** 只响应当前 composition 收到的新事件，返回页面时忽略历史重选序号。 */
+@Composable
+fun OnTabReselect(tab: Tab, block: suspend () -> Unit) {
+    val nav = LocalNav.current
+    val baseline = remember(nav, tab) { nav.reselect }
+    androidx.compose.runtime.LaunchedEffect(nav.reselect) {
+        if (nav.tab == tab && nav.reselect > baseline) block()
+    }
 }

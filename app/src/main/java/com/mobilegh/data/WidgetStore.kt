@@ -3,6 +3,9 @@ package com.mobilegh.data
 import android.content.Context
 import android.content.SharedPreferences
 import kotlinx.serialization.Serializable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 
 /** 桌面小组件的数据快照：贡献图取最近若干周，收件箱取最新几条未读通知。 */
 @Serializable
@@ -13,6 +16,9 @@ data class InboxItem(val repo: String = "", val title: String = "", val url: Str
 
 @Serializable
 data class InboxSnapshot(val login: String = "", val unread: Int = 0, val more: Boolean = false, val items: List<InboxItem> = emptyList(), val at: Long = 0)
+
+@Serializable
+private data class InboxSource(val login: String, val items: List<Notification>, val more: Boolean, val at: Long)
 
 /**
  * 小组件数据的缓存与读取。应用内拉到新数据时写入并通知小组件刷新；
@@ -27,6 +33,20 @@ object WidgetStore {
     enum class Kind { Contributions, Inbox }
 
     private var prefs: SharedPreferences? = null
+    var hideInboxDetails by mutableStateOf(false)
+        private set
+
+    fun changeInboxPrivacy(hidden: Boolean) {
+        hideInboxDetails = hidden
+        prefs?.edit()?.putBoolean("hide_inbox_details", hidden)?.apply()
+        listener?.invoke(Kind.Inbox)
+    }
+
+    fun invalidateInbox(login: String) {
+        if (!login.equals(Session.login, true)) return
+        source(login)?.let { updateInbox(it) }
+        listener?.invoke(Kind.Inbox)
+    }
 
     /** 由 App 设置：数据变化时请求刷新对应的小组件 */
     @Volatile
@@ -34,6 +54,7 @@ object WidgetStore {
 
     fun init(ctx: Context) {
         prefs = ctx.getSharedPreferences("widgets", Context.MODE_PRIVATE)
+        hideInboxDetails = prefs?.getBoolean("hide_inbox_details", false) == true
     }
 
     /** 只保留最近 n 周，总数按这几周重新累计。 */
@@ -56,9 +77,21 @@ object WidgetStore {
         if (write("contrib", Api.plain.encodeToString(ContribSnapshot.serializer(), snap))) listener?.invoke(Kind.Contributions)
     }
 
+    @Synchronized
     fun saveInbox(login: String, unread: List<Notification>, more: Boolean) {
-        val snap = inboxOf(login, unread, more)
-        if (write("inbox", Api.plain.encodeToString(InboxSnapshot.serializer(), snap))) listener?.invoke(Kind.Inbox)
+        val source = InboxSource(login, unread, more, System.currentTimeMillis())
+        prefs?.edit()?.putString("inbox_source", Api.plain.encodeToString(InboxSource.serializer(), source))?.apply()
+        if (updateInbox(source)) listener?.invoke(Kind.Inbox)
+    }
+
+    private fun source(login: String): InboxSource? = read("inbox_source")
+        ?.let { runCatching { Api.plain.decodeFromString(InboxSource.serializer(), it) }.getOrNull() }
+        ?.takeIf { it.login.equals(login, true) }
+
+    @Synchronized
+    private fun updateInbox(source: InboxSource): Boolean {
+        val snap = inboxOf(source.login, NotificationStore.unread(source.login, source.items), source.more, source.at)
+        return write("inbox", Api.plain.encodeToString(InboxSnapshot.serializer(), snap))
     }
 
     fun cachedContributions(login: String): ContribSnapshot? = read("contrib")
@@ -73,10 +106,12 @@ object WidgetStore {
     suspend fun loadContributions(): ContribSnapshot? {
         val login = Session.login ?: return null
         if (Session.token == null) return null
+        val generation = Session.generation
         val cached = cachedContributions(login)
         if (cached != null && System.currentTimeMillis() - cached.at < FRESH_MS) return cached
         return try {
             val cal = GitHub.contributions(login, null).contributionCalendar
+            if (Session.generation != generation || Session.login != login) return null
             val recent = recentWeeks(cal)
             ContribSnapshot(login, recent.totalContributions, recent.weeks, System.currentTimeMillis()).also {
                 write("contrib", Api.plain.encodeToString(ContribSnapshot.serializer(), it))
@@ -91,13 +126,15 @@ object WidgetStore {
     suspend fun loadInbox(): InboxSnapshot? {
         val login = Session.login ?: return null
         if (Session.token == null) return null
+        val generation = Session.generation
+        source(login)?.let { updateInbox(it) }
         val cached = cachedInbox(login)
         if (cached != null && System.currentTimeMillis() - cached.at < FRESH_MS) return cached
         return try {
             val list = Api.get<List<Notification>>("/notifications?all=false&participating=false&per_page=$INBOX_PAGE&page=1", force = true)
-            inboxOf(login, list, list.size >= INBOX_PAGE).also {
-                write("inbox", Api.plain.encodeToString(InboxSnapshot.serializer(), it))
-            }
+            if (Session.generation != generation || Session.login != login) return null
+            saveInbox(login, list, list.size >= INBOX_PAGE)
+            cachedInbox(login)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {

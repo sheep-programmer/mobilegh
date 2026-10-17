@@ -15,6 +15,12 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
+    <!-- 扫码导入两步验证密钥（CameraX + ZXing，仅本地解码，不上传画面） -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+
     <queries>
         <!-- Android 11+：仅查询用户选择复用的 GitHub Mobile，不枚举所有已安装应用。 -->
         <package android:name="com.github.android" />

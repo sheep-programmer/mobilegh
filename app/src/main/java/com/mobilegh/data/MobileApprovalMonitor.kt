@@ -118,7 +118,7 @@ object MobileApprovalMonitor {
             if (changed) AppLog.info("2fa", "收到 GitHub 验证请求 ${request.id}")
         } catch (e: CancellationException) { throw e
         } catch (e: Exception) {
-            if (state.value.device == device) mutableState.value = state.value.copy(connected = false, error = e.message ?: "无法读取验证请求")
+            if (state.value.device == device) mutableState.value = state.value.copy(connected = false, error = e.networkHint() ?: e.message ?: "无法读取验证请求")
         }
     }
 
@@ -137,7 +137,7 @@ object MobileApprovalMonitor {
                 }
             } catch (e: CancellationException) { throw e
             } catch (e: Exception) {
-                if (state.value.device == device) mutableState.value = state.value.copy(busy = false, error = e.message ?: "批准失败")
+                if (state.value.device == device) mutableState.value = state.value.copy(busy = false, error = e.networkHint() ?: e.message ?: "批准失败")
             } finally {
                 if (state.value.device == device && state.value.busy) mutableState.value = state.value.copy(busy = false)
             }

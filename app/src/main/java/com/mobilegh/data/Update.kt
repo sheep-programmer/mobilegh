@@ -65,7 +65,7 @@ object Update {
             AppLog.info("update", "检查更新：远端 $version / 当前 ${BuildConfig.VERSION_NAME} / 架构 $abi")
             available
         } catch (e: Throwable) {
-            error = e.message ?: "检查更新失败"
+            error = e.networkHint() ?: e.message ?: "检查更新失败"
             AppLog.warn("update", "检查更新失败", e)
             null
         } finally {

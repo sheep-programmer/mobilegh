@@ -5,12 +5,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,11 +33,25 @@ fun AuthenticatorScreen(onBack: (() -> Unit)? = null) {
     var accounts by remember { mutableStateOf(Session.totpAccounts()) }
     var tick by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var editing by remember { mutableStateOf(false) }
+    var scanning by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { while (true) { tick = System.currentTimeMillis(); delay(1000) } }
     BackHandler { if (onBack != null) onBack() else nav.pop() }
+    if (scanning) {
+        QrScannerScreen(
+            onScanned = { result ->
+                scanning = false
+                // 密钥可能不带 otpauth 前缀；两种都交给编辑框让用户确认归属账号
+                editingSecret = result.text
+                editing = true
+            },
+            onBack = { scanning = false },
+        )
+        return
+    }
     Page("两步验证", onBack = onBack, actions = {
-        OcButton(R.drawable.oc_plus, { editing = true })
+        OcButton(R.drawable.oc_scan, { scanning = true }, description = "扫码导入")
+        OcButton(R.drawable.oc_plus, { editingSecret = null; editing = true })
     }) { pad ->
         LazyColumn(Modifier.padding(pad).fillMaxSize().background(g.canvas), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(16.dp)) {
             item { MobileApprovalCard() }
@@ -45,8 +61,11 @@ fun AuthenticatorScreen(onBack: (() -> Unit)? = null) {
                 Card {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("添加 GitHub 验证器", color = g.fg, fontWeight = FontWeight.SemiBold)
-                        Text("从 GitHub 两步验证设置导入密钥或 otpauth 链接。", color = g.fgMuted, fontSize = 14.sp)
-                        GhButton("添加", primary = true, icon = R.drawable.oc_key) { editing = true }
+                        Text("扫码导入 GitHub 两步验证设置页的二维码，或手动粘贴密钥 / otpauth 链接。", color = g.fgMuted, fontSize = 14.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            GhButton("扫码导入", primary = true, icon = R.drawable.oc_scan) { scanning = true }
+                            GhButton("手动添加", icon = R.drawable.oc_key) { editingSecret = null; editing = true }
+                        }
                     }
                 }
             }
@@ -72,25 +91,58 @@ fun AuthenticatorScreen(onBack: (() -> Unit)? = null) {
             item { TextLink("打开 GitHub 两步验证设置") { ctx.openBrowser("https://github.com/settings/security") } }
         }
     }
-    if (editing) {
-        var login by remember { mutableStateOf(Session.login.orEmpty()) }
-        var secret by remember { mutableStateOf("") }
-        val valid = login.matches(Regex("[A-Za-z0-9][A-Za-z0-9-]{0,38}")) && Totp.isValid(secret)
-        GhDialog("添加验证器", { editing = false }, confirm = "保存", confirmEnabled = valid, onConfirm = {
-            Session.setTotpSecret(login, secret)
-            secret = ""; editing = false; accounts = Session.totpAccounts()
-        }) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                GhField(login, { login = it.trim() }, "GitHub 用户名")
-                GhField(secret, { secret = it }, "密钥或 otpauth 链接", visualTransformation = PasswordVisualTransformation())
-                if (secret.isNotBlank() && !Totp.isValid(secret)) Text("密钥格式无效，仅支持 GitHub 的 SHA1 / 6 位 / 30 秒 TOTP。", color = g.danger, fontSize = 12.sp)
-                Text("保存后在 GitHub 输入生成的码完成启用。密钥通过 Android Keystore 加密。", color = g.fgMuted, fontSize = 13.sp)
-            }
-        }
-    }
     deleting?.let { login ->
         GhDialog("移除验证器", { deleting = null }, confirm = "移除", danger = true, onConfirm = {
             Session.setTotpSecret(login, null); accounts = Session.totpAccounts(); deleting = null
         }) { Text("只移除本机 $login 的密钥，不会关闭 GitHub 两步验证。请确保你还保留恢复方式。", fontSize = 14.sp) }
+    }
+    if (editing) {
+        AddAuthenticatorDialog(
+            initialSecret = editingSecret,
+            onDismiss = { editing = false; editingSecret = null },
+            onSaved = { accounts = Session.totpAccounts(); editing = false; editingSecret = null },
+        )
+    }
+}
+
+/** 编辑框里待保存的预填密钥（扫码导入时先存到这里） */
+private var editingSecret by mutableStateOf<String?>(null)
+
+@Composable
+private fun AddAuthenticatorDialog(initialSecret: String?, onDismiss: () -> Unit, onSaved: () -> Unit) {
+    val g = Gh.c
+    var login by remember { mutableStateOf(Session.login.orEmpty()) }
+    var secret by remember(initialSecret) { mutableStateOf(initialSecret.orEmpty()) }
+    var verifyInput by remember { mutableStateOf("") }
+    var verifyResult by remember { mutableStateOf<Boolean?>(null) }
+    val valid = login.matches(Regex("[A-Za-z0-9][A-Za-z0-9-]{0,38}")) && Totp.isValid(secret)
+    val normalized = remember(secret) { runCatching { Totp.normalize(secret) }.getOrNull() }
+    GhDialog("添加验证器", onDismiss, confirm = "保存", confirmEnabled = valid, onConfirm = {
+        Session.setTotpSecret(login, secret)
+        onSaved()
+    }) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            GhField(login, { login = it.trim() }, "GitHub 用户名")
+            GhField(secret, { secret = it; verifyResult = null }, "密钥或 otpauth 链接", visualTransformation = PasswordVisualTransformation())
+            if (secret.isNotBlank() && !Totp.isValid(secret)) Text("密钥格式无效，仅支持 GitHub 的 SHA1 / 6 位 / 30 秒 TOTP。", color = g.danger, fontSize = 12.sp)
+            if (normalized != null && Totp.isValid(normalized)) {
+                Text("自检：输入 GitHub 网页当前要求的六位码，确认两端一致。", color = g.fgMuted, fontSize = 13.sp)
+                GhField(verifyInput, { verifyInput = it.filter(Char::isDigit).take(6) }, "六位验证码",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))
+                if (verifyInput.length == 6) {
+                    val ok = remember(verifyInput, normalized) { Totp.verify(normalized, verifyInput) }
+                    LaunchedEffect(ok) { verifyResult = ok }
+                    Text(
+                        when (verifyResult) {
+                            true -> "两端一致，密钥有效。"
+                            false -> "验证码不一致：请确认密钥来自当前账号，且手机时间已自动同步。"
+                            null -> ""
+                        },
+                        color = if (verifyResult == true) g.success else g.danger, fontSize = 13.sp,
+                    )
+                }
+            }
+            Text("保存后在 GitHub 输入生成的码完成启用。密钥通过 Android Keystore 加密。", color = g.fgMuted, fontSize = 13.sp)
+        }
     }
 }

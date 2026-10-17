@@ -33,7 +33,7 @@ object OrganizationAccess {
                 warnings += "$label：已读取 2,000 条，列表可能不完整"
             } catch (e: CancellationException) { throw e
             } catch (e: Exception) {
-                warnings += "$label：${e.message ?: "读取失败"}"
+                warnings += "$label：${e.networkHint() ?: e.message ?: "读取失败"}"
             }
         }
         fun add(o: Org) { if (o.login.isNotBlank()) orgs[o.login.lowercase(Locale.ROOT)] = o }
@@ -79,7 +79,7 @@ object OrganizationAccess {
                 }
                 Check(label, r.code in 200..299 && sso?.startsWith("required") != true, message, url)
             } catch (e: CancellationException) { throw e
-            } catch (e: Exception) { Check(label, false, e.message ?: "读取失败") }
+            } catch (e: Exception) { Check(label, false, e.networkHint() ?: e.message ?: "读取失败") }
         }
     }
 }

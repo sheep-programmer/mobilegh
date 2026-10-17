@@ -56,7 +56,7 @@ object Web {
             .header("Accept", "text/html")
             .header("Accept-Language", "en-US,en;q=0.9")
             .build()
-        client.newCall(request).await().use { response ->
+        client.routed().newCall(request).await().use { response ->
             if (!response.isSuccessful) throw ApiException(response.code, "公开网页加载失败 (${response.code})")
             val finalUrl = response.request.url
             if (finalUrl.host != "github.com" || finalUrl.pathSegments.firstOrNull() in setOf("login", "session", "sessions")) {

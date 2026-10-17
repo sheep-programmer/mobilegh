@@ -91,7 +91,7 @@ fun HomeScreen() {
             onRecent = { nav.push(Screen.RecentRepositories) },
         ),
     ) { nav.push(savedSearchScreen(it.query)) }
-    LaunchedEffect(nav.reselect) { if (nav.reselect > 0 && nav.tab == Tab.Home) state.animateScrollToItem(0) }
+    com.mobilegh.nav.OnTabReselect(Tab.Home) { state.animateScrollToItem(0) }
 
     Page(
         "首页", back = false, contentWindowInsets = WindowInsets(0),

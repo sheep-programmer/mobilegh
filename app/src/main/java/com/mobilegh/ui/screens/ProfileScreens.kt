@@ -227,7 +227,7 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
         if (!isSelf && following.value == null) following.value = runCatching { GitHub.isFollowing(login) }.getOrNull()
     }
     val state = rememberLazyListState()
-    if (me) LaunchedEffect(nav.reselect) { if (nav.reselect > 0 && nav.tab == Tab.Me) state.animateScrollToItem(0) }
+    if (me) com.mobilegh.nav.OnTabReselect(Tab.Me) { state.animateScrollToItem(0) }
 
     Page(
         if (me) "我的" else login, back = !me, contentWindowInsets = if (me) WindowInsets(0) else null,

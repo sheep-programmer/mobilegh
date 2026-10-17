@@ -98,7 +98,7 @@ fun ReposTab() {
         if (filter == 3) emptyList() else GitHub.myRepos(filters[filter].second, SORTS[sort].first, vis[visibility].first, p, force)
     }
     val state = rememberLazyListState()
-    LaunchedEffect(nav.reselect) { if (nav.reselect > 0 && nav.tab == Tab.Repos) state.animateScrollToItem(0) }
+    com.mobilegh.nav.OnTabReselect(Tab.Repos) { state.animateScrollToItem(0) }
     LaunchedEffect(query, key) { if (query.isNotBlank() && filter != 3) pager.loadAll() }
     Page("仓库", back = false, contentWindowInsets = WindowInsets(0), actions = {
         OcButton(R.drawable.oc_plus, { nav.push(Screen.CreateRepo) })
@@ -131,7 +131,12 @@ fun ReposTab() {
                 }
             } else {
                 PagedList(pager, Modifier.weight(1f), state = state, empty = "没有匹配的仓库", emptyIcon = R.drawable.oc_repo,
-                    emptyAction = "新建仓库", onEmptyAction = { nav.push(Screen.CreateRepo) }, itemKey = { it.id }, itemFilter = {
+                    emptyAction = if (query.isNotBlank() || hideForks || visibility != 0 || filter != 0) "清除筛选" else "新建仓库",
+                    onEmptyAction = {
+                        if (query.isNotBlank() || hideForks || visibility != 0 || filter != 0) {
+                            query = ""; hideForks = false; visibility = 0; filter = 0
+                        } else nav.push(Screen.CreateRepo)
+                    }, itemKey = { it.id }, itemFilter = {
                     (visibility == 0 || (visibility == 2) == it.isPrivate) && (!hideForks || !it.fork) &&
                         (query.isBlank() || it.fullName.contains(query.trim(), true) || it.description?.contains(query.trim(), true) == true)
                 }) { RepoItem(it) }

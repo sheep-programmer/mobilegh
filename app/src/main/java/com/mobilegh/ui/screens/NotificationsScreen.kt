@@ -162,18 +162,19 @@ private fun subjectNumber(n: Notification): Int? =
  * 标为未读、取消完成、已完成列表都没有服务端接口，只能保存在本机。
  * 实例放在页面 Entry 的 bag 里，切走再回来不会丢。
  */
-private class NotifState {
+private class NotifState(saved: com.mobilegh.data.LocalNotifications) {
+    val known = mutableStateListOf<Notification>().apply { addAll(saved.known) }
     /** 服务端仍为 unread，但本机已点开或标为已读 */
-    val read = mutableStateListOf<String>()
+    val read = mutableStateListOf<String>().apply { addAll(saved.read) }
 
     /** 服务端已是已读，本机又改回未读 */
-    val markedUnread = mutableStateListOf<String>()
+    val markedUnread = mutableStateListOf<String>().apply { addAll(saved.unread) }
 
     /** 已完成：不再出现在收件箱里 */
-    val done = mutableStateListOf<String>()
+    val done = mutableStateListOf<String>().apply { addAll(saved.done.map { it.id }) }
 
     /** 已完成条目本身，供「已完成」视图使用 */
-    val doneItems = mutableStateListOf<Notification>()
+    val doneItems = mutableStateListOf<Notification>().apply { addAll(saved.done) }
 
     /** 本机刚取消订阅 / 忽略的线程 */
     val unsubscribed = mutableStateListOf<String>()
@@ -258,6 +259,8 @@ private suspend fun runBulk(ids: List<String>, onProgress: (Int) -> Unit, run: s
             async {
                 try {
                     sem.withPermit { run(id) }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Throwable) {
                     failures.add(id)
                     if (firstError == null) firstError = e.friendly()
@@ -538,7 +541,7 @@ fun NotificationsScreen() {
     val selected = remember { mutableStateListOf<String>() }
 
     // 放在 Entry 的 bag 里：切到别的 Tab 再回来，本机的已读 / 已完成状态不会丢
-    val state = retain("notif:state") { NotifState() }
+    val state = retain("notif:state") { NotifState(com.mobilegh.data.NotificationStore.read(it.login.orEmpty())) }
     val snackbar = retain("notif:snackbar") { SnackbarHostState() }
 
     // 「已完成」视图不需要单独的分页：沿用上一次的服务端筛选
@@ -546,14 +549,39 @@ fun NotificationsScreen() {
     val af = apiFilter // 固定到当前 Pager，切换筛选时不影响进行中的请求
     val pager = rememberPager("notif:$af") { p, f -> GitHub.notifications(af == 1, af == 2, p, f) }
     val listState = rememberLazyListState()
-    LaunchedEffect(nav.reselect) { if (nav.reselect > 0 && nav.tab == Tab.Notifications) listState.animateScrollToItem(0) }
+    com.mobilegh.nav.OnTabReselect(Tab.Notifications) { listState.animateScrollToItem(0) }
 
-    // 未读页面：服务端数据变化后精确统计本地未读数（其余页面靠 bumpBadge 即时增减）
-    LaunchedEffect(pager, pager.items.size, pager.loadedOnce, pager.refreshing) {
+    LaunchedEffect(pager) {
+        androidx.compose.runtime.snapshotFlow { pager.items.toList() }.collect { loaded ->
+            val merged = (loaded + state.known).distinctBy { it.id }.take(1000)
+            if (merged != state.known.toList()) { state.known.clear(); state.known.addAll(merged) }
+        }
+    }
+    // 在 Entry 作用域保存：切换 Tab 不取消保存；本机状态与撤销中的操作分开处理。
+    retain("notif:persistence") {
+        entry.scope.launch {
+            androidx.compose.runtime.snapshotFlow {
+                val pending = state.pending.toMap()
+                val reads = state.read.filter { it !in pending } + pending.filterValues { it.wasRead }.keys
+                val unreads = state.markedUnread.filter { it !in pending } + pending.filterValues { it.wasUnread }.keys
+                com.mobilegh.data.LocalNotifications(reads.takeLast(5000), unreads.takeLast(5000),
+                    state.doneItems.filter { it.id !in pending }.take(500), state.known.toList())
+            }.collect { saved ->
+                try {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        entry.login?.let { com.mobilegh.data.NotificationStore.save(it, saved) }
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e
+                } catch (e: Exception) { com.mobilegh.data.AppLog.warn("notifications", "本机通知状态保存失败", e) }
+            }
+        }
+    }
+    val localUnread = (pager.items.toList() + state.known.filter { it.id in state.markedUnread })
+        .distinctBy { it.id }.filter { state.unread(it) }
+    LaunchedEffect(af, localUnread, pager.loadedOnce, pager.end) {
         if (af == 0 && pager.loadedOnce) {
-            val unread = pager.items.filter { state.unread(it) }
-            Badges.unread = unread.size
-            Session.login?.let { com.mobilegh.data.WidgetStore.saveInbox(it, unread, !pager.end) }
+            Badges.unread = localUnread.size
+            entry.login?.let { com.mobilegh.data.WidgetStore.saveInbox(it, pager.items.toList(), !pager.end) }
         }
     }
 
@@ -720,7 +748,8 @@ fun NotificationsScreen() {
     }
 
     // 本地筛掉已完成的条目：如果留给 item lambda 提前 return，会渲染成空白块并撑坏分页
-    val visible = pager.items.filter { it.id !in state.done }
+    val extraUnread = state.known.filter { it.id in state.markedUnread && it.id !in state.done }
+    val visible = (pager.items + extraUnread).distinctBy { it.id }.filter { it.id !in state.done }
     val matched = visible.filter { reason == 0 || REASON_FILTERS[reason].first == it.reason }
     val doneTab = filter == TAB_DONE
     val busy = state.busyLabel != null
@@ -836,6 +865,7 @@ fun NotificationsScreen() {
                         empty = if (filter == 0) "没有未读通知，全部处理完了" else "暂无通知",
                         emptyIcon = R.drawable.oc_bell,
                         itemKey = { it.id },
+                        extraItems = extraUnread,
                         // 不筛 read：点开/标为已读后条目留在列表里（变灰），与 GitHub 客户端一致
                         itemFilter = { it.id !in state.done && (reason == 0 || REASON_FILTERS[reason].first == it.reason) },
                         filteredEmpty = if (reason != 0) "已加载的通知里没有这个原因" else "没有匹配的通知",

@@ -142,13 +142,17 @@ object Api {
         }
         rb.method(method, reqBody)
         val response = try {
-            http.newCall(rb.build()).await()
+            http.routed().newCall(rb.build()).await()
         } catch (e: IOException) {
             AppLog.warn("network", "请求连接失败：" + path.take(180), e)
-            throw ApiException(-1, "网络连接失败：${e.message ?: e.javaClass.simpleName}")
+            throw ApiException(-1, e.networkHint() ?: "网络连接失败，请稍后重试")
         }
-        return withContext(Dispatchers.IO) {
-            response.use { Resp(it.code, it.body.string(), it.headers) }
+        try {
+            return withContext(Dispatchers.IO) {
+                Resp(response.code, response.body.string(), response.headers)
+            }
+        } finally {
+            response.close()
         }
     }
 
@@ -230,6 +234,16 @@ object Api {
     fun encodePath(path: String) = path.split('/').joinToString("/") { java.net.URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
 
     fun q(s: String) = java.net.URLEncoder.encode(s, "UTF-8")
+}
+
+/** 把底层网络异常换成中文提示，不向界面暴露 IP、端口等原始信息；非网络异常返回 null */
+fun Throwable.networkHint(): String? = when (this) {
+    is java.net.UnknownHostException -> "无法解析 GitHub 地址，请检查网络或 DNS 设置"
+    is java.io.InterruptedIOException -> "连接 GitHub 超时，请检查网络或代理后重试"
+    is java.net.SocketException -> "无法连接 GitHub，请检查网络或代理后重试"
+    is javax.net.ssl.SSLException -> "安全连接失败，请检查系统时间或代理证书"
+    is java.net.ProtocolException, is java.io.EOFException -> "网络连接中断，请稍后重试"
+    else -> null
 }
 
 suspend fun Call.await(): Response = suspendCancellableCoroutine { cont ->

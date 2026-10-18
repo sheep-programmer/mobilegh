@@ -43,6 +43,7 @@ import com.mobilegh.nav.Screen
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.OnRepoChanged
 import com.mobilegh.data.RepoWrite
+import com.mobilegh.data.repoFileDownloadUrl
 import androidx.compose.runtime.remember
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.ErrorState
@@ -247,10 +248,11 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
                 FileBody.Binary -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     EmptyState("二进制文件，无法预览", R.drawable.oc_file)
                     GhButton("下载到本机", Modifier.padding(horizontal = 32.dp).fillMaxWidth(), icon = R.drawable.oc_download) {
+                        val priv = com.mobilegh.data.Net.isPrivateRepo("$owner/$name")
                         ctx.downloadFile(
-                            "https://github.com/$owner/$name/raw/${ref ?: "HEAD"}/$path",
+                            repoFileDownloadUrl(owner, name, ref ?: "HEAD", path, priv),
                             path.substringAfterLast('/'),
-                            com.mobilegh.data.Net.isPrivateRepo("$owner/$name"),
+                            priv,
                         )
                     }
                 }

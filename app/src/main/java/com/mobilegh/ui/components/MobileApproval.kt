@@ -44,7 +44,7 @@ fun MobileApprovalCard(modifier: Modifier = Modifier) {
                 if (setup.waitingForBrowser) TextLink("取消授权") { MobileApprovalOAuth.cancel(ctx) }
             } else {
                 Text("@${device.login}", color = g.fg, fontWeight = FontWeight.Medium)
-                SwitchRow("自动检测 2FA 请求", "自动弹窗并发送系统通知", state.enabled) { MobileApprovalMonitor.setEnabled(ctx, it) }
+                SwitchRow("自动检测 2FA 请求", "收到请求自动弹窗（应用在后台时才发通知）", state.enabled) { MobileApprovalMonitor.setEnabled(ctx, it) }
                 Text(if (!state.enabled) "数字审批已关闭" else if (state.approvedId != null) "验证已批准，返回浏览器继续登录。"
                     else if (state.request != null) "有一条验证请求等待确认" else if (state.connected) "已开启，正在自动检测验证请求" else "正在连接 GitHub…",
                     color = if (state.approvedId != null) g.success else g.fgMuted, fontSize = 13.sp)
@@ -157,14 +157,14 @@ fun ApprovalSettingsRows() {
         val status = when {
             !state.enabled -> "已关闭，验证请求不会弹窗"
             state.request != null -> "@${device.login} · 有一条验证请求等待确认"
-            state.connected -> "@${device.login} · 正在检测，收到请求后弹窗并通知"
+            state.connected -> "@${device.login} · 正在检测，收到请求后自动弹窗"
             state.error != null -> "@${device.login} · ${state.error}"
             else -> "@${device.login} · 正在连接 GitHub…"
         }
         SwitchRow("自动检测 2FA 请求", status, state.enabled) { MobileApprovalMonitor.setEnabled(ctx, it) }
         if (state.enabled && !state.connected && state.error != null) ApprovalSetupRow(setup, "连接失败，重新授权可恢复检测", "重新授权")
     }
-    SwitchRow("系统通知", if (notificationsAllowed) "已允许 GitHub 验证提醒" else "开启后可在后台收到验证提醒", notificationsAllowed) {
+    SwitchRow("系统通知", if (notificationsAllowed) "已允许，应用在后台时提醒验证请求" else "开启后可在后台收到验证提醒", notificationsAllowed) {
         runCatching { ctx.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName)) }
             .onFailure { ctx.toast("请在系统设置中开启 mobilegh 通知") }
     }

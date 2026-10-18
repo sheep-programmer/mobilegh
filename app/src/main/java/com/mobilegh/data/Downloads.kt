@@ -36,6 +36,23 @@ import java.util.UUID
 @Serializable
 enum class DownloadState { Preparing, Queued, Running, Waiting, Complete, Failed, Cancelled }
 
+/**
+ * 下载失败的原因是否值得换一个节点重试。
+ *
+ * 空间不足、文件已存在、存储设备不可用、写入失败这类换哪个节点都一样；
+ * 401/403/404/407/451 说明资源本身不可取，反复换节点只会把失败拖得更久。
+ * 其余（连接中断、超时、HTTP 数据错误、跳转过多、5xx、其他 4xx）都换下一个节点试。
+ */
+fun retryableDownloadFailure(reason: Int): Boolean = when (reason) {
+    DownloadManager.ERROR_INSUFFICIENT_SPACE,
+    DownloadManager.ERROR_FILE_ALREADY_EXISTS,
+    DownloadManager.ERROR_DEVICE_NOT_FOUND,
+    DownloadManager.ERROR_FILE_ERROR,
+    -> false
+    in 400..599 -> reason !in setOf(401, 403, 404, 407, 451)
+    else -> true
+}
+
 @Serializable
 data class DownloadTask(
     val key: String = UUID.randomUUID().toString(),
@@ -51,6 +68,13 @@ data class DownloadTask(
     val appDirectory: Boolean = false,
     /** 下载完成后的落地路径。用于打开文件 / 删除本地文件；DownloadManager 的 URI 不可靠。 */
     val filePath: String? = null,
+    /** 公开下载的候选地址（按节点排列）：失败后自动换下一个，私有下载为空（只有一条直连地址） */
+    val targets: List<DownloadTarget> = emptyList(),
+    /** 当前正在使用的候选序号 */
+    val attempt: Int = 0,
+    /** 本次尝试使用的节点，用于统计哪个节点真的能下载 */
+    val nodeId: String? = null,
+    val nodeName: String? = null,
 ) {
     val active get() = state in setOf(DownloadState.Preparing, DownloadState.Queued, DownloadState.Running, DownloadState.Waiting)
     val progress: Float? get() = when {
@@ -69,6 +93,9 @@ object Downloads {
     private var foreground = false
     private val manager get() = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
     private val privateHttp by lazy { OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).build() }
+    /** 没有进度的任务从什么时候开始卡住的（只记内存，用于判断该换节点了） */
+    private val stalledSince = HashMap<String, Long>()
+    private const val STALL_MS = 20_000L
     private val authHosts = setOf("github.com", "api.github.com", "raw.githubusercontent.com", "codeload.github.com")
 
     val tasks = mutableStateListOf<DownloadTask>()
@@ -100,6 +127,8 @@ object Downloads {
             filename = safeFilename(filename ?: Uri.parse(rawUrl).lastPathSegment ?: "download"),
             isPrivate = isPrivate,
             mimeType = mimeType,
+            // 私有下载只有一条解析后的直连地址；公开下载准备好整条节点候选链，失败自动换下一个
+            targets = if (isPrivate) emptyList() else Net.downloadTargets(rawUrl),
         )
         tasks.add(0, task)
         tasks.filter { !it.active }.drop(20).forEach { tasks.remove(it) }
@@ -121,10 +150,16 @@ object Downloads {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                AppLog.error("download", "无法开始下载：" + task.filename, e)
-                if (tasks.firstOrNull { it.key == task.key }?.state != DownloadState.Cancelled) {
-                    update(task.copy(state = DownloadState.Failed, message = e.networkHint() ?: e.message ?: "无法开始下载"))
-                    save()
+                val current = tasks.firstOrNull { it.key == task.key }?.takeIf { it.state != DownloadState.Cancelled }
+                // 起不来也可能是这个节点不通，先换节点，全都试过才把错误显示给用户
+                val rotated = if (current != null) rotate(current, e.networkHint() ?: e.message) else null
+                if (rotated == null) {
+                    AppLog.warn("download", "无法开始下载：" + task.filename + "：" + (e.message ?: e.javaClass.simpleName))
+                    if (current != null) {
+                        reportAllFailed(current)
+                        update(current.copy(state = DownloadState.Failed, message = e.networkHint() ?: e.message ?: "无法开始下载"))
+                        save()
+                    }
                 }
             }
         }
@@ -133,15 +168,25 @@ object Downloads {
     private fun enqueue(task: DownloadTask, token: String?): DownloadTask {
         var url = task.url
         var authorization: String? = null
+        // 候选链里的当前一条；旧记录没有候选链时退回单节点选择
+        val target = task.targets.getOrNull(task.attempt)
         if (task.isPrivate) {
             require(!token.isNullOrBlank()) { "请先登录 GitHub 后下载" }
             val resolved = resolvePrivateUrl(url, token)
             url = resolved.first
             authorization = resolved.second
+        } else if (target != null) {
+            url = target.url
         } else {
             url = Net.download(url)
         }
-        AppLog.info("download", task.filename + " 使用节点：" + if (task.isPrivate) "直连 GitHub" else Net.downloadNode().name + "；地址主机：" + (Uri.parse(url).host ?: "unknown"))
+        val nodeName = if (task.isPrivate) "直连 GitHub" else target?.nodeName ?: Net.downloadNode().name
+        AppLog.info(
+            "download",
+            task.filename + " 使用节点：" + nodeName +
+                if (target != null && task.targets.size > 1) "（第 ${task.attempt + 1}/${task.targets.size} 个候选）" else "" +
+                "；地址主机：" + (Uri.parse(url).host ?: "unknown"),
+        )
         val appDirectory = Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
             ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
         @Suppress("DEPRECATION")
@@ -171,7 +216,58 @@ object Downloads {
             state = DownloadState.Queued,
             appDirectory = appDirectory,
             filePath = File(directory, actualName).absolutePath,
+            nodeId = if (task.isPrivate) null else target?.nodeId,
+            nodeName = nodeName,
         )
+    }
+
+    /**
+     * 换用下一个候选节点重试。返回换过节点的新任务；返回 null 表示已经试完所有候选，
+     * 调用方按失败处理。私有下载和手动选定的节点都不换。
+     */
+    private suspend fun rotate(task: DownloadTask, reason: String?): DownloadTask? {
+        val next = task.attempt + 1
+        // 没有下一个候选了：停在最后一个节点上继续等系统自己重试，失败由调用方统一处理
+        if (task.isPrivate || next >= task.targets.size) return null
+        val failed = task.targets[task.attempt]
+        val target = task.targets[next]
+        // 新的一次尝试重新计时，否则会拿着上一个节点的超时时间立刻再换一次
+        stalledSince.remove(task.key)
+        AppLog.warn(
+            "download",
+            task.filename + " 节点 " + failed.nodeName + " 失败" + (reason?.let { "（$it）" } ?: "") + "，改用 " + target.nodeName + " 重试",
+        )
+        Net.markDownloadFail(failed.nodeId)
+        // 清掉上一次的排队记录和残留的半截文件，避免下一个节点因同名文件直接失败
+        task.managerId?.let { id -> withContext(Dispatchers.IO) { runCatching { manager.remove(id) } } }
+        withContext(Dispatchers.IO) { task.filePath?.let { path -> runCatching { File(path).delete() } } }
+        val rotating = tasks.firstOrNull { it.key == task.key } ?: return null
+        if (rotating.state == DownloadState.Cancelled) return null
+        val updated = rotating.copy(
+            attempt = next,
+            state = DownloadState.Preparing,
+            managerId = null,
+            downloaded = 0,
+            total = -1,
+            message = "节点 " + failed.nodeName + " 不通，正在改用 " + target.nodeName,
+        )
+        update(updated)
+        save()
+        return try {
+            enqueue(updated, Session.token).also { update(it); save() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            rotate(updated, e.networkHint() ?: e.message)
+        }
+    }
+
+    /** 所有候选都试过之后的收尾：记下失败节点并重新测速，供下次选择参考 */
+    private fun reportAllFailed(task: DownloadTask) {
+        if (task.targets.size <= 1) return
+        task.targets.getOrNull(task.attempt)?.let { Net.markDownloadFail(it.nodeId) }
+        AppLog.warn("download", task.filename + " 所有下载节点都失败了")
+        Net.speedTestAsync()
     }
 
     private fun resolvePrivateUrl(initial: String, token: String): Pair<String, String?> {
@@ -180,7 +276,7 @@ object Downloads {
             require(url.isHttps) { "GitHub 下载地址必须使用 HTTPS" }
             if (url.host !in authHosts) return url.toString() to null
             val req = Request.Builder().url(url).header("Authorization", "Bearer " + token)
-                .header("Accept", "application/octet-stream").build()
+                .header("Accept", privateDownloadAccept(url.toString())).build()
             privateHttp.routed().newCall(req).execute().use { response ->
                 if (response.code in 300..399) {
                     val next = response.header("Location")?.let(url::resolve) ?: error("下载跳转缺少地址")
@@ -214,10 +310,11 @@ object Downloads {
     suspend fun refresh() {
         val snapshot = tasks.filter { it.managerId != null && it.state != DownloadState.Cancelled }
         if (snapshot.isEmpty()) return
-        val rows = withContext(Dispatchers.IO) {
+        val queried = withContext(Dispatchers.IO) {
             runCatching {
                 manager.query(DownloadManager.Query().setFilterById(*snapshot.map { it.managerId!! }.toLongArray())).use { cursor ->
                     val result = HashMap<Long, DownloadTask>()
+                    val reasons = HashMap<Long, Int>()
                     while (cursor.moveToNext()) {
                         val id = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_ID))
                         val original = snapshot.firstOrNull { it.managerId == id } ?: continue
@@ -230,6 +327,7 @@ object Downloads {
                             DownloadManager.STATUS_PAUSED -> DownloadState.Waiting
                             else -> DownloadState.Queued
                         }
+                        if (state == DownloadState.Failed) reasons[id] = reason
                         result[id] = original.copy(
                             state = state,
                             downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)).coerceAtLeast(0),
@@ -241,20 +339,77 @@ object Downloads {
                             },
                         )
                     }
-                    result
+                    result to reasons
                 }
             }.getOrNull()
         } ?: return
+        val rows = queried.first
+        val reasons = queried.second
         var persist = false
         snapshot.forEach { previous ->
             val current = tasks.firstOrNull { it.key == previous.key } ?: return@forEach
             if (current.state == DownloadState.Cancelled) return@forEach
-            val next = rows[previous.managerId] ?: previous.copy(state = DownloadState.Failed, message = "下载记录或文件已被移除，请重试")
+            var next = rows[previous.managerId] ?: previous.copy(state = DownloadState.Failed, message = "下载记录或文件已被移除，请重试")
+            val reason = reasons[previous.managerId]
+            val stalled = stalledReason(current.key, next, reason)
+            // 第一次看到失败、且原因像是节点不通时自动换下一个节点，而不是直接把错误抛给用户
+            if (next.state == DownloadState.Failed && current.state != DownloadState.Failed &&
+                reason != null && retryableFailure(reason)
+            ) {
+                val rotated = rotate(current, next.message)
+                next = rotated ?: if (current.targets.size > 1) {
+                    reportAllFailed(current)
+                    next.copy(message = "所有下载节点都不通，请检查网络后重试")
+                } else next
+            } else if (stalled != null) {
+                // 节点不通时系统会自己重试好几轮，等它自己认输要几分钟，这里先换节点
+                next = rotate(current, stalled) ?: next
+            }
+            if (next.state in setOf(DownloadState.Complete, DownloadState.Failed, DownloadState.Cancelled)) {
+                stalledSince.remove(current.key)
+            }
             if (current != next) persist = true
             update(next)
         }
         if (persist) save()
     }
+
+    /**
+     * 卡在某个节点上的判断。
+     *
+     * 交给系统之后一直没有进展（没有任何字节，或者暂停了很久），说明这个节点不通：
+     * 系统自己会重试好几轮，等它认输要好几分钟，不如先换下一个节点。
+     * 「等待网络连接」不换——那种情况网络恢复后系统会自己续传。
+     * 返回卡住的原因（用于换节点），没卡住返回 null。
+     */
+    private fun stalledReason(key: String, task: DownloadTask, reason: Int?): String? {
+        val waitingForNetwork = task.state == DownloadState.Waiting &&
+            (reason == DownloadManager.PAUSED_WAITING_FOR_NETWORK || reason == DownloadManager.PAUSED_QUEUED_FOR_WIFI)
+        // 排在另一个正在下载的任务后面等着，不算卡住
+        val queuedBehindAnother = tasks.any { it.key != key && it.state == DownloadState.Running }
+        val stuck = task.active && !waitingForNetwork && !queuedBehindAnother &&
+            (task.state != DownloadState.Running || task.downloaded <= 0)
+        if (!stuck) {
+            stalledSince.remove(key)
+            return null
+        }
+        val since = stalledSince[key]
+        if (since == null) {
+            stalledSince[key] = System.currentTimeMillis()
+            return null
+        }
+        // 已经下了一部分又停住的多给一点时间：可能是大文件在慢速网络上，系统还能续传
+        val limit = if (task.downloaded > 0) STALL_MS * 3 else STALL_MS
+        return if (System.currentTimeMillis() - since >= limit) "节点没有响应" else null
+    }
+
+    /**
+     * 换节点重试是否有可能成功。
+     *
+     * 空间不足、文件已存在、存储设备不可用、写入失败这类原因换哪个节点都一样；
+     * 权限/未找到（401/403/404/407/451）也说明是资源本身的问题，不该反复重试。
+     */
+    private fun retryableFailure(reason: Int) = retryableDownloadFailure(reason)
 
     fun cancel(task: DownloadTask) {
         if (!task.active) return
@@ -416,6 +571,7 @@ object Downloads {
     suspend fun clearHistory(ctx: Context, withFiles: Boolean): Pair<Int, Int> {
         val snapshot = tasks.toList()
         tasks.clear()
+        stalledSince.clear()
         selectedKey = null
         showHistory = false
         save()
@@ -458,6 +614,13 @@ object Downloads {
             if (old != task) {
                 if (old.state != task.state && task.state in setOf(DownloadState.Complete, DownloadState.Failed, DownloadState.Cancelled)) {
                     AppLog.info("download", task.filename + "：" + task.state.name + (task.message?.let { " · " + it } ?: ""))
+                }
+                if (old.state != task.state && task.state == DownloadState.Waiting) {
+                    AppLog.info("download", task.filename + "：暂停（" + (task.message ?: "原因未知") + "）")
+                }
+                // 记下哪个节点真的下成了：下次优先用它，失败过的节点排到最后
+                if (old.state != task.state && task.state == DownloadState.Complete) {
+                    task.nodeId?.let(Net::markDownloadOk)
                 }
                 tasks[index] = task
             }

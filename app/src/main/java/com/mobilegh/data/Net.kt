@@ -31,6 +31,10 @@ enum class NodeType { Direct, JsDelivr, Prefix }
 @Serializable
 data class CdnNode(val id: String, val name: String, val type: NodeType, val base: String, val custom: Boolean = false)
 
+/** 一次下载尝试：使用哪个节点、该节点上的实际地址 */
+@Serializable
+data class DownloadTarget(val nodeId: String, val nodeName: String, val url: String)
+
 /**
  * 网络加速：为 raw 文件、README 图片、Release 下载、克隆地址选择最快的 CDN / 代理节点。
  *
@@ -120,6 +124,25 @@ object Net {
 
     /** 当前下载使用的节点，供下载日志和设置页显示。 */
     fun downloadNode(): CdnNode = dlNode()
+
+    /** 本次运行中最近一次下载成功的节点；失败过的节点在下次选择时排到最后 */
+    @Volatile private var downloadOkId: String? = null
+    private val downloadFailed = Collections.synchronizedSet(HashSet<String>())
+
+    fun markDownloadOk(id: String) { downloadOkId = id; downloadFailed.remove(id) }
+    fun markDownloadFail(id: String) { downloadFailed.add(id); if (downloadOkId == id) downloadOkId = null }
+
+    /**
+     * 下载候选地址：按节点顺序排列，第一个失败就自动换下一个，直连 GitHub 永远兜底。
+     *
+     * 手动选定的节点只按用户的选择来（不擅自换），关闭加速时只有直连。
+     */
+    fun downloadTargets(url: String): List<DownloadTarget> {
+        if (mode == 2 || !isGithubDownload(url)) return listOf(DownloadTarget(DIRECT.id, DIRECT.name, url))
+        val preferred = dlNode()
+        val candidates = if (mode == 1) listOf(preferred) else nodes
+        return orderDownloadTargets(candidates, url, latency, downloadFailed, downloadOkId ?: preferred.id)
+    }
 
     fun markPrivate(fullName: String) {
         privateRepos.add(fullName.lowercase())
@@ -348,4 +371,49 @@ object Net {
     }
 
     fun nodeName(id: String) = byId(id)?.name ?: id
+}
+
+/**
+ * Release 资源的下载地址。
+ *
+ * github.com/…/releases/download/… 是网页地址，私有仓库只认浏览器会话；带 API token
+ * 请求一律返回 404（公开仓库正常 302）。私有仓库必须走 API 资源端点，并带
+ * `Accept: application/octet-stream`，见 [Downloads.resolvePrivateUrl]。
+ */
+fun releaseAssetDownloadUrl(owner: String, name: String, assetId: Long, browserUrl: String, isPrivate: Boolean): String =
+    if (isPrivate && assetId > 0) "https://api.github.com/repos/$owner/$name/releases/assets/$assetId" else browserUrl
+
+/** 文件下载地址：私有仓库的 github.com/…/raw/… 同样只认浏览器会话，改为 raw 主机 + token */
+fun repoFileDownloadUrl(owner: String, name: String, ref: String, path: String, isPrivate: Boolean): String =
+    if (isPrivate) "https://raw.githubusercontent.com/$owner/$name/$ref/$path"
+    else "https://github.com/$owner/$name/raw/$ref/$path"
+
+/** Actions 产物端点只接受 JSON 的 Accept（发 octet-stream 会得 415），其余下载端点要 octet-stream */
+fun privateDownloadAccept(url: String): String =
+    if (url.contains("/actions/artifacts/")) "application/vnd.github+json" else "application/octet-stream"
+
+/**
+ * 下载地址按节点排序：上次成功的 → 当前选中的 → 测速快的 → 未测速的 → 失败过的，
+ * 直连 GitHub 永远排在最后兜底。
+ *
+ * 只有转发类（Prefix）节点能代理 Release 资源和源码包：jsDelivr 不提供这些文件，
+ * 直连节点不需要改写地址。
+ */
+fun orderDownloadTargets(
+    candidates: List<CdnNode>,
+    url: String,
+    latency: Map<String, Long>,
+    failedNodes: Set<String>,
+    preferredId: String,
+    direct: CdnNode = CdnNode("direct", "直连 GitHub", NodeType.Direct, ""),
+): List<DownloadTarget> {
+    val ordered = candidates.filter { it.type == NodeType.Prefix }.sortedWith(
+        compareBy<CdnNode>(
+            { it.id in failedNodes },
+            { it.id != preferredId },
+            { latency[it.id]?.takeIf { l -> l >= 0 } ?: Long.MAX_VALUE },
+        ),
+    )
+    val list = ordered.map { DownloadTarget(it.id, it.name, it.base + url) }
+    return (list + DownloadTarget(direct.id, direct.name, url)).distinctBy { it.url }
 }

@@ -18,39 +18,35 @@ import com.mobilegh.R
 object MobileApprovalNotifications {
     const val EXTRA_REQUEST = "com.mobilegh.extra.APPROVAL_REQUEST"
     const val EXTRA_OPEN = "com.mobilegh.extra.OPEN_APPROVAL"
-    const val MONITOR_ID = 20001
+    private const val REQUEST_RC = 20001
     private const val REQUEST_ID = 20002
-    private const val REQUEST_CHANNEL = "github_2fa_requests"
-    private const val MONITOR_CHANNEL = "github_2fa_monitor"
+    private const val REQUEST_CHANNEL = "github_2fa_requests_v2"
+    private const val LEGACY_REQUEST_CHANNEL = "github_2fa_requests"
+    private const val LEGACY_MONITOR_CHANNEL = "github_2fa_monitor"
 
     fun allowed(context: Context): Boolean = (Build.VERSION.SDK_INT < 33 ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
         NotificationManagerCompat.from(context).areNotificationsEnabled()
 
+    /**
+     * 验证请求通知只在应用不在前台时发送：应用开着就直接弹对话框，不做任何系统提醒。
+     * 频道用普通重要级别（不悬浮、不打断），旧的「正在监控」常驻通知频道一并清掉。
+     */
     fun channels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(REQUEST_CHANNEL, "GitHub 两步验证", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "GitHub 登录与敏感操作的数字确认请求"
+        manager.createNotificationChannel(NotificationChannel(REQUEST_CHANNEL, "GitHub 两步验证", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            description = "应用不在前台时，提醒有一条 GitHub 数字确认请求"
             lockscreenVisibility = Notification.VISIBILITY_PRIVATE
         })
-        manager.createNotificationChannel(NotificationChannel(MONITOR_CHANNEL, "数字审批后台监听", NotificationManager.IMPORTANCE_LOW).apply {
-            description = "保持 GitHub 验证请求的自动检测"
-            setShowBadge(false)
-        })
+        runCatching { manager.deleteNotificationChannel(LEGACY_REQUEST_CHANNEL) }
+        runCatching { manager.deleteNotificationChannel(LEGACY_MONITOR_CHANNEL) }
     }
 
     private fun intent(context: Context, request: Int? = null): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             .putExtra(EXTRA_OPEN, true)
         request?.let { intent.putExtra(EXTRA_REQUEST, it) }
-        return PendingIntent.getActivity(context, request ?: MONITOR_ID, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    }
-
-    fun monitoring(context: Context): Notification {
-        channels(context)
-        return NotificationCompat.Builder(context, MONITOR_CHANNEL).setSmallIcon(R.drawable.oc_shield_lock)
-            .setContentTitle("GitHub 数字审批已开启").setContentText("正在自动检测验证请求")
-            .setContentIntent(intent(context)).setOngoing(true).setSilent(true).setCategory(NotificationCompat.CATEGORY_SERVICE).build()
+        return PendingIntent.getActivity(context, request ?: REQUEST_RC, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
     fun request(context: Context, device: MobileApprovalDevice, request: MobileApprovalRequest): Boolean {
@@ -59,7 +55,7 @@ object MobileApprovalNotifications {
         val notification = NotificationCompat.Builder(context, REQUEST_CHANNEL).setSmallIcon(R.drawable.oc_shield_lock)
             .setContentTitle("GitHub 验证请求").setContentText("@${device.login} · 点击输入浏览器显示的数字")
             .setContentIntent(intent(context, request.id)).setAutoCancel(true).setOnlyAlertOnce(true)
-            .setTimeoutAfter(120_000).setPriority(NotificationCompat.PRIORITY_HIGH).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setTimeoutAfter(120_000).setPriority(NotificationCompat.PRIORITY_DEFAULT).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setCategory(NotificationCompat.CATEGORY_STATUS).build()
         @Suppress("MissingPermission")
         return try {

@@ -33,6 +33,7 @@ import com.mobilegh.R
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.Net
 import com.mobilegh.data.Release
+import com.mobilegh.data.releaseAssetDownloadUrl
 import com.mobilegh.data.Repo
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
@@ -210,7 +211,7 @@ private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean,
                         Modifier.fillMaxWidth().clickable {
                             info = FileInfo(
                                 name = a.name,
-                                url = a.browserDownloadUrl,
+                                url = releaseAssetDownloadUrl(owner, name, a.id, a.browserDownloadUrl, priv),
                                 isPrivate = priv,
                                 mimeType = a.contentType,
                                 details = listOf(

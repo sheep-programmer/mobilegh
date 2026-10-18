@@ -4,8 +4,6 @@ import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
-import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import com.mobilegh.data.AppLog
@@ -13,10 +11,14 @@ import com.mobilegh.data.MobileApprovalDevice
 import com.mobilegh.data.MobileApprovalPush
 import com.mobilegh.data.MobileApproval
 import com.mobilegh.data.MobileApprovalMonitor
-import com.mobilegh.data.MobileApprovalNotifications
 import kotlinx.coroutines.*
 
-/** User-visible persistent monitoring; Android receives notifications even when our Activity is stopped. */
+/**
+ * 验证请求的自动检测：应用在前台时只弹对话框，退到后台才发一条提醒通知。
+ *
+ * 这里刻意不用前台服务（前台服务必须常驻一条通知），所以后台保活是尽力而为：
+ * 系统回收进程后由 START_STICKY 重启，息屏时靠「允许后台运行」豁免更稳。
+ */
 class MobileApprovalService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var job: Job? = null
@@ -24,13 +26,6 @@ class MobileApprovalService : Service() {
     private var push: MobileApprovalPush? = null
     private var device: MobileApprovalDevice? = null
     private var pushConnected = false
-
-    override fun onCreate() {
-        super.onCreate()
-        val notification = MobileApprovalNotifications.monitoring(this)
-        if (Build.VERSION.SDK_INT >= 34) startForeground(MobileApprovalNotifications.MONITOR_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        else startForeground(MobileApprovalNotifications.MONITOR_ID, notification)
-    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         MobileApprovalMonitor.reload(this)
@@ -42,6 +37,9 @@ class MobileApprovalService : Service() {
         }
         if (pushJob?.isActive != true) pushJob = scope.launch {
             var retry = 2000L
+            // 推送连接断了会一直重连：只记第一次和每 10 次，否则日志会被"正在重连"刷满
+            var failures = 0
+            var loggedConnected = false
             while (isActive && MobileApproval.enabled(this@MobileApprovalService)) {
                 try {
                     val credentials = MobileApproval.preparePush(this@MobileApprovalService, activeDevice)
@@ -52,7 +50,13 @@ class MobileApprovalService : Service() {
                     push = connection
                     connection.listen(onConnected = { ready -> withContext(Dispatchers.Main.immediate) {
                         pushConnected = ready
-                        if (ready) { retry = 2000; AppLog.info("2fa_push", "认证推送连接已就绪") }
+                        if (ready) {
+                            retry = 2000
+                            if (!loggedConnected) { AppLog.info("2fa_push", "认证推送连接已就绪"); loggedConnected = true }
+                            // 反复瞬断不记流水账，只在真正断了一阵子之后报一次恢复
+                            else if (failures >= 3) AppLog.info("2fa_push", "认证推送已重连（此前失败 " + failures + " 次）")
+                            failures = 0
+                        }
                     } }, onAuthRequest = { id, persistentId -> withContext(Dispatchers.Main.immediate) {
                         if (persistentId != null && !ids.add(persistentId)) return@withContext
                         if (persistentId != null) prefs.edit().putStringSet(key, ids.takeLastIds()).apply()
@@ -68,7 +72,10 @@ class MobileApprovalService : Service() {
                 } catch (e: CancellationException) { throw e
                 } catch (_: Exception) {
                     pushConnected = false
-                    AppLog.warn("2fa_push", "认证推送连接中断，正在重连；请求检测继续运行")
+                    failures++
+                    if (failures == 1 || failures % 10 == 0) {
+                        AppLog.warn("2fa_push", "认证推送连接中断，正在重连（第 " + failures + " 次）；请求检测继续运行")
+                    }
                 }
                 delay(retry)
                 retry = (retry * 2).coerceAtMost(30_000)

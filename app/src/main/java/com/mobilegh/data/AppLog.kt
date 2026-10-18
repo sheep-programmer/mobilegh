@@ -75,11 +75,19 @@ object AppLog {
     }
 
     private fun entry(level: String, category: String, message: String, error: Throwable?): AppLogEntry {
-        val detail = error?.let {
-            StringWriter().also { sw -> it.printStackTrace(PrintWriter(sw)) }.toString().take(12000)
-        }
+        val detail = error?.let { if (level == "ERROR") stack(it) else brief(it) }
         return AppLogEntry(level = level, category = category, message = safe(message), detail = detail, thread = Thread.currentThread().name)
     }
+
+    private fun stack(e: Throwable) = StringWriter().also { e.printStackTrace(PrintWriter(it)) }.toString().take(12000)
+
+    /**
+     * WARN 只留一行摘要。
+     *
+     * 网络类警告每次重试、每个候选节点都会触发，完整堆栈会把日志刷满（一次失败几十行），
+     * 真正需要堆栈的崩溃和错误走 [stack]。
+     */
+    private fun brief(e: Throwable) = (e.javaClass.simpleName + ": " + (e.message ?: "")).trim().take(300)
 
     private fun write(entry: AppLogEntry) {
         runCatching { Log.println(if (entry.level == "ERROR") Log.ERROR else if (entry.level == "WARN") Log.WARN else Log.INFO, TAG, "[${entry.category}] ${entry.message}") }

@@ -47,16 +47,27 @@ object MobileApprovalMonitor {
         }
     }
 
+    /**
+     * 启动检测。用普通服务（不是前台服务）：前台服务必须常驻一条通知，
+     * 而验证请求只需要「应用开着时弹窗、退到后台时提醒一次」。
+     */
     fun ensureStarted(context: Context) {
         reload(context)
+        // 顺手清掉旧版本留下的「正在监控」常驻通知频道
+        runCatching { MobileApprovalNotifications.channels(context) }
         if (state.value.device == null || !state.value.enabled) return
-        runCatching { ContextCompat.startForegroundService(context, Intent(context, MobileApprovalService::class.java)) }
-            .onFailure { AppLog.warn("2fa", "系统暂未允许后台验证监听，请打开 App 后重试") }
+        runCatching { context.startService(Intent(context, MobileApprovalService::class.java)) }
+            .onFailure { AppLog.warn("2fa", "系统暂未允许后台验证检测，请打开 App 后重试") }
     }
 
     fun setForeground(context: Context, visible: Boolean) {
         foreground = visible
-        if (visible) { ensureStarted(context); refresh(context) }
+        if (visible) {
+            // 人已经在应用里了，后台那条提醒没有意义，弹窗才是主路径
+            MobileApprovalNotifications.clearRequest(context)
+            ensureStarted(context)
+            refresh(context)
+        }
     }
 
     fun setEnabled(context: Context, enabled: Boolean) {
@@ -112,7 +123,8 @@ object MobileApprovalMonitor {
             val visible = fromNotification || current.dialogVisible || (changed && dismissedId != request.id)
             mutableState.value = current.copy(request = request, dialogVisible = visible, connected = true,
                 error = if (changed) null else current.error, approvedId = if (changed) null else current.approvedId)
-            if (notifiedId != request.id) {
+            // 应用开着就直接弹对话框，不发系统通知；只有退到后台才提醒一次
+            if (!foreground && notifiedId != request.id) {
                 if (MobileApprovalNotifications.request(context, device, request)) notifiedId = request.id
             }
             if (changed) AppLog.info("2fa", "收到 GitHub 验证请求 ${request.id}")

@@ -78,11 +78,17 @@ fun HtmlView(
                 settings.allowContentAccess = false
                 settings.textZoom = 100
                 addJavascriptInterface(object {
+                    /** 同一个 WebView 只记一次：页面里有循环图片时高度会反复超限 */
+                    @Volatile private var warned = false
+
                     @JavascriptInterface
                     fun h(v: Int) = post {
                         // JS 返回的是内容像素；异常页面/循环图片可能回报几十万像素，
                         // 直接换算成 dp 会触发 Compose Constraints 崩溃。
-                        if (v > heightLimit) AppLog.warn("webview", "HTML 高度异常：" + v + "px，已限制")
+                        if (v > heightLimit && !warned) {
+                            warned = true
+                            AppLog.warn("webview", "HTML 高度异常：" + v + "px，已限制")
+                        }
                         height = v.coerceIn(24, heightLimit)
                     }
 
@@ -151,7 +157,9 @@ fun wrapHtml(body: String, dark: Boolean): String = """
 <script>
 (function(){
   var c=document.getElementById('c');
-  function r(){Bridge.h(Math.ceil(c.getBoundingClientRect().height)+2);}
+  // ResizeObserver 每次布局都会回调；高度没变就不往原生层报，否则每次重排都打一条日志
+  var last=-1;
+  function r(){var v=Math.ceil(c.getBoundingClientRect().height)+2;if(v===last)return;last=v;Bridge.h(v);}
   new ResizeObserver(r).observe(c); r();
   var IMG=/\.(png|jpe?g|gif|webp|svg|avif|bmp)([?#]|$)/i;
   document.addEventListener('click',function(e){

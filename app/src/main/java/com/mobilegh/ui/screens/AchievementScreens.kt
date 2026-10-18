@@ -670,7 +670,7 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
 }
 
 @Composable
-private fun GitHubListEditor(list: GitHubStarList?, saving: Boolean, error: String?, onDismiss: () -> Unit, onSave: (String, String, Boolean) -> Unit) {
+fun GitHubListEditor(list: GitHubStarList?, saving: Boolean, error: String?, onDismiss: () -> Unit, onSave: (String, String, Boolean) -> Unit) {
     var name by remember(list?.id) { mutableStateOf(list?.name.orEmpty()) }
     var description by remember(list?.id) { mutableStateOf(list?.description.orEmpty()) }
     var privateList by remember(list?.id) { mutableStateOf(list?.isPrivate ?: false) }
@@ -724,6 +724,13 @@ private fun SyncedRepositoryListsDialog(repo: Repo, account: StarListAccount, on
             finally { loading = false }
         }
     }
+    // 自己还没 Star 的自有仓库也能建列表：GitHub 的列表不要求 Star，界面据此提示
+    var mine by remember { mutableStateOf(false) }
+    LaunchedEffect(account, repo.owner.login, repo.name) {
+        mine = repo.owner.login.equals(Session.login, true) &&
+            runCatching { GitHub.repo(repo.owner.login, repo.name, force = true).permissions?.admin == true }.getOrDefault(false)
+    }
+    val canAdd = snapshot?.starred != false || mine
     LaunchedEffect(account) { load() }
     val original = snapshot?.memberships.orEmpty()
     GhDialog("GitHub 列表", onDismiss = { if (!saving) onDismiss() }, confirm = if (saving) "保存中…" else "保存到 GitHub", confirmEnabled = !saving && !loading && snapshot != null && selected != original, onConfirm = {
@@ -731,7 +738,7 @@ private fun SyncedRepositoryListsDialog(repo: Repo, account: StarListAccount, on
         error = null
         scope.launch {
             try {
-                UserLists.setRepositoryLists(account, repo.owner.login, repo.name, selected, original)
+                UserLists.setRepositoryLists(account, repo.owner.login, repo.name, selected, original, allowUnstarred = mine)
                 onDismiss()
             } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Exception) { error = failure.friendly() }
             finally { saving = false }
@@ -740,17 +747,29 @@ private fun SyncedRepositoryListsDialog(repo: Repo, account: StarListAccount, on
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(repo.fullName.ifBlank { "${repo.owner.login}/${repo.name}" }, fontWeight = FontWeight.SemiBold)
             Text("分类会同步到 GitHub；移除分类不会取消 Star。", color = Gh.c.fgMuted, fontSize = 12.sp)
-            if (snapshot?.starred == false) Text("请先 Star 仓库再添加；仍可移除已有分类。", color = Gh.c.fgMuted, fontSize = 12.sp)
+            if (snapshot?.starred == false) Text(
+                if (mine) "这是你拥有的仓库，可以直接加入列表。" else "请先 Star 仓库再添加；仍可移除已有分类。",
+                color = Gh.c.fgMuted, fontSize = 12.sp,
+            )
             if (error != null) {
                 Text(error!!, color = Gh.c.danger, fontSize = 12.sp)
                 TextButton(onClick = { load() }, enabled = !saving && !loading) { Text("重新加载") }
             }
             if (loading) Loading(Modifier.fillMaxWidth().height(40.dp))
-            if (snapshot?.lists?.isEmpty() == true) Text("暂无 GitHub 列表，先创建一个。", color = Gh.c.fgMuted, fontSize = 13.sp)
+            if (snapshot != null && snapshot!!.lists.isEmpty()) Text("还没有 GitHub 列表。", color = Gh.c.fgMuted, fontSize = 13.sp)
+            if (snapshot != null) Text(
+                if (snapshot!!.lists.isEmpty()) "先新建一个列表，再回来勾选。" else "勾选要加入的列表；没有出现在这里的列表说明该仓库还没有加入。",
+                color = Gh.c.fgMuted, fontSize = 12.sp,
+            )
+            GhButton("新建 GitHub 列表", enabled = !saving && !loading, icon = R.drawable.oc_plus) {
+                // 列表页有完整的「新建列表」入口；这里只负责跳过去
+                onDismiss()
+                nav.push(Screen.StarLists(account.login))
+            }
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 280.dp)) {
                 items(snapshot?.lists.orEmpty(), key = { it.id }) { list ->
                     val checked = list.id in selected
-                    val enabled = !loading && !saving && (snapshot?.starred == true || checked || list.id in original)
+                    val enabled = !loading && !saving && (canAdd || checked || list.id in original)
                     fun toggle() { selected = if (checked) selected - list.id else selected + list.id }
                     Row(Modifier.fillMaxWidth().clickable(enabled = enabled) { toggle() }, verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked, onCheckedChange = { toggle() }, enabled = enabled)

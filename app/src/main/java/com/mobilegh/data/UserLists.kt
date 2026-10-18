@@ -2,6 +2,7 @@ package com.mobilegh.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -55,6 +56,7 @@ class UserListsClient internal constructor(
         const val MAX_LISTS = 100
         const val MAX_SCAN_ITEMS = 10_000
         const val MAX_SCAN_PAGES = 100
+        const val MAX_LIST_ITEMS = 50_000
         const val MAX_DETAIL_ITEMS = 5000
         const val MAX_BATCH_ADD = 10
         const val MAX_NAME = 80
@@ -148,7 +150,14 @@ class UserListsClient internal constructor(
         require(data.requiredObject("deleteUserList").requiredObject("user").requiredString("login").equals(account.login, true)) { "GitHub 未确认列表删除，请刷新后查看" }
     }
 
-    /** There is no public Repository.lists field. Scan every visible viewer list and all its items. */
+    /**
+     * 仓库属于哪些列表。
+     *
+     * 没有公开的 Repository.lists 字段，只能逐个列表扫描它的条目：先用一个请求拿到
+     * 每页列表各自的前 100 个仓库，仍有下一页的列表再单独翻页。扫描有总预算
+     * （[MAX_SCAN_ITEMS] 条 / [MAX_SCAN_PAGES] 页），超出就明确报错而不是悄悄当成
+     * 「不在任何列表」——那样保存时会把仓库从旧列表里移除。
+     */
     suspend fun memberships(account: StarListAccount, owner: String, name: String): RepositoryListMemberships {
         require(LOGIN.matches(owner) && NAME.matches(name) && name !in setOf(".", "..")) { "无效的仓库信息" }
         val query = "query MobileGHListMemberships(\$owner:String!,\$name:String!,\$after:String) { viewer { login lists(first:$PAGE_SIZE,after:\$after) { $PAGE_FIELDS nodes { $LIST_FIELDS scanned:items(first:$PAGE_SIZE) { $PAGE_FIELDS nodes { ... on Repository { id } } } } } } repository(owner:\$owner,name:\$name) { id viewerHasStarred } }"
@@ -169,36 +178,47 @@ class UserListsClient internal constructor(
             repositoryId = id
             starred = repo.requiredBoolean("viewerHasStarred")
             val connection = data.requiredObject("viewer").requiredObject("lists")
+            require(connection.requiredInt("totalCount") <= MAX_LISTS) { incompleteMessage() }
             val listPage = page(connection) { it }
-            require(listPage.totalCount <= MAX_LISTS) { incompleteMessage() }
+            // 先读这一页列表各自的第一页仓库，再对放不下的列表单独翻页。
+            // 这样常见情况（列表都不超过 100 个仓库）每次仍然只发一个请求。
+            val found = HashMap<String, MutableSet<String>>()
+            val pending = HashMap<String, String>()
             for (node in listPage.items) {
                 val list = parseList(node, account.login)
                 require(lists.none { it.id == list.id }) { "GitHub 列表分页重复；未更改任何分类" }
                 lists += list
                 require(lists.size <= MAX_LISTS) { incompleteMessage() }
-                var itemPage = page(node.requiredObject("scanned")) { it.requiredString("id") }
-                require(itemPage.totalCount <= MAX_SCAN_ITEMS) { incompleteMessage() }
-                val itemIds = HashSet<String>()
+                val itemPage = page(node.requiredObject("scanned")) { it.requiredString("id") }
+                val itemIds = itemPage.items.toMutableSet()
+                found[list.id] = itemIds
+                scannedItems += itemPage.items.size
+                require(itemPage.totalCount <= MAX_LIST_ITEMS && scannedItems <= MAX_SCAN_ITEMS) { incompleteMessage() }
+                val next = itemPage.nextCursor
+                if (next != null) pending[list.id] = next
+                else require(itemIds.size == itemPage.totalCount) { "GitHub 列表仓库读取不完整；未更改任何分类" }
+            }
+            // 超过 100 个仓库的列表：继续往后翻，直到读完或达到扫描上限。
+            // 读不完就报错——不能把"没扫到"当成"不在这个列表"，否则保存会把它移出去。
+            pending.forEach { (listId, start) ->
+                val itemIds = found.getValue(listId)
                 val itemCursors = HashSet<String>()
-                do {
-                    scannedItems += itemPage.items.size
-                    require(scannedItems <= MAX_SCAN_ITEMS) { incompleteMessage() }
-                    itemPage.items.forEach { itemId -> require(itemIds.add(itemId)) { "GitHub 仓库分页重复；未更改任何分类" } }
-                    val after = itemPage.nextCursor
-                    if (after == null) {
-                        require(itemIds.size == itemPage.totalCount) { "GitHub 列表仓库读取不完整；未更改任何分类" }
-                        break
-                    }
+                var after = start
+                while (true) {
                     require(itemCursors.add(after) && ++scannedPages <= MAX_SCAN_PAGES) { incompleteMessage() }
                     val detail = call(account,
                         "query MobileGHMembershipItems(\$id:ID!,\$after:String) { viewer { login } node(id:\$id) { ... on UserList { id user { login } items(first:$PAGE_SIZE,after:\$after) { $PAGE_FIELDS nodes { ... on Repository { id } } } } } }",
-                        buildJsonObject { put("id", list.id); putCursor(after) })
+                        buildJsonObject { put("id", listId); putCursor(after) })
                     val listNode = detail.requiredObject("node")
-                    require(listNode.requiredString("id") == list.id && listNode.requiredObject("user").requiredString("login").equals(account.login, true)) { "GitHub 列表已变化；未更改任何分类" }
-                    itemPage = page(listNode.requiredObject("items")) { it.requiredString("id") }
-                } while (true)
-                if (id in itemIds) memberships += list.id
+                    require(listNode.requiredString("id") == listId && listNode.requiredObject("user").requiredString("login").equals(account.login, true)) { "GitHub 列表已变化；未更改任何分类" }
+                    val itemPage = page(listNode.requiredObject("items")) { it.requiredString("id") }
+                    scannedItems += itemPage.items.size
+                    require(scannedItems <= MAX_SCAN_ITEMS) { incompleteMessage() }
+                    itemPage.items.forEach { itemId -> require(itemIds.add(itemId)) { "GitHub 仓库分页重复；未更改任何分类" } }
+                    after = itemPage.nextCursor ?: break
+                }
             }
+            found.forEach { (listId, itemIds) -> if (id in itemIds) memberships += listId }
             cursor = listPage.nextCursor
             if (cursor != null) require(seen.add(cursor)) { incompleteMessage() }
             else require(lists.size == listPage.totalCount) { "GitHub 列表读取不完整；未更改任何分类" }
@@ -206,13 +226,21 @@ class UserListsClient internal constructor(
         return RepositoryListMemberships(requireNotNull(repositoryId), starred, lists, memberships)
     }
 
-    /** Replacement API: re-read complete memberships, then merge just the user's picker delta. */
-    suspend fun setRepositoryLists(account: StarListAccount, owner: String, name: String, selected: Set<String>, original: Set<String>) = mutationLock.withLock {
+    /**
+     * Replacement API: re-read complete memberships, then merge just the user's picker delta.
+     *
+     * GitHub 的列表不要求仓库在 Star 里，只是网页入口在 Stars 页；[allowUnstarred] 用于
+     * 明确知道自己拥有的仓库（UI 已核实所有权限），此时不加 Star 也能加入列表。
+     */
+    suspend fun setRepositoryLists(
+        account: StarListAccount, owner: String, name: String, selected: Set<String>, original: Set<String>,
+        allowUnstarred: Boolean = false,
+    ) = mutationLock.withLock {
         val added = selected - original
         val removed = original - selected
         if (added.isEmpty() && removed.isEmpty()) return@withLock
         val latest = memberships(account, owner, name)
-        require(added.isEmpty() || latest.starred) { "请先 Star 此仓库，再加入 GitHub 列表" }
+        require(added.isEmpty() || latest.starred || allowUnstarred) { "请先 Star 此仓库，再加入 GitHub 列表" }
         val ids = replacementMemberships(latest.lists.map { it.id }.toSet(), latest.memberships, added, removed)
         val input = buildJsonObject { put("itemId", latest.repositoryId); put("listIds", JsonArray(ids.sorted().map(::JsonPrimitive))) }
         val data = call(account, "mutation MobileGHSetListMemberships(\$input:UpdateUserListsForItemInput!) { updateUserListsForItem(input:\$input) { item { ... on Repository { id } } lists { id } user { login } } }", buildJsonObject { put("input", input) })
@@ -273,20 +301,32 @@ object UserLists {
         val raw = withContext(Dispatchers.IO) {
             currentCoroutineContext().ensureActive()
             check(Session.token == token && currentAccount()?.let { it.generation == account.generation && it.login.equals(account.login, true) } == true) { "账号已切换或退出" }
-            http.routed().newCall(request).await().use { response ->
-                val bytes = ByteArrayOutputStream()
-                response.body.byteStream().use { input ->
-                    val buffer = ByteArray(8192)
-                    while (true) {
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        require(bytes.size() + n <= 4 * 1024 * 1024) { "GitHub 列表响应超过读取上限" }
-                        bytes.write(buffer, 0, n)
+            // GitHub 的 GraphQL 偶发 502（请求本身合法，重试即可）；5xx 时稍等后重试一次再报错
+            var attempt = 0
+            var body: String? = null
+            while (body == null) {
+                http.routed().newCall(request).await().use { response ->
+                    val bytes = ByteArrayOutputStream()
+                    response.body.byteStream().use { input ->
+                        val buffer = ByteArray(8192)
+                        while (true) {
+                            val n = input.read(buffer)
+                            if (n < 0) break
+                            require(bytes.size() + n <= 4 * 1024 * 1024) { "GitHub 列表响应超过读取上限" }
+                            bytes.write(buffer, 0, n)
+                        }
+                    }
+                    val text = bytes.toByteArray().toString(Charsets.UTF_8)
+                    if (response.code in 500..599 && attempt < 1) {
+                        attempt++
+                        AppLog.warn("lists", "GitHub 列表请求返回 ${response.code}，正在重试")
+                        delay(800)
+                    } else {
+                        body = Api.ensureOk(Resp(response.code, text, response.headers)).body
                     }
                 }
-                val text = bytes.toByteArray().toString(Charsets.UTF_8)
-                Api.ensureOk(Resp(response.code, text, response.headers)).body
             }
+            body
         }
         check(currentAccount()?.let { it.generation == account.generation && it.login.equals(account.login, true) } == true) { "账号已切换或退出" }
         return strictGraphqlData(json.parseToJsonElement(raw) as? JsonObject ?: error("GitHub 列表响应无法解析"))
@@ -305,7 +345,10 @@ object UserLists {
     suspend fun create(account: StarListAccount, name: String, description: String, isPrivate: Boolean) = client.create(account, name, description, isPrivate).also { changes.update { it + 1 } }
     suspend fun update(account: StarListAccount, list: GitHubStarList, name: String, description: String, isPrivate: Boolean) = client.update(account, list, name, description, isPrivate).also { changes.update { it + 1 } }
     suspend fun delete(account: StarListAccount, list: GitHubStarList) { client.delete(account, list); changes.update { it + 1 } }
-    suspend fun setRepositoryLists(account: StarListAccount, owner: String, name: String, selected: Set<String>, original: Set<String>) { client.setRepositoryLists(account, owner, name, selected, original); changes.update { it + 1 } }
+    suspend fun setRepositoryLists(
+        account: StarListAccount, owner: String, name: String, selected: Set<String>, original: Set<String>,
+        allowUnstarred: Boolean = false,
+    ) { client.setRepositoryLists(account, owner, name, selected, original, allowUnstarred); changes.update { it + 1 } }
     suspend fun addRepositories(account: StarListAccount, listId: String, repos: List<Repo>) {
         require(repos.size <= UserListsClient.MAX_BATCH_ADD) { "一次最多添加 ${UserListsClient.MAX_BATCH_ADD} 个仓库" }
         var completed = 0

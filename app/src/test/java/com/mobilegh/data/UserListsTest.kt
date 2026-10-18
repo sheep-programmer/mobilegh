@@ -145,6 +145,28 @@ class UserListsTest {
         assertEquals(0, mutations)
     }
 
+    /** 列表超过一页仓库时要继续翻页，才能发现那 100 个之后的归属。 */
+    @Test fun listItemsBeyondTheFirstPageAreScanned() {
+        runBlocking {
+            val target = buildJsonObject { put("id", "R_target") }
+            val api = client { query, vars ->
+                when {
+                    query.contains("MobileGHListMemberships") -> snapshot(listOf(list("L_big", listOf("R_first"), 150, "items-2")))
+                    query.contains("MobileGHMembershipItems") -> buildJsonObject {
+                        put("viewer", buildJsonObject { put("login", "Alice") })
+                        put("node", buildJsonObject {
+                            put("id", "L_big"); put("user", buildJsonObject { put("login", "Alice") })
+                            put("items", connection(listOf(target), 150))
+                        })
+                    }
+                    else -> confirmed(vars)
+                }
+            }
+            assertEquals(setOf("L_big"), api.memberships(alice, "mona", "repo").memberships)
+            assertEquals(150, api.memberships(alice, "mona", "repo").lists.single().count)
+        }
+    }
+
     @Test fun staleSelectionsPreserveNewMembershipsAndOnlyRemoveTheRequestedList() {
         runBlocking {
             var sent: Set<String> = emptySet()
@@ -162,7 +184,6 @@ class UserListsTest {
             snapshot(listOf(list("L_1")), total = 2),
             snapshot(listOf(list("L_1")), total = UserListsClient.MAX_LISTS + 1),
             snapshot(listOf(list("L_1", total = 1))),
-            snapshot(listOf(list("L_1", total = UserListsClient.MAX_SCAN_ITEMS + 1))),
         ).forEach { invalid ->
             var mutations = 0
             val api = client { query, _ -> if (query.startsWith("mutation ")) mutations++; invalid }

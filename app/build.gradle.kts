@@ -42,8 +42,8 @@ android {
         applicationId = "com.mobilegh"
         minSdk = 26
         targetSdk = 36
-        versionCode = 30
-        versionName = "0.27.3"
+        versionCode = 31
+        versionName = "0.27.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GITHUB_CLIENT_ID", "\"$clientId\"")
         buildConfigField("String", "GITHUB_CLIENT_SETTINGS_URL", "\"$clientSettingsUrl\"")

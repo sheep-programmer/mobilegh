@@ -1,7 +1,9 @@
 package com.mobilegh.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.BuildConfig
@@ -38,6 +42,9 @@ import com.mobilegh.data.GitHub
 import com.mobilegh.data.Invitation
 import com.mobilegh.data.OrgMembership
 import com.mobilegh.data.Session
+import com.mobilegh.data.StarListAccount
+import com.mobilegh.data.UserLists
+import com.mobilegh.data.UserListsClient
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.RepoKind
@@ -47,6 +54,7 @@ import com.mobilegh.nav.act
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
 import com.mobilegh.ui.components.Avatar
+import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.EventCat
@@ -57,13 +65,16 @@ import com.mobilegh.ui.components.ErrorState
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.HDivider
+import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
+import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.RepoItem
 import com.mobilegh.ui.components.SectionTitle
+import com.mobilegh.ui.components.Segmented
 import com.mobilegh.ui.components.SwitchRow
 import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.openBrowser
@@ -194,8 +205,20 @@ private fun OrganizationReposPanel(
 
 @Composable
 fun RepoListScreen(kind: RepoKind, login: String, name: String) {
+    val entry = LocalEntry.current
     var sort by rememberSaveable { mutableIntStateOf(0) }
     val isMe = login.equals(Session.login, true)
+    // 「已 Star」页可切到 GitHub 列表：列表是 Star 的子集，网页版也放在 Stars 页。
+    // 别人的公开列表也可以看，但只有本人能新建。
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+    val listsTab = kind == RepoKind.Starred && tab == 1 && Session.token != null
+    val account = remember { StarListAccount(Session.login ?: login, Session.generation) }
+    val lists = if (kind == RepoKind.Starred && Session.token != null) rememberLoader("star-lists:$login") { UserLists.lists(account, login) } else null
+    val listsRevision by UserLists.changes.collectAsState()
+    var selectedList by rememberSaveable { mutableStateOf<String?>(null) }
+    var listPicker by remember { mutableStateOf(false) }
+    var listSaving by remember { mutableStateOf(false) }
+    var listError by remember { mutableStateOf<String?>(null) }
     val pager = rememberPager("rl:$kind:$login:$name:$sort") { p, f ->
         when (kind) {
             RepoKind.User -> GitHub.userRepos(login, SORTS[sort].first, p, f)
@@ -204,23 +227,89 @@ fun RepoListScreen(kind: RepoKind, login: String, name: String) {
             RepoKind.Forks -> GitHub.forks(login, name, p, f)
         }
     }
+    // Pager 只按页号取数据，游标由这里按页递增记录；列表被删除时返回空页而不是崩溃
+    val cursors = remember(selectedList) { HashMap<Int, String?>() }
+    val items = rememberPager("rl-list:$selectedList", pageSize = UserListsClient.PAGE_SIZE) { p, _ ->
+        val list = lists?.data?.firstOrNull { it.id == selectedList } ?: return@rememberPager emptyList()
+        if (p > 1 && cursors[p] == null) return@rememberPager emptyList()
+        val page = UserLists.items(account, list, cursors[p])
+        cursors[p + 1] = page.nextCursor
+        page.items.map { it.repo }
+    }
+    LaunchedEffect(listsRevision) { if (lists?.data != null) lists.refresh() }
     val title = when (kind) {
         RepoKind.User -> "仓库"
-        RepoKind.Starred -> "已 Star"
+        RepoKind.Starred -> if (listsTab) selectedList?.let { id -> lists?.data?.firstOrNull { it.id == id }?.name } ?: "列表" else "已 Star"
         RepoKind.Org -> "组织仓库"
         RepoKind.Forks -> "Fork"
     }
     Page(title, subtitle = if (name.isNotEmpty()) "$login/$name" else login) { pad ->
         Column(Modifier.padding(pad)) {
+            if (kind == RepoKind.Starred && Session.token != null) {
+                Segmented(listOf("全部 Star", "列表"), tab, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) { i ->
+                    tab = i
+                    if (i == 0) selectedList = null
+                }
+            }
             if (kind == RepoKind.User || kind == RepoKind.Org) {
                 Row(Modifier.padding(12.dp)) { Dropdown(SORTS[sort].second, SORTS.map { it.second }, { sort = it }) }
                 HDivider()
             }
-            PagedList(pager, empty = when (kind) {
+            if (listsTab && lists != null) {
+                val all = lists.data
+                if (all == null) {
+                    if (lists.error != null) ErrorState(lists.error!!, Modifier.fillMaxWidth()) { lists.load(true) }
+                    else Loading(Modifier.fillMaxWidth().height(60.dp))
+                } else if (selectedList == null) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (isMe) GhButton("新建列表", enabled = all.size < UserListsClient.MAX_LISTS) { listPicker = true }
+                        GhButton("刷新", enabled = !lists.loading) { lists.load(true) }
+                    }
+                    if (lists.error != null) InlineError(lists.error!!, Modifier.padding(horizontal = 16.dp)) { lists.load(true) }
+                    Text("列表是 Star 的分类，与 GitHub 同步。", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
+                    if (all.isEmpty()) EmptyState(
+                        if (isMe) "还没有 GitHub 列表" else "$login 还没有公开的 GitHub 列表",
+                        R.drawable.oc_checklist, Modifier.fillMaxSize(),
+                        if (isMe) "新建列表" else "刷新",
+                    ) { if (isMe) listPicker = true else lists.load(true) }
+                    else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 6.dp)) {
+                        items(all, key = { it.id }) { list ->
+                            Card(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).clickable { selectedList = list.id }) {
+                                Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(list.name, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Pill(if (list.isPrivate) "私有" else "公开")
+                                    Spacer(Modifier.width(6.dp)); Pill("${list.count} 个仓库")
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    val list = all.firstOrNull { it.id == selectedList }
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        TextLink("‹ 全部列表") { selectedList = null }
+                        Spacer(Modifier.weight(1f))
+                        Text("${list?.count ?: 0} 个仓库", fontSize = 12.sp, color = Gh.c.fgMuted)
+                    }
+                    if (list == null) EmptyState("列表已被删除", R.drawable.oc_checklist, Modifier.fillMaxSize(), "返回") { selectedList = null }
+                    else PagedList(items, empty = "列表暂无仓库，在仓库页「加入自定义列表」中添加", emptyIcon = R.drawable.oc_checklist) { RepoItem(it) }
+                }
+            } else PagedList(pager, empty = when (kind) {
                 RepoKind.Starred -> if (isMe) "还没有 Star 任何仓库" else "$login 还没有 Star 任何仓库"
                 RepoKind.Forks -> "还没有人 Fork 这个仓库"
                 else -> "没有可见的仓库"
             }, emptyIcon = if (kind == RepoKind.Starred) R.drawable.oc_star else R.drawable.oc_repo) { RepoItem(it, extra = if (kind == RepoKind.Forks) "创建于 ${relTime(it.createdAt)}" else null) }
+        }
+    }
+    if (listPicker) GitHubListEditor(null, listSaving, listError, onDismiss = { if (!listSaving) { listPicker = false; listError = null } }) { nameOf, desc, priv ->
+        listSaving = true
+        listError = null
+        entry.act({ listError = it; listSaving = false }) {
+            val created = UserLists.create(account, nameOf, desc, priv)
+            listSaving = false
+            listPicker = false
+            lists?.refresh()
+            // 新建后直接进入这个列表，省得再找一遍
+            selectedList = created.id
         }
     }
 }

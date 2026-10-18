@@ -228,6 +228,8 @@ fun GhDialog(
         titleContentColor = g.fg,
         textContentColor = g.fg,
         shape = RoundedCornerShape(12.dp),
+        // 弹窗与浅色页面底色接近时容易看不出边界，明确描边
+        modifier = Modifier.border(1.dp, g.border, RoundedCornerShape(12.dp)),
         title = { Text(title, fontWeight = FontWeight.SemiBold, fontSize = 18.sp) },
         text = { content() },
         confirmButton = {

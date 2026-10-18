@@ -56,6 +56,8 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
     var help by remember { mutableStateOf(false) }
     var networkSettings by remember { mutableStateOf(false) }
     var authenticator by remember { mutableStateOf(false) }
+    var showUpdate by remember { mutableStateOf(false) }
+    var logs by remember { mutableStateOf(false) }
     val flow = retain("login-flow") { entry ->
         fun checkAccount(user: User) {
             check(Session.generation == entry.generation) { "账号已切换，请重新登录" }
@@ -86,6 +88,7 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
     var remaining by remember { mutableIntStateOf(0) }
 
     BackHandler(device != null) { flow.cancel() }
+    BackHandler(logs) { logs = false }
     LaunchedEffect(device) {
         if (device == null) return@LaunchedEffect
         // 参考同类客户端：拿到验证码后自动复制并打开浏览器，减少手动步骤
@@ -98,6 +101,10 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
         }
     }
 
+    if (logs) {
+        LogsScreen(onBack = { logs = false })
+        return
+    }
     if (authenticator) {
         AuthenticatorScreen(onBack = { authenticator = false })
         return
@@ -180,11 +187,16 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
         flow.error?.let { InlineError(it, Modifier.padding(vertical = 4.dp)) }
         Spacer(Modifier.height(if (device == null) 24.dp else 12.dp))
         TextLink("网络连接：${AppNetwork.config.mode.label}") { networkSettings = true }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextLink(if (Update.checking) "检查更新中…" else if (Update.available != null) "发现新版本" else "检查更新") { showUpdate = true }
+            TextLink("详细日志") { logs = true }
+        }
         TextLink(if (device == null) "两步验证与数字批准" else "使用验证器验证码") { authenticator = true }
         if (device == null) Text("凭据仅加密保存在本机", Modifier.padding(top = 12.dp, bottom = 32.dp), color = g.fgMuted, fontSize = 12.sp)
         else Spacer(Modifier.height(16.dp))
     }
     if (networkSettings) NetworkSettingsDialog { networkSettings = false }
+    if (showUpdate) UpdateDialog { showUpdate = false }
     if (help) GhDialog("登录帮助", { help = false }, confirm = "知道了", onConfirm = { help = false }) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Token：查看组织需 read:org，私有仓库需 repo。有效期由 GitHub 设置决定。", fontSize = 14.sp)

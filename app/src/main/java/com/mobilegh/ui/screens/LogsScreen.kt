@@ -46,8 +46,12 @@ import com.mobilegh.ui.theme.Gh
 
 private val LOG_CATEGORIES = listOf(
     "all" to "全部",
-    "network" to "网络",
     "auth" to "认证",
+    "2fa_setup" to "审批启用",
+    "2fa" to "数字审批",
+    "2fa_push" to "审批推送",
+    "network" to "网络",
+    "update" to "更新",
     "download" to "下载",
     "actions" to "Actions",
     "webview" to "网页渲染",
@@ -56,7 +60,7 @@ private val LOG_CATEGORIES = listOf(
 )
 
 @Composable
-fun LogsScreen() {
+fun LogsScreen(onBack: (() -> Unit)? = null) {
     val g = Gh.c
     val ctx = rememberCtx()
     var category by rememberSaveable { mutableStateOf("all") }
@@ -72,6 +76,7 @@ fun LogsScreen() {
     Page(
         "日志与诊断",
         subtitle = filtered.size.toString() + " 条",
+        onBack = onBack,
         actions = {
             MoreMenu(listOf(
                 MenuAction("导出当前筛选") { ctx.share(AppLog.export(filtered)) },

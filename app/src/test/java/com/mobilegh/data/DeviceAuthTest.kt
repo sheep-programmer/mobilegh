@@ -56,4 +56,22 @@ class DeviceAuthTest {
         // 授权里多出无关权限不影响判断
         assertEquals(listOf("delete_repo"), DeviceAuth.missingScopes(DeviceAuth.REQUIRED_SCOPES.toSet() - "delete_repo" + "admin:org"))
     }
+    @Test fun insufficientScopeErrorsBecomeReadableGuidance() {
+        // GitHub GraphQL INSUFFICIENT_SCOPES 的原文（列表功能需要 user scope，旧授权没有）
+        val raw = "Your token has not been granted the required scopes to execute this query. " +
+            "The 'createUserList' field requires one of the following scopes: ['user'], " +
+            "but your token has only been granted the: ['gist', 'read:org', 'repo', 'workflow'] scopes."
+        val friendly = DeviceAuth.insufficientScopes(raw)
+        assertNotNull(friendly)
+        assertTrue(friendly!!, friendly.contains("user"))
+        assertTrue(friendly, friendly.contains(DeviceAuth.scopeFeature("user")))
+        assertTrue(friendly, friendly.contains("重新登录"))
+        assertFalse(friendly.contains("Your token"))
+    }
+    @Test fun unrelatedErrorsAreNotRewrittenAsScopeProblems() {
+        assertNull(DeviceAuth.insufficientScopes(null))
+        assertNull(DeviceAuth.insufficientScopes(""))
+        assertNull(DeviceAuth.insufficientScopes("Could not resolve to a UserList with the id of 123."))
+        assertNull(DeviceAuth.insufficientScopes("API 调用次数已达上限"))
+    }
 }

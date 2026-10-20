@@ -43,6 +43,21 @@ object DeviceAuth {
         "delete_repo" -> "删除仓库"
         else -> scope
     }
+
+    /**
+     * GitHub 的「权限不足」报错 → 中文指引。GraphQL 的 INSUFFICIENT_SCOPES 会写明缺的
+     * scope（列表功能需要 user，而 2026-10 之前的旧授权没有它）；直接告诉用户去哪补，
+     * 而不是把一段英文原文甩在对话框里。返回 null 表示这不是权限错误。
+     */
+    fun insufficientScopes(raw: String?): String? {
+        if (raw == null || !raw.contains("required scopes", true) && !raw.contains("INSUFFICIENT_SCOPES", true)) return null
+        val scope = Regex("""following scopes: \['"?([A-Za-z_:]+)"?'?\]""").find(raw)?.groupValues?.getOrNull(1)
+        return buildString {
+            append("当前登录授权权限不足")
+            if (scope != null) append("：缺少 $scope（${scopeFeature(scope)}）")
+            append("。请到「设置 → 重新登录，获取新授权」补齐权限后再试")
+        }
+    }
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(25, TimeUnit.SECONDS).callTimeout(30, TimeUnit.SECONDS).build()
 

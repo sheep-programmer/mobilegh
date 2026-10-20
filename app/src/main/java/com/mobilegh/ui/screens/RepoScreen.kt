@@ -160,6 +160,8 @@ fun RepoScreen(owner: String, name: String) {
                             GhButton(
                                 "${if (s) "已 Star" else "Star"} ${fmtCount(r.stargazersCount + starDelta)}",
                                 Modifier.weight(1f), icon = if (s) R.drawable.oc_star_fill else R.drawable.oc_star, enabled = starStatus.data != null && !starBusy && !starStatus.loading,
+                                // 和 GitHub 一样：点按切换 Star，长按管理这个仓库所在的列表
+                                onLongClick = { showLists = true },
                             ) {
                                 val on = !s
                                 starStatus.accept(on)

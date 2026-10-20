@@ -104,6 +104,11 @@ object Api {
                 resp.header("x-ratelimit-remaining")?.let { rem ->
                     Session.rateRemaining = "$rem/${resp.header("x-ratelimit-limit") ?: "?"}"
                 }
+                // 旧会话可能没记录授权范围（grantedScopes 为 null 时启动提示不会弹）。
+                // 任意一次 API 响应的 X-OAuth-Scopes 头都能补齐；细粒度 PAT 无此头，保持「未知」不误报。
+                if (Session.grantedScopes == null && token != null && req.url.host in AUTH_HOSTS) {
+                    runCatching { Session.applyScopes(DeviceAuth.parseScopes(resp.header("X-OAuth-Scopes"))) }
+                }
                 resp
             }
             .build()
@@ -208,7 +213,7 @@ object Api {
         val errors = root["errors"] as? JsonArray
         if ((data == null || data is JsonNull) && errors != null) {
             val msg = errors.firstOrNull()?.jsonObject?.get("message")?.jsonPrimitive?.content
-            throw ApiException(400, msg ?: "GraphQL 错误")
+            throw ApiException(400, DeviceAuth.insufficientScopes(msg) ?: msg ?: "GraphQL 错误")
         }
         return data!!.jsonObject
     }

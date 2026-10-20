@@ -10,7 +10,9 @@ import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -329,6 +332,7 @@ fun <T> PagedList(
 
 // ---------------- 小部件 ----------------
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GhButton(
     text: String,
@@ -337,6 +341,7 @@ fun GhButton(
     danger: Boolean = false,
     enabled: Boolean = true,
     @DrawableRes icon: Int? = null,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val g = Gh.c
@@ -349,6 +354,21 @@ fun GhButton(
     }
     val shape = RoundedCornerShape(6.dp)
     val pad = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+    if (onLongClick != null) {
+        // Material 的 Button 不支持长按；需要长按的按钮（如 Star 长按加入列表）用 Surface 复刻同款样式
+        Surface(
+            modifier.heightIn(min = 44.dp).clip(shape)
+                .combinedClickable(enabled = enabled, onClick = onClick, onLongClick = onLongClick),
+            shape = shape, border = if (primary) null else BorderStroke(1.dp, g.border),
+            color = if (primary) (if (danger) g.danger else g.btnPrimary) else g.btnBg,
+            contentColor = if (primary) Color.White else if (danger) g.danger else g.fg,
+        ) {
+            Box(Modifier.padding(pad), contentAlignment = Alignment.Center) {
+                Row(verticalAlignment = Alignment.CenterVertically, content = content)
+            }
+        }
+        return
+    }
     if (primary) {
         Button(
             onClick, modifier.heightIn(min = 44.dp), enabled = enabled, shape = shape, contentPadding = pad,

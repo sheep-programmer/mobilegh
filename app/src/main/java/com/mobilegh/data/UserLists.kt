@@ -335,7 +335,7 @@ object UserLists {
         val errors = root["errors"] as? JsonArray
         if (!errors.isNullOrEmpty()) {
             val message = (errors.firstOrNull() as? JsonObject)?.stringOrEmpty("message")?.take(240)
-            throw ApiException(400, message?.takeIf { it.isNotBlank() } ?: "GitHub 列表请求未完成，请刷新后确认状态")
+            throw ApiException(400, DeviceAuth.insufficientScopes(message) ?: message?.takeIf { it.isNotBlank() } ?: "GitHub 列表请求未完成，请刷新后确认状态")
         }
         return root.requiredObject("data")
     }

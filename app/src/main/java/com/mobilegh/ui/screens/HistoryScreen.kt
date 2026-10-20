@@ -4,6 +4,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -57,13 +61,14 @@ fun SearchHistorySection(
     val shown = if (collapsed && !expanded) entries.take(3) else entries
     val nav = LocalNav.current
     Column {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("搜索历史", Modifier.weight(1f), color = Gh.c.fg, fontSize = 14.sp)
-            if (collapsed) {
-                TextButton({ nav.push(Screen.SearchHistory) }) { Text("查看全部", color = Gh.c.accent) }
-            } else if (entries.isNotEmpty()) {
-                TextButton(onClear) { Text("清空", color = Gh.c.fgMuted) }
-            }
+        FlowRow(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("搜索历史", Modifier.padding(vertical = 14.dp), color = Gh.c.fg, fontSize = 14.sp)
+            // 历史较多时收起态也能一键清空；操作过宽时换行而不挤掉标题
+            if (!collapsed || entries.size > 3) TextButton(onClear) { Text("清空", color = Gh.c.fgMuted) }
+            if (collapsed) TextButton({ nav.push(Screen.SearchHistory) }) { Text("查看全部", color = Gh.c.accent) }
         }
         shown.forEach { entry ->
             SearchHistoryRow(entry, onOpen, onRemove)
@@ -71,7 +76,7 @@ fun SearchHistorySection(
         if (collapsed) {
             if (!expanded && entries.size > 3) {
                 Row(
-                    Modifier.fillMaxWidth().clickable { expanded = true }.padding(horizontal = 16.dp, vertical = 10.dp),
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { expanded = true }.padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("展开其余 ${entries.size - 3} 条", color = Gh.c.accent, fontSize = 13.sp)
@@ -80,7 +85,7 @@ fun SearchHistorySection(
                 }
             } else if (expanded) {
                 Row(
-                    Modifier.fillMaxWidth().clickable { expanded = false }.padding(horizontal = 16.dp, vertical = 10.dp),
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { expanded = false }.padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("收起", color = Gh.c.fgMuted, fontSize = 13.sp)
@@ -152,9 +157,11 @@ fun RecentRepositoriesScreen() {
     var filter by rememberSaveable { mutableStateOf("") }
     val all = History.data().repositories
     val shown = all.filter { it.fullName.contains(filter.trim(), true) }
-    Page("最近浏览", actions = { if (all.isNotEmpty()) OcButton(R.drawable.oc_trash, { History.clearRepositories() }) }) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize()) {
-            GhField(filter, { filter = it }, "搜索最近浏览的仓库", Modifier.padding(12.dp))
+    Page("最近浏览", actions = { if (all.isNotEmpty()) OcButton(R.drawable.oc_trash, { History.clearRepositories() }, description = "清空最近浏览") }) { pad ->
+        Column(Modifier.padding(pad).consumeWindowInsets(pad).imePadding().fillMaxSize()) {
+            GhField(filter, { filter = it }, "搜索最近浏览的仓库", Modifier.padding(12.dp), trailing = {
+                if (filter.isNotEmpty()) OcButton(R.drawable.oc_x, { filter = "" }, description = "清空最近浏览搜索")
+            })
             Text("仅保存在本机，按账号区分", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
             if (all.isEmpty()) EmptyState("还没有浏览过仓库", R.drawable.oc_history)
             else if (shown.isEmpty()) EmptyState("没有匹配的仓库", R.drawable.oc_search, action = "清除搜索") { filter = "" }

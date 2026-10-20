@@ -41,6 +41,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.ProvideTextStyle
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -345,9 +349,14 @@ fun GhButton(
     onClick: () -> Unit,
 ) {
     val g = Gh.c
+    val colors = if (primary) {
+        ButtonDefaults.buttonColors(containerColor = if (danger) g.danger else g.btnPrimary, contentColor = Color.White)
+    } else {
+        ButtonDefaults.outlinedButtonColors(containerColor = g.btnBg, contentColor = if (danger) g.danger else g.fg)
+    }
     val content: @Composable RowScope.() -> Unit = {
         if (icon != null) {
-            Oc(icon, if (primary) Color.White else if (danger) g.danger else g.fgMuted)
+            Oc(icon, if (!enabled || primary || danger) LocalContentColor.current else g.fgMuted)
             Spacer(Modifier.width(6.dp))
         }
         Text(text, fontWeight = FontWeight.Medium, fontSize = 14.sp)
@@ -357,14 +366,16 @@ fun GhButton(
     if (onLongClick != null) {
         // Material 的 Button 不支持长按；需要长按的按钮（如 Star 长按加入列表）用 Surface 复刻同款样式
         Surface(
-            modifier.heightIn(min = 44.dp).clip(shape)
-                .combinedClickable(enabled = enabled, onClick = onClick, onLongClick = onLongClick),
+            modifier.minimumInteractiveComponentSize().heightIn(min = 44.dp).clip(shape)
+                .combinedClickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button,
+                    onClick = onClick, onLongClick = onLongClick),
             shape = shape, border = if (primary) null else BorderStroke(1.dp, g.border),
-            color = if (primary) (if (danger) g.danger else g.btnPrimary) else g.btnBg,
-            contentColor = if (primary) Color.White else if (danger) g.danger else g.fg,
+            color = if (enabled) colors.containerColor else colors.disabledContainerColor,
+            contentColor = if (enabled) colors.contentColor else colors.disabledContentColor,
         ) {
-            Box(Modifier.padding(pad), contentAlignment = Alignment.Center) {
-                Row(verticalAlignment = Alignment.CenterVertically, content = content)
+            ProvideTextStyle(MaterialTheme.typography.labelLarge) {
+                Row(Modifier.padding(pad), horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically, content = content)
             }
         }
         return
@@ -372,14 +383,14 @@ fun GhButton(
     if (primary) {
         Button(
             onClick, modifier.heightIn(min = 44.dp), enabled = enabled, shape = shape, contentPadding = pad,
-            colors = ButtonDefaults.buttonColors(containerColor = if (danger) g.danger else g.btnPrimary, contentColor = Color.White),
+            colors = colors,
             content = content,
         )
     } else {
         OutlinedButton(
             onClick, modifier.heightIn(min = 44.dp), enabled = enabled, shape = shape, contentPadding = pad,
             border = BorderStroke(1.dp, g.border),
-            colors = ButtonDefaults.outlinedButtonColors(containerColor = g.btnBg, contentColor = if (danger) g.danger else g.fg),
+            colors = colors,
             content = content,
         )
     }

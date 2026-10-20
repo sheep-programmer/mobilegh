@@ -46,7 +46,7 @@ object IssueTemplates {
 
     /** Markdown 模板：开头的 --- YAML front matter --- 之后是正文 */
     fun parseMarkdown(file: String, text: String): IssueTemplate {
-        val src = text.replace("\r\n", "\n").removePrefix("﻿")
+        val src = text.replace("\r\n", "\n").removePrefix("\uFEFF")
         val lines = src.lines()
         var meta: Map<*, *> = emptyMap<String, Any>()
         var body = src
@@ -70,7 +70,7 @@ object IssueTemplates {
 
     /** YAML Issue 表单：不实现表单引擎，只把 body 中的字段转成 Markdown 骨架 */
     fun parseForm(file: String, text: String): IssueTemplate? {
-        val root = MiniYaml.parse(text.replace("\r\n", "\n").removePrefix("﻿")) as? Map<*, *> ?: return null
+        val root = MiniYaml.parse(text.replace("\r\n", "\n").removePrefix("\uFEFF")) as? Map<*, *> ?: return null
         val items = root["body"] as? List<*> ?: emptyList<Any>()
         val body = buildString {
             items.forEach { raw ->

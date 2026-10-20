@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -110,7 +111,7 @@ fun sizedAvatar(url: String, px: Int): String =
  * 小图按显示尺寸解码。
  *
  * 以前一律按 2048px 解码：一张 40dp 的头像也要解出几千像素的位图，列表滚动时既慢又费内存。
- * 布局尺寸未知时（例如 README 图片宽度由 WebView 决定）不做限制，仍按 2048px 上限解码。
+ * 等布局尺寸确定后再加载，避免先以 2048px 解码头像，再为实际尺寸重复解码。
  */
 @Composable
 fun NetImage(
@@ -120,11 +121,17 @@ fun NetImage(
     placeholder: Boolean = true,
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
-    val maxDim = maxOf(size.width, size.height)
-        .takeIf { it > 0 }?.coerceIn(64, 2048) ?: 2048
-
-    val bmp by produceState(url?.let { Images.cached(it, maxDim) }, url, maxDim) {
-        if (value == null && url != null) value = Images.load(url, maxDim)
+    val maxDim = maxOf(size.width, size.height).takeIf { it > 0 }?.coerceIn(64, 2048)
+    val requestUrl = url?.takeIf { it.isNotBlank() }
+    val requestKey = requestUrl?.let { ImageFetch.cacheKey(it) }
+    // produceState 的 key 只重启协程，不会重置已记住的 value；换 URL 时必须另建状态。
+    val bmp by key(requestKey, maxDim) {
+        produceState<ImageBitmap?>(if (requestUrl != null && maxDim != null) Images.cached(requestUrl, maxDim) else null) {
+            if (value == null && requestUrl != null && maxDim != null) {
+                val loaded = Images.load(requestUrl, maxDim)
+                if (requestKey == ImageFetch.cacheKey(requestUrl)) value = loaded
+            }
+        }
     }
     Box(modifier.onSizeChanged { size = it }) {
         Box(if (placeholder && bmp == null) Modifier.matchParentSize().background(Gh.c.neutralMuted) else Modifier.matchParentSize()) {
@@ -146,15 +153,15 @@ fun Avatar(url: String?, size: Dp, modifier: Modifier = Modifier, square: Boolea
 /** 支持双指缩放、双击放大的图片查看 */
 @Composable
 fun ZoomImage(url: String, modifier: Modifier = Modifier) {
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
+    var scale by remember(url) { mutableFloatStateOf(1f) }
+    var offset by remember(url) { mutableStateOf(Offset.Zero) }
     val state = rememberTransformableState { zoom, pan, _ ->
         scale = (scale * zoom).coerceIn(1f, 8f)
         offset = if (scale == 1f) Offset.Zero else offset + pan * scale
     }
     Box(
         modifier
-            .pointerInput(Unit) {
+            .pointerInput(url) {
                 detectTapGestures(
                     // 单击进入全屏查看器（可保存、分享）
                     onTap = { ImageViewer.open(url) },

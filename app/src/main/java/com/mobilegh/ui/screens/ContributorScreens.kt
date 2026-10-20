@@ -40,8 +40,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -371,34 +374,64 @@ private fun ContributorDetailCard(
 }
 
 @Composable
-private fun WeeklyContributionGraph(points: List<ContributionPoint>, height: Dp) {
+internal fun WeeklyContributionGraph(points: List<ContributionPoint>, height: Dp) {
     val g = Gh.c
-    val visible = points.takeLast(52)
+    val visible = remember(points) { points.takeLast(52) }
+    if (visible.isEmpty()) {
+        MutedText("周趋势暂无可用数据")
+        return
+    }
+    if (visible.size == 1) {
+        val point = visible.single()
+        MutedText("${point.start}（周起始，UTC） · ${point.commits?.let { "${contributionCount(it)} 次提交" } ?: "数据缺失"}")
+        return
+    }
     val peak = visible.mapNotNull { it.commits }.maxOrNull()
     val peakLabel = peak?.let { contributionCount(it) } ?: "—"
     val missing = visible.count { it.commits == null }
     val description = "${visible.first().start} 至 ${visible.last().start} 的每周提交，已知最高 $peakLabel 次，$missing 周数据缺失"
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    // 保留稀疏数据的数字；先测量，才能给大字体和长数字留足空间。
+    val labels = remember(visible, measurer, density, g.fgMuted) {
+        visible.map { point -> point.commits?.let {
+            measurer.measure(contributionCount(it), TextStyle(fontSize = 11.sp, color = g.fgMuted))
+        } }
+    }
+    val labelHeight = with(density) { (labels.filterNotNull().maxOfOrNull { it.size.height } ?: 0).toDp() }
+    var showData by remember(visible) { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         MutedText("每周提交${if (points.size > 52) " · 最近 52 个返回周" else " · ${visible.size} 周"} · 已知最高 $peakLabel")
-        Canvas(Modifier.fillMaxWidth().height(height).semantics { contentDescription = description }) {
+        Canvas(Modifier.fillMaxWidth().height(height + labelHeight + 4.dp).semantics { contentDescription = description }) {
             val slot = size.width / visible.size
-            val barWidth = slot * 0.7f
+            val barWidth = minOf((slot - 2.dp.toPx()).coerceAtLeast(0f), 24.dp.toPx())
+            val chartHeight = height.toPx()
+            val showLabels = visible.size <= 8 && labels.filterNotNull().all { it.size.width + 4.dp.toPx() <= slot }
             drawLine(g.borderMuted, Offset(0f, size.height), Offset(size.width, size.height))
             visible.forEachIndexed { index, point ->
                 val count = point.commits
-                when {
-                    count == null -> drawLine(g.fgMuted.copy(alpha = 0.35f), Offset((index + 0.5f) * slot, 0f),
+                if (count == null) {
+                    drawLine(g.fgMuted.copy(alpha = 0.35f), Offset((index + 0.5f) * slot, size.height - chartHeight),
                         Offset((index + 0.5f) * slot, size.height), strokeWidth = 1.dp.toPx())
-                    count > 0 -> {
-                        val barHeight = (size.height * (count.toDouble() / (peak ?: 1L).coerceAtLeast(1L))).toFloat()
-                        drawRoundRect(g.accent, Offset(index * slot + (slot - barWidth) / 2, size.height - barHeight),
-                            Size(barWidth, barHeight), CornerRadius(1.dp.toPx()))
+                } else {
+                    val barHeight = if (count > 0) (chartHeight * (count.toDouble() / (peak ?: 1L).coerceAtLeast(1L))).toFloat()
+                        .coerceIn(minOf(2.dp.toPx(), chartHeight), chartHeight) else 0f
+                    if (count > 0 && barWidth > 0) drawRoundRect(g.accent,
+                        Offset(index * slot + (slot - barWidth) / 2, size.height - barHeight),
+                        Size(barWidth, barHeight), CornerRadius(1.dp.toPx()))
+                    if (showLabels) labels[index]?.let { layout ->
+                        drawText(layout, topLeft = Offset(index * slot + (slot - layout.size.width) / 2,
+                            size.height - barHeight - layout.size.height - 2.dp.toPx()))
                     }
                 }
             }
         }
         MutedText("${visible.first().start} — ${visible.last().start}（周起始，UTC）")
         if (missing > 0) MutedText("灰色竖线表示缺失周数据；零提交周留空。")
+        TextButton(onClick = { showData = !showData }) { Text(if (showData) "收起每周数据" else "查看每周数据") }
+        if (showData) visible.forEach { point ->
+            MutedText("${point.start} · ${point.commits?.let { "${contributionCount(it)} 次提交" } ?: "数据缺失"}")
+        }
     }
 }
 

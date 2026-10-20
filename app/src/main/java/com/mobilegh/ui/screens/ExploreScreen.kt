@@ -5,6 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -83,9 +85,15 @@ fun ExploreScreen() {
                     )
                 }
                 item {
-                    Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Oc(R.drawable.oc_flame, g.attention, 18.dp, Modifier.padding(end = 6.dp))
-                        Text("新晋热门仓库", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = g.fg, modifier = Modifier.weight(1f))
+                    FlowRow(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Oc(R.drawable.oc_flame, g.attention, 18.dp, Modifier.padding(end = 6.dp))
+                            Text("新晋热门仓库", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = g.fg)
+                        }
                         Dropdown(trendRanges[trend].second, trendRanges.map { it.second }, { trend = it })
                     }
                     HDivider()

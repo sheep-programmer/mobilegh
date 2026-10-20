@@ -97,6 +97,47 @@ class SearchFiltersTest {
         }
     }
 
+    @Test fun historyQueryRetainsFiltersWithoutDuplicatingImplicitType() {
+        val f = SearchFilters(state = 1, issueRepo = "a/b", labels = "help wanted")
+        for (type in listOf(SearchType.ISSUE, SearchType.PR)) {
+            val saved = SearchQuery.build(type, "crash", f, includeType = false)
+            assertEquals("crash is:open repo:a/b label:\"help wanted\"", saved)
+            assertEquals("$saved ${if (type == SearchType.PR) "is:pr" else "is:issue"}", SearchQuery.build(type, saved, SearchFilters()))
+        }
+    }
+
+    @Test fun ignoredOwnerDoesNotInflateScopeFilterCount() {
+        for (type in listOf(SearchType.CODE, SearchType.ISSUE, SearchType.PR)) {
+            val f = SearchFilters(codeRepo = "a/b", codeOwner = "c", issueRepo = "a/b", issueOwner = "c")
+            assertEquals(1, f.activeCount(type))
+            assertFalse(SearchQuery.build(type, "", f).contains("user:c"))
+        }
+    }
+
+    @Test fun sanitizedEmptyFiltersDoNotStartSearch() {
+        val f = SearchFilters(
+            repoOwner = "\" \",: ", repoLanguage = "\"\\\\", topic = ":",
+            location = "\"\\\\", userLanguage = "\"", userType = 99,
+            author = ":", labels = ", \" , \\\\,", issueRepo = ":", issueOwner = ":", issueLanguage = "\"", state = 99,
+            codeRepo = ":", codeOwner = ":", codeLanguage = "\"", path = "\\\\", filename = "\"", archived = 99,
+        )
+        for (type in SearchType.REPO..SearchType.CODE) {
+            assertEquals("type=$type", 0, f.activeCount(type))
+            assertFalse("type=$type", SearchQuery.hasCriteria(type, "", f))
+            val expected = when (type) {
+                SearchType.ISSUE -> "is:issue"
+                SearchType.PR -> "is:pr"
+                else -> ""
+            }
+            assertEquals(expected, SearchQuery.build(type, "", f))
+        }
+    }
+
+    @Test fun invalidRepoFallsBackToOwnerConsistently() {
+        assertEquals("is:issue user:octocat", SearchQuery.build(SearchType.ISSUE, "", SearchFilters(issueRepo = ":", issueOwner = "octocat")))
+        assertEquals("user:octocat", SearchQuery.build(SearchType.CODE, "", SearchFilters(codeRepo = ":", codeOwner = "octocat")))
+    }
+
     @Test fun hasCriteriaRequiresKeywordOrFilter() {
         assertFalse(SearchQuery.hasCriteria(SearchType.CODE, "  ", SearchFilters()))
         assertTrue(SearchQuery.hasCriteria(SearchType.CODE, "x", SearchFilters()))

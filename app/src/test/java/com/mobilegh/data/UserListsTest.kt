@@ -151,12 +151,12 @@ class UserListsTest {
             val target = buildJsonObject { put("id", "R_target") }
             val api = client { query, vars ->
                 when {
-                    query.contains("MobileGHListMemberships") -> snapshot(listOf(list("L_big", listOf("R_first"), 150, "items-2")))
+                    query.contains("MobileGHListMemberships") -> snapshot(listOf(list("L_big", (1..100).map { "R_$it" }, 150, "items-2")))
                     query.contains("MobileGHMembershipItems") -> buildJsonObject {
                         put("viewer", buildJsonObject { put("login", "Alice") })
                         put("node", buildJsonObject {
                             put("id", "L_big"); put("user", buildJsonObject { put("login", "Alice") })
-                            put("items", connection(listOf(target), 150))
+                            put("items", connection((101..149).map { buildJsonObject { put("id", "R_$it") } } + target, 150))
                         })
                     }
                     else -> confirmed(vars)
@@ -165,6 +165,73 @@ class UserListsTest {
             assertEquals(setOf("L_big"), api.memberships(alice, "mona", "repo").memberships)
             assertEquals(150, api.memberships(alice, "mona", "repo").lists.single().count)
         }
+    }
+
+    @Test fun incompleteLaterItemPagesBlockReplacementWrites() {
+        var mutations = 0
+        val api = client { query, vars ->
+            when {
+                query.contains("MobileGHListMemberships") -> snapshot(listOf(list("L_old", listOf("R_other"), 3, "items-2"), list("L_new")))
+                query.contains("MobileGHMembershipItems") -> buildJsonObject {
+                    put("viewer", buildJsonObject { put("login", "Alice") })
+                    put("node", buildJsonObject {
+                        put("id", "L_old"); put("user", buildJsonObject { put("login", "Alice") })
+                        put("items", connection(listOf(buildJsonObject { put("id", "R_another") }), 3))
+                    })
+                }
+                else -> { mutations++; confirmed(vars) }
+            }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { api.setRepositoryLists(alice, "mona", "repo", setOf("L_new"), emptySet()) }
+        }
+        assertEquals(0, mutations)
+    }
+
+    @Test fun duplicateIdsOnFirstItemPageBlockReplacementWrites() {
+        var mutations = 0
+        val api = client { query, vars ->
+            if (query.startsWith("query ")) snapshot(listOf(list("L_old", listOf("R_other", "R_other"), 2, "items-2"), list("L_new")))
+            else { mutations++; confirmed(vars) }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { api.setRepositoryLists(alice, "mona", "repo", setOf("L_new"), emptySet()) }
+        }
+        assertEquals(0, mutations)
+    }
+
+    @Test fun changingListCountDuringPaginationBlocksReplacementWrites() {
+        var mutations = 0
+        val api = client { query, vars ->
+            if (query.startsWith("mutation ")) { mutations++; confirmed(vars) }
+            else if (vars["after"] == JsonNull) snapshot(listOf(list("L_old", listOf("R_target"))), 3, "lists-2")
+            else snapshot(listOf(list("L_new")), 2)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { api.setRepositoryLists(alice, "mona", "repo", setOf("L_new"), emptySet()) }
+        }
+        assertEquals(0, mutations)
+    }
+
+    @Test fun changingItemCountDuringPaginationBlocksReplacementWrites() {
+        var mutations = 0
+        val api = client { query, vars ->
+            when {
+                query.contains("MobileGHListMemberships") -> snapshot(listOf(list("L_old", listOf("R_other"), 3, "items-2"), list("L_new")))
+                query.contains("MobileGHMembershipItems") -> buildJsonObject {
+                    put("viewer", buildJsonObject { put("login", "Alice") })
+                    put("node", buildJsonObject {
+                        put("id", "L_old"); put("user", buildJsonObject { put("login", "Alice") })
+                        put("items", connection(listOf(buildJsonObject { put("id", "R_another") }), 2))
+                    })
+                }
+                else -> { mutations++; confirmed(vars) }
+            }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { api.setRepositoryLists(alice, "mona", "repo", setOf("L_new"), emptySet()) }
+        }
+        assertEquals(0, mutations)
     }
 
     @Test fun staleSelectionsPreserveNewMembershipsAndOnlyRemoveTheRequestedList() {

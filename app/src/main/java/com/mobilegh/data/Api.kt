@@ -82,6 +82,7 @@ object Api {
                 val req = chain.request()
                 val b = req.newBuilder().header("User-Agent", "MobileGH/1.0 (Android)")
                 val token = Session.token
+                val generation = Session.generation
                 // 只向 GitHub 自己的域名发送 Token，避免泄露给第三方图片/CDN
                 val apiHost = Net.apiHost
                 if (token != null && req.header("Authorization") == null && (req.url.host in AUTH_HOSTS || req.url.host == apiHost)) {
@@ -106,7 +107,10 @@ object Api {
                 }
                 // 旧会话可能没记录授权范围（grantedScopes 为 null 时启动提示不会弹）。
                 // 任意一次 API 响应的 X-OAuth-Scopes 头都能补齐；细粒度 PAT 无此头，保持「未知」不误报。
-                if (Session.grantedScopes == null && token != null && req.url.host in AUTH_HOSTS) {
+                if (Session.grantedScopes == null && Session.generation == generation &&
+                    Session.token != null && resp.request.header("Authorization") == "Bearer ${Session.token}" &&
+                    resp.request.url.host in AUTH_HOSTS
+                ) {
                     runCatching { Session.applyScopes(DeviceAuth.parseScopes(resp.header("X-OAuth-Scopes"))) }
                 }
                 resp

@@ -10,10 +10,11 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
@@ -37,9 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -107,7 +106,9 @@ fun SearchScreen(initialType: Int = SearchType.REPO, initialQuery: String = "") 
         }
         input = clean
         submitted = clean
-        if (SearchQuery.hasCriteria(type, clean, filters)) History.search(clean, type)
+        if (SearchQuery.hasCriteria(type, clean, filters)) {
+            History.search(SearchQuery.build(type, clean, filters, includeType = false), type)
+        }
     }
 
     val query = SearchQuery.build(type, submitted, filters)
@@ -115,7 +116,7 @@ fun SearchScreen(initialType: Int = SearchType.REPO, initialQuery: String = "") 
     val listState = rememberLazyListState()
 
     Page("搜索", back = true) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize()) {
+        Column(Modifier.padding(pad).consumeWindowInsets(pad).imePadding().fillMaxSize()) {
             GhField(
                 input, { input = it }, "搜索 ${SearchType.labels[type]}",
                 Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp),
@@ -124,18 +125,18 @@ fun SearchScreen(initialType: Int = SearchType.REPO, initialQuery: String = "") 
                 keyboardActions = KeyboardActions(onSearch = { submit() }),
                 trailing = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (input.isNotEmpty()) {
-                            OcButton(R.drawable.oc_x, { input = "" }, g.fgMuted, description = "清空关键词")
+                        if (input.isNotEmpty() || submitted.isNotEmpty()) {
+                            OcButton(R.drawable.oc_x, { input = ""; submitted = "" }, g.fgMuted, description = "清空关键词")
                         }
                         OcButton(R.drawable.oc_search, { submit() }, description = "搜索")
                     }
                 },
             )
             Chips(SearchType.labels, type) { type = it }
-            Row(
+            FlowRow(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 FilterButton(filters.activeCount(type)) { filterDialog = true }
                 if (filters.hasActive(type)) TextLink("清除筛选") { filters = filters.cleared(type) }
@@ -144,9 +145,12 @@ fun SearchScreen(initialType: Int = SearchType.REPO, initialQuery: String = "") 
             when {
                 !ready -> HintPane(type,
                     onHistory = { entry ->
+                        focus.clearFocus()
                         input = entry.query
                         type = entry.type.coerceIn(0, SearchType.labels.lastIndex)
+                        filters = filters.cleared(type)
                         submitted = entry.query
+                        History.search(entry.query, type)
                     },
                     onExample = { input = it },
                 )
@@ -159,10 +163,17 @@ fun SearchScreen(initialType: Int = SearchType.REPO, initialQuery: String = "") 
     }
 
     if (filterDialog) {
-        SearchFilterDialog(type, filters, { filters = it; filterDialog = false }) { filterDialog = false }
+        SearchFilterDialog(type, filters, {
+            filters = it
+            filterDialog = false
+            focus.clearFocus()
+            if (SearchQuery.hasCriteria(type, submitted, it)) {
+                History.search(SearchQuery.build(type, submitted, it, includeType = false), type)
+            }
+        }) { filterDialog = false }
     }
-    // 筛选条件变化后立即重查；没有关键词时也允许只用筛选浏览
-    LaunchedEffect(type) { listState.scrollToItem(0) }
+    // 新关键词或筛选条件都从首条结果展示，避免沿用上次搜索的滚动位置
+    LaunchedEffect(type, query) { listState.scrollToItem(0) }
 }
 
 private fun placeholder(type: Int): String = when (type) {
@@ -318,11 +329,9 @@ private fun IssueResults(query: String, pulls: Boolean, state: LazyListState) {
  * 比 AlertDialog 更适合多字段表单，输入时也不会被窄弹窗挤成一列长条。
  */
 @Composable
-private fun SearchFilterDialog(type: Int, initial: SearchFilters, onApply: (SearchFilters) -> Unit, onDismiss: () -> Unit) {
+internal fun SearchFilterDialog(type: Int, initial: SearchFilters, onApply: (SearchFilters) -> Unit, onDismiss: () -> Unit) {
     val g = Gh.c
-    var f by remember { mutableStateOf(initial) }
-    // 内容区最多占屏幕 90% 再扣掉标题与底部按钮，保证「应用」始终在屏幕内
-    val contentMax = (LocalConfiguration.current.screenHeightDp * 0.9f).dp - 150.dp
+    var f by rememberSaveable(type, stateSaver = SearchFiltersSaver) { mutableStateOf(initial) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = g.canvas,
@@ -338,8 +347,10 @@ private fun SearchFilterDialog(type: Int, initial: SearchFilters, onApply: (Sear
                 OcButton(R.drawable.oc_x, onDismiss, description = "关闭筛选")
             }
             HDivider(Modifier.padding(top = 8.dp))
+            // 滚动区用 weight 而不是估算的固定高度：弹层高度被键盘或矮屏压缩时，
+            // 「应用」按钮仍然在屏幕内，只有中间内容滚动
             Column(
-                Modifier.heightIn(max = contentMax).verticalScroll(rememberScrollState())
+                Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
@@ -397,15 +408,14 @@ private fun SearchFilterDialog(type: Int, initial: SearchFilters, onApply: (Sear
                 }
             }
             HDivider()
-            Row(
+            FlowRow(
                 Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TextLink("清除筛选") { f = f.cleared(type) }
-                Spacer(Modifier.weight(1f))
-                GhButton("取消", Modifier.weight(1f)) { onDismiss() }
-                GhButton("应用" + if (f.activeCount(type) > 0) " · ${f.activeCount(type)}" else "", Modifier.weight(1f), primary = true) {
+                GhButton("清除筛选") { f = f.cleared(type) }
+                GhButton("取消") { onDismiss() }
+                GhButton("应用" + if (f.activeCount(type) > 0) " · ${f.activeCount(type)}" else "", primary = true) {
                     onApply(f)
                 }
             }

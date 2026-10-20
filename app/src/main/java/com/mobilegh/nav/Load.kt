@@ -10,6 +10,7 @@ import com.mobilegh.data.Session
 import com.mobilegh.data.networkHint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -23,6 +24,7 @@ fun Throwable.friendly(): String = when (this) {
 
 /** 单个异步数据 */
 class Loader<T>(private val scope: CoroutineScope, private val block: suspend (force: Boolean) -> T) {
+    private val generation = Session.generation
     var data by mutableStateOf<T?>(null)
     var error by mutableStateOf<String?>(null)
     var loading by mutableStateOf(false)
@@ -31,19 +33,24 @@ class Loader<T>(private val scope: CoroutineScope, private val block: suspend (f
     private var operation = 0
 
     fun load(force: Boolean = false) {
+        if (Session.generation != generation) return
         val id = ++operation
         job?.cancel()
         loading = true
         refreshing = force
         error = null
-        job = scope.launch {
+        // Enter try/finally even when the owner cancels before the first dispatch.
+        job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                val result = withContext(Dispatchers.Default) { block(force) }
-                if (id == operation) { data = result; error = null }
+                val result = withContext(Dispatchers.Default) {
+                    if (Session.generation != generation) throw CancellationException("Account changed")
+                    block(force)
+                }
+                if (id == operation && Session.generation == generation) { data = result; error = null }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                if (id == operation) error = e.friendly()
+                if (id == operation && Session.generation == generation) error = e.friendly()
             } finally {
                 if (id == operation) { loading = false; refreshing = false }
             }
@@ -68,6 +75,7 @@ class Pager<T>(
     private val pageSize: Int = 30,
     private val fetch: suspend (page: Int, force: Boolean) -> List<T>,
 ) {
+    private val generation = Session.generation
     val items = mutableStateListOf<T>()
     var loading by mutableStateOf(false)
     var refreshing by mutableStateOf(false)
@@ -101,18 +109,22 @@ class Pager<T>(
     }
 
     private fun request(kind: Request) {
+        if (Session.generation != generation) return
         val id = ++operation
         job?.cancel()
         loading = true
         refreshing = kind == Request.Refresh
         error = null
         failed = null
-        job = scope.launch {
+        job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 do {
                     val next = if (kind == Request.Refresh) 1 else page + 1
-                    val list = withContext(Dispatchers.Default) { fetch(next, kind == Request.Refresh) }
-                    if (id != operation) return@launch
+                    val list = withContext(Dispatchers.Default) {
+                        if (Session.generation != generation) throw CancellationException("Account changed")
+                        fetch(next, kind == Request.Refresh)
+                    }
+                    if (id != operation || Session.generation != generation) return@launch
                     if (kind == Request.Refresh) items.clear()
                     items.addAll(list)
                     page = next
@@ -121,7 +133,7 @@ class Pager<T>(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                if (id == operation) { error = e.friendly(); failed = kind }
+                if (id == operation && Session.generation == generation) { error = e.friendly(); failed = kind }
             } finally {
                 if (id == operation) {
                     loading = false

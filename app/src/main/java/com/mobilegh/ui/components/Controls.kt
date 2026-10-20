@@ -15,6 +15,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -95,7 +101,8 @@ fun DropdownButton(label: String, modifier: Modifier = Modifier, active: Boolean
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, fontSize = 13.sp, color = if (active) g.accent else g.fg, fontWeight = FontWeight.Medium, maxLines = 1)
+        Text(label, Modifier.weight(1f, fill = false), fontSize = 13.sp, color = if (active) g.accent else g.fg,
+            fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.width(4.dp))
         Oc(R.drawable.oc_chevron_down, if (active) g.accent else g.fgMuted, 12.dp)
         menu()
@@ -166,7 +173,8 @@ fun GhField(
 fun SwitchRow(title: String, desc: String? = null, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     val g = Gh.c
     Row(
-        Modifier.fillMaxWidth().clickable(enabled) { onChange(!checked) }.padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -174,7 +182,7 @@ fun SwitchRow(title: String, desc: String? = null, checked: Boolean, enabled: Bo
             if (desc != null) Text(desc, fontSize = 12.sp, color = g.fgMuted)
         }
         Switch(
-            checked, onChange, enabled = enabled,
+            checked, onCheckedChange = null, enabled = enabled,
             colors = SwitchDefaults.colors(checkedTrackColor = g.btnPrimary, checkedThumbColor = Color.White, uncheckedTrackColor = g.neutralMuted, uncheckedBorderColor = g.border),
         )
     }
@@ -184,14 +192,14 @@ fun SwitchRow(title: String, desc: String? = null, checked: Boolean, enabled: Bo
 @Composable
 fun Segmented(options: List<String>, selected: Int, modifier: Modifier = Modifier, enabled: Boolean = true, onSelect: (Int) -> Unit) {
     val g = Gh.c
-    Row(modifier.background(g.canvasSubtle, RoundedCornerShape(8.dp)).border(1.dp, g.borderMuted, RoundedCornerShape(8.dp)).padding(3.dp)) {
+    Row(modifier.selectableGroup().background(g.canvasSubtle, RoundedCornerShape(8.dp)).border(1.dp, g.borderMuted, RoundedCornerShape(8.dp)).padding(3.dp)) {
         options.forEachIndexed { i, label ->
             val sel = i == selected
             Box(
                 Modifier.weight(1f).clip(RoundedCornerShape(6.dp))
                     .then(if (sel) Modifier.background(g.canvas, RoundedCornerShape(6.dp)).border(1.dp, g.border, RoundedCornerShape(6.dp)) else Modifier)
-                    .clickable(enabled && !sel, role = androidx.compose.ui.semantics.Role.Tab) { onSelect(i) }
-                    .padding(vertical = 8.dp),
+                    .selectable(selected = sel, enabled = enabled, role = Role.Tab) { if (!sel) onSelect(i) }
+                    .heightIn(min = 48.dp).padding(horizontal = 6.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) { Text(label, fontSize = 14.sp, fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal, color = if (sel) g.fg else g.fgMuted) }
         }
@@ -203,7 +211,8 @@ fun Segmented(options: List<String>, selected: Int, modifier: Modifier = Modifie
 fun RadioRow(selected: Boolean, title: String, desc: String? = null, enabled: Boolean = true, onClick: () -> Unit) {
     val g = Gh.c
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).clickable(enabled, role = androidx.compose.ui.semantics.Role.RadioButton, onClick = onClick)
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

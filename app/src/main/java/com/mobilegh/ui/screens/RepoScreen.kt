@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,7 +44,6 @@ import com.mobilegh.data.SearchType
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.HomePrefs
 import com.mobilegh.data.SubscriptionSettings
-import com.mobilegh.data.SubscriptionMode
 import com.mobilegh.data.Repo
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
@@ -55,6 +53,8 @@ import com.mobilegh.nav.UserKind
 import com.mobilegh.nav.act
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.retain
+import com.mobilegh.nav.guarded
+import com.mobilegh.nav.sameAccount
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.boxedItems
 import com.mobilegh.ui.components.Chips
@@ -99,10 +99,10 @@ fun RepoScreen(owner: String, name: String) {
     val ref = retain("ref") { mutableStateOf<String?>(null) }
     val readme = rememberLoader("readme:${ref.value}") { GitHub.readme(owner, name, ref.value, it) }
     val langs = rememberLoader("langs") { GitHub.languages(owner, name) }
-    val starStatus = rememberLoader("star-status") { GitHub.isStarred(owner, name) }
-    var starBusy by remember { mutableStateOf(false) }
-    val watching = retain("watching-mode") { mutableStateOf<SubscriptionMode?>(null) }
-    var starDelta by remember { mutableStateOf(0) }
+    val starStatus = rememberLoader("star-status") { entry.guarded { GitHub.isStarred(owner, name) } }
+    val starBusyState = retain("star-busy") { mutableStateOf(false) }
+    var starBusy by starBusyState
+    val watching = rememberLoader("watch-status") { entry.guarded { SubscriptionSettings.current(owner, name) } }
     var showBranches by remember { mutableStateOf(false) }
     var showClone by remember { mutableStateOf(false) }
     var showSubscription by remember { mutableStateOf(false) }
@@ -111,9 +111,6 @@ fun RepoScreen(owner: String, name: String) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
 
-    LaunchedEffect(Unit) {
-        if (watching.value == null) watching.value = runCatching { SubscriptionSettings.current(owner, name) }.getOrNull()
-    }
     val r = repo.data
     val admin = r?.permissions?.admin == true
     val branch = ref.value ?: r?.defaultBranch
@@ -150,7 +147,7 @@ fun RepoScreen(owner: String, name: String) {
         when {
             r == null && repo.error != null -> ErrorState(repo.error!!, Modifier.padding(pad)) { repo.load(true) }
             r == null -> Loading(Modifier.padding(pad).fillMaxSize())
-            else -> PullToRefreshBox(repo.refreshing, { repo.refresh(); readme.refresh(); langs.refresh(); starStatus.refresh() }, Modifier.padding(pad)) {
+            else -> PullToRefreshBox(repo.refreshing, { if (!starBusy) { repo.refresh(); readme.refresh(); langs.refresh(); starStatus.refresh(); watching.refresh() } }, Modifier.padding(pad)) {
                 LazyColumn(Modifier.fillMaxSize(), state = listState) {
                     item { RepoHeader(r) }
                     item {
@@ -158,24 +155,37 @@ fun RepoScreen(owner: String, name: String) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             val s = starStatus.data == true
                             GhButton(
-                                "${if (s) "已 Star" else "Star"} ${fmtCount(r.stargazersCount + starDelta)}",
-                                Modifier.weight(1f), icon = if (s) R.drawable.oc_star_fill else R.drawable.oc_star, enabled = starStatus.data != null && !starBusy && !starStatus.loading,
+                                "${if (s) "已 Star" else "Star"} ${fmtCount(r.stargazersCount)}",
+                                Modifier.weight(1f), icon = if (s) R.drawable.oc_star_fill else R.drawable.oc_star, enabled = entry.sameAccount() && starStatus.data != null && !starBusy && !starStatus.loading && !repo.loading,
                                 // 和 GitHub 一样：点按切换 Star，长按管理这个仓库所在的列表
                                 onLongClick = { showLists = true },
                             ) {
-                                val on = !s
-                                starStatus.accept(on)
-                                starDelta += if (on) 1 else -1
-                                starBusy = true
-                                entry.act({ starStatus.accept(!on); starDelta -= if (on) 1 else -1; ctx.toast(it) }) {
-                                    try { GitHub.star(owner, name, on) } finally { starBusy = false }
+                                if (!starBusy && entry.sameAccount()) {
+                                    val on = !s
+                                    starStatus.accept(on)
+                                    starBusy = true
+                                    entry.act({
+                                        if (entry.sameAccount()) {
+                                            starStatus.accept(s)
+                                            starStatus.refresh()
+                                            repo.refresh()
+                                            ctx.toast(it)
+                                        }
+                                    }) {
+                                        try {
+                                            entry.guarded { GitHub.star(owner, name, on) }
+                                            repo.refresh()
+                                            starStatus.refresh()
+                                        } finally { starBusy = false }
+                                    }
                                 }
                             }
-                            GhButton(watching.value?.title ?: "订阅设置", Modifier.weight(1f), icon = R.drawable.oc_eye) {
+                            GhButton(watching.data?.title ?: if (watching.loading) "读取订阅…" else "订阅设置", Modifier.weight(1f), icon = R.drawable.oc_eye, enabled = entry.sameAccount()) {
                                 showSubscription = true
                             }
                         }
-                        starStatus.error?.let { InlineError("Star 状态读取失败：$it", Modifier.padding(horizontal = 16.dp)) { starStatus.refresh() } }
+                        starStatus.error?.let { InlineError("Star 状态读取失败：$it", Modifier.padding(horizontal = 16.dp)) { if (!starBusy && entry.sameAccount()) starStatus.refresh() } }
+                        watching.error?.let { InlineError("订阅状态读取失败：$it", Modifier.padding(horizontal = 16.dp)) { if (entry.sameAccount()) watching.refresh() } }
                         Spacer(Modifier.height(16.dp))
                     }
                     item {
@@ -265,7 +275,7 @@ fun RepoScreen(owner: String, name: String) {
         }
     }
 
-    if (showSubscription) SubscriptionDialog(owner, name, { showSubscription = false }) { watching.value = it }
+    if (showSubscription && entry.sameAccount()) SubscriptionDialog(owner, name, { showSubscription = false }) { watching.accept(it) }
     if (showLists && r != null) AddToStarListsDialog(r) { showLists = false }
     if (showBranches && r != null) {
         BranchPicker(owner, name, branch ?: r.defaultBranch, onDismiss = { showBranches = false }) {

@@ -24,7 +24,7 @@ import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Navigator
 import com.mobilegh.nav.Screen
 import com.mobilegh.ui.components.ClipboardLinkHost
-import com.mobilegh.ui.screens.ExploreScreen
+import com.mobilegh.ui.screens.SearchScreen
 import com.mobilegh.ui.theme.MobileGhTheme
 import org.junit.Assert.assertEquals
 import org.junit.After
@@ -47,7 +47,7 @@ class LinkNavigationTest {
     private fun showSearch() {
         compose.setContent {
             MobileGhTheme {
-                CompositionLocalProvider(LocalNav provides nav, LocalEntry provides nav.root) { ExploreScreen() }
+                CompositionLocalProvider(LocalNav provides nav, LocalEntry provides nav.root) { SearchScreen() }
             }
         }
     }
@@ -70,7 +70,7 @@ class LinkNavigationTest {
 
     @Test fun keyboardSearchOpensPastedRepositoryAddress() {
         showSearch()
-        val field = compose.onNodeWithText("搜索 GitHub 或打开链接")
+        val field = compose.onNodeWithText("搜索 仓库")
         field.performTextInput("https://github.com/octocat/Hello-World.git")
         field.performImeAction()
         compose.runOnIdle { assertEquals(Screen.Repo("octocat", "Hello-World"), nav.top.screen) }
@@ -78,15 +78,15 @@ class LinkNavigationTest {
 
     @Test fun searchButtonOpensIssueLink() {
         showSearch()
-        compose.onNodeWithText("搜索 GitHub 或打开链接")
+        compose.onNodeWithText("搜索 仓库")
             .performTextInput("github.com/octocat/Hello-World/issues/42")
-        compose.onNodeWithContentDescription("搜索或打开链接").performClick()
+        compose.onNodeWithContentDescription("搜索").performClick()
         compose.runOnIdle { assertEquals(Screen.IssueDetail("octocat", "Hello-World", 42, false), nav.top.screen) }
     }
 
-    @Test fun clipboardPromptOpensRepositoryFromSharedText() {
+    @Test fun clipboardPromptOpensAnExplicitRepositoryLink() {
         showClipboard()
-        copy("推荐仓库：https://github.com/octocat/Hello-World，试试看")
+        copy("https://github.com/octocat/Hello-World")
         compose.waitUntil(5_000) { compose.onAllNodesWithText("打开").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("打开").performClick()
         compose.runOnIdle { assertEquals(Screen.Repo("octocat", "Hello-World"), nav.top.screen) }
@@ -96,7 +96,7 @@ class LinkNavigationTest {
         copy("https://github.com/octocat/Hello-World")
         showClipboard()
         compose.waitUntil(5_000) {
-            compose.onAllNodesWithText("剪贴板仓库：octocat/Hello-World").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithText("剪贴板有 octocat/Hello-World，可快速打开").fetchSemanticsNodes().isNotEmpty()
         }
     }
 
@@ -115,7 +115,7 @@ class LinkNavigationTest {
         copy("https://github.com/octocat/Hello-World")
         compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
         compose.waitUntil(5_000) {
-            compose.onAllNodesWithText("剪贴板仓库：octocat/Hello-World").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithText("剪贴板有 octocat/Hello-World，可快速打开").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithText("打开").performClick()
         compose.runOnIdle { assertEquals(Screen.Repo("octocat", "Hello-World"), nav.top.screen) }

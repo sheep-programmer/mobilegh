@@ -10,7 +10,6 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -62,29 +61,15 @@ fun HtmlView(
     val dark = Gh.c.dark
     // Compose 的约束以物理像素编码；可用高度取决于组件宽度，需等测量后才知道。
     val density = LocalDensity.current.density
+    val textZoom = (LocalDensity.current.fontScale * 100).toInt().coerceAtLeast(1)
     var measuredWidth by remember { mutableIntStateOf(0) }
     val maxHeight = remember(density, measuredWidth) { htmlMaxHeightDp(density, measuredWidth) }
     val heightLimit by rememberUpdatedState(maxHeight)
     var height by remember { mutableIntStateOf(0) }
     val anchor by rememberUpdatedState(onAnchor)
     val doc = remember(html, dark) { wrapHtml(html, dark) }
-    // 时间线里的每条评论都可能包含一个 WebView。显式销毁离开 LazyColumn 的实例，
-    // 否则反复滚动会让 Chromium 渲染器和网页资源一直累积，最终造成闪退或系统回收。
+    // 在 AndroidView 释放已脱离视图树的实例后销毁，避免提前 destroy 仍附着的 WebView。
     val webRef = remember { arrayOfNulls<WebView>(1) }
-    DisposableEffect(Unit) {
-        onDispose {
-            webRef[0]?.let { wv ->
-                runCatching {
-                    wv.stopLoading()
-                    wv.loadUrl("about:blank")
-                    wv.clearHistory()
-                    wv.removeAllViews()
-                    wv.destroy()
-                }
-                webRef[0] = null
-            }
-        }
-    }
     AndroidView(
         factory = { c ->
             WebView(c).apply {
@@ -96,13 +81,14 @@ fun HtmlView(
                 settings.javaScriptEnabled = true
                 settings.allowFileAccess = false
                 settings.allowContentAccess = false
-                settings.textZoom = 100
+                settings.textZoom = textZoom
                 addJavascriptInterface(object {
                     /** 同一个 WebView 只记一次：页面里有循环图片时高度会反复超限 */
                     @Volatile private var warned = false
 
                     @JavascriptInterface
                     fun h(v: Int) = post {
+                        if (webRef[0] !== this@apply) return@post
                         // JS 返回的是内容像素；异常页面/循环图片可能回报几十万像素，
                         // 直接换算成 dp 会触发 Compose Constraints 崩溃。
                         if (v > heightLimit && !warned) {
@@ -113,16 +99,23 @@ fun HtmlView(
                     }
 
                     @JavascriptInterface
-                    fun a(y: Int) = post { anchor?.invoke(y) }
+                    fun a(y: Int) = post { if (webRef[0] === this@apply) anchor?.invoke(y) }
 
                     /** 点击网页里的图片：打开全屏查看器 */
                     @JavascriptInterface
-                    fun img(src: String, alt: String) = post { ImageViewer.open(src, alt) }
+                    fun img(src: String, alt: String) = post { if (webRef[0] === this@apply) ImageViewer.open(src, alt) }
                 }, "Bridge")
                 webViewClient = GhWebClient(c, nav)
             }
         },
+        onRelease = { wv ->
+            webRef[0] = null
+            wv.removeJavascriptInterface("Bridge")
+            wv.stopLoading()
+            wv.destroy()
+        },
         update = { wv ->
+            if (wv.settings.textZoom != textZoom) wv.settings.textZoom = textZoom
             val contentKey = doc to baseUrl
             if (wv.tag != contentKey) {
                 wv.tag = contentKey

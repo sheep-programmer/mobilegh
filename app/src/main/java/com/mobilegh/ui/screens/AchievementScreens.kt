@@ -89,6 +89,10 @@ import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
@@ -490,6 +494,79 @@ private fun RepositoryListMembershipDialog(repo: Repo, account: StarListAccount,
     }
 }
 
+/** Owns each detail request so leaving a list also invalidates its results and retry state. */
+internal class UserListDetailLoader<T>(
+    private val scope: CoroutineScope,
+    private val limit: Int,
+    private val id: (T) -> String,
+) {
+    var items by mutableStateOf<List<T>>(emptyList())
+        private set
+    var total by mutableIntStateOf(0)
+        private set
+    var loaded by mutableStateOf(false)
+        private set
+    var loading by mutableStateOf(false)
+        private set
+    var error by mutableStateOf<String?>(null)
+        private set
+    var hasMore by mutableStateOf(false)
+        private set
+    var limited by mutableStateOf(false)
+        private set
+    private var cursor: String? = null
+    private var source: (suspend (String?) -> com.mobilegh.data.UserListPage<T>)? = null
+    private var job: Job? = null
+    private var operation = 0
+    private var replaceOnRetry = true
+
+    fun open(listId: String?, fetch: (suspend (String?) -> com.mobilegh.data.UserListPage<T>)? = null) {
+        operation++
+        job?.cancel()
+        loading = false
+        items = emptyList(); cursor = null; loaded = false; error = null; total = 0
+        hasMore = listId != null; limited = false
+        source = fetch
+        if (listId != null) refresh()
+    }
+
+    fun loadMore() { if (!loading && hasMore && !limited) request(false) }
+    fun refresh() { request(true) }
+    fun retry() { if (!loading) request(replaceOnRetry) }
+
+    private fun request(replace: Boolean) {
+        val fetch = source ?: return
+        val version = ++operation
+        job?.cancel()
+        val after = if (replace) null else cursor
+        loading = true
+        error = null
+        replaceOnRetry = replace
+        job = scope.launch {
+            try {
+                val page = fetch(after)
+                currentCoroutineContext().ensureActive()
+                if (version != operation) return@launch
+                val next = if (replace) page.items else items + page.items
+                check(next.map(id).distinct().size == next.size && (page.nextCursor == null || page.nextCursor != after)) { "GitHub 仓库分页重复，请刷新" }
+                check(next.size <= page.totalCount && (page.nextCursor != null || next.size == page.totalCount)) { "GitHub 列表仓库读取不完整，请刷新" }
+                items = next.take(limit)
+                total = page.totalCount
+                cursor = page.nextCursor
+                hasMore = cursor != null
+                limited = next.size > limit || (hasMore && items.size >= limit)
+                loaded = true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (version == operation) error = failure.friendly()
+            } finally {
+                if (version == operation) loading = false
+            }
+        }
+    }
+}
+
 @Composable
 private fun GitHubListsContent(login: String, generation: Int, initialListId: String?, onLocal: (() -> Unit)?) {
     val ctx = rememberCtx()
@@ -500,11 +577,12 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
     val revision by UserLists.changes.collectAsState()
     var lists by remember { mutableStateOf<List<GitHubStarList>?>(null) }
     var selectedId by rememberSaveable(account, login, initialListId) { mutableStateOf(initialListId) }
-    var repositories by remember { mutableStateOf<List<UserListRepository>>(emptyList()) }
-    var cursor by remember { mutableStateOf<String?>(null) }
-    var detailTotal by remember { mutableIntStateOf(0) }
-    var detailLoaded by remember { mutableStateOf(false) }
-    var loading by remember { mutableStateOf(false) }
+    val detail = remember(account, login) { UserListDetailLoader<UserListRepository>(scope, UserListsClient.MAX_DETAIL_ITEMS) { it.nodeId } }
+    val repositories = detail.items
+    val detailTotal = detail.total
+    val detailLoaded = detail.loaded
+    var listLoading by remember { mutableStateOf(false) }
+    val loading = listLoading || detail.loading
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var editorOpen by remember { mutableStateOf(false) }
@@ -519,29 +597,11 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
         if (selectedId != null && lists!!.none { it.id == selectedId }) selectedId = null
     }
     fun load() {
-        if (loading) return
-        loading = true
+        if (listLoading || saving) return
+        listLoading = true
         scope.launch {
             try { reload(); error = null } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Exception) { error = failure.friendly() }
-            finally { loading = false }
-        }
-    }
-    fun loadItems(reset: Boolean = false, clearError: Boolean = true) {
-        val list = selected ?: return
-        if (loading || (!reset && detailLoaded && cursor == null) || repositories.size >= UserListsClient.MAX_DETAIL_ITEMS) return
-        loading = true
-        scope.launch {
-            try {
-                val page = UserLists.items(account, list, if (reset) null else cursor)
-                val next = if (reset) page.items else repositories + page.items
-                check(next.map { it.nodeId }.distinct().size == next.size && (reset || page.nextCursor == null || page.nextCursor != cursor)) { "GitHub 仓库分页重复，请刷新" }
-                repositories = next
-                detailTotal = page.totalCount
-                cursor = page.nextCursor
-                detailLoaded = true
-                if (clearError) error = null
-            } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Exception) { error = failure.friendly() }
-            finally { loading = false }
+            finally { listLoading = false }
         }
     }
     fun mutate(onDone: () -> Unit = {}, action: suspend () -> Unit) {
@@ -552,19 +612,23 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
             try {
                 action()
                 onDone()
-                reload()
-                // Revision reloads the current detail after a successful remote mutation.
+                try { reload() } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Exception) {
+                    error = "已保存到 GitHub，但刷新失败：${failure.friendly()}"
+                }
             } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Exception) { error = failure.friendly() }
             finally { saving = false }
         }
     }
-    LaunchedEffect(account, login) { load() }
-    LaunchedEffect(selected?.id, revision) {
-        if (selected != null) {
-            repositories = emptyList(); cursor = null; detailLoaded = false
-            while (loading || saving) kotlinx.coroutines.delay(30)
-            loadItems(reset = true, clearError = error == null)
-        } else if (selectedId == null && lists != null && !saving && !loading) load()
+    LaunchedEffect(selected?.id) {
+        val list = selected
+        if (list == null) detail.open(null)
+        else detail.open(list.id) { after -> UserLists.items(account, list, after) }
+    }
+    LaunchedEffect(account, login, revision) {
+        // Changes may originate from another screen, including a partially completed batch.
+        while (saving || listLoading) kotlinx.coroutines.delay(30)
+        load()
+        if (selected != null) detail.refresh()
     }
     BackHandler(enabled = selectedId != null && !editorOpen && !pickerOpen && deleting == null) {
         selectedId = null; query = ""
@@ -573,7 +637,7 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
         if (selected != null) {
             if (self) OcButton(R.drawable.oc_plus, { pickerOpen = true }, enabled = !saving && !loading)
             MoreMenu(buildList {
-                add(MenuAction("刷新") { if (!saving && !loading) { repositories = emptyList(); detailLoaded = false; loadItems(reset = true) } })
+                add(MenuAction("刷新") { if (!saving && !loading) { load(); detail.refresh() } })
                 if (self) {
                     add(MenuAction("编辑列表") { editing = selected; editorOpen = true })
                     add(MenuAction("删除列表", danger = true) { deleting = selected })
@@ -584,9 +648,12 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             if (selected == null && onLocal != null) Segmented(listOf("GitHub", "本机"), 0, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), enabled = !saving && !loading) { onLocal() }
-            if (error != null && lists != null) Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                Text(error!!, fontSize = 13.sp, color = Gh.c.danger)
-                if (!saving && !loading) TextButton(onClick = { if (selected == null) load() else loadItems(reset = !detailLoaded) }) { Text("重新加载") }
+            val visibleError = error ?: detail.error
+            if (visibleError != null && lists != null) Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                Text(visibleError, fontSize = 13.sp, color = Gh.c.danger)
+                if (!saving && !loading) TextButton(onClick = {
+                    if (error != null || selected == null) load() else detail.retry()
+                }) { Text("重新加载") }
             }
             if (lists == null) {
                 if (error != null && !loading) ErrorState(error!!, Modifier.weight(1f).fillMaxWidth()) { load() }
@@ -620,7 +687,7 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
                 if (selected.description.isNotEmpty()) Text(selected.description, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.fgMuted, fontSize = 13.sp)
                 GhField(query, { query = it }, "搜索已加载的列表仓库", modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                 val filtered = repositories.filter { it.repo.fullName.contains(query.trim(), true) }
-                if (filtered.isEmpty() && detailLoaded && cursor == null && !loading) {
+                if (filtered.isEmpty() && detailLoaded && !detail.hasMore && !loading) {
                     if (repositories.isNotEmpty()) EmptyState("没有匹配的已加载仓库", R.drawable.oc_search, Modifier.weight(1f).fillMaxWidth(), "清除搜索") { query = "" }
                     else if (self) EmptyState("列表暂无仓库，添加已 Star 的仓库。", R.drawable.oc_star, Modifier.weight(1f).fillMaxWidth(), "添加仓库") { pickerOpen = true }
                     else EmptyState("列表暂无仓库", R.drawable.oc_star, Modifier.weight(1f).fillMaxWidth())
@@ -638,8 +705,8 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
                     }
                     item {
                         if (loading) Loading(Modifier.fillMaxWidth().height(40.dp))
-                        else if (cursor != null && repositories.size < UserListsClient.MAX_DETAIL_ITEMS) GhButton("加载更多", modifier = Modifier.padding(16.dp), enabled = !saving) { loadItems() }
-                        else if (cursor != null) Text("已达 ${UserListsClient.MAX_DETAIL_ITEMS} 个仓库的显示上限，请在网页中继续查看。", Modifier.padding(16.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
+                        else if (detail.hasMore && !detail.limited) GhButton("加载更多", modifier = Modifier.padding(16.dp), enabled = !saving) { detail.loadMore() }
+                        else if (detail.limited) Text("已达 ${UserListsClient.MAX_DETAIL_ITEMS} 个仓库的显示上限，请在网页中继续查看。", Modifier.padding(16.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
                     }
                 }
                 if (self) Text("移除分类不会取消 Star。", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
@@ -713,6 +780,7 @@ private fun SyncedRepositoryListsDialog(repo: Repo, account: StarListAccount, on
     var loading by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var creating by remember { mutableStateOf(false) }
     fun load() {
         if (loading || saving) return
         loading = true
@@ -727,13 +795,32 @@ private fun SyncedRepositoryListsDialog(repo: Repo, account: StarListAccount, on
     // 自己还没 Star 的自有仓库也能建列表：GitHub 的列表不要求 Star，界面据此提示
     var mine by remember { mutableStateOf(false) }
     LaunchedEffect(account, repo.owner.login, repo.name) {
-        mine = repo.owner.login.equals(Session.login, true) &&
-            runCatching { GitHub.repo(repo.owner.login, repo.name, force = true).permissions?.admin == true }.getOrDefault(false)
+        mine = repo.owner.login.equals(account.login, true) && try {
+            GitHub.repo(repo.owner.login, repo.name, force = true).permissions?.admin == true
+        } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { false }
     }
     val canAdd = snapshot?.starred != false || mine
     LaunchedEffect(account) { load() }
     val original = snapshot?.memberships.orEmpty()
-    GhDialog("GitHub 列表", onDismiss = { if (!saving) onDismiss() }, confirm = if (saving) "保存中…" else "保存到 GitHub", confirmEnabled = !saving && !loading && snapshot != null && selected != original, onConfirm = {
+    if (creating) {
+        GitHubListEditor(null, saving, error, onDismiss = { if (!saving) { creating = false; error = null } }) { name, description, privateList ->
+            if (!saving) {
+                saving = true
+                error = null
+                scope.launch {
+                    try {
+                        val created = UserLists.create(account, name, description, privateList)
+                        snapshot = snapshot?.let { it.copy(lists = it.lists + created) }
+                        if (canAdd) selected = selected + created.id
+                        creating = false
+                    } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Exception) { error = failure.friendly() }
+                    finally { saving = false }
+                }
+            }
+        }
+        return
+    }
+    GhDialog("GitHub 列表", onDismiss = { if (!saving) onDismiss() }, confirm = if (saving) "保存中…" else "保存到 GitHub", confirmEnabled = !saving && !loading && snapshot != null && selected != original && (canAdd || selected.all { it in original }), onConfirm = {
         saving = true
         error = null
         scope.launch {
@@ -758,13 +845,12 @@ private fun SyncedRepositoryListsDialog(repo: Repo, account: StarListAccount, on
             if (loading) Loading(Modifier.fillMaxWidth().height(40.dp))
             if (snapshot != null && snapshot!!.lists.isEmpty()) Text("还没有 GitHub 列表。", color = Gh.c.fgMuted, fontSize = 13.sp)
             if (snapshot != null) Text(
-                if (snapshot!!.lists.isEmpty()) "先新建一个列表，再回来勾选。" else "勾选要加入的列表；没有出现在这里的列表说明该仓库还没有加入。",
+                if (snapshot!!.lists.isEmpty()) "先新建一个列表，再保存仓库分类。" else "勾选要加入的列表，取消勾选可移除分类。",
                 color = Gh.c.fgMuted, fontSize = 12.sp,
             )
-            GhButton("新建 GitHub 列表", enabled = !saving && !loading, icon = R.drawable.oc_plus) {
-                // 列表页有完整的「新建列表」入口；这里只负责跳过去
-                onDismiss()
-                nav.push(Screen.StarLists(account.login))
+            GhButton("新建 GitHub 列表", enabled = !saving && !loading && snapshot != null && snapshot!!.lists.size < UserListsClient.MAX_LISTS, icon = R.drawable.oc_plus) {
+                error = null
+                creating = true
             }
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 280.dp)) {
                 items(snapshot?.lists.orEmpty(), key = { it.id }) { list ->

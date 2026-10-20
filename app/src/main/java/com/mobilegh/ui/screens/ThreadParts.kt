@@ -95,9 +95,12 @@ fun ReactionBar(initial: Reactions?, modifier: Modifier = Modifier, onToggle: su
     val scope = rememberCoroutineScope()
     val counts = remember(initial) { mutableStateMapOf<String, Int>().also { m -> REACTIONS.forEach { (k, _) -> m[k] = initial?.count(k) ?: 0 } } }
     val mine = remember { mutableStateMapOf<String, Boolean>() }
+    val pending = remember { mutableStateMapOf<String, Boolean>() }
     var picking by remember { mutableStateOf(false) }
 
     fun toggle(key: String) {
+        if (pending[key] == true) return
+        pending[key] = true
         val before = counts[key] ?: 0
         val was = mine[key] == true
         counts[key] = if (was) (before - 1).coerceAtLeast(0) else before + 1
@@ -106,14 +109,18 @@ fun ReactionBar(initial: Reactions?, modifier: Modifier = Modifier, onToggle: su
         scope.launch {
             try {
                 val on = onToggle(key)
-                counts[key] = if (on) (if (was) before else before + 1) else (before - 1).coerceAtLeast(0)
+                counts[key] = settledReactionCount(before, was, on)
                 mine[key] = on
             } catch (e: kotlinx.coroutines.CancellationException) {
+                counts[key] = before
+                mine[key] = was
                 throw e
             } catch (e: Throwable) {
                 counts[key] = before
                 mine[key] = was
                 ctx.toast(e.message ?: "操作失败")
+            } finally {
+                pending.remove(key)
             }
         }
     }
@@ -123,7 +130,7 @@ fun ReactionBar(initial: Reactions?, modifier: Modifier = Modifier, onToggle: su
             REACTIONS.filter { (k, _) -> (counts[k] ?: 0) > 0 }.forEach { (k, e) ->
                 val on = mine[k] == true
                 Row(
-                    Modifier.clickable { toggle(k) }
+                    Modifier.clickable(enabled = pending[k] != true) { toggle(k) }
                         .background(if (on) g.accentSubtle else g.canvas, RoundedCornerShape(14.dp))
                         .border(1.dp, if (on) g.accent else g.border, RoundedCornerShape(14.dp))
                         .padding(horizontal = 9.dp, vertical = 4.dp),
@@ -155,7 +162,7 @@ fun ReactionBar(initial: Reactions?, modifier: Modifier = Modifier, onToggle: su
             ) {
                 REACTIONS.forEach { (k, e) ->
                     Box(
-                        Modifier.size(36.dp).clickable { toggle(k) }
+                        Modifier.size(36.dp).clickable(enabled = pending[k] != true) { toggle(k) }
                             .background(if (mine[k] == true) g.accentSubtle else androidx.compose.ui.graphics.Color.Transparent, RoundedCornerShape(8.dp)),
                         contentAlignment = Alignment.Center,
                     ) { Text(e, fontSize = 20.sp) }
@@ -362,6 +369,7 @@ private fun MetaOptionList(
     single: Boolean,
     noneLabel: String,
     filter: String = "",
+    enabled: Boolean = true,
 ) {
     val g = Gh.c
     val opts = state.options?.filter { filter.isBlank() || it.label.contains(filter.trim(), true) }
@@ -376,9 +384,9 @@ private fun MetaOptionList(
         )
         else -> Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
             if (single) Row(
-                Modifier.fillMaxWidth().clickable { selected.clear() }, verticalAlignment = Alignment.CenterVertically,
+                Modifier.fillMaxWidth().clickable(enabled = enabled) { selected.clear() }, verticalAlignment = Alignment.CenterVertically,
             ) {
-                RadioButton(selected.isEmpty(), { selected.clear() }, colors = RadioButtonDefaults.colors(selectedColor = g.btnPrimary))
+                RadioButton(selected.isEmpty(), { selected.clear() }, enabled = enabled, colors = RadioButtonDefaults.colors(selectedColor = g.btnPrimary))
                 Text(noneLabel, color = g.fgMuted, fontSize = 14.sp)
             }
             opts.forEach { o ->
@@ -387,9 +395,9 @@ private fun MetaOptionList(
                     if (single) { selected.clear(); selected.add(o.key) }
                     else if (on) selected.remove(o.key) else selected.add(o.key)
                 }
-                Row(Modifier.fillMaxWidth().clickable { flip() }, verticalAlignment = Alignment.CenterVertically) {
-                    if (single) RadioButton(on, { flip() }, colors = RadioButtonDefaults.colors(selectedColor = g.btnPrimary))
-                    else Checkbox(on, { flip() }, colors = CheckboxDefaults.colors(checkedColor = g.btnPrimary))
+                Row(Modifier.fillMaxWidth().clickable(enabled = enabled) { flip() }, verticalAlignment = Alignment.CenterVertically) {
+                    if (single) RadioButton(on, { flip() }, enabled = enabled, colors = RadioButtonDefaults.colors(selectedColor = g.btnPrimary))
+                    else Checkbox(on, { flip() }, enabled = enabled, colors = CheckboxDefaults.colors(checkedColor = g.btnPrimary))
                     if (o.avatar != null) { Avatar(o.avatar, 22.dp); Spacer(Modifier.width(8.dp)) }
                     if (o.color != null) LabelChip(o.label, o.color) else Text(o.label, color = g.fg, fontSize = 14.sp)
                 }
@@ -408,7 +416,7 @@ fun MetaDialog(kind: String, owner: String, name: String, number: Int, issue: Is
     val scope = rememberCoroutineScope()
     val single = kind == "milestone"
     val title = when (kind) { "labels" -> "编辑标签"; "assignees" -> "编辑指派人"; "reviewers" -> "请求审查"; else -> "选择里程碑" }
-    val initialReviewers = remember { pull?.requestedReviewers.orEmpty().map { it.login } }
+    val initialReviewers = remember { mutableStateListOf<String>().apply { addAll(pull?.requestedReviewers.orEmpty().map { it.login }) } }
     val state = rememberMetaOptions(kind, owner, name, exclude = pull?.user?.login)
     val selected = remember {
         mutableStateListOf<String>().also {
@@ -422,33 +430,36 @@ fun MetaDialog(kind: String, owner: String, name: String, number: Int, issue: Is
     }
     var saving by remember { mutableStateOf(false) }
 
-    GhDialog(title, onDismiss, confirm = if (saving) "保存中…" else "保存", confirmEnabled = !saving && state.options != null, onConfirm = {
+    GhDialog(title, { if (!saving) onDismiss() }, confirm = if (saving) "保存中…" else "保存", confirmEnabled = !saving && state.options != null, onConfirm = {
+        if (saving) return@GhDialog
         saving = true
+        val submitted = selected.toList()
         scope.launch {
             try {
                 when (kind) {
-                    "labels" -> GitHub.setLabels(owner, name, number, selected.toList())
-                    "assignees" -> GitHub.setAssignees(owner, name, number, selected.toList())
-                    "reviewers" -> {
-                        val added = selected.filter { it !in initialReviewers }
-                        val removed = initialReviewers.filter { it !in selected }
-                        if (added.isNotEmpty()) GitHub.requestReviewers(owner, name, number, added)
-                        if (removed.isNotEmpty()) GitHub.removeReviewers(owner, name, number, removed)
-                    }
-                    else -> GitHub.setMilestone(owner, name, number, selected.firstOrNull()?.toIntOrNull())
+                    "labels" -> GitHub.setLabels(owner, name, number, submitted)
+                    "assignees" -> GitHub.setAssignees(owner, name, number, submitted)
+                    "reviewers" -> updateReviewers(
+                        initialReviewers, submitted,
+                        request = { GitHub.requestReviewers(owner, name, number, it) },
+                        remove = { GitHub.removeReviewers(owner, name, number, it) },
+                        onChanged = onSaved,
+                    )
+                    else -> GitHub.setMilestone(owner, name, number, submitted.firstOrNull()?.toIntOrNull())
                 }
                 ctx.toast("已保存")
-                onSaved()
+                if (kind != "reviewers") onSaved()
                 onDismiss()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                saving = false
                 ctx.toast(e.message ?: "保存失败（可能没有权限）")
+            } finally {
+                saving = false
             }
         }
     }) {
-        MetaOptionList(kind, state, selected, single, "无里程碑")
+        MetaOptionList(kind, state, selected, single, "无里程碑", enabled = !saving)
     }
 }
 
@@ -517,9 +528,9 @@ fun EditDialog(
     ) {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             if (initialTitle != null) {
-                GhField(title, { title = it }, "标题")
+                GhField(title, { if (!busy) title = it }, "标题")
             }
-            MarkdownEditor(body, { body = it }, contextRepo = contextRepo, minLines = 6, modifier = Modifier.padding(top = if (initialTitle != null) 8.dp else 0.dp))
+            MarkdownEditor(body, { if (!busy) body = it }, contextRepo = contextRepo, minLines = 6, modifier = Modifier.padding(top = if (initialTitle != null) 8.dp else 0.dp))
         }
     }
 }
@@ -560,8 +571,42 @@ fun CommentComposerBar(
                 )
             }
             Spacer(Modifier.width(6.dp))
-            OcButton(R.drawable.oc_paper_airplane, onSend, if (value.text.isBlank()) g.fgMuted else g.accent, enabled = !sending)
+            OcButton(R.drawable.oc_paper_airplane, onSend, if (value.text.isBlank()) g.fgMuted else g.accent, enabled = !sending && value.text.isNotBlank())
         }
         DraftBinding(draft, DraftValue(body = value.text))
     }
+}
+
+/** Keep each confirmed reviewer change so a retry only sends the remaining work. */
+internal suspend fun updateReviewers(
+    current: MutableList<String>,
+    submitted: List<String>,
+    request: suspend (List<String>) -> Unit,
+    remove: suspend (List<String>) -> Unit,
+    onChanged: () -> Unit = {},
+) {
+    val added = submitted.filter { it !in current }
+    val removed = current.filter { it !in submitted }
+    if (added.isNotEmpty()) {
+        request(added)
+        current.addAll(added)
+        onChanged()
+    }
+    if (removed.isNotEmpty()) {
+        remove(removed)
+        current.removeAll(removed)
+        onChanged()
+    }
+}
+
+/** Reconcile the optimistic count with the server's final toggle state. */
+internal fun settledReactionCount(before: Int, wasMine: Boolean, isMine: Boolean): Int =
+    (before + if (isMine) { if (wasMine) 0 else 1 } else -1).coerceAtLeast(0)
+
+/** Quoting must never replace a comment that the user has already composed. */
+internal fun appendQuotedReply(current: String, login: String?, text: String?): String {
+    val quote = text.orEmpty().trim().lines().joinToString("\n") { "> $it" }
+    val heading = login?.let { "@$it 写道：\n\n" }.orEmpty()
+    val prefix = if (current.isEmpty()) "" else current + if (current.endsWith("\n\n")) "" else "\n\n"
+    return "$prefix$heading$quote\n\n"
 }

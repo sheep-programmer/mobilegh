@@ -2,15 +2,18 @@ package com.mobilegh.widget
 
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
+import androidx.annotation.ColorRes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.ColorFilter
@@ -18,6 +21,7 @@ import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.Image
 import androidx.glance.ImageProvider
+import androidx.glance.LocalContext
 import androidx.glance.LocalSize
 import androidx.glance.action.Action
 import androidx.glance.action.clickable
@@ -29,6 +33,7 @@ import androidx.glance.appwidget.appWidgetBackground
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
 import androidx.glance.background
+import androidx.glance.color.ColorProvider
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
@@ -94,9 +99,28 @@ object Widgets {
     }
 }
 
-private val Fg = ColorProvider(R.color.widget_fg)
-private val Muted = ColorProvider(R.color.widget_fg_muted)
-private val Accent = ColorProvider(R.color.widget_accent)
+@Composable
+private fun widgetColor(@ColorRes resource: Int): ColorProvider {
+    val context = LocalContext.current
+    val configuration = Configuration(context.resources.configuration)
+    return remember(context, configuration, resource) {
+        fun resolve(nightMode: Int): Color {
+            val config = Configuration(configuration).apply {
+                uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or nightMode
+            }
+            return Color(context.createConfigurationContext(config).getColor(resource))
+        }
+        // Keep the resource palette as the source for both launcher theme variants.
+        ColorProvider(day = resolve(Configuration.UI_MODE_NIGHT_NO), night = resolve(Configuration.UI_MODE_NIGHT_YES))
+    }
+}
+
+private val Fg: ColorProvider
+    @Composable get() = widgetColor(R.color.widget_fg)
+private val Muted: ColorProvider
+    @Composable get() = widgetColor(R.color.widget_fg_muted)
+private val Accent: ColorProvider
+    @Composable get() = widgetColor(R.color.widget_accent)
 private val Heat = listOf(R.color.widget_heat_0, R.color.widget_heat_1, R.color.widget_heat_2, R.color.widget_heat_3, R.color.widget_heat_4)
 
 private sealed interface Load<out T> {
@@ -190,7 +214,7 @@ private fun ContributionContent(ctx: Context, state: Load<ContribSnapshot>, mask
                             Image(
                                 ImageProvider(bmp), if (level == 0) "最近 ${WidgetStore.WEEKS} 周贡献热力图" else null,
                                 GlanceModifier.fillMaxSize(), contentScale = ContentScale.Fit,
-                                colorFilter = ColorFilter.tint(ColorProvider(Heat[level])),
+                                colorFilter = ColorFilter.tint(widgetColor(Heat[level])),
                             )
                         }
                     }

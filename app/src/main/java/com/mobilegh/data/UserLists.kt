@@ -169,6 +169,7 @@ class UserListsClient internal constructor(
         var starred = false
         var scannedItems = 0
         var scannedPages = 0
+        var listCount: Int? = null
         do {
             require(++scannedPages <= MAX_SCAN_PAGES) { incompleteMessage() }
             val data = call(account, query, buildJsonObject { put("owner", owner); put("name", name); putCursor(cursor) })
@@ -180,6 +181,8 @@ class UserListsClient internal constructor(
             val connection = data.requiredObject("viewer").requiredObject("lists")
             require(connection.requiredInt("totalCount") <= MAX_LISTS) { incompleteMessage() }
             val listPage = page(connection) { it }
+            require(listCount == null || listCount == listPage.totalCount) { "GitHub 列表已变化；未更改任何分类，请刷新" }
+            listCount = listPage.totalCount
             // 先读这一页列表各自的第一页仓库，再对放不下的列表单独翻页。
             // 这样常见情况（列表都不超过 100 个仓库）每次仍然只发一个请求。
             val found = HashMap<String, MutableSet<String>>()
@@ -191,6 +194,8 @@ class UserListsClient internal constructor(
                 require(lists.size <= MAX_LISTS) { incompleteMessage() }
                 val itemPage = page(node.requiredObject("scanned")) { it.requiredString("id") }
                 val itemIds = itemPage.items.toMutableSet()
+                require(itemIds.size == itemPage.items.size) { "GitHub 仓库分页重复；未更改任何分类" }
+                require(itemPage.totalCount == list.count) { "GitHub 列表已变化；未更改任何分类，请刷新" }
                 found[list.id] = itemIds
                 scannedItems += itemPage.items.size
                 require(itemPage.totalCount <= MAX_LIST_ITEMS && scannedItems <= MAX_SCAN_ITEMS) { incompleteMessage() }
@@ -214,8 +219,15 @@ class UserListsClient internal constructor(
                     val itemPage = page(listNode.requiredObject("items")) { it.requiredString("id") }
                     scannedItems += itemPage.items.size
                     require(scannedItems <= MAX_SCAN_ITEMS) { incompleteMessage() }
+                    require(itemPage.totalCount == lists.first { it.id == listId }.count && itemPage.totalCount <= MAX_LIST_ITEMS) { "GitHub 列表已变化；未更改任何分类，请刷新" }
                     itemPage.items.forEach { itemId -> require(itemIds.add(itemId)) { "GitHub 仓库分页重复；未更改任何分类" } }
-                    after = itemPage.nextCursor ?: break
+                    require(itemIds.size <= itemPage.totalCount) { "GitHub 列表已变化；未更改任何分类，请刷新" }
+                    val next = itemPage.nextCursor
+                    if (next == null) {
+                        require(itemIds.size == itemPage.totalCount) { "GitHub 列表仓库读取不完整；未更改任何分类" }
+                        break
+                    }
+                    after = next
                 }
             }
             found.forEach { (listId, itemIds) -> if (id in itemIds) memberships += listId }
@@ -301,10 +313,12 @@ object UserLists {
         val raw = withContext(Dispatchers.IO) {
             currentCoroutineContext().ensureActive()
             check(Session.token == token && currentAccount()?.let { it.generation == account.generation && it.login.equals(account.login, true) } == true) { "账号已切换或退出" }
-            // GitHub 的 GraphQL 偶发 502（请求本身合法，重试即可）；5xx 时稍等后重试一次再报错
+            // Only queries may be retried: a failed mutation response can follow a committed write.
             var attempt = 0
             var body: String? = null
             while (body == null) {
+                currentCoroutineContext().ensureActive()
+                check(Session.token == token && currentAccount()?.let { it.generation == account.generation && it.login.equals(account.login, true) } == true) { "账号已切换或退出" }
                 http.routed().newCall(request).await().use { response ->
                     val bytes = ByteArrayOutputStream()
                     response.body.byteStream().use { input ->
@@ -317,7 +331,7 @@ object UserLists {
                         }
                     }
                     val text = bytes.toByteArray().toString(Charsets.UTF_8)
-                    if (response.code in 500..599 && attempt < 1) {
+                    if (query.startsWith("query ") && response.code in 500..599 && attempt < 1) {
                         attempt++
                         AppLog.warn("lists", "GitHub 列表请求返回 ${response.code}，正在重试")
                         delay(800)

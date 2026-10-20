@@ -162,7 +162,7 @@ private fun subjectNumber(n: Notification): Int? =
  * 标为未读、取消完成、已完成列表都没有服务端接口，只能保存在本机。
  * 实例放在页面 Entry 的 bag 里，切走再回来不会丢。
  */
-private class NotifState(saved: com.mobilegh.data.LocalNotifications) {
+internal class NotifState(saved: com.mobilegh.data.LocalNotifications) {
     val known = mutableStateListOf<Notification>().apply { addAll(saved.known) }
     /** 服务端仍为 unread，但本机已点开或标为已读 */
     val read = mutableStateListOf<String>().apply { addAll(saved.read) }
@@ -182,12 +182,15 @@ private class NotifState(saved: com.mobilegh.data.LocalNotifications) {
     /** 正在等撤销窗口结束的「完成」操作：id -> 撤销所需信息 */
     val pending = mutableStateMapOf<String, Pending>()
 
+    val writing = mutableStateMapOf<String, Boolean>()
+
     var busyLabel by mutableStateOf<String?>(null)
     var busyDone by mutableIntStateOf(0)
     var busyTotal by mutableIntStateOf(0)
 
     class Pending(val wasRead: Boolean, val wasUnread: Boolean) {
         var job: Job? = null
+        var committing by mutableStateOf(false)
     }
 
     fun unread(n: Notification): Boolean = when {
@@ -228,7 +231,7 @@ private class NotifState(saved: com.mobilegh.data.LocalNotifications) {
     }
 
     fun complete(n: Notification) {
-        done.add(n.id)
+        if (n.id !in done) done.add(n.id)
         doneItems.removeAll { it.id == n.id }
         doneItems.add(0, n)
     }
@@ -243,13 +246,13 @@ private fun bumpBadge(delta: Int) {
 
 private enum class BulkKind(val label: String) { Done("完成"), Read("标为已读"), Ignore("忽略") }
 
-private class BulkResult(val ok: Int, val failed: Int, val failedIds: List<String>, val firstError: String?)
+internal class BulkResult(val ok: Int, val failed: Int, val failedIds: List<String>, val firstError: String?)
 
 /** 每批同时最多调用多少个接口 */
 private const val BULK_CONCURRENCY = 4
 
 /** 有界并发地逐条调用接口，返回成功/失败数并报告进度 */
-private suspend fun runBulk(ids: List<String>, onProgress: (Int) -> Unit, run: suspend (String) -> Unit): BulkResult {
+internal suspend fun runBulk(ids: List<String>, onProgress: (Int) -> Unit, run: suspend (String) -> Unit): BulkResult {
     val sem = Semaphore(BULK_CONCURRENCY)
     var finished = 0
     var firstError: String? = null
@@ -394,7 +397,7 @@ private fun NotificationRow(
             Modifier
                 .fillMaxWidth()
                 .background(g.canvas)
-                .combinedClickable(enabled = enabled, onClick = onOpen, onLongClick = onToggleSelect)
+                .combinedClickable(enabled = !busy, onClick = onOpen, onLongClick = onToggleSelect)
                 .padding(start = 8.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
         ) {
             Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) {
@@ -441,7 +444,7 @@ private fun NotificationRow(
                     }
                 }
             }
-            if (!selection) {
+            if (!selection && !busy) {
                 MoreMenu(
                     listOf(
                         MenuAction(if (unread) "标为已读" else "标为未读", onClick = onToggleRead),
@@ -510,7 +513,7 @@ private fun DoneView(items: List<Notification>, state: NotifState, onOpen: (Noti
                     n = n,
                     pending = n.id in state.pending,
                     onOpen = { onOpen(n) },
-                    onUndo = if (n.id in state.pending) ({ onUndo(n.id) }) else null,
+                    onUndo = if (state.pending[n.id]?.committing == false) ({ onUndo(n.id) }) else null,
                 )
             }
         }
@@ -595,13 +598,14 @@ fun NotificationsScreen() {
     /** 用户点了「撤销」：取消等待中的 DELETE 并还原 */
     fun undoDone(id: String) {
         val p = state.pending[id] ?: return
+        if (p.committing) return
         p.job?.cancel()
         restoreDone(id)
     }
 
     /** 完成一条：先本地生效，撤销窗口结束后才真正 DELETE */
     fun finish(n: Notification) {
-        if (n.id in state.done) return
+        if (n.id in state.done || state.busyLabel != null || n.id in state.writing) return
         val p = NotifState.Pending(wasRead = n.id in state.read, wasUnread = n.id in state.markedUnread)
         if (state.unread(n)) bumpBadge(-1)
         state.complete(n)
@@ -611,52 +615,68 @@ fun NotificationsScreen() {
 
         // 放在 Entry 作用域：切走页面也会按时提交
         p.job = entry.scope.launch {
-            // 新的一条顶掉旧提示：旧的立即提交，新的重新计时
-            snackbar.currentSnackbarData?.dismiss()
-            val result = try {
-                withTimeout(UNDO_MS) {
-                    snackbar.showSnackbar(
-                        "已完成「${n.subject.title.take(24)}」",
-                        actionLabel = "撤销",
-                        withDismissAction = true,
-                        duration = SnackbarDuration.Indefinite,
-                    )
-                }
-            } catch (e: TimeoutCancellationException) {
-                SnackbarResult.Dismissed
-            }
-            if (result == SnackbarResult.ActionPerformed) {
-                restoreDone(n.id)
-                return@launch
-            }
             try {
-                GitHub.markDone(n.id)
-                state.pending.remove(n.id)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Throwable) {
-                // 服务端失败：本地也撤回，条目回到列表
-                restoreDone(n.id)
-                ctx.toast("完成失败：${e.friendly()}")
+                // 新的一条顶掉旧提示：旧的立即提交，新的重新计时
+                snackbar.currentSnackbarData?.dismiss()
+                val result = try {
+                    withTimeout(UNDO_MS) {
+                        snackbar.showSnackbar(
+                            "已完成「${n.subject.title.take(24)}」",
+                            actionLabel = "撤销",
+                            withDismissAction = true,
+                            duration = SnackbarDuration.Indefinite,
+                        )
+                    }
+                } catch (e: TimeoutCancellationException) {
+                    SnackbarResult.Dismissed
+                }
+                if (result == SnackbarResult.ActionPerformed) {
+                    restoreDone(n.id)
+                    return@launch
+                }
+                p.committing = true
+                try {
+                    GitHub.markDone(n.id)
+                    state.pending.remove(n.id)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    // 服务端失败：本地也撤回，条目回到列表
+                    restoreDone(n.id)
+                    ctx.toast("完成失败：${e.friendly()}")
+                }
+            } finally {
+                // Entry cancellation must not leave a permanently hidden, pending row.
+                if (state.pending[n.id] === p) restoreDone(n.id)
             }
         }
     }
 
     /** 单条已读 / 未读切换 */
     fun toggleRead(n: Notification) {
+        if (state.busyLabel != null || n.id in state.writing || n.id in state.pending) return
         if (state.unread(n)) {
             val wasRead = n.id in state.read
             val wasUnread = n.id in state.markedUnread
             state.markRead(n.id)
             bumpBadge(-1)
             if (n.unread && !wasRead) {
-                entry.act(
-                    onError = {
+                state.writing[n.id] = true
+                entry.scope.launch {
+                    try {
+                        GitHub.markRead(n.id)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
                         state.rollbackRead(n.id, wasRead, wasUnread)
                         bumpBadge(1)
-                        ctx.toast(it)
-                    },
-                ) { GitHub.markRead(n.id) }
+                        throw e
+                    } catch (e: Throwable) {
+                        state.rollbackRead(n.id, wasRead, wasUnread)
+                        bumpBadge(1)
+                        ctx.toast(e.friendly())
+                    } finally {
+                        state.writing.remove(n.id)
+                    }
+                }
             }
         } else {
             // GitHub 没有「标为未读」接口，只能在本机模拟
@@ -687,24 +707,32 @@ fun NotificationsScreen() {
     }
 
     fun unsubscribe(ids: List<String>, ignore: Boolean) {
-        if (ids.isEmpty()) return
-        ids.forEach { if (it !in state.unsubscribed) state.unsubscribed.add(it) }
-        entry.act(
-            onError = {
-                ids.forEach { id -> state.unsubscribed.remove(id) }
-                ctx.toast(it)
-            },
-            onDone = { ctx.toast(if (ignore) "已忽略所选线程" else "已取消订阅所选线程") },
-        ) {
-            ids.forEach { id -> if (ignore) GitHub.ignoreThread(id) else GitHub.unsubscribeThread(id) }
+        if (ids.isEmpty() || state.busyLabel != null || ids.any { it in state.writing || it in state.pending }) return
+        ids.forEach { state.writing[it] = true }
+        entry.scope.launch {
+            try {
+                ids.forEach { id ->
+                    if (ignore) GitHub.ignoreThread(id) else GitHub.unsubscribeThread(id)
+                    if (id !in state.unsubscribed) state.unsubscribed.add(id)
+                }
+                ctx.toast(if (ignore) "已忽略所选线程" else "已取消订阅所选线程")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                ctx.toast(e.friendly())
+            } finally {
+                ids.forEach { state.writing.remove(it) }
+            }
         }
     }
 
     /** 批量操作：有界并发逐条调用接口，显示进度与部分失败数 */
     fun runBatch(kind: BulkKind, items: List<Notification>) {
-        if (items.isEmpty() || state.busyLabel != null) return
-        val ids = items.map { it.id }
-        val shownUnread = items.filter { state.unread(it) }.map { it.id }.toSet()
+        if (items.isEmpty() || state.busyLabel != null || state.writing.isNotEmpty()) return
+        val unique = items.distinctBy { it.id }.filter { it.id !in state.pending }
+        if (unique.isEmpty()) return
+        val ids = unique.map { it.id }
+        val byId = unique.associateBy { it.id }
         state.busyLabel = kind.label
         state.busyDone = 0
         state.busyTotal = ids.size
@@ -713,37 +741,32 @@ fun NotificationsScreen() {
             else "已$verb ${res.ok} 条，${res.failed} 条失败：${res.firstError ?: ""}",
         )
         entry.scope.launch {
-            when (kind) {
-                BulkKind.Done -> {
-                    val res = runBulk(ids, { state.busyDone = it }) { GitHub.markDone(it) }
-                    val failed = res.failedIds.toSet()
-                    items.forEach { n -> if (n.id !in failed) state.complete(n) }
-                    bumpBadge(-shownUnread.count { it !in failed })
-                    report(res, "完成")
-                }
-                BulkKind.Read -> {
-                    val before = items.associate { it.id to ((it.id in state.read) to (it.id in state.markedUnread)) }
-                    // 服务端本来就是已读的（或本机已 PATCH 过）不必再请求
-                    val needApi = items.filter { it.unread && it.id !in state.read }.map { it.id }
-                    items.forEach { state.markRead(it.id) }
-                    bumpBadge(-shownUnread.size)
-                    state.busyTotal = needApi.size
-                    val res = runBulk(needApi, { state.busyDone = it }) { GitHub.markRead(it) }
-                    res.failedIds.forEach { id ->
-                        val (r, u) = before.getValue(id)
-                        state.rollbackRead(id, r, u)
+            try {
+                val res = runBulk(ids, { state.busyDone = it }) { id ->
+                    val n = byId.getValue(id)
+                    when (kind) {
+                        BulkKind.Done -> {
+                            GitHub.markDone(id)
+                            val wasUnread = state.unread(n)
+                            state.complete(n)
+                            if (wasUnread) bumpBadge(-1)
+                        }
+                        BulkKind.Read -> {
+                            if (n.unread && id !in state.read) GitHub.markRead(id)
+                            val wasUnread = state.unread(n)
+                            state.markRead(id)
+                            if (wasUnread) bumpBadge(-1)
+                        }
+                        BulkKind.Ignore -> {
+                            GitHub.ignoreThread(id)
+                            if (id !in state.unsubscribed) state.unsubscribed.add(id)
+                        }
                     }
-                    bumpBadge(items.count { it.id in res.failedIds && state.unread(it) })
-                    report(BulkResult(items.size - res.failed, res.failed, res.failedIds, res.firstError), "标为已读")
                 }
-                BulkKind.Ignore -> {
-                    ids.forEach { if (it !in state.unsubscribed) state.unsubscribed.add(it) }
-                    val res = runBulk(ids, { state.busyDone = it }) { GitHub.ignoreThread(it) }
-                    res.failedIds.forEach { state.unsubscribed.remove(it) }
-                    report(res, "忽略")
-                }
+                report(res, kind.label)
+            } finally {
+                state.busyLabel = null
             }
-            state.busyLabel = null
         }
     }
 
@@ -786,7 +809,7 @@ fun NotificationsScreen() {
                         if (ids.isNotEmpty() && ids.all { it in selected }) selected.removeAll(ids)
                         else selected.addAll(ids.filterNot { it in selected })
                     }
-                    val canAct = selected.isNotEmpty() && !busy
+                    val canAct = selected.isNotEmpty() && !busy && state.writing.isEmpty()
                     OcButton(R.drawable.oc_eye, {
                         runBatch(BulkKind.Read, visible.filter { it.id in selected })
                         clearSelection()
@@ -802,6 +825,7 @@ fun NotificationsScreen() {
                             },
                             MenuAction("完成") { if (canAct) askBulk = BulkKind.Done },
                             MenuAction("标为未读（仅本机）") {
+                                if (!canAct) return@MenuAction
                                 val items = visible.filter { it.id in selected }
                                 val wasUnread = items.count { state.unread(it) }
                                 items.forEach { state.markUnread(it.id) }
@@ -818,7 +842,7 @@ fun NotificationsScreen() {
                 else -> {
                     // 按仓库分组 / 按时间排列
                     OcButton(R.drawable.oc_repo, { grouped = !grouped }, if (grouped) g.accent else g.fg)
-                    OcButton(R.drawable.oc_checklist, { confirmAll = true })
+                    OcButton(R.drawable.oc_checklist, { confirmAll = true }, enabled = !busy && state.writing.isEmpty() && state.pending.isEmpty())
                 }
             }
         },
@@ -881,7 +905,7 @@ fun NotificationsScreen() {
                             state = state,
                             selection = selection,
                             selected = n.id in selected,
-                            busy = busy,
+                            busy = busy || n.id in state.writing,
                             onOpen = { if (selection) toggleSelect(n) else open(n) },
                             onToggleSelect = { toggleSelect(n) },
                             onDone = { finish(n) },
@@ -906,16 +930,26 @@ fun NotificationsScreen() {
     }
 
     if (confirmAll) {
-        GhDialog("全部标为已读", { confirmAll = false }, onConfirm = {
+        GhDialog("全部标为已读", { confirmAll = false }, confirmEnabled = !busy && state.writing.isEmpty() && state.pending.isEmpty(), onConfirm = {
+            if (state.busyLabel != null || state.writing.isNotEmpty() || state.pending.isNotEmpty()) return@GhDialog
             confirmAll = false
-            entry.act({ ctx.toast(it) }) {
-                GitHub.markAllRead()
-                state.markedUnread.clear()
-                pager.items.forEach { state.markRead(it.id) }
-                Badges.unread = 0
-                Session.login?.let { com.mobilegh.data.WidgetStore.saveInbox(it, emptyList(), false) }
-                ctx.toast("已全部标为已读")
-                pager.refresh()
+            state.busyLabel = "全部标为已读"
+            entry.scope.launch {
+                try {
+                    GitHub.markAllRead()
+                    state.markedUnread.clear()
+                    (pager.items + state.known).distinctBy { it.id }.forEach { state.markRead(it.id) }
+                    Badges.unread = 0
+                    entry.login?.let { com.mobilegh.data.WidgetStore.saveInbox(it, emptyList(), false) }
+                    ctx.toast("已全部标为已读")
+                    pager.refresh()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    ctx.toast(e.friendly())
+                } finally {
+                    state.busyLabel = null
+                }
             }
         }) { Text("确定将所有通知标记为已读吗？", color = g.fg) }
     }

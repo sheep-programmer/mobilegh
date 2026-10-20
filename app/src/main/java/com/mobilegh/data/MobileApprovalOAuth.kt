@@ -58,7 +58,7 @@ object MobileApprovalOAuth {
     private var job: kotlinx.coroutines.Job? = null
     // 网络失败后保留回调与已换得的 Token：重试时不必重开浏览器，也不重复兑换一次性的授权码
     private var lastCallback: String? = null
-    private var issued: Pair<String, String>? = null
+    private var issued: Triple<String, String, Set<String>?>? = null
     private var initiatingGeneration: Int? = null
     private var operation = 0
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
@@ -78,7 +78,7 @@ object MobileApprovalOAuth {
             .putString("pending", Crypto.encrypt(pending.toString())).commit()) { "无法保存授权请求" }
         mutableState.value = ApprovalSetupState(busy = true, waitingForBrowser = true)
         val values = listOf("client_id" to ApprovalOAuthProtocol.CLIENT_ID, "redirect_uri" to ApprovalOAuthProtocol.REDIRECT,
-            "scope" to "user repo notifications gist read:org workflow", "state" to state,
+            "scope" to DeviceAuth.SCOPES, "state" to state,
             "code_challenge" to ApprovalOAuthProtocol.challenge(verifier), "code_challenge_method" to "S256")
         return "https://github.com/login/oauth/authorize?" + values.joinToString("&") { (k, v) -> "$k=${URLEncoder.encode(v, "UTF-8")}" }
     }
@@ -115,8 +115,8 @@ object MobileApprovalOAuth {
                 checkSession()
                 stage = "token"
                 AppLog.info("2fa_setup", "开始完成 GitHub 授权")
-                val token = issued?.takeIf { it.first == url }?.second
-                    ?: exchange(code, pending.getValue("verifier").jsonPrimitive.content).also { issued = url to it }
+                val (token, grantedScopes) = issued?.takeIf { it.first == url }?.let { it.second to it.third }
+                    ?: exchange(code, pending.getValue("verifier").jsonPrimitive.content).also { issued = Triple(url, it.first, it.second) }
                 checkSession()
                 val user = MobileApproval.user(token)
                 checkSession()
@@ -127,7 +127,7 @@ object MobileApprovalOAuth {
                 MobileApproval.activate(app, token, expectedLogin, ::checkSession)
                 checkSession()
                 if (purpose != ApprovalOAuthPurpose.ApprovalOnly || Session.token == null) {
-                    Session.signIn(token, user, clientId = ApprovalOAuthProtocol.CLIENT_ID)
+                    Session.signIn(token, user, clientId = ApprovalOAuthProtocol.CLIENT_ID, scopes = grantedScopes)
                 }
                 check(prefs.edit().remove("pending").commit()) { "无法更新授权请求" }
                 lastCallback = null
@@ -158,7 +158,8 @@ object MobileApprovalOAuth {
         complete(context, url)
     }
 
-    private suspend fun exchange(code: String, verifier: String): String {
+    /** 返回 Token 与 GitHub 实际授予的权限范围（兑换响应的 scope 字段，可能缺省） */
+    private suspend fun exchange(code: String, verifier: String): Pair<String, Set<String>?> {
         val form = FormBody.Builder().add("client_id", ApprovalOAuthProtocol.CLIENT_ID).add("client_secret", CLIENT_SECRET)
             .add("code", code).add("code_verifier", verifier)
             .add("redirect_uri", ApprovalOAuthProtocol.REDIRECT).build()
@@ -171,8 +172,9 @@ object MobileApprovalOAuth {
                     check(it.isSuccessful) { "无法完成 GitHub 授权 (${it.code})" }
                     Api.plain.parseToJsonElement(it.body.string()).jsonObject
                 } }
-                return response["access_token"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                val token = response["access_token"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
                     ?: error("GitHub 未完成授权，请重新开始")
+                return token to DeviceAuth.parseScopes(response["scope"]?.jsonPrimitive?.content)
             } catch (e: java.io.IOException) {
                 if (attempt == EXCHANGE_ATTEMPTS) throw e
                 AppLog.warn("2fa_setup", "兑换授权码连接失败，第 $attempt 次：${e.javaClass.simpleName}")

@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.ProjectOwnerKind
+import com.mobilegh.data.SearchType
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.HomePrefs
 import com.mobilegh.data.SubscriptionSettings
@@ -178,7 +179,8 @@ fun RepoScreen(owner: String, name: String) {
                     item {
                         MenuGroup {
                             MenuRow(R.drawable.oc_search, "查找文件", g.fgMuted) { nav.push(Screen.FileFinder(owner, name, branch)) }
-                            MenuRow(R.drawable.oc_code, "搜索代码", g.fgMuted) { nav.push(Screen.CodeSearch(owner, name)) }
+                            // 仓库内代码搜索使用独立搜索页的代码类型，并预填 repo:，可继续组合语言/路径/文件名
+                            MenuRow(R.drawable.oc_code, "搜索代码", g.fgMuted) { nav.push(Screen.Search(SearchType.CODE, "repo:$owner/$name ")) }
                             MenuRow(R.drawable.oc_issue_opened, "Issues", g.success) { nav.push(Screen.Issues(owner, name, false)) }
                             MenuRow(R.drawable.oc_git_pull_request, "Pull Requests", g.accent) { nav.push(Screen.Issues(owner, name, true)) }
                             if (r.hasDiscussions) MenuRow(R.drawable.oc_comment_discussion, "Discussions", g.done) { nav.push(Screen.Discussions(owner, name)) }
@@ -200,6 +202,7 @@ fun RepoScreen(owner: String, name: String) {
                                 Modifier.weight(1f)
                                     .border(1.dp, g.border, RoundedCornerShape(6.dp))
                                     .background(g.btnBg, RoundedCornerShape(6.dp))
+                                    .clip(RoundedCornerShape(6.dp))
                                     .clickable { showBranches = true }
                                     .padding(horizontal = 10.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -282,7 +285,8 @@ fun RepoScreen(owner: String, name: String) {
                                 .clip(RoundedCornerShape(6.dp)).clickable { ctx.copy(v) }.padding(start = 10.dp, top = 8.dp, bottom = 8.dp, end = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(v, Modifier.weight(1f), fontSize = 13.sp, fontFamily = FontFamily.Monospace, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            // 克隆地址是操作对象，必须完整可见（加速地址往往比原地址更长）
+                            Text(v, Modifier.weight(1f), fontSize = 13.sp, fontFamily = FontFamily.Monospace, color = g.fg)
                             Spacer(Modifier.width(8.dp))
                             Oc(R.drawable.oc_copy, g.fgMuted, 16.dp)
                         }
@@ -329,7 +333,12 @@ private fun RepoHeader(r: Repo) {
         }
         r.homepage?.takeIf { it.isNotBlank() }?.let { h ->
             Spacer(Modifier.height(8.dp))
-            IconText(R.drawable.oc_link, h.removePrefix("https://").removePrefix("http://"), g.accent, Modifier.clickable { ctx.openBrowser(if (h.startsWith("http")) h else "https://$h") }, bold = true)
+            // 网址长度不受控，窄屏下折行显示完整地址，而不是截成省略号
+            IconText(
+                R.drawable.oc_link, h.removePrefix("https://").removePrefix("http://"), g.accent,
+                Modifier.clickable { ctx.openBrowser(if (h.startsWith("http")) h else "https://$h") },
+                bold = true, maxLines = Int.MAX_VALUE,
+            )
         }
         if (r.topics.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
@@ -342,7 +351,8 @@ private fun RepoHeader(r: Repo) {
             IconText(R.drawable.oc_star, "${fmtCount(r.stargazersCount)} star", modifier = Modifier.clickable { nav.push(Screen.Users(UserKind.Stargazers, r.owner.login, r.name)) })
             IconText(R.drawable.oc_repo_forked, "${fmtCount(r.forksCount)} fork", modifier = Modifier.clickable { nav.push(Screen.Repos(RepoKind.Forks, r.owner.login, r.name)) })
             IconText(R.drawable.oc_eye, "${fmtCount(r.subscribersCount ?: r.watchersCount)} watching", modifier = Modifier.clickable { nav.push(Screen.Users(UserKind.Watchers, r.owner.login, r.name)) })
-            r.license?.let { IconText(R.drawable.oc_law, it.spdxId?.takeIf { s -> s != "NOASSERTION" } ?: it.name) }
+            // 许可证名称可能很长（如自定义许可证的全称），窄屏下折行显示
+            r.license?.let { IconText(R.drawable.oc_law, it.spdxId?.takeIf { s -> s != "NOASSERTION" } ?: it.name, maxLines = Int.MAX_VALUE) }
             IconText(R.drawable.oc_package, fmtSize(r.size * 1024))
             IconText(R.drawable.oc_clock, "推送于 ${relTime(r.pushedAt)}")
         }

@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -27,6 +28,23 @@ import com.mobilegh.nav.Links
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Navigator
 import com.mobilegh.ui.theme.Gh
+
+/**
+ * Compose 把宽高打包进同一个 long，要求两者的位数之和不超过 31。所以「安全的最大高度」
+ * 取决于组件实际宽度：手机（宽 < 8191px）可以到约 26 万像素，平板（宽 8192–32766px）
+ * 就只剩约 6.5 万像素。这里按宽度分档取保守值，既不会触发 Constraints 崩溃，
+ * 也不会像以前那样把长 README 硬截在 12000dp。
+ */
+internal fun maxViewHeightPx(widthPx: Int): Int = when {
+    widthPx < 8191 -> 240_000
+    widthPx < 32767 -> 60_000
+    widthPx < 65535 -> 30_000
+    else -> 8_000
+}
+
+/** WebView 的最大高度（dp）。JS 回报的 CSS 像素等同于 dp，按密度换算后才是 Compose 的像素。 */
+internal fun htmlMaxHeightDp(density: Float, widthPx: Int): Int =
+    (maxViewHeightPx(widthPx) / density).toInt()
 
 /**
  * 渲染 GitHub 返回的 HTML（README、Issue、Release 等），使用 GitHub 的 markdown 样式。
@@ -42,8 +60,10 @@ fun HtmlView(
 ) {
     val nav = LocalNav.current
     val dark = Gh.c.dark
-    // Compose 的约束以物理像素编码，不能只限制 dp，否则高密度屏仍可能超限。
-    val maxHeight = minOf(12000, (28000 / LocalDensity.current.density).toInt())
+    // Compose 的约束以物理像素编码；可用高度取决于组件宽度，需等测量后才知道。
+    val density = LocalDensity.current.density
+    var measuredWidth by remember { mutableIntStateOf(0) }
+    val maxHeight = remember(density, measuredWidth) { htmlMaxHeightDp(density, measuredWidth) }
     val heightLimit by rememberUpdatedState(maxHeight)
     var height by remember { mutableIntStateOf(0) }
     val anchor by rememberUpdatedState(onAnchor)
@@ -109,7 +129,10 @@ fun HtmlView(
                 wv.loadDataWithBaseURL(baseUrl, doc, "text/html", "utf-8", null)
             }
         },
-        modifier = modifier.fillMaxWidth().height(height.coerceIn(24, maxHeight).dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .onSizeChanged { if (it.width != measuredWidth) measuredWidth = it.width }
+            .height(height.coerceIn(24, maxHeight).dp),
     )
 }
 
@@ -143,7 +166,16 @@ class GhWebClient(private val ctx: Context, private val nav: Navigator) : WebVie
         if (!handled) return null
         val r = ImageFetch.fetch(target)
             ?: return WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), java.io.ByteArrayInputStream(ByteArray(0)))
-        return WebResourceResponse(r.mime ?: ImageFetch.mimeOf(target, r.bytes), null, java.io.ByteArrayInputStream(r.bytes))
+        // 带上长度和缓存头：WebView 能提前排版并复用已解码的图片，滚动时不必再走一遍拦截器。
+        val headers = mapOf(
+            "Content-Length" to r.bytes.size.toString(),
+            "Cache-Control" to "max-age=600",
+            "Access-Control-Allow-Origin" to "*",
+        )
+        return WebResourceResponse(
+            r.mime ?: ImageFetch.mimeOf(target, r.bytes), null, 200, "OK", headers,
+            java.io.ByteArrayInputStream(r.bytes),
+        )
     }
 }
 
@@ -161,6 +193,10 @@ fun wrapHtml(body: String, dark: Boolean): String = """
   var last=-1;
   function r(){var v=Math.ceil(c.getBoundingClientRect().height)+2;if(v===last)return;last=v;Bridge.h(v);}
   new ResizeObserver(r).observe(c); r();
+  // 首次排版时图片高度还是 0，照片加载完会把内容撑高十几万像素。等到 load 事件再报一次，
+  // 否则原生层会按占位高度分配 WebView，页面底部的内容就再也滚不到。
+  window.addEventListener('load',r);
+  setTimeout(r,1500); setTimeout(r,4000);
   var IMG=/\.(png|jpe?g|gif|webp|svg|avif|bmp)([?#]|$)/i;
   document.addEventListener('click',function(e){
     var img=e.target.closest('img');

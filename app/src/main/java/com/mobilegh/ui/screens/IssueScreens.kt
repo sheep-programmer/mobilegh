@@ -80,6 +80,7 @@ import com.mobilegh.ui.components.LoadBox
 import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MoreMenu
 import com.mobilegh.ui.components.Oc
+import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.PullItem
@@ -160,6 +161,8 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
     var metaKind by remember { mutableStateOf<String?>(null) }
     /** 正在编辑的评论：id=null 表示编辑 Issue/PR 正文 */
     var editing by remember { mutableStateOf<Pair<Long?, String>?>(null) }
+    /** 标题栏就地编辑；null 表示未进入编辑 */
+    var editTitle by remember { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<Long?>(null) }
     var copilotConfirm by remember { mutableStateOf(false) }
     var copilotBusy by remember { mutableStateOf(false) }
@@ -233,7 +236,14 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
     ) { pad ->
         LoadBox(data, Modifier.padding(pad).fillMaxSize()) { th ->
             LazyColumn(Modifier.fillMaxSize()) {
-                item { ThreadHeader(owner, name, th, onReady = { setDraft(false) }) }
+                item {
+                    ThreadHeader(
+                        owner, name, th,
+                        editable = !isPull || th.pull != null,
+                        onEditTitle = { editTitle = th.issue.title },
+                        onReady = { setDraft(false) },
+                    )
+                }
                 val copilot = if (!isPull && th.issue.state == "open") CopilotAction(copilotBusy) { copilotConfirm = true } else null
                 item { MetaBlock(th.issue, reviewers = th.pull?.let { reviewerStates(it, th.reviews) }, copilot = copilot) { metaKind = it } }
                 item { Spacer(Modifier.height(8.dp)) }
@@ -252,7 +262,8 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
                         th.issue.user, th.issue.createdAt, assoc(th.issue.authorAssociation), th.issue.bodyHtml ?: th.pull?.bodyHtml, base,
                         menu = buildList {
                             add(MenuAction("引用回复") { quote(th.issue.user?.login, body) })
-                            if (th.issue.user?.login == me) add(MenuAction("编辑") { editing = null to body.orEmpty() })
+                            // 这里只编辑正文；标题改由标题旁的铅笔直接编辑（见 ThreadHeader）
+                            if (th.issue.user?.login == me) add(MenuAction("编辑正文") { editing = null to body.orEmpty() })
                             add(MenuAction("复制链接") { ctx.copy(url) })
                         },
                     ) {
@@ -324,9 +335,29 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
         ) { newTitle, newBody ->
             editing = null
             entry.act({ ctx.toast(it) }, ::reload) {
-                if (cid == null) GitHub.editIssue(owner, name, number, newTitle, newBody) else GitHub.editComment(owner, name, cid, newBody)
+                // 只编辑正文时新标题为空，必须沿用原标题，否则会把标题清空
+                if (cid == null) GitHub.editIssue(owner, name, number, newTitle.ifBlank { t?.issue?.title.orEmpty() }, newBody)
+                else GitHub.editComment(owner, name, cid, newBody)
                 ctx.toast("已保存")
             }
+        }
+    }
+    // 标题栏直接编辑：只改标题时不动正文，避免把已有正文再次提交
+    editTitle?.let { initial ->
+        var value by remember { mutableStateOf(initial) }
+        GhDialog(
+            "编辑标题", { editTitle = null }, confirm = "保存",
+            confirmEnabled = value.isNotBlank() && value.trim() != t?.issue?.title,
+            onConfirm = {
+                val title = value.trim()
+                editTitle = null
+                entry.act({ ctx.toast(it) }, ::reload) {
+                    GitHub.editIssue(owner, name, number, title, t?.issue?.body.orEmpty())
+                    ctx.toast("标题已更新")
+                }
+            },
+        ) {
+            GhField(value, { value = it }, "标题")
         }
     }
     if (copilotConfirm) GhDialog("指派给 Copilot", { copilotConfirm = false }, confirm = "指派", onConfirm = {
@@ -384,7 +415,10 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
 }
 
 @Composable
-private fun ThreadHeader(owner: String, name: String, th: IssueThread, onReady: () -> Unit) {
+private fun ThreadHeader(
+    owner: String, name: String, th: IssueThread,
+    editable: Boolean, onEditTitle: () -> Unit, onReady: () -> Unit,
+) {
     val g = Gh.c
     val nav = LocalNav.current
     val i = th.issue
@@ -396,7 +430,10 @@ private fun ThreadHeader(owner: String, name: String, th: IssueThread, onReady: 
             modifier = Modifier.clickable { nav.push(Screen.Repo(owner, name)) },
         )
         Spacer(Modifier.height(4.dp))
-        MdText(i.title, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        Row(verticalAlignment = Alignment.Top) {
+            MdText(i.title, Modifier.weight(1f), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            if (editable) OcButton(R.drawable.oc_pencil, onEditTitle, description = "编辑标题和正文")
+        }
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             StateBadge(st)

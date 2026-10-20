@@ -56,6 +56,8 @@ fun Chips(options: List<String>, selected: Int, modifier: Modifier = Modifier, o
                 Modifier
                     .background(if (sel) g.accentSubtle else g.canvas, RoundedCornerShape(50))
                     .border(1.dp, if (sel) g.accent.copy(alpha = 0.6f) else g.border, RoundedCornerShape(50))
+                    // 涟漪要裁进胶囊形状，否则点击效果是越界的矩形
+                    .clip(RoundedCornerShape(50))
                     .clickable { onSelect(i) }
                     .padding(horizontal = 14.dp, vertical = 6.dp),
                 fontSize = 13.sp,
@@ -127,7 +129,10 @@ fun GhField(
     singleLine: Boolean = true,
     minLines: Int = 1,
     placeholder: String? = null,
-    keyboardOptions: KeyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+    // GitHub 类输入（令牌、分支、用户名）不该被键盘首字母大写，否则精确匹配永远失败
+    keyboardOptions: KeyboardOptions = KeyboardOptions(
+        capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.None, imeAction = ImeAction.Done,
+    ),
     keyboardActions: androidx.compose.foundation.text.KeyboardActions = androidx.compose.foundation.text.KeyboardActions.Default,
     visualTransformation: androidx.compose.ui.text.input.VisualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
     trailing: (@Composable () -> Unit)? = null,

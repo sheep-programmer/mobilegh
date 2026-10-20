@@ -21,7 +21,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 @Serializable
-data class Account(val login: String, val avatarUrl: String = "", val tk: String = "", val refreshTk: String = "", val expiresAt: Long = 0, val clientId: String = "")
+data class Account(val login: String, val avatarUrl: String = "", val tk: String = "", val refreshTk: String = "", val expiresAt: Long = 0, val clientId: String = "", val scopes: String = "")
 
 data class OAuthCredentials(val token: String, val refreshToken: String, val expiresAt: Long, val clientId: String, val previousToken: String? = null)
 
@@ -42,6 +42,37 @@ object Session {
 
     /** 当前 Token 被 GitHub 判定失效（401），界面据此弹窗提示重新授权 */
     var authExpired by mutableStateOf(false)
+
+    /** 当前账号已获授权的 OAuth 权限；null = 未知（旧会话或细粒度 PAT，不报缺失） */
+    var grantedScopes by mutableStateOf<Set<String>?>(null)
+        private set
+
+    /** 应用所需但当前授权缺少的权限；未知时视为不缺失 */
+    val missingScopes: List<String> get() = DeviceAuth.missingScopes(grantedScopes)
+
+    /** 缺失权限提示是否应弹出：同一账号同一缺失组合只提示一次（跨重启记住） */
+    private var dismissedScopeNotice by mutableStateOf<String?>(null)
+
+    val scopeNoticeVisible: Boolean
+        get() = missingScopes.isNotEmpty() && dismissedScopeNotice != missingScopes.joinToString(",")
+
+    fun dismissScopeNotice() {
+        val key = missingScopes.joinToString(",")
+        dismissedScopeNotice = key
+        login?.let { prefs.edit().putString("scope_notice_dismissed_${it.lowercase()}", key).apply() }
+    }
+
+    /** 记录本次登录实际获得的权限（来自 X-OAuth-Scopes 响应头或授权兑换响应） */
+    fun applyScopes(scopes: Set<String>?) {
+        grantedScopes = scopes
+        if (scopes == null) return
+        val cur = accounts.firstOrNull { it.login == login } ?: return
+        val joined = scopes.sorted().joinToString(" ")
+        if (cur.scopes != joined) {
+            accounts[accounts.indexOf(cur)] = cur.copy(scopes = joined)
+            saveAccounts()
+        }
+    }
     var profileRevision by mutableIntStateOf(0)
         private set
     fun profileChanged() { Api.clearCache(); profileRevision++ }
@@ -83,12 +114,15 @@ object Session {
         login = a.login
         avatar = a.avatarUrl
         authExpired = false
+        grantedScopes = a.scopes.takeIf { it.isNotBlank() }?.split(" ")?.toSet()
+        dismissedScopeNotice = prefs.getString("scope_notice_dismissed_${a.login.lowercase()}", null)
     }
 
-    fun signIn(token: String, user: User, refreshToken: String? = null, expiresIn: Long? = null, clientId: String = "") {
+    fun signIn(token: String, user: User, refreshToken: String? = null, expiresIn: Long? = null, clientId: String = "", scopes: Set<String>? = null) {
         val acc = Account(user.login, user.avatarUrl, Crypto.encrypt(token),
             refreshToken?.takeIf { it.isNotBlank() }?.let(Crypto::encrypt).orEmpty(),
-            expiresIn?.let { System.currentTimeMillis() + it.coerceAtMost(31_536_000) * 1000 } ?: 0, clientId)
+            expiresIn?.let { System.currentTimeMillis() + it.coerceAtMost(31_536_000) * 1000 } ?: 0, clientId,
+            scopes?.sorted()?.joinToString(" ").orEmpty())
         accounts.removeAll { it.login.equals(user.login, true) }
         accounts.add(0, acc)
         saveAccounts()

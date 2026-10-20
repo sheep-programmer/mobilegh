@@ -27,28 +27,64 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.mobilegh.data.ImageFetch
 import com.mobilegh.ui.theme.Gh
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** 极简图片加载器：内存 LRU + OkHttp 磁盘缓存 + 采样解码。替代 Coil/Glide 以保持轻量。 */
+/** 极简图片加载器：内存 LRU + OkHttp 磁盘缓存 + 按显示尺寸采样解码。替代 Coil/Glide 以保持轻量。 */
 object Images {
     private val mem = object : LruCache<String, ImageBitmap>((Runtime.getRuntime().maxMemory() / 1024 / 8).toInt()) {
         override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4 / 1024
     }
 
-    fun cached(url: String): ImageBitmap? = if (ImageFetch.cached(url) != null) mem.get(ImageFetch.cacheKey(url)) else null
+    /** 解码尺寸以 [MEM_KEY] 区分；同一地址的小图和大图各留一份，各自命中 */
+    private const val MEM_KEY = "%s#%d"
+
+    private val ladder = intArrayOf(64, 128, 256, 512, 1024, 2048)
+
+    private fun key(url: String, maxDim: Int) = MEM_KEY.format(ImageFetch.cacheKey(url), maxDim)
+
+    /** 解码中的地址：同一张图被多个列表项引用时只解码一次 */
+    private val decoding = HashMap<String, CompletableDeferred<ImageBitmap?>>()
+
+    /** 已经解码好的最大尺寸；只要不小于需要的尺寸就能直接复用，避免重复解码 */
+    fun cached(url: String, maxDim: Int = 2048): ImageBitmap? {
+        val raw = ImageFetch.cacheKey(url)
+        // 精确尺寸的条目直接可用，即使原图本身就比 maxDim 小
+        mem.get(MEM_KEY.format(raw, maxDim))?.let { return it }
+        for (dim in ladder) {
+            if (dim <= maxDim) continue
+            val bmp = mem.get(MEM_KEY.format(raw, dim)) ?: continue
+            if (bmp.width.coerceAtLeast(bmp.height) >= maxDim) return bmp
+        }
+        return null
+    }
 
     suspend fun load(url: String, maxDim: Int = 2048): ImageBitmap? {
-        cached(url)?.let { return it }
-        val key = ImageFetch.cacheKey(url)
-        return withContext(Dispatchers.IO) {
-            val r = ImageFetch.fetch(url) ?: return@withContext null
-            decode(r.bytes, maxDim)?.also { if (key == ImageFetch.cacheKey(url)) mem.put(key, it) }
+        cached(url, maxDim)?.let { return it }
+        val memKey = key(url, maxDim)
+        val mine = CompletableDeferred<ImageBitmap?>()
+        val running = synchronized(decoding) { decoding.getOrPut(memKey) { mine } }
+        if (running !== mine) return running.await()
+        try {
+            val bmp = withContext(Dispatchers.IO) {
+                val r = ImageFetch.fetch(url) ?: return@withContext null
+                decode(r.bytes, maxDim)?.also { if (memKey == key(url, maxDim)) mem.put(memKey, it) }
+            }
+            mine.complete(bmp)
+            return bmp
+        } catch (t: Throwable) {
+            mine.complete(null)
+            throw t
+        } finally {
+            synchronized(decoding) { decoding.remove(memKey) }
         }
     }
 
@@ -70,6 +106,12 @@ object Images {
 fun sizedAvatar(url: String, px: Int): String =
     if (url.contains("avatars.githubusercontent.com")) url + (if (url.contains('?')) "&" else "?") + "s=$px" else url
 
+/**
+ * 小图按显示尺寸解码。
+ *
+ * 以前一律按 2048px 解码：一张 40dp 的头像也要解出几千像素的位图，列表滚动时既慢又费内存。
+ * 布局尺寸未知时（例如 README 图片宽度由 WebView 决定）不做限制，仍按 2048px 上限解码。
+ */
 @Composable
 fun NetImage(
     url: String?,
@@ -77,11 +119,17 @@ fun NetImage(
     contentScale: ContentScale = ContentScale.Crop,
     placeholder: Boolean = true,
 ) {
-    val bmp by produceState(url?.let { Images.cached(it) }, url) {
-        if (value == null && url != null) value = Images.load(url)
+    var size by remember { mutableStateOf(IntSize.Zero) }
+    val maxDim = maxOf(size.width, size.height)
+        .takeIf { it > 0 }?.coerceIn(64, 2048) ?: 2048
+
+    val bmp by produceState(url?.let { Images.cached(it, maxDim) }, url, maxDim) {
+        if (value == null && url != null) value = Images.load(url, maxDim)
     }
-    Box(if (placeholder && bmp == null) modifier.background(Gh.c.neutralMuted) else modifier) {
-        bmp?.let { Image(it, null, Modifier.matchParentSize(), contentScale = contentScale) }
+    Box(modifier.onSizeChanged { size = it }) {
+        Box(if (placeholder && bmp == null) Modifier.matchParentSize().background(Gh.c.neutralMuted) else Modifier.matchParentSize()) {
+            bmp?.let { Image(it, null, Modifier.matchParentSize(), contentScale = contentScale) }
+        }
     }
 }
 

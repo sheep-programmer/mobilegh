@@ -19,7 +19,30 @@ sealed interface DevicePoll {
 
 /** Public OAuth device flow. Never inherits API tokens, web cookies or mirror settings. */
 object DeviceAuth {
-    const val SCOPES = "repo read:org notifications user gist workflow project"
+    /** 应用全部功能所需的权限范围。参考 gh CLI：repo 含私有库读写，delete_repo 才能删库，project 才能写看板 */
+    const val SCOPES = "repo read:org notifications user gist workflow project delete_repo"
+    val REQUIRED_SCOPES = SCOPES.split(" ")
+
+    /** X-OAuth-Scopes 响应头 → 已授权集合；细粒度 PAT 不返回该头，返回 null 表示无法获知 */
+    fun parseScopes(header: String?): Set<String>? =
+        header?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
+
+    /** granted 为 null（无法获知）时不报缺失，避免误伤细粒度 Token 用户 */
+    fun missingScopes(granted: Set<String>?): List<String> =
+        if (granted == null) emptyList() else REQUIRED_SCOPES.filter { it !in granted }
+
+    /** 缺少某权限时受影响的功能，提示用户为什么要补授权 */
+    fun scopeFeature(scope: String): String = when (scope) {
+        "repo" -> "私有仓库、Issues/PR 读写"
+        "read:org" -> "组织与团队信息"
+        "notifications" -> "通知已读与订阅"
+        "user" -> "关注、列表与资料"
+        "gist" -> "Gist"
+        "workflow" -> "手动触发工作流"
+        "project" -> "Projects 看板读写"
+        "delete_repo" -> "删除仓库"
+        else -> scope
+    }
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(25, TimeUnit.SECONDS).callTimeout(30, TimeUnit.SECONDS).build()
 

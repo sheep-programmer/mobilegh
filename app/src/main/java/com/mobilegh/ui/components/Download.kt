@@ -34,6 +34,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -220,6 +221,7 @@ fun DownloadHost() {
             Row(
                 Modifier.border(1.dp, g.border, RoundedCornerShape(20.dp))
                     .background(g.canvas, RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .clickable { Downloads.showHistory = true }
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,

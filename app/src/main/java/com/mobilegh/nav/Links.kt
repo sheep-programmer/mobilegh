@@ -45,6 +45,19 @@ object Links {
         return route(url) ?: repositoryLink(url)?.target
     }
 
+    /**
+     * 剪贴板专用：只接受「完整 GitHub 链接 / 无协议地址 / owner/repo / 克隆地址」这几种明确形式，
+     * 不扫描普通文本，避免复制一段话也弹出「打开仓库」。
+     */
+    fun clipboardLink(text: String): RepositoryLink? {
+        val value = text.trim()
+        if (value.length !in 1..8_192) return null
+        // 整段必须是链接；带空白的普通句子直接忽略
+        if (value.any(Char::isWhitespace)) return null
+        val url = normalizeInput(value) ?: return null
+        return repositoryLink(url)
+    }
+
     /** 识别分享文本中的第一个仓库地址，不把个人主页或 GitHub 设置页当成仓库。 */
     fun repositoryInText(text: String): RepositoryLink? {
         val bounded = text.take(65_536)

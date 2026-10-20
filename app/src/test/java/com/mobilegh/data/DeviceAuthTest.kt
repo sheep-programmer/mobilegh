@@ -37,4 +37,23 @@ class DeviceAuthTest {
         val data = Json.parseToJsonElement("""{"device_code":"device-test","user_code":"ABCD-EFGH","verification_uri":"https://example.com/login","expires_in":900}""").jsonObject
         assertThrows(IllegalArgumentException::class.java) { DeviceAuth.decodeAuthorization(data) }
     }
+    @Test fun requiredScopesCoverEveryFeatureTheAppUses() {
+        assertEquals(listOf("repo", "read:org", "notifications", "user", "gist", "workflow", "project", "delete_repo"), DeviceAuth.REQUIRED_SCOPES)
+        // 每个必需权限都要能向用户解释影响什么功能
+        DeviceAuth.REQUIRED_SCOPES.forEach { assertNotEquals(it, DeviceAuth.scopeFeature(it)) }
+    }
+    @Test fun scopeHeaderParsingToleratesWhitespaceAndEmptyEntries() {
+        assertEquals(setOf("repo", "user"), DeviceAuth.parseScopes("repo, user"))
+        assertEquals(setOf("repo"), DeviceAuth.parseScopes("repo,, ,"))
+        assertNull(DeviceAuth.parseScopes(null))
+        // 细粒度 PAT 不返回该头；空字符串同样视为无法获知
+        assertTrue(DeviceAuth.parseScopes("").isNullOrEmpty())
+    }
+    @Test fun missingScopesOnlyReportedWhenGrantedSetIsKnown() {
+        assertEquals(emptyList<String>(), DeviceAuth.missingScopes(null))
+        assertEquals(emptyList<String>(), DeviceAuth.missingScopes(DeviceAuth.REQUIRED_SCOPES.toSet()))
+        assertEquals(listOf("project", "delete_repo"), DeviceAuth.missingScopes(setOf("repo", "read:org", "notifications", "user", "gist", "workflow")))
+        // 授权里多出无关权限不影响判断
+        assertEquals(listOf("delete_repo"), DeviceAuth.missingScopes(DeviceAuth.REQUIRED_SCOPES.toSet() - "delete_repo" + "admin:org"))
+    }
 }

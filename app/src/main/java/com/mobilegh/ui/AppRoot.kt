@@ -132,6 +132,27 @@ private fun Main(nav: Navigator) {
         ) { Text("授权可能已过期或被撤销。请重新登录，新的账号授权默认长期有效。", fontSize = 14.sp) }
     }
 
+    // 登录时按 X-OAuth-Scopes 比对应用所需权限，缺权限一次性告知（参考 gh auth refresh 的提示思路）
+    if (Session.scopeNoticeVisible && nav.stack.lastOrNull()?.screen !in listOf(Screen.Login, Screen.Reauthorize)) {
+        val missing = Session.missingScopes
+        GhDialog(
+            "授权权限不完整",
+            onDismiss = { Session.dismissScopeNotice() },
+            confirm = "重新登录补齐",
+            onConfirm = {
+                Session.dismissScopeNotice()
+                nav.push(Screen.Reauthorize)
+            },
+        ) {
+            Column {
+                Text("当前授权缺少以下权限，对应功能将无法使用：", fontSize = 14.sp)
+                missing.forEach {
+                    Text("• ${it}：${com.mobilegh.data.DeviceAuth.scopeFeature(it)}", Modifier.padding(top = 6.dp), fontSize = 13.sp, color = Gh.c.fgMuted)
+                }
+            }
+        }
+    }
+
     Scaffold(
         containerColor = Gh.c.canvas,
         contentWindowInsets = WindowInsets(0),
@@ -233,12 +254,14 @@ private fun ScreenHost(s: Screen) {
         is Screen.FileView -> FileViewScreen(s.owner, s.name, s.path, s.ref)
         is Screen.FileFinder -> FileFinderScreen(s.owner, s.name, s.ref)
         is Screen.CodeSearch -> CodeSearchScreen(s.owner, s.name)
+        is Screen.Search -> SearchScreen(s.type, s.query)
         is Screen.Blame -> BlameScreen(s.owner, s.name, s.path, s.ref)
         is Screen.EditFile -> EditFileScreen(s.owner, s.name, s.ref, s.path, s.dir)
         is Screen.NewPull -> NewPullScreen(s.owner, s.name, s.head, s.base, s.title, s.body)
         is Screen.EditRelease -> EditReleaseScreen(s.owner, s.name, s.releaseId)
         is Screen.RunWorkflow -> RunWorkflowScreen(s.owner, s.name, s.workflowId, s.path, s.title, s.ref)
         Screen.RecentRepositories -> RecentRepositoriesScreen()
+        Screen.SearchHistory -> SearchHistoryScreen()
         Screen.EditProfile -> EditProfileScreen()
         is Screen.Commits -> CommitsScreen(s.owner, s.name, s.ref, s.path, s.author, s.since, s.until)
         is Screen.CommitDetail -> CommitDetailScreen(s.owner, s.name, s.sha)

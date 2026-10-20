@@ -121,7 +121,17 @@ fun ContributorsScreen(owner: String, name: String) {
             ) {
                 LazyColumn(Modifier.fillMaxSize()) {
                     item {
-                        Chips(ContributionRange.entries.map { it.label }, range.ordinal) { selected = it }
+                        val weeklyAvailable = snapshot.source == ContributionSource.Statistics
+                        Chips(ContributionRange.entries.map { it.label }, range.ordinal) {
+                            // 备用列表只有累计提交数，按时间筛选没有数据可算，直接拦住并说明
+                            if (it == ContributionRange.All.ordinal || weeklyAvailable) selected = it
+                        }
+                        if (!weeklyAvailable) {
+                            Text(
+                                "GitHub 仅返回了累计提交数，按时间筛选暂不可用；可稍后刷新重试周统计。",
+                                Modifier.padding(horizontal = 16.dp), color = g.fgMuted, fontSize = 11.sp,
+                            )
+                        }
                         if (range == ContributionRange.Custom) {
                             Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedTextField(
@@ -183,17 +193,17 @@ fun ContributorsScreen(owner: String, name: String) {
                                 )
                             }
                             itemsIndexed(summary.contributors, key = { _, contributor -> contributor.key }) { index, contributor ->
-                                ContributorDetailCard(index + 1, contributor, range, snapshot.truncated)
                                 val author = contributor.author?.login?.takeIf { it.isNotBlank() }
-                                if (author != null && (range != ContributionRange.Custom || dates.error == null)) {
-                                    val nav = LocalNav.current
-                                    com.mobilegh.ui.components.TextLink("查看逐笔提交") {
+                                val nav = LocalNav.current
+                                ContributorDetailCard(
+                                    index + 1, contributor, range, snapshot.truncated,
+                                    onViewCommits = if (author != null && (range != ContributionRange.Custom || dates.error == null)) ({
                                         val requested = summary.requestedDates
                                         nav.push(Screen.Commits(owner, name, null, author = author,
                                             since = requested?.start?.atStartOfDay(ZoneOffset.UTC)?.toInstant()?.toString(),
                                             until = requested?.end?.plusDays(1)?.atStartOfDay(ZoneOffset.UTC)?.toInstant()?.minusSeconds(1)?.toString()))
-                                    }
-                                }
+                                    }) else null,
+                                )
                             }
                         }
                     }
@@ -234,6 +244,9 @@ private fun ContributionOverview(summary: ContributionSummary, range: Contributi
                 MutedText("提交数使用 GitHub 的累计总数。周趋势与行数仅覆盖返回的周数据。")
             } else if (!summary.rangeUnavailable) {
                 summary.includedDates?.let { MutedText("计入整周：${dateLabel(it)}（UTC）") }
+                if (summary.includedDates != null && summary.includedDates == summary.availableDates) {
+                    MutedText("所选范围已覆盖 GitHub 返回的全部周数据，各时间范围的数值会相同。", g.attention)
+                }
                 if (summary.boundaryWeeksIncluded) MutedText("包含与日期范围重叠的完整周，边界提交无法精确到天。", g.attention)
                 if (summary.partialCoverage) MutedText("所选日期未被返回数据完整覆盖，仅汇总可用整周。", g.attention)
             }
@@ -286,7 +299,13 @@ private fun ContributionMetricGrid(metrics: List<ContributionMetric>) {
 }
 
 @Composable
-private fun ContributorDetailCard(rank: Int, contributor: ContributorContribution, range: ContributionRange, truncated: Boolean) {
+private fun ContributorDetailCard(
+    rank: Int,
+    contributor: ContributorContribution,
+    range: ContributionRange,
+    truncated: Boolean,
+    onViewCommits: (() -> Unit)? = null,
+) {
     val g = Gh.c
     val nav = LocalNav.current
     val login = contributor.author?.login.orEmpty()
@@ -334,6 +353,19 @@ private fun ContributorDetailCard(rank: Int, contributor: ContributorContributio
                     MutedText("周趋势及增删行数不代表全部提交历史。")
                 }
             } else MutedText("GitHub 未提供该贡献者的周趋势或增删行数。")
+            if (onViewCommits != null) {
+                HDivider()
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).clickable(onClick = onViewCommits)
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Oc(R.drawable.oc_git_commit, g.accent, 16.dp)
+                    Spacer(Modifier.size(8.dp))
+                    Text("查看逐笔提交", Modifier.weight(1f), color = g.accent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
+                }
+            }
         }
     }
 }

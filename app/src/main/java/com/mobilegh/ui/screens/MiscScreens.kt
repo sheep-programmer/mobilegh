@@ -42,6 +42,7 @@ import com.mobilegh.BuildConfig
 import com.mobilegh.R
 import com.mobilegh.data.Api
 import com.mobilegh.data.AppLog
+import com.mobilegh.data.DeviceAuth
 import com.mobilegh.data.Downloads
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.Net
@@ -68,6 +69,7 @@ import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.SwitchRow
+import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.openBrowser
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.toast
@@ -226,6 +228,18 @@ fun SettingsScreen() {
                     scopes.data?.ifBlank { "Fine-grained Token（无 scope 列表）" } ?: if (scopes.loading) "加载中…" else "未知",
                     fontSize = 13.sp, fontFamily = FontFamily.Monospace, color = g.fg, modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
                 )
+                // 与应用所需权限比对，缺什么、影响什么、怎么补，一眼可见（细粒度 Token 无 scope 列表，不报缺失）
+                val granted = DeviceAuth.parseScopes(scopes.data?.takeIf { it.isNotBlank() })
+                LaunchedEffect(scopes.data) { if (granted != null) Session.applyScopes(granted) }
+                val missingScopes = DeviceAuth.missingScopes(granted)
+                if (missingScopes.isNotEmpty()) {
+                    Text("缺少 ${missingScopes.size} 项权限，以下功能不可用：", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = g.attention)
+                    missingScopes.forEach {
+                        Text("• $it：${DeviceAuth.scopeFeature(it)}", fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(top = 3.dp))
+                    }
+                    TextLink("重新登录补齐权限") { nav.push(Screen.Reauthorize) }
+                    Spacer(Modifier.height(8.dp))
+                }
                 val res = rate.data?.resources
                 listOf("core" to "REST API", "graphql" to "GraphQL", "search" to "搜索").forEach { (k, label) ->
                     res?.get(k)?.let { r ->

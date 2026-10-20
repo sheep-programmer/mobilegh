@@ -30,15 +30,18 @@ import kotlinx.coroutines.*
 import okhttp3.CacheControl
 import okhttp3.Request
 
-private const val TOKEN_URL = "https://github.com/settings/tokens/new?description=MobileGH&scopes=repo%2Cread%3Aorg%2Cnotifications%2Cuser%2Cgist%2Cworkflow%2Cproject"
+private const val TOKEN_URL = "https://github.com/settings/tokens/new?description=MobileGH&scopes=repo%2Cread%3Aorg%2Cnotifications%2Cuser%2Cgist%2Cworkflow%2Cproject%2Cdelete_repo"
 
-private suspend fun verify(token: String): User = withContext(Dispatchers.IO) {
+private class Verified(val user: User, val scopes: Set<String>?)
+
+private suspend fun verify(token: String): Verified = withContext(Dispatchers.IO) {
     val req = Request.Builder().url("${Api.BASE}/user").header("Authorization", "Bearer $token")
         .header("Accept", "application/vnd.github+json").cacheControl(CacheControl.FORCE_NETWORK).build()
     Api.http.routed().newCall(req).await().use {
         if (it.code == 401) throw ApiException(401, "Token 无效或已过期")
         if (!it.isSuccessful) throw ApiException(it.code, "验证失败 (${it.code})")
-        Api.json.decodeFromString(User.serializer(), it.body.string())
+        // 细粒度 PAT 不返回 X-OAuth-Scopes，此时权限按「未知」处理，不误报缺失
+        Verified(Api.json.decodeFromString(User.serializer(), it.body.string()), DeviceAuth.parseScopes(it.header("X-OAuth-Scopes")))
     }
 }
 
@@ -67,17 +70,17 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
             start = { DeviceAuth.start(BuildConfig.GITHUB_CLIENT_ID) },
             poll = { code -> DeviceAuth.poll(BuildConfig.GITHUB_CLIENT_ID, code) },
             complete = { result ->
-                val user = verify(result.token)
+                val v = verify(result.token)
                 currentCoroutineContext().ensureActive()
-                checkAccount(user)
-                Session.signIn(result.token, user, result.refreshToken, result.expiresIn, BuildConfig.GITHUB_CLIENT_ID)
+                checkAccount(v.user)
+                Session.signIn(result.token, v.user, result.refreshToken, result.expiresIn, BuildConfig.GITHUB_CLIENT_ID, scopes = v.scopes)
                 AppLog.info("auth", "OAuth 登录成功")
             },
             tokenLogin = { clean ->
-                val user = verify(clean)
+                val v = verify(clean)
                 currentCoroutineContext().ensureActive()
-                checkAccount(user)
-                Session.signIn(clean, user)
+                checkAccount(v.user)
+                Session.signIn(clean, v.user, scopes = v.scopes)
                 AppLog.info("auth", "Token 登录成功")
             },
             now = { SystemClock.elapsedRealtime() },

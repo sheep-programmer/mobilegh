@@ -337,12 +337,14 @@ private fun ProfileHeader(u: User, isSelf: Boolean, following: Boolean?, onFollo
         }
         Spacer(Modifier.height(10.dp))
         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            u.company?.takeIf { it.isNotBlank() }?.let { IconText(R.drawable.oc_organization, it, g.fg) }
-            u.location?.takeIf { it.isNotBlank() }?.let { IconText(R.drawable.oc_location, it, g.fg) }
+            // 公司、位置、网址、邮箱都可能有很长的值，折行显示而不是省略
+            val wrap = Int.MAX_VALUE
+            u.company?.takeIf { it.isNotBlank() }?.let { IconText(R.drawable.oc_organization, it, g.fg, maxLines = wrap) }
+            u.location?.takeIf { it.isNotBlank() }?.let { IconText(R.drawable.oc_location, it, g.fg, maxLines = wrap) }
             u.blog?.takeIf { it.isNotBlank() }?.let { b ->
-                IconText(R.drawable.oc_link, b, g.accent, Modifier.clickable { ctx.openBrowser(if (b.startsWith("http")) b else "https://$b") }, bold = true)
+                IconText(R.drawable.oc_link, b, g.accent, Modifier.clickable { ctx.openBrowser(if (b.startsWith("http")) b else "https://$b") }, bold = true, maxLines = wrap)
             }
-            u.email?.takeIf { it.isNotBlank() }?.let { IconText(R.drawable.oc_mail, it, g.fg, Modifier.clickable { ctx.copy(it) }) }
+            u.email?.takeIf { it.isNotBlank() }?.let { IconText(R.drawable.oc_mail, it, g.fg, Modifier.clickable { ctx.copy(it) }, maxLines = wrap) }
             u.twitterUsername?.takeIf { it.isNotBlank() }?.let { IconText(R.drawable.oc_mention, "@$it", g.fg) }
         }
         Spacer(Modifier.height(10.dp))
@@ -437,11 +439,14 @@ fun OrgScreen(login: String) {
                             Text(login, color = g.fgMuted, fontSize = 14.sp)
                         }
                     }
-                    o?.description?.takeIf { it.isNotBlank() }?.let { Spacer(Modifier.height(10.dp)); Text(it, color = g.fg, fontSize = 14.sp) }
+                    o?.description?.takeIf { it.isNotBlank() }?.let { Spacer(Modifier.height(10.dp)); MdText(it, fontSize = 14.sp) }
                     Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        o?.location?.takeIf { it.isNotBlank() }?.let { IconText(R.drawable.oc_location, it) }
-                        o?.blog?.takeIf { it.isNotBlank() }?.let { b -> IconText(R.drawable.oc_link, b, g.accent, Modifier.clickable { ctx.openBrowser(if (b.startsWith("http")) b else "https://$b") }) }
+                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        // 同一行放两个长文本时，窄屏下都会被挤成省略号；改为各占一行并允许折行
+                        o?.location?.takeIf { it.isNotBlank() }?.let { IconText(R.drawable.oc_location, it, maxLines = Int.MAX_VALUE) }
+                        o?.blog?.takeIf { it.isNotBlank() }?.let { b ->
+                            IconText(R.drawable.oc_link, b, g.accent, Modifier.clickable { ctx.openBrowser(if (b.startsWith("http")) b else "https://$b") }, maxLines = Int.MAX_VALUE)
+                        }
                     }
                     Spacer(Modifier.height(10.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {

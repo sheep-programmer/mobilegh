@@ -180,14 +180,54 @@ object Net {
 
     // ---------------- 图片 ----------------
 
-    /** 本次运行中最近一次成功加载图片的节点；失败过的节点排到最后 */
-    @Volatile private var imageOkId: String? = null
-    private val imageFailed = Collections.synchronizedSet(HashSet<String>())
+    /**
+     * 按地址类型分别记住图片节点的表现。
+     *
+     * 同一个代理对 raw 文件、头像和 camo 图片的支持完全不同：实测 ghfast、ghproxy.net 对
+     * `avatars.githubusercontent.com` 直接返回 403，gh-proxy 对 camo 返回 404。如果只用一个
+     * 全局「最近成功节点」，头像就会反复先撞上 raw 上很快、对头像却不可用的节点，每张图都要
+     * 白白等一次失败；反过来，raw 图片也不该被头像的结果带偏。
+     */
+    private val imageOk = Collections.synchronizedMap(HashMap<String, String>())
+    private val imageFailedByClass = Collections.synchronizedMap(HashMap<String, MutableMap<String, Long>>())
 
-    fun markImageOk(id: String) { imageOkId = id; imageFailed.remove(id) }
-    fun markImageFail(id: String) { imageFailed.add(id); if (imageOkId == id) imageOkId = null }
+    /** 失败只是暂时降级：网络抖动后过一会儿仍会重新尝试，避免一个瞬时超时永久废掉一个节点 */
+    private const val IMAGE_FAIL_TTL_MS = 2 * 60 * 1000L
 
-    private fun isGithubImageHost(host: String) = host == "camo.githubusercontent.com" ||
+    fun imageClass(url: String): String {
+        val host = runCatching { URI(url).host }.getOrNull()?.lowercase() ?: return "other"
+        return when {
+            host == "raw.githubusercontent.com" || host == "gist.githubusercontent.com" -> "raw"
+            host == "avatars.githubusercontent.com" -> "avatar"
+            host == "camo.githubusercontent.com" -> "camo"
+            else -> "other"
+        }
+    }
+
+    @Synchronized
+    fun markImageOk(url: String, id: String) {
+        val cls = imageClass(url)
+        imageOk[cls] = id
+        imageFailedByClass[cls]?.remove(id)
+    }
+
+    @Synchronized
+    fun markImageFail(url: String, id: String) {
+        val cls = imageClass(url)
+        imageFailedByClass.getOrPut(cls) { HashMap() }[id] = System.currentTimeMillis()
+        if (imageOk[cls] == id) imageOk.remove(cls)
+    }
+
+    /** 当前仍在「冷却」中的失败节点 */
+    private fun currentFailures(cls: String): Set<String> {
+        val now = System.currentTimeMillis()
+        val map = imageFailedByClass[cls] ?: return emptySet()
+        map.entries.removeAll { now - it.value > IMAGE_FAIL_TTL_MS }
+        return map.keys.toSet()
+    }
+
+    private fun isGithubImageHost(host: String) = host == "avatars.githubusercontent.com" ||
+        host == "camo.githubusercontent.com" ||
         host == "user-images.githubusercontent.com" || host == "private-user-images.githubusercontent.com" ||
         host == "objects.githubusercontent.com"
 
@@ -211,6 +251,8 @@ object Net {
      *
      * 只试一个加速节点 + 直连时，只要那个节点在当前网络不通（jsDelivr 在国内常被污染），图片就会裂开。
      * 这里依次尝试所有加速节点：上次成功的 → 当前选中的 → 按测速快慢 → 未测速的 → 失败过的，最后直连。
+     *
+     * 本轮已经被证明与同类资源不兼容的节点（见 [markImageFail]）会被直接跳过，不再白等一次失败。
      */
     fun imageCandidates(url: String): List<Pair<String, String>> {
         if (mode == 2 || requiresDirectImage(url)) return listOf(DIRECT.id to url)
@@ -220,11 +262,24 @@ object Net {
             !(host == "github.com" && url.contains("/user-attachments/"))
         ) return listOf(DIRECT.id to url)
         if (raw != null && isPrivate(raw[0], raw[1])) return listOf(DIRECT.id to url)
+        val cls = imageClass(url)
+        val failed = synchronized(this) { currentFailures(cls) }
+        val okId = synchronized(this) { imageOk[cls] }
+        val list = imageCandidates(url, raw, failed, okId)
+        // camo（README 里外链图片的缓存地址）只由 GitHub 自己提供；实测公共代理对它一律 403/404，
+        // 先试代理只会给每张 README 图片白加几秒延迟，因此直连优先。
+        return if (cls == "camo") list.sortedBy { if (it.first == DIRECT.id) 0 else 1 } else list
+    }
 
-        val ordered = nodes.filter { it.type != NodeType.Direct }.sortedWith(
+    private fun imageCandidates(
+        url: String,
+        raw: List<String>?,
+        failed: Set<String>,
+        okId: String?,
+    ): List<Pair<String, String>> {
+        val ordered = nodes.filter { it.type != NodeType.Direct && it.id !in failed }.sortedWith(
             compareBy<CdnNode>(
-                { it.id in imageFailed },
-                { it.id != imageOkId },
+                { it.id != okId },
                 { it.id != rawNode().id },
                 { latency[it.id]?.takeIf { l -> l >= 0 } ?: Long.MAX_VALUE },
             ),

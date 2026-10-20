@@ -1,6 +1,8 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,6 +57,7 @@ import com.mobilegh.ui.components.rememberDraft
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.foundation.text.selection.SelectionContainer
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.BarChart
 import com.mobilegh.ui.components.Card
@@ -80,6 +84,7 @@ import com.mobilegh.ui.components.StatCell
 import com.mobilegh.ui.components.SwitchRow
 import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.boxedItems
+import com.mobilegh.ui.components.copy
 import com.mobilegh.ui.components.fmtCount
 import com.mobilegh.ui.components.fmtDate
 import com.mobilegh.ui.components.fmtSize
@@ -635,9 +640,11 @@ private fun SettingsForm(r: Repo, reload: () -> Unit) {
         }) { Text(if (r.archived) "取消归档后仓库将恢复可写。" else "归档后，Issues、PR、代码等都将变为只读。", color = g.fg) }
         "delete" -> {
             var typed by remember { mutableStateOf("") }
-            GhDialog("删除仓库", { confirm = null }, confirm = "我了解后果，删除此仓库", danger = true, confirmEnabled = typed == r.fullName, onConfirm = {
+            // 仓库名大小写在 GitHub 上不敏感；容忍首尾空格，避免键盘误输入导致按钮永远不亮
+            GhDialog("删除仓库", { confirm = null }, confirm = "我了解后果，删除此仓库", danger = true,
+                confirmEnabled = typed.trim().equals(r.fullName, ignoreCase = true), onConfirm = {
                 confirm = null
-                entry.act({ ctx.toast(if (it.contains("403") || it.contains("admin", true)) "删除失败：Token 需要 delete_repo 权限" else it) }) {
+                entry.act({ ctx.toast(if (it.contains("403") || it.contains("404") || it.contains("admin", true)) "删除失败：Token 需要 delete_repo 权限；重新登录或新建 Token 勾选该权限后再试" else it) }) {
                     GitHub.deleteRepo(o, r.name)
                     ctx.toast("已删除 ${r.fullName}")
                     nav.popToRoot()
@@ -646,9 +653,21 @@ private fun SettingsForm(r: Repo, reload: () -> Unit) {
                 Column {
                     Text("这将永久删除 ${r.fullName} 的代码、Issues、PR、Wiki 等全部内容。", color = g.fg, fontSize = 14.sp)
                     Spacer(Modifier.height(10.dp))
-                    Text("请输入 ${r.fullName} 以确认：", color = g.fgMuted, fontSize = 13.sp)
+                    Text("输入下面的仓库全名以确认（可长按选择或复制）：", color = g.fgMuted, fontSize = 13.sp)
                     Spacer(Modifier.height(6.dp))
-                    GhField(typed, { typed = it }, "仓库全名")
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(g.canvasSubtle)
+                            .padding(start = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SelectionContainer(Modifier.weight(1f)) {
+                            Text(r.fullName, color = g.fg, fontSize = 14.sp,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                        }
+                        TextLink("复制") { ctx.copy(r.fullName) }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    GhField(typed, { typed = it }, "仓库全名", placeholder = r.fullName)
                 }
             }
         }

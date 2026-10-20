@@ -305,9 +305,12 @@ fun <T> PagedList(
                 item(key = "$GROUP_KEY$k") { groupHeader(list) }
                 rows(list)
             }
-            item(key = FOOTER_KEY) {
+            // 空列表占位项不能与常态 footer 共用 key：LazyColumn 按 key 锚定滚动位置，
+            // 首批数据插到占位项上方时会跟随它滚到列表中部/底部，而不是停在顶部
+            val footerKey = if (shown.isEmpty()) EMPTY_KEY else FOOTER_KEY
+            item(key = footerKey) {
                 // 列表为空时，加载、错误与空状态都在剩余可见区域居中
-                val fill = if (shown.isEmpty()) Modifier.fillMaxWidth().heightIn(min = remainingHeight(state, FOOTER_KEY)) else Modifier.fillMaxWidth()
+                val fill = if (shown.isEmpty()) Modifier.fillMaxWidth().heightIn(min = remainingHeight(state, footerKey)) else Modifier.fillMaxWidth()
                 when {
                     pager.error != null && pager.items.isEmpty() -> ErrorState(pager.error!!, fill) { pager.retry() }
                     pager.error != null -> Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
@@ -412,6 +415,7 @@ fun Topic(name: String, onClick: (() -> Unit)? = null) {
         name,
         Modifier
             .background(Gh.c.accentSubtle, RoundedCornerShape(50))
+            .clip(RoundedCornerShape(50))
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 10.dp, vertical = 2.dp),
         fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Gh.c.accent,
@@ -507,12 +511,26 @@ fun Card(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     ) { content() }
 }
 
+/**
+ * 图标 + 单行文字。[maxLines] 默认 1，适合统计数字等短文本；
+ * 网址、公司、位置等长度不受控的内容应传 [Int.MAX_VALUE]，避免被省略号截断。
+ */
 @Composable
-fun IconText(@DrawableRes icon: Int, text: String, color: Color = Gh.c.fgMuted, modifier: Modifier = Modifier, bold: Boolean = false) {
+fun IconText(
+    @DrawableRes icon: Int,
+    text: String,
+    color: Color = Gh.c.fgMuted,
+    modifier: Modifier = Modifier,
+    bold: Boolean = false,
+    maxLines: Int = 1,
+) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Oc(icon, color, 14.dp)
         Spacer(Modifier.width(4.dp))
-        Text(text, color = color, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = if (bold) FontWeight.SemiBold else null)
+        Text(
+            text, color = color, fontSize = 13.sp, maxLines = maxLines, overflow = TextOverflow.Ellipsis,
+            fontWeight = if (bold) FontWeight.SemiBold else null,
+        )
     }
 }
 

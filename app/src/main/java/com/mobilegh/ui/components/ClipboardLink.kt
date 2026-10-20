@@ -72,7 +72,7 @@ fun ClipboardLinkHost(nav: Navigator, modifier: Modifier = Modifier) {
     LaunchedEffect(pending) {
         val link = pending ?: return@LaunchedEffect
         val result = host.showSnackbar(
-            message = "剪贴板仓库：${link.label}",
+            message = "剪贴板有 ${link.label}，可快速打开",
             actionLabel = "打开",
             withDismissAction = true,
             duration = SnackbarDuration.Long,

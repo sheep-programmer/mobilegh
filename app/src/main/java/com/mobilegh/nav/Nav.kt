@@ -26,6 +26,8 @@ sealed interface Screen {
     data class FileView(val owner: String, val name: String, val path: String, val ref: String?) : Screen
     data class FileFinder(val owner: String, val name: String, val ref: String?) : Screen
     data class CodeSearch(val owner: String, val name: String) : Screen
+    /** 独立搜索页：类型、关键词与组合筛选都在其中 */
+    data class Search(val type: Int = 0, val query: String = "") : Screen
     data class Blame(val owner: String, val name: String, val path: String, val ref: String?) : Screen
     /** path == null 表示在 dir 目录下新建文件 */
     data class EditFile(val owner: String, val name: String, val ref: String?, val path: String?, val dir: String = "") : Screen
@@ -34,6 +36,7 @@ sealed interface Screen {
     data class EditRelease(val owner: String, val name: String, val releaseId: Long? = null) : Screen
     data class RunWorkflow(val owner: String, val name: String, val workflowId: Long, val path: String, val title: String, val ref: String? = null) : Screen
     data object RecentRepositories : Screen
+    data object SearchHistory : Screen
     data object EditProfile : Screen
     data class Commits(val owner: String, val name: String, val ref: String?, val path: String? = null,
         val author: String? = null, val since: String? = null, val until: String? = null) : Screen

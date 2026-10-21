@@ -56,12 +56,11 @@ object Net {
         CdnNode("gh-proxy", "gh-proxy.com", NodeType.Prefix, "https://gh-proxy.com/"),
         CdnNode("gh-proxy-org", "gh-proxy.org", NodeType.Prefix, "https://gh-proxy.org/"),
         CdnNode("llkk", "gh.llkk.cc", NodeType.Prefix, "https://gh.llkk.cc/"),
-        CdnNode("gh-jason", "gh.jasonzeng.dev", NodeType.Prefix, "https://gh.jasonzeng.dev/"),
     )
 
-    /** 未测速前的默认值：最稳定的节点 */
-    private const val DEFAULT_RAW = "jsd"
-    private const val DEFAULT_DL = "ghfast"
+    /** 未测速前的默认值：取自实测延迟最低且稳定的节点 */
+    private const val DEFAULT_RAW = "jsd-gcore"
+    private const val DEFAULT_DL = "gh-proxy"
 
     private const val TEST_PATH = "github/gitignore/main/Global/macOS.gitignore"
     private const val TEST_MARK = "DS_Store"
@@ -85,17 +84,23 @@ object Net {
 
     val nodes: List<CdnNode> get() = builtins + custom
 
+    /** 保存的节点 id 已从内置列表下线时回退到默认值，避免一直用一个连不上的地址 */
+    private fun validOr(id: String?, fallback: String): String =
+        id?.takeIf { saved -> nodes.any { it.id == saved } } ?: fallback
+
     fun init(ctx: Context) {
         prefs = ctx.getSharedPreferences("net", Context.MODE_PRIVATE)
         mode = prefs.getInt("mode", 0)
-        manualId = prefs.getString("manual", DEFAULT_RAW) ?: DEFAULT_RAW
         apiProxy = prefs.getString("api", "") ?: ""
-        bestRawId = prefs.getString("bestRaw", DEFAULT_RAW) ?: DEFAULT_RAW
-        bestDlId = prefs.getString("bestDl", DEFAULT_DL) ?: DEFAULT_DL
         lastTest = prefs.getLong("lastTest", 0)
+        // 先恢复自定义节点，否则下面校验 id 时会把自定义节点误判成已下线
         prefs.getString("custom", null)?.let {
             runCatching { custom.addAll(Api.plain.decodeFromString(ListSerializer(CdnNode.serializer()), it)) }
         }
+        // 保存过的节点可能已经下线（内置列表里删掉了），回退到默认值而不是留着一个用不了的 id
+        manualId = validOr(prefs.getString("manual", DEFAULT_RAW), DEFAULT_RAW)
+        bestRawId = validOr(prefs.getString("bestRaw", DEFAULT_RAW), DEFAULT_RAW)
+        bestDlId = validOr(prefs.getString("bestDl", DEFAULT_DL), DEFAULT_DL)
         prefs.getString("latency", null)?.let {
             runCatching { latency.putAll(Api.plain.decodeFromString(MapSerializer(String.serializer(), Long.serializer()), it)) }
         }

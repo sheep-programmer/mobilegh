@@ -8,6 +8,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,6 +40,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -94,6 +98,8 @@ fun DropdownButton(label: String, modifier: Modifier = Modifier, active: Boolean
     val g = Gh.c
     Row(
         modifier
+            // 放在横向滚动行里时宽度无上限，weight 会把标签压成 0 宽只剩箭头；先按内容定宽，空间不够时仍会被约束截断
+            .width(IntrinsicSize.Max)
             .border(1.dp, if (active) g.accent.copy(alpha = 0.6f) else g.border, RoundedCornerShape(6.dp))
             .background(if (active) g.accentSubtle else g.btnBg, RoundedCornerShape(6.dp))
             .clip(RoundedCornerShape(6.dp))
@@ -143,30 +149,46 @@ fun GhField(
     keyboardActions: androidx.compose.foundation.text.KeyboardActions = androidx.compose.foundation.text.KeyboardActions.Default,
     visualTransformation: androidx.compose.ui.text.input.VisualTransformation = androidx.compose.ui.text.input.VisualTransformation.None,
     trailing: (@Composable () -> Unit)? = null,
+    leading: (@Composable () -> Unit)? = null,
+    // 表单里 label 放在输入框上方常驻，避免空值时只剩一行灰字分不清是标签还是提示
+    labelAbove: Boolean = false,
 ) {
     val g = Gh.c
-    OutlinedTextField(
-        value, onValueChange,
-        modifier = modifier.fillMaxWidth(),
-        label = { Text(label) },
-        placeholder = placeholder?.let { { Text(it, color = g.fgMuted) } },
-        singleLine = singleLine,
-        minLines = minLines,
-        keyboardOptions = keyboardOptions,
-        keyboardActions = keyboardActions,
-        visualTransformation = visualTransformation,
-        trailingIcon = trailing,
-        shape = RoundedCornerShape(6.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = g.accent,
-            unfocusedBorderColor = g.border,
-            focusedContainerColor = g.canvas,
-            unfocusedContainerColor = g.canvasSubtle,
-            focusedLabelColor = g.accent,
-            unfocusedLabelColor = g.fgMuted,
-            cursorColor = g.accent,
-        ),
-    )
+    val field: @Composable (Modifier) -> Unit = { m ->
+        OutlinedTextField(
+            value, onValueChange,
+            modifier = m,
+            label = if (labelAbove) null else { { Text(label) } },
+            placeholder = placeholder?.let { { Text(it, color = g.fgMuted) } },
+            singleLine = singleLine,
+            minLines = minLines,
+            keyboardOptions = keyboardOptions,
+            keyboardActions = keyboardActions,
+            visualTransformation = visualTransformation,
+            leadingIcon = leading,
+            trailingIcon = trailing,
+            shape = RoundedCornerShape(6.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = g.accent,
+                unfocusedBorderColor = g.border,
+                focusedContainerColor = g.canvas,
+                unfocusedContainerColor = g.canvasSubtle,
+                focusedLabelColor = g.accent,
+                unfocusedLabelColor = g.fgMuted,
+                cursorColor = g.accent,
+            ),
+        )
+    }
+    // 只有常驻标签才包一层 Column；其余调用保持原结构，调用方的 weight/padding/testTag 仍作用在输入框上
+    if (labelAbove) {
+        Column(modifier.fillMaxWidth()) {
+            // 标签文字只做视觉展示，语义名称挂到输入框本身，读屏聚焦输入框时能读出字段名
+            Text(label, Modifier.padding(start = 4.dp, bottom = 6.dp).clearAndSetSemantics {}, fontSize = 13.sp, color = g.fg)
+            field(Modifier.fillMaxWidth().semantics { contentDescription = label })
+        }
+    } else {
+        field(modifier.fillMaxWidth())
+    }
 }
 
 @Composable

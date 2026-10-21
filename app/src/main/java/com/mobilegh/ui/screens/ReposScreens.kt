@@ -32,6 +32,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.mobilegh.ui.components.FilterEntry
+import com.mobilegh.ui.components.ChoicePicker
+import com.mobilegh.ui.components.ActiveFilterChips
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -102,7 +108,6 @@ fun ReposTab() {
     var selectedOrg by rememberSaveable { mutableStateOf<String?>(null) }
     val directory = rememberLoader("repo-orgs") { GitHub.orgAccess(it) }
     val orgs = directory.data?.orgs.orEmpty().map { it.login }
-    val orgOptions = listOf("全部组织") + orgs
     val safeOrg = selectedOrg?.takeIf { it in orgs }
     val key = "repos:$filter:$sort:$visibility"
     val pager = rememberPager(key) { p, force ->
@@ -111,27 +116,41 @@ fun ReposTab() {
     val state = rememberLazyListState()
     com.mobilegh.nav.OnTabReselect(Tab.Repos) { state.animateScrollToItem(0) }
     LaunchedEffect(query, key) { if (query.isNotBlank() && filter != 3) pager.loadAll() }
+    var sheet by rememberSaveable { mutableStateOf(false) }
+    // 非默认的排序、可见性、Fork、组织都以可撤销标签展示，一眼能看出当前列表被什么收窄
+    val active = buildList {
+        if (sort != 0) add("sort" to "按${SORTS[sort].second}")
+        if (visibility != 0) add("visibility" to "仅${vis[visibility].second}")
+        if (hideForks) add("forks" to "隐藏 Fork")
+        if (filter == 3 && safeOrg != null) add("org" to safeOrg)
+    }
     Page("仓库", back = false, contentWindowInsets = WindowInsets(0), actions = {
         OcButton(R.drawable.oc_plus, { nav.push(Screen.CreateRepo) })
         OcButton(R.drawable.oc_shield_lock, { nav.push(Screen.OrgDiagnostics) })
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                GhField(
+                    query, { query = it }, "筛选仓库", Modifier.weight(1f), placeholder = "名称或描述",
+                    leading = { Oc(R.drawable.oc_search, g.fgMuted, 18.dp) },
+                    trailing = if (query.isEmpty()) null else { { OcButton(R.drawable.oc_x, { query = "" }, g.fgMuted, description = "清空筛选关键词") } },
+                )
+                Spacer(Modifier.width(8.dp))
+                FilterEntry(active.size) { sheet = true }
+            }
             Chips(filters.map { it.first }, filter) { filter = it }
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Dropdown(SORTS[sort].second, SORTS.map { it.second }, { sort = it })
-                Dropdown(vis[visibility].second, vis.map { it.second }, { visibility = it })
-                Dropdown(if (hideForks) "隐藏 Fork" else "含 Fork", listOf("含 Fork", "隐藏 Fork"), { hideForks = it == 1 })
-            }
-            if (filter == 3) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
-                        Dropdown(safeOrg ?: "全部组织", orgOptions, { selectedOrg = orgs.getOrNull(it - 1) })
+            if (active.isNotEmpty()) ActiveFilterChips(
+                active,
+                onRemove = { k ->
+                    when (k) {
+                        "sort" -> sort = 0
+                        "visibility" -> visibility = 0
+                        "forks" -> hideForks = false
+                        "org" -> selectedOrg = null
                     }
-                    Text(if (directory.loading) "读取中…" else "${orgs.size} 个组织", color = g.fgMuted, fontSize = 12.sp)
-                    OcButton(R.drawable.oc_sync, { directory.refresh() })
-                }
-            }
-            GhField(query, { query = it }, "筛选仓库", Modifier.padding(horizontal = 12.dp, vertical = 8.dp), placeholder = "名称或描述")
+                },
+                onClear = { sort = 0; visibility = 0; hideForks = false; selectedOrg = null },
+            )
             HDivider()
             if (filter == 3) {
                 when {
@@ -151,6 +170,67 @@ fun ReposTab() {
                     (visibility == 0 || (visibility == 2) == it.isPrivate) && (!hideForks || !it.fork) &&
                         (query.isBlank() || it.fullName.contains(query.trim(), true) || it.description?.contains(query.trim(), true) == true)
                 }) { RepoItem(it) }
+            }
+        }
+    }
+    if (sheet) ReposFilterSheet(
+        sort = sort, onSort = { sort = it },
+        visibility = visibility, onVisibility = { visibility = it },
+        hideForks = hideForks, onHideForks = { hideForks = it },
+        orgs = if (filter == 3) orgs else null, selectedOrg = safeOrg, orgsLoading = directory.loading,
+        onOrg = { selectedOrg = it }, onRefreshOrgs = { directory.refresh() },
+        canReset = active.isNotEmpty(),
+        onReset = { sort = 0; visibility = 0; hideForks = false; selectedOrg = null },
+        onDismiss = { sheet = false },
+    )
+}
+
+/** 仓库列表的排序与筛选：选项即时生效，背后的列表同步更新 */
+@Composable
+private fun ReposFilterSheet(
+    sort: Int, onSort: (Int) -> Unit,
+    visibility: Int, onVisibility: (Int) -> Unit,
+    hideForks: Boolean, onHideForks: (Boolean) -> Unit,
+    orgs: List<String>?, selectedOrg: String?, orgsLoading: Boolean,
+    onOrg: (String?) -> Unit, onRefreshOrgs: () -> Unit,
+    canReset: Boolean, onReset: () -> Unit, onDismiss: () -> Unit,
+) {
+    val g = Gh.c
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = g.canvas,
+        scrimColor = Color.Black.copy(alpha = 0.4f),
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("排序与筛选", color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text("选择后立即生效", color = g.fgMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+                }
+                OcButton(R.drawable.oc_x, onDismiss, description = "关闭筛选")
+            }
+            HDivider(Modifier.padding(top = 8.dp))
+            Column(
+                Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+            ) {
+                ChoicePicker("排序", SORTS.map { it.second }, sort, onSort)
+                ChoicePicker("可见性", listOf("全部", "公开", "私有"), visibility, onVisibility)
+                ChoicePicker("Fork", listOf("包含 Fork", "隐藏 Fork"), if (hideForks) 1 else 0) { onHideForks(it == 1) }
+                if (orgs != null) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("组织", Modifier.weight(1f), fontSize = 14.sp, color = g.fg)
+                        Text(if (orgsLoading) "读取中…" else "${orgs.size} 个组织", color = g.fgMuted, fontSize = 12.sp)
+                        OcButton(R.drawable.oc_sync, onRefreshOrgs, g.fgMuted, description = "刷新组织列表")
+                    }
+                    Dropdown(selectedOrg ?: "全部组织", listOf("全部组织") + orgs, { onOrg(orgs.getOrNull(it - 1)) }, active = selectedOrg != null)
+                }
+            }
+            HDivider()
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GhButton("重置", Modifier.weight(1f), enabled = canReset) { onReset() }
+                GhButton("完成", Modifier.weight(1f), primary = true) { onDismiss() }
             }
         }
     }

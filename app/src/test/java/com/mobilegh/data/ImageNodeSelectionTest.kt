@@ -39,3 +39,27 @@ class ImageNodeSelectionTest {
         assertEquals(Net.DIRECT.id, Net.imageCandidates(camo).first().first)
     }
 }
+
+/** 内置节点列表要保持可用：下线节点留在列表里会让测速和图片回退白等一轮超时 */
+class NetBuiltinNodesTest {
+    @Test fun everyBuiltinNodeHasAHttpsBaseExceptDirect() {
+        Net.builtins.forEach {
+            if (it.type == NodeType.Direct) assertEquals("", it.base) else assertTrue(it.base.startsWith("https://"))
+        }
+    }
+
+    @Test fun defaultNodesExistInBuiltins() {
+        // 默认值只能在 builtins 里，否则 rawNode()/dlNode() 会一直回退到其它节点
+        assertTrue(Net.nodes.any { it.id == "jsd-gcore" && it.type == NodeType.JsDelivr })
+        assertTrue(Net.nodes.any { it.id == "gh-proxy" && it.type == NodeType.Prefix })
+    }
+
+    @Test fun unpublishedNodeIsGone() {
+        assertTrue(Net.builtins.none { it.base.contains("jasonzeng") })
+    }
+
+    @Test fun downloadDefaultsToAPrefixProxy() {
+        // 下载必须走能转发 release 资源的代理节点；jsDelivr 不支持二进制资源
+        assertEquals(NodeType.Prefix, Net.dlNode().type)
+    }
+}

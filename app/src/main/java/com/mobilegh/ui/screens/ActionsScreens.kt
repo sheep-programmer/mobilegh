@@ -111,6 +111,8 @@ fun ActionsScreen(owner: String, name: String) {
     val g = Gh.c
     val wfs = rememberLoader("wfs") { GitHub.workflows(owner, name, it) }
     val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
+    // 手动触发、重跑、取消都需要写权限；没有时不给入口，免得点了才报 403
+    val canRun = repo.data?.let { it.permissions?.push == true && !it.archived } == true
     var sel by rememberSaveable { mutableIntStateOf(0) }
     val list = wfs.data.orEmpty()
     val wfId = if (sel == 0) null else list.getOrNull(sel - 1)?.id
@@ -126,10 +128,10 @@ fun ActionsScreen(owner: String, name: String) {
     Page(
         "Actions", subtitle = "$owner/$name",
         actions = {
-            OcButton(R.drawable.oc_play, { if (selected != null) run(selected) else choose = true })
+            if (canRun) OcButton(R.drawable.oc_play, { if (selected != null) run(selected) else choose = true }, description = "运行工作流")
             MoreMenu(buildList {
                 selected?.let { w ->
-                    add(MenuAction("运行此工作流") { run(w) })
+                    if (canRun) add(MenuAction("运行此工作流") { run(w) })
                     if (w.path.startsWith(".github/workflows/")) add(MenuAction("查看工作流文件") { nav.push(Screen.FileView(owner, name, w.path, null)) })
                 }
                 add(MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name/actions") })
@@ -206,6 +208,8 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
     val run = rememberLoader("run") { GitHub.run(owner, name, runId, it) }
     val jobs = rememberLoader("jobs") { GitHub.jobs(owner, name, runId, it) }
     val arts = rememberLoader("arts") { runCatching { GitHub.artifacts(owner, name, runId, it) }.getOrDefault(emptyList()) }
+    val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
+    val canRun = repo.data?.let { it.permissions?.push == true && !it.archived } == true
     val r = run.data
     val running = r != null && r.status != "completed"
     LaunchedEffect(running) {
@@ -251,8 +255,7 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                             Text(rr.headSha.take(7), fontSize = 13.sp, color = g.accent, modifier = Modifier.clickable { nav.push(Screen.CommitDetail(owner, name, rr.headSha)) })
                             if (rr.runAttempt > 1) { Spacer(Modifier.width(10.dp)); Pill("第 ${rr.runAttempt} 次尝试") }
                         }
-                        Spacer(Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (canRun) Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (rr.status == "completed") {
                                 GhButton("重新运行", icon = R.drawable.oc_sync) {
                                     entry.act({ ctx.toast(it) }) { AppLog.info("actions", "重新运行 Run #" + runId); GitHub.rerun(owner, name, runId, false); ctx.toast("已重新运行"); delay(2000); reload() }

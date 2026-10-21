@@ -41,7 +41,8 @@ class ExperienceRegressionTest {
                 }
             }
         }
-        compose.onNodeWithText("10000 以上").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("最少 Star：不限").performScrollTo().performClick()
+        compose.onNodeWithText("10000 以上").performClick()
         compose.onNodeWithText("应用 · 1").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(10000, applied?.minStars) }
     }
@@ -51,7 +52,7 @@ class ExperienceRegressionTest {
         compose.setContent {
             MobileGhTheme { SearchFilterDialog(0, SearchFilters(), {}, { dismissed++ }) }
         }
-        compose.onNodeWithText("归属用户或组织").performClick().performTextInput("JetBrains")
+        compose.onNodeWithContentDescription("归属用户或组织").performClick().performTextInput("JetBrains")
         compose.waitForIdle()
         compose.onNodeWithText("取消").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(1, dismissed) }
@@ -65,7 +66,8 @@ class ExperienceRegressionTest {
                 SearchFilterDialog(0, SearchFilters(minStars = 100), { applied++ }, { dismissed++ })
             }
         }
-        compose.onNodeWithText("10000 以上").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("最少 Star：100 以上").performScrollTo().performClick()
+        compose.onNodeWithText("10000 以上").performClick()
         compose.onNodeWithText("取消").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(0, applied); assertEquals(1, dismissed) }
     }

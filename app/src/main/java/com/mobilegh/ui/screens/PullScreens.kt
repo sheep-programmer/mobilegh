@@ -51,6 +51,7 @@ import com.mobilegh.data.GitHub
 import com.mobilegh.data.ReviewComment
 import com.mobilegh.data.Suggestion
 import com.mobilegh.data.Session
+import com.mobilegh.data.ThreadAccess
 import com.mobilegh.data.splitSuggestions
 import com.mobilegh.nav.Links
 import com.mobilegh.nav.LocalEntry
@@ -174,7 +175,8 @@ private fun ReviewThreadCard(
     expanded: Boolean,
     onToggle: () -> Unit,
     onReply: () -> Unit,
-    onResolve: (Boolean) -> Unit,
+    /** null 表示没有权限（需要写权限或是 PR 作者），不显示「标记为已解决」 */
+    onResolve: ((Boolean) -> Unit)?,
     onEdit: (ReviewComment) -> Unit,
     onDelete: (ReviewComment) -> Unit,
     onApply: (String) -> Unit,
@@ -262,7 +264,7 @@ private fun ReviewThreadCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextLink("回复") { onReply() }
-                if (thread.root.threadId != null) {
+                if (thread.root.threadId != null && onResolve != null) {
                     TextLink(if (thread.resolved) "重新打开" else "标记为已解决") { onResolve(!thread.resolved) }
                 }
             }
@@ -453,6 +455,8 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
         withContext(Dispatchers.Default) { all.map { ParsedFile(it, it.patch?.let(::parsePatch).orEmpty()) } }
     }
     val pr = rememberLoader("pr") { GitHub.pull(owner, name, number, it) }
+    val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
+    val access = ThreadAccess.of(repo.data?.permissions, repo.data?.archived == true, pr.data?.user?.login, Session.login)
     val comments = rememberLoader("review-comments") {
         runCatching { GitHub.reviewComments(owner, name, number, it) }.getOrElse { e ->
             if (e is ApiException && e.code == 404) emptyList() else throw e
@@ -541,12 +545,12 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
                         onDelete = { c -> deleting = c },
                         onApply = { t, text -> applying = t to text },
                         onToggleThread = { t -> expandedThreads[t.id] = !threadExpanded(expandedThreads, t) },
-                        onResolve = { t, resolve ->
+                        onResolve = if (access.write || access.author) { t, resolve ->
                             entry.act({ ctx.toast(it) }, ::reloadComments) {
                                 GitHub.resolveThread(t.root.threadId!!, resolve)
                                 ctx.toast(if (resolve) "已标记为已解决" else "已重新打开")
                             }
-                        },
+                        } else null,
                     )
                 }
                 item { Spacer(Modifier.height(32.dp)) }
@@ -612,7 +616,7 @@ private fun LazyListScope.pullFileDiff(
     onDelete: (ReviewComment) -> Unit,
     onApply: (ReviewThread, String) -> Unit,
     onToggleThread: (ReviewThread) -> Unit,
-    onResolve: (ReviewThread, Boolean) -> Unit,
+    onResolve: ((ReviewThread, Boolean) -> Unit)?,
 ) {
     val f = pf.file
     val path = f.filename
@@ -626,7 +630,7 @@ private fun LazyListScope.pullFileDiff(
             threadExpanded(expanded, t),
             { onToggleThread(t) },
             { onReply(t) },
-            { onResolve(t, it) },
+            onResolve?.let { r -> { resolve -> r(t, resolve) } },
             onEdit,
             onDelete,
             { onApply(t, it) },

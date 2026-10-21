@@ -76,11 +76,11 @@ import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private val IMAGE_EXT = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif")
+internal val IMAGE_EXT = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif")
 private val MD_EXT = setOf("md", "markdown", "mdown", "mkd", "rst", "adoc", "asciidoc", "org", "textile")
 private val BINARY_EXT = setOf("zip", "jar", "apk", "aab", "so", "dll", "exe", "bin", "pdf", "gz", "tgz", "xz", "7z", "rar", "woff", "woff2", "ttf", "otf", "mp3", "mp4", "mov", "class", "dex", "keystore", "jks", "psd", "o", "a", "dylib")
 
-private fun ext(path: String) = path.substringAfterLast('/').substringAfterLast('.', "").lowercase()
+internal fun ext(path: String) = path.substringAfterLast('/').substringAfterLast('.', "").lowercase()
 
 @Composable
 fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
@@ -89,18 +89,19 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
     val ctx = rememberCtx()
     val items = rememberLoader("dir") { f -> GitHub.contents(owner, name, path, ref, f).sortedWith(compareBy({ it.type != "dir" }, { it.name.lowercase() })) }
     val last = rememberLoader("last") { GitHub.commits(owner, name, ref, path.ifEmpty { null }, 1, it).firstOrNull() }
+    val canPush = rememberLoader("can-push") { GitHub.repo(owner, name, it).let { r -> r.permissions?.push == true && !r.archived } }
     OnRepoChanged(owner, name) { items.refresh(); last.refresh() }
     Page(
         if (path.isEmpty()) name else path.substringAfterLast('/'),
         subtitle = listOfNotNull(ref, path.takeIf { it.isNotEmpty() }?.let { "/$it" }).joinToString(" · ").ifEmpty { "$owner/$name" },
         actions = {
             OcButton(R.drawable.oc_history, { nav.push(Screen.Commits(owner, name, ref, path.ifEmpty { null })) })
-            MoreMenu(listOf(
-                MenuAction("新建文件") { nav.push(Screen.EditFile(owner, name, ref, null, path)) },
-                MenuAction("复制路径") { ctx.copy(path.ifEmpty { "/" }) },
-                MenuAction("查找仓库文件") { nav.push(Screen.FileFinder(owner, name, ref)) },
-                MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name/tree/${ref ?: "HEAD"}/$path") },
-            ))
+            MoreMenu(buildList {
+                if (canPush.data == true) add(MenuAction("新建文件") { nav.push(Screen.EditFile(owner, name, ref, null, path)) })
+                add(MenuAction("复制路径") { ctx.copy(path.ifEmpty { "/" }) })
+                add(MenuAction("查找仓库文件") { nav.push(Screen.FileFinder(owner, name, ref)) })
+                add(MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name/tree/${ref ?: "HEAD"}/$path") })
+            })
         },
     ) { pad ->
         LoadBox(items, Modifier.padding(pad).fillMaxSize()) { list ->
@@ -206,7 +207,8 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
         fileName, subtitle = "${ref ?: "默认分支"} · $path",
         actions = {
             val b = body.data
-            val editable = (b is FileBody.Code && b.text.length <= RepoWrite.MAX_EDIT_BYTES) || b is FileBody.Html
+            // 没有推送权限时编辑页只能提示去网页 Fork，不如直接不给入口（与「删除文件」一致）
+            val editable = canPush.data == true && ((b is FileBody.Code && b.text.length <= RepoWrite.MAX_EDIT_BYTES) || b is FileBody.Html)
             if (editable) OcButton(R.drawable.oc_pencil, { nav.push(Screen.EditFile(owner, name, ref, path)) })
             MoreMenu(buildList {
                 if (editable) add(MenuAction("编辑文件") { nav.push(Screen.EditFile(owner, name, ref, path)) })

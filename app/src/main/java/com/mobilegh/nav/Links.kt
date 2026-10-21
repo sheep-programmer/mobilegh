@@ -1,5 +1,6 @@
 package com.mobilegh.nav
 
+import com.mobilegh.data.SearchType
 import java.net.URI
 import java.net.URLDecoder
 
@@ -30,7 +31,10 @@ object Links {
     data class InputLink(val url: String, val target: Screen)
 
     fun inputLink(text: String): InputLink? {
-        val url = normalizeInput(text)?.substringBefore('#')?.substringBefore('?') ?: return null
+        val full = normalizeInput(text)?.substringBefore('#') ?: return null
+        // 搜索链接的关键词在查询参数里，要保留；其余链接丢掉 ?tab= 之类的会话参数
+        (route(full) as? Screen.Search)?.let { return InputLink(full, it) }
+        val url = full.substringBefore('?')
         return fromInput(url)?.let { InputLink(url, it) }
     }
 
@@ -112,13 +116,31 @@ object Links {
         val (u, segs) = parse(url) ?: return null
         val host = u.host?.lowercase() ?: return null
         return when (host) {
-            "github.com", "www.github.com" -> web(segs)
+            "github.com", "www.github.com" -> search(u, segs) ?: web(segs)
             "api.github.com" -> api(segs)
             "raw.githubusercontent.com" ->
                 if (segs.size >= 4 && repository(segs[0], segs[1]) != null) Screen.FileView(segs[0], segs[1], segs.drop(3).joinToString("/"), segs[2]) else null
             "gist.github.com" -> segs.getOrNull(1)?.let { Screen.GistDetail(it) } ?: segs.getOrNull(0)?.let { Screen.Gists(it) }
             else -> null
         }
+    }
+
+    /** github.com/search?q=…&type=… 打开应用内搜索；没有关键词时交给浏览器 */
+    private fun search(u: URI, segs: List<String>): Screen? {
+        if (segs != listOf("search")) return null
+        val params = u.rawQuery.orEmpty().split('&').mapNotNull {
+            val (k, v) = it.split('=', limit = 2).takeIf { p -> p.size == 2 } ?: return@mapNotNull null
+            runCatching { k to URLDecoder.decode(v, "UTF-8") }.getOrNull()
+        }.toMap()
+        val q = params["q"]?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val type = when (params["type"]?.lowercase()) {
+            "users" -> SearchType.USER
+            "issues" -> SearchType.ISSUE
+            "pullrequests" -> SearchType.PR
+            "code" -> SearchType.CODE
+            else -> SearchType.REPO
+        }
+        return Screen.Search(type, q)
     }
 
     private fun web(segs: List<String>): Screen? {

@@ -12,6 +12,18 @@ class LinksTest {
     }
     private val repo = Screen.Repo("octocat", "Hello-World")
 
+    @Test fun githubSearchLinksOpenNativeSearchWithTheirTypeAndQuery() {
+        assertEquals(Screen.Search(com.mobilegh.data.SearchType.REPO, "okhttp"), Links.route("https://github.com/search?q=okhttp&type=repositories"))
+        assertEquals(Screen.Search(com.mobilegh.data.SearchType.CODE, "fun main"), Links.route("https://github.com/search?q=fun+main&type=code"))
+        assertEquals(Screen.Search(com.mobilegh.data.SearchType.PR, "is:open author:me"), Links.route("https://github.com/search?type=pullrequests&q=is%3Aopen%20author%3Ame"))
+        assertEquals(Screen.Search(com.mobilegh.data.SearchType.REPO, "kotlin"), Links.route("https://github.com/search?q=kotlin"))
+        // 没有关键词的搜索页交给浏览器
+        assertNull(Links.route("https://github.com/search"))
+        assertNull(Links.route("https://github.com/search?q=+&type=code"))
+        // 从外部打开（Intent / 分享）时也要保留关键词
+        assertEquals(Screen.Search(com.mobilegh.data.SearchType.USER, "retrofit"), Links.inputLink("https://github.com/search?q=retrofit&type=users")?.target)
+    }
+
     @Test fun repositoryAddressesAndCloneUrlsOpenTheSameNativeRepository() {
         listOf(
             " https://github.com/octocat/Hello-World/ ",

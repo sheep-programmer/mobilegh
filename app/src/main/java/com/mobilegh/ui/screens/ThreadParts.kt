@@ -223,7 +223,7 @@ fun TimelineCard(
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun MetaBlock(issue: Issue, reviewers: List<Pair<User, String?>>? = null, copilot: CopilotAction? = null, onEdit: (String) -> Unit) = MetaRows(
+fun MetaBlock(issue: Issue, reviewers: List<Pair<User, String?>>? = null, copilot: CopilotAction? = null, onEdit: ((String) -> Unit)?) = MetaRows(
     labels = issue.labels.map { it.name to it.color },
     assignees = issue.assignees.map { it.login to it.avatarUrl },
     milestone = issue.milestone?.title,
@@ -241,7 +241,8 @@ fun MetaRows(
     milestone: String?,
     reviewers: List<Pair<User, String?>>? = null,
     copilot: CopilotAction? = null,
-    onEdit: (String) -> Unit,
+    /** null 表示只读（没有 triage 权限），不显示铅笔也不可点 */
+    onEdit: ((String) -> Unit)?,
 ) {
     val g = Gh.c
     Column(
@@ -249,12 +250,12 @@ fun MetaRows(
     ) {
         @Composable
         fun row(icon: Int, title: String, kind: String, content: @Composable () -> Unit) {
-            Row(Modifier.fillMaxWidth().clickable { onEdit(kind) }.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.Top) {
+            Row(Modifier.fillMaxWidth().clickable(enabled = onEdit != null) { onEdit?.invoke(kind) }.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.Top) {
                 Oc(icon, g.fgMuted, 16.dp, Modifier.padding(top = 2.dp))
                 Spacer(Modifier.width(10.dp))
                 Text(title, Modifier.width(56.dp), fontSize = 13.sp, color = g.fgMuted)
                 Box(Modifier.weight(1f)) { content() }
-                Oc(R.drawable.oc_pencil, g.fgMuted, 14.dp, Modifier.padding(top = 2.dp))
+                if (onEdit != null) Oc(R.drawable.oc_pencil, g.fgMuted, 14.dp, Modifier.padding(top = 2.dp))
             }
         }
         if (reviewers != null) {

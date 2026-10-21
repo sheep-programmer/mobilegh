@@ -114,6 +114,8 @@ fun CommitDetailScreen(owner: String, name: String, sha: String) {
         c to withContext(Dispatchers.Default) { c.files.orEmpty().map { f -> ParsedFile(f, f.patch?.let(::parsePatch).orEmpty()) } }
     }
     val collapsed = retain("collapsed") { mutableStateMapOf<String, Boolean>() }
+    // 链接里可能是分支名或 HEAD，加载后统一换成实际 SHA
+    val sha = data.data?.first?.sha?.takeIf { it.isNotBlank() } ?: sha
     Page(
         "提交 ${sha.take(7)}", subtitle = "$owner/$name",
         actions = {

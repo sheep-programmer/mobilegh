@@ -220,8 +220,17 @@ object GitHub {
     suspend fun tags(o: String, n: String, page: Int, force: Boolean) = Api.get<List<Tag>>("${r(o, n)}/tags?per_page=100&page=$page", force)
     suspend fun languages(o: String, n: String) = Api.get<Map<String, Long>>("${r(o, n)}/languages")
     suspend fun contributors(o: String, n: String, page: Int, force: Boolean) = Api.get<List<User>>("${r(o, n)}/contributors?per_page=$PER&page=$page", force)
-    suspend fun stargazers(o: String, n: String, page: Int, force: Boolean) = Api.get<List<User>>("${r(o, n)}/stargazers?per_page=$PER&page=$page", force)
-    suspend fun watchers(o: String, n: String, page: Int, force: Boolean) = Api.get<List<User>>("${r(o, n)}/subscribers?per_page=$PER&page=$page", force)
+    suspend fun stargazers(o: String, n: String, page: Int, force: Boolean) =
+        ownerOnlyList("Star") { Api.get<List<User>>("${r(o, n)}/stargazers?per_page=$PER&page=$page", force) }
+    suspend fun watchers(o: String, n: String, page: Int, force: Boolean) =
+        ownerOnlyList("Watch") { Api.get<List<User>>("${r(o, n)}/subscribers?per_page=$PER&page=$page", force) }
+
+    /** GitHub 现在只向仓库所有者返回 Star / Watch 用户列表，其他人一律 404；换成说明真实原因的提示 */
+    private suspend fun <T> ownerOnlyList(kind: String, block: suspend () -> T): T = try {
+        block()
+    } catch (e: ApiException) {
+        if (e.code == 404) throw ApiException(404, "GitHub 只向仓库所有者公开 $kind 用户列表") else throw e
+    }
 
     suspend fun isStarred(o: String, n: String) = Api.exists("/user/starred/$o/$n")
     suspend fun star(o: String, n: String, on: Boolean) = Api.exec(if (on) "PUT" else "DELETE", "/user/starred/$o/$n")

@@ -100,7 +100,8 @@ fun FileFinderScreen(owner: String, name: String, ref: String?) {
                             Row(Modifier.fillMaxWidth().clickable {
                                 nav.push(if (file.type == "tree") Screen.Files(owner, name, file.path, data.commit) else Screen.FileView(owner, name, file.path, data.commit))
                             }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                if (file.type == "tree") Oc(R.drawable.oc_file_directory_fill, Gh.c.folder) else Oc(R.drawable.oc_file_code)
+                                if (file.type == "tree") Oc(R.drawable.oc_file_directory_fill, Gh.c.folder)
+                                else Oc(if (ext(file.path) in IMAGE_EXT) R.drawable.oc_file_media else R.drawable.oc_file, Gh.c.fgMuted)
                                 Text(file.path, Modifier.weight(1f).padding(start = 12.dp), color = Gh.c.fg, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                             HDivider()

@@ -60,6 +60,7 @@ import com.mobilegh.data.Issue
 import com.mobilegh.data.IssueQuery
 import com.mobilegh.data.Pull
 import com.mobilegh.data.Review
+import com.mobilegh.data.ThreadAccess
 import com.mobilegh.data.User
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
@@ -115,6 +116,9 @@ fun IssuesScreen(owner: String, name: String, pulls: Boolean, preset: IssueQuery
     val query = rememberIssueQuery((preset ?: IssueQuery()).copy(pulls = pulls, repo = "$owner/$name"))
     var saving by remember { mutableStateOf(false) }
     val q = query.value
+    val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
+    // 归档或关闭了 Issues 的仓库不能新建；仓库信息未读到时照常显示
+    val canOpenIssue = repo.data?.let { !it.archived && it.hasIssues } ?: true
     Page(
         if (pulls) "Pull Requests" else "Issues", subtitle = "$owner/$name",
         actions = {
@@ -124,7 +128,7 @@ fun IssuesScreen(owner: String, name: String, pulls: Boolean, preset: IssueQuery
             })
         },
         floating = {
-            if (!pulls) FloatingActionButton({ nav.push(Screen.NewIssue(owner, name)) }, containerColor = Gh.c.btnPrimary, contentColor = Color.White) {
+            if (!pulls && canOpenIssue) FloatingActionButton({ nav.push(Screen.NewIssue(owner, name)) }, containerColor = Gh.c.btnPrimary, contentColor = Color.White) {
                 Oc(R.drawable.oc_plus, Color.White, 20.dp)
             }
         },
@@ -177,6 +181,8 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
     var writing by retain("thread:writing") { mutableStateOf(false) }
     val url = "https://github.com/$owner/$name/${if (isPull) "pull" else "issues"}/$number"
     val t = data.data
+    val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
+    val access = ThreadAccess.of(repo.data?.permissions, repo.data?.archived == true, t?.issue?.user?.login, Session.login)
 
     fun reload() = data.load(true)
 
@@ -216,23 +222,26 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
                     if (isPull) {
                         val pr = t.pull
                         if (open && pr != null && !pr.merged) {
-                            if (pr.draft) add(MenuAction("标记为可评审") { setDraft(false) })
-                            else add(MenuAction("合并 Pull Request…") { mergeDialog = true })
-                            add(MenuAction("提交审查…") { reviewDialog = true })
-                            add(MenuAction("请求审查…") { metaKind = "reviewers" })
-                            if (!pr.draft) add(MenuAction("转为草稿") { setDraft(true) })
-                            add(MenuAction("关闭 Pull Request", danger = true) {
+                            if (pr.draft) { if (access.toggleDraft) add(MenuAction("标记为可评审") { setDraft(false) }) }
+                            else if (access.merge) add(MenuAction("合并 Pull Request…") { mergeDialog = true })
+                            // 不能审查自己的 PR
+                            if (!access.author) add(MenuAction("提交审查…") { reviewDialog = true })
+                            if (access.editMeta) add(MenuAction("请求审查…") { metaKind = "reviewers" })
+                            if (!pr.draft && access.toggleDraft) add(MenuAction("转为草稿") { setDraft(true) })
+                            if (access.changeState) add(MenuAction("关闭 Pull Request", danger = true) {
                                 write { GitHub.setPullState(owner, name, number, false) }
                             })
-                        } else if (pr != null && !pr.merged) {
+                        } else if (pr != null && !pr.merged && access.changeState) {
                             add(MenuAction("重新开启") { write { GitHub.setPullState(owner, name, number, true) } })
                         }
                         add(MenuAction("查看文件变更") { nav.push(Screen.PullFiles(owner, name, number)) })
-                    } else if (open) {
-                        add(MenuAction("关闭（已完成）") { write { GitHub.setIssueState(owner, name, number, false, "completed") } })
-                        add(MenuAction("关闭（不计划）") { write { GitHub.setIssueState(owner, name, number, false, "not_planned") } })
-                    } else {
-                        add(MenuAction("重新开启") { write { GitHub.setIssueState(owner, name, number, true, "reopened") } })
+                    } else if (access.changeState) {
+                        if (open) {
+                            add(MenuAction("关闭（已完成）") { write { GitHub.setIssueState(owner, name, number, false, "completed") } })
+                            add(MenuAction("关闭（不计划）") { write { GitHub.setIssueState(owner, name, number, false, "not_planned") } })
+                        } else {
+                            add(MenuAction("重新开启") { write { GitHub.setIssueState(owner, name, number, true, "reopened") } })
+                        }
                     }
                 }
                 add(MenuAction("复制链接") { ctx.copy(url) })
@@ -272,13 +281,13 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
                 item {
                     ThreadHeader(
                         owner, name, th,
-                        editable = !isPull || th.pull != null,
+                        editable = (!isPull || th.pull != null) && access.editTitle,
                         onEditTitle = { editTitle = th.issue.title },
                         onReady = { setDraft(false) },
                     )
                 }
-                val copilot = if (!isPull && th.issue.state == "open") CopilotAction(copilotBusy) { copilotConfirm = true } else null
-                item { MetaBlock(th.issue, reviewers = th.pull?.let { reviewerStates(it, th.reviews) }, copilot = copilot) { metaKind = it } }
+                val copilot = if (!isPull && th.issue.state == "open" && access.write) CopilotAction(copilotBusy) { copilotConfirm = true } else null
+                item { MetaBlock(th.issue, reviewers = th.pull?.let { reviewerStates(it, th.reviews) }, copilot = copilot, onEdit = if (access.editMeta) ({ metaKind = it }) else null) }
                 item { Spacer(Modifier.height(8.dp)) }
                 val base = "https://github.com/$owner/$name/"
                 val me = Session.login

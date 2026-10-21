@@ -16,6 +16,9 @@ import com.mobilegh.ui.screens.*
 import com.mobilegh.ui.theme.MobileGhTheme
 import org.junit.Assert.*
 import org.junit.After
+import androidx.compose.runtime.CompositionLocalProvider
+import com.mobilegh.nav.LocalNav
+import com.mobilegh.nav.Navigator
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -60,13 +63,22 @@ class FeatureFlowsTest {
         var opened: SearchHistoryEntry? = null
         var removed: SearchHistoryEntry? = null
         val entry = SearchHistoryEntry("language:kotlin", 4)
-        compose.setContent {
-            MobileGhTheme { SearchHistorySection(listOf(entry), { opened = it }, { removed = it }, {}) }
+        val nav = Navigator()
+        try {
+            compose.setContent {
+                MobileGhTheme {
+                    CompositionLocalProvider(LocalNav provides nav) {
+                        SearchHistorySection(listOf(entry), { opened = it }, { removed = it }, {})
+                    }
+                }
+            }
+            compose.onNodeWithText(entry.query).performClick()
+            assertEquals(entry, opened)
+            compose.onNodeWithContentDescription("移除搜索历史：language:kotlin").performClick()
+            assertEquals(entry, removed)
+        } finally {
+            compose.runOnUiThread { nav.dispose() }
         }
-        compose.onNodeWithText(entry.query).performClick()
-        assertEquals(entry, opened)
-        compose.onNodeWithContentDescription("移除搜索历史：language:kotlin").performClick()
-        assertEquals(entry, removed)
     }
     @Test fun profileEditorKeepsChangedValuesWhenTheSaveButtonIsPressed() {
         var saved: ProfileFields? = null

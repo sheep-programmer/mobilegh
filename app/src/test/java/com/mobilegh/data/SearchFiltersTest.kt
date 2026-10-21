@@ -141,6 +141,37 @@ class SearchFiltersTest {
     @Test fun hasCriteriaRequiresKeywordOrFilter() {
         assertFalse(SearchQuery.hasCriteria(SearchType.CODE, "  ", SearchFilters()))
         assertTrue(SearchQuery.hasCriteria(SearchType.CODE, "x", SearchFilters()))
-        assertTrue(SearchQuery.hasCriteria(SearchType.CODE, "", SearchFilters(codeLanguage = "Kotlin")))
+        assertTrue(SearchQuery.hasCriteria(SearchType.REPO, "", SearchFilters(repoLanguage = "Kotlin")))
+    }
+
+    @Test fun codeSearchNeedsAKeywordBecauseGithubRejectsFilterOnlyQueries() {
+        // /search/code 只认关键词：只带 language:/repo: 的请求返回 422
+        assertFalse(SearchQuery.hasCriteria(SearchType.CODE, "", SearchFilters(codeLanguage = "Kotlin", path = "src", filename = "Main.kt")))
+        assertTrue(SearchQuery.hasCriteria(SearchType.CODE, "fun main", SearchFilters(codeLanguage = "Kotlin")))
+    }
+
+    @Test fun activeChipsMatchCountAndCanBeRemovedIndividually() {
+        val f = SearchFilters(repoLanguage = "Kotlin", minStars = 100, topic = "android", archived = 2, repoOwner = " ")
+        val chips = f.activeChips(SearchType.REPO)
+        assertEquals(f.activeCount(SearchType.REPO), chips.size)
+        assertEquals(listOf("Kotlin", "Star ≥ 100", "topic:android", "排除归档"), chips.map { it.second })
+        val noStars = f.remove(SearchType.REPO, "stars")
+        assertEquals(0, noStars.minStars)
+        assertEquals("Kotlin", noStars.repoLanguage)
+        assertEquals(3, noStars.activeCount(SearchType.REPO))
+    }
+
+    @Test fun removingOneLabelKeepsTheOthers() {
+        val f = SearchFilters(labels = "bug, help wanted,ui")
+        val chips = f.activeChips(SearchType.ISSUE)
+        assertEquals(listOf("标签 bug", "标签 help wanted", "标签 ui"), chips.map { it.second })
+        val next = f.remove(SearchType.ISSUE, "label:help wanted")
+        assertEquals("is:issue label:\"bug\" label:\"ui\"", SearchQuery.build(SearchType.ISSUE, "", next))
+    }
+
+    @Test fun removeOnlyTouchesCurrentType() {
+        val f = SearchFilters(repoLanguage = "Go", codeLanguage = "Rust")
+        assertEquals("Rust", f.remove(SearchType.REPO, "language").codeLanguage)
+        assertEquals("Go", f.remove(SearchType.CODE, "codeLanguage").repoLanguage)
     }
 }

@@ -81,6 +81,93 @@ data class SearchFilters(
 
     fun hasActive(type: Int): Boolean = activeCount(type) > 0
 
+    /**
+     * 当前类型已生效的条件，按界面顺序返回 (key, 可读描述)。
+     * key 与 [remove] 对应，供搜索页以可单独撤销的标签展示。
+     */
+    fun activeChips(type: Int): List<Pair<String, String>> {
+        fun name(v: String) = searchName(v).takeIf { it.isNotEmpty() }
+        fun value(v: String) = searchValue(v).takeIf { it.isNotEmpty() }
+        return when (type) {
+            SearchType.REPO -> buildList {
+                name(repoOwner)?.let { add("owner" to it) }
+                value(repoLanguage)?.let { add("language" to it) }
+                if (minStars > 0) add("stars" to "Star ≥ $minStars")
+                if (minForks > 0) add("forks" to "Fork ≥ $minForks")
+                name(topic)?.let { add("topic" to "topic:$it") }
+                if (archived == 1) add("archived" to "仅归档")
+                if (archived == 2) add("archived" to "排除归档")
+            }
+            SearchType.USER -> buildList {
+                if (userType == 1) add("userType" to "用户")
+                if (userType == 2) add("userType" to "组织")
+                value(location)?.let { add("location" to it) }
+                value(userLanguage)?.let { add("userLanguage" to it) }
+                if (minFollowers > 0) add("followers" to "关注者 ≥ $minFollowers")
+            }
+            SearchType.ISSUE, SearchType.PR -> buildList {
+                if (state == 1) add("state" to "开放")
+                if (state == 2) add("state" to "已关闭")
+                name(issueRepo)?.let { add("repo" to it) }
+                name(issueOwner)?.let { add("issueOwner" to it) }
+                name(author)?.let { add("author" to "作者 $it") }
+                labels.split(',').mapNotNull { value(it) }.forEach { add("label:$it" to "标签 $it") }
+                value(issueLanguage)?.let { add("issueLanguage" to it) }
+                if (minComments > 0) add("comments" to "评论 ≥ $minComments")
+                if (updatedDays > 0) add("updated" to "近 $updatedDays 天更新")
+            }
+            else -> buildList {
+                name(codeRepo)?.let { add("repo" to it) }
+                name(codeOwner)?.let { add("codeOwner" to it) }
+                value(codeLanguage)?.let { add("codeLanguage" to it) }
+                value(path)?.let { add("path" to "path:$it") }
+                value(filename)?.let { add("filename" to "filename:$it") }
+            }
+        }
+    }
+
+    /** 移除单个条件；标签里的多个值（如多个 label）只移除被点的那一个 */
+    fun remove(type: Int, key: String): SearchFilters = when {
+        key.startsWith("label:") -> {
+            val target = key.removePrefix("label:")
+            copy(labels = labels.split(',').filterNot { searchValue(it) == target }.joinToString(","))
+        }
+        type == SearchType.REPO -> when (key) {
+            "owner" -> copy(repoOwner = "")
+            "language" -> copy(repoLanguage = "")
+            "stars" -> copy(minStars = 0)
+            "forks" -> copy(minForks = 0)
+            "topic" -> copy(topic = "")
+            "archived" -> copy(archived = 0)
+            else -> this
+        }
+        type == SearchType.USER -> when (key) {
+            "userType" -> copy(userType = 0)
+            "location" -> copy(location = "")
+            "userLanguage" -> copy(userLanguage = "")
+            "followers" -> copy(minFollowers = 0)
+            else -> this
+        }
+        type == SearchType.ISSUE || type == SearchType.PR -> when (key) {
+            "state" -> copy(state = 0)
+            "repo" -> copy(issueRepo = "")
+            "issueOwner" -> copy(issueOwner = "")
+            "author" -> copy(author = "")
+            "issueLanguage" -> copy(issueLanguage = "")
+            "comments" -> copy(minComments = 0)
+            "updated" -> copy(updatedDays = 0)
+            else -> this
+        }
+        else -> when (key) {
+            "repo" -> copy(codeRepo = "")
+            "codeOwner" -> copy(codeOwner = "")
+            "codeLanguage" -> copy(codeLanguage = "")
+            "path" -> copy(path = "")
+            "filename" -> copy(filename = "")
+            else -> this
+        }
+    }
+
     /** 只重置当前类型的筛选，避免影响其他类型已设置的条件 */
     fun cleared(type: Int): SearchFilters = when (type) {
         SearchType.REPO -> copy(repoOwner = "", repoLanguage = "", topic = "", minStars = 0, minForks = 0, archived = 0)
@@ -153,7 +240,13 @@ object SearchQuery {
         return parts.filter { it.isNotBlank() }.joinToString(" ")
     }
 
-    /** 关键词之外没有任何条件时不必发请求（Issue/PR 天然带 is: 限定，但有主体词才算有效） */
-    fun hasCriteria(type: Int, text: String, f: SearchFilters): Boolean =
-        text.isNotBlank() || f.hasActive(type)
+    /**
+     * 关键词之外没有任何条件时不必发请求（Issue/PR 天然带 is: 限定，但有主体词才算有效）。
+     * 代码搜索例外：GitHub 的 /search/code 只认关键词，只有 repo:/language: 这类限定符会返回 422，
+     * 所以必须填关键词才能发起搜索。
+     */
+    fun hasCriteria(type: Int, text: String, f: SearchFilters): Boolean = when (type) {
+        SearchType.CODE -> text.isNotBlank()
+        else -> text.isNotBlank() || f.hasActive(type)
+    }
 }

@@ -122,7 +122,7 @@ fun RepoScreen(owner: String, name: String) {
                 add(MenuAction("分享") { ctx.share("https://github.com/$owner/$name") })
                 add(MenuAction("复制链接") { ctx.copy("https://github.com/$owner/$name") })
                 add(MenuAction("克隆地址…") { showClone = true })
-                if (r != null) add(MenuAction("加入自定义列表") { showLists = true })
+                if (r != null) add(MenuAction("加入 Star 列表…") { showLists = true })
                 if (HomePrefs.layout().isFavorite(owner, name)) add(MenuAction("移出首页收藏") {
                     HomePrefs.toggleFavorite(owner, name)
                     ctx.toast("已移出首页收藏")
@@ -157,8 +157,11 @@ fun RepoScreen(owner: String, name: String) {
                             GhButton(
                                 "${if (s) "已 Star" else "Star"} ${fmtCount(r.stargazersCount)}",
                                 Modifier.weight(1f), icon = if (s) R.drawable.oc_star_fill else R.drawable.oc_star, enabled = entry.sameAccount() && starStatus.data != null && !starBusy && !starStatus.loading && !repo.loading,
-                                // 和 GitHub 一样：点按切换 Star，长按管理这个仓库所在的列表
-                                onLongClick = { showLists = true },
+                                // 和 GitHub 一样：点按切换 Star；只有已 Star 的仓库才能长按管理所在列表
+                                onLongClick = {
+                                    if (s) showLists = true
+                                    else ctx.toast("先 Star 这个仓库，再长按加入列表")
+                                },
                             ) {
                                 if (!starBusy && entry.sameAccount()) {
                                     val on = !s

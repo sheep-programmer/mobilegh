@@ -87,7 +87,7 @@ class StarFeedClient internal constructor(
         val connection = owner["starredRepositories"] as? JsonObject ?: error("GitHub 没有返回 Star 列表")
         val edges = (connection["edges"] as? JsonArray).orEmpty()
         val items = edges.mapNotNull { edge ->
-            val node = (edge as? JsonObject) ?: return@mapNotNull null
+            val node = edge as? JsonObject ?: return@mapNotNull null
             val repo = (node["node"] as? JsonObject)?.let(::parseRepo) ?: return@mapNotNull null
             StarFeedItem(repo, (node["starredAt"] as? JsonPrimitive)?.contentOrNull.orEmpty())
         }

@@ -1,112 +1,81 @@
 package com.mobilegh.ui.screens
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import com.mobilegh.ui.components.FilterEntry
-import com.mobilegh.ui.components.ChoicePicker
-import com.mobilegh.ui.components.ActiveFilterChips
 import androidx.compose.ui.graphics.Color
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.mobilegh.BuildConfig
-import com.mobilegh.R
 import com.mobilegh.data.GitHub
-import com.mobilegh.data.GitHubStarList
 import com.mobilegh.data.Invitation
 import com.mobilegh.data.OrgMembership
-import com.mobilegh.data.Repo
 import com.mobilegh.data.Session
-import com.mobilegh.data.StarFeed
-import com.mobilegh.data.StarFeedClient
-import com.mobilegh.data.StarListAccount
-import com.mobilegh.data.StarSearchUnavailable
-import com.mobilegh.data.StarredRepos
-import com.mobilegh.data.StarredReposClient
-import com.mobilegh.data.UserLists
-import com.mobilegh.data.UserListsClient
-import com.mobilegh.data.starMatches
+import com.mobilegh.nav.act
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
-import com.mobilegh.nav.RepoKind
-import com.mobilegh.nav.Screen
-import com.mobilegh.nav.Tab
-import com.mobilegh.nav.act
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
+import com.mobilegh.nav.Screen
+import com.mobilegh.nav.Tab
+import com.mobilegh.R
+import com.mobilegh.ui.components.ActiveFilterChips
 import com.mobilegh.ui.components.Avatar
-import com.mobilegh.ui.components.Card
+import com.mobilegh.ui.components.boxedItems
 import com.mobilegh.ui.components.Chips
+import com.mobilegh.ui.components.ChoicePicker
 import com.mobilegh.ui.components.Dropdown
+import com.mobilegh.ui.components.EmptyState
+import com.mobilegh.ui.components.ErrorState
 import com.mobilegh.ui.components.EventCat
 import com.mobilegh.ui.components.eventCat
 import com.mobilegh.ui.components.EventItem
-import com.mobilegh.ui.components.EmptyState
-import com.mobilegh.ui.components.ErrorState
+import com.mobilegh.ui.components.FilterEntry
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.HDivider
-import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
-import com.mobilegh.ui.components.Pill
+import com.mobilegh.ui.components.relTime
+import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.RepoItem
 import com.mobilegh.ui.components.SectionTitle
-import com.mobilegh.ui.components.Segmented
 import com.mobilegh.ui.components.SwitchRow
 import com.mobilegh.ui.components.TextLink
-import com.mobilegh.ui.components.openBrowser
-import com.mobilegh.ui.components.rememberCtx
-import com.mobilegh.ui.components.UserItem
-import com.mobilegh.ui.components.boxedItems
-import com.mobilegh.ui.components.relTime
 import com.mobilegh.ui.components.toast
+import com.mobilegh.ui.components.UserItem
 import com.mobilegh.ui.theme.Gh
 
-private val SORTS = listOf("pushed" to "最近推送", "updated" to "最近更新", "full_name" to "名称", "created" to "创建时间")
+internal val SORTS = listOf("pushed" to "最近推送", "updated" to "最近更新", "full_name" to "名称", "created" to "创建时间")
 
 /** Repositories available to the signed-in account, including collaborators and organizations. */
 @Composable
@@ -294,262 +263,6 @@ private fun OrganizationReposPanel(
             events.error?.let { msg -> item { ErrorState(msg, Modifier.fillMaxWidth()) { events.refresh() } } }
             if (activity.isEmpty() && !events.loading && events.error == null) item { EmptyState("该分类暂时没有动态", R.drawable.oc_pulse) }
             item { Text("事件由 GitHub 提供，可能延迟；下拉刷新更新。", Modifier.padding(16.dp), color = g.fgMuted, fontSize = 12.sp) }
-        }
-    }
-}
-
-@Composable
-fun RepoListScreen(kind: RepoKind, login: String, name: String) {
-    val entry = LocalEntry.current
-    var sort by rememberSaveable { mutableIntStateOf(0) }
-    val isMe = login.equals(Session.login, true)
-    // 「已 Star」页可切到 GitHub 列表：列表是 Star 的子集，网页版也放在 Stars 页。
-    // 别人的公开列表也可以看，但只有本人能新建。
-    var tab by rememberSaveable { mutableIntStateOf(0) }
-    val listsTab = kind == RepoKind.Starred && tab == 1 && Session.token != null
-    val account = remember { StarListAccount(Session.login ?: login, Session.generation) }
-    val lists = if (kind == RepoKind.Starred && Session.token != null) rememberLoader("star-lists:$login") { UserLists.lists(account, login) } else null
-    val listsRevision by UserLists.changes.collectAsState()
-    var selectedList by rememberSaveable { mutableStateOf<String?>(null) }
-    var listInput by rememberSaveable { mutableStateOf("") }
-    var listQuery by rememberSaveable { mutableStateOf("") }
-    var listSort by rememberSaveable { mutableIntStateOf(0) }
-    var listDesc by rememberSaveable { mutableStateOf(LIST_SORTS[0].descending) }
-    var itemInput by rememberSaveable { mutableStateOf("") }
-    var itemQuery by rememberSaveable { mutableStateOf("") }
-    // 列表条目默认倒序（从列表尾部往回读）
-    var itemDesc by rememberSaveable { mutableStateOf(true) }
-    var listPicker by remember { mutableStateOf(false) }
-    var listSaving by remember { mutableStateOf(false) }
-    var listError by remember { mutableStateOf<String?>(null) }
-    // 星标页：官方 GraphQL 的服务端搜索 + REST 的两种排序；服务端拒绝 query 时退回本地过滤
-    val starSearchSupported by StarredRepos.searchSupported.collectAsState()
-    // 输入框与已生效关键词分开：打字过程中列表不变，按回车或点放大镜才应用
-    var starInput by rememberSaveable { mutableStateOf("") }
-    var starQuery by rememberSaveable { mutableStateOf("") }
-    var starSort by rememberSaveable { mutableIntStateOf(0) }
-    var starDesc by rememberSaveable { mutableStateOf(STAR_SORTS[0].descending) }
-    var starTruncated by remember(starQuery, starSort, starDesc) { mutableStateOf(false) }
-    val applyStarSearch = { starQuery = starInput.trim() }
-    val clearStarSearch = { starInput = ""; starQuery = "" }
-    val starSearching = starQuery.isNotEmpty() && Session.token != null && starSearchSupported
-    // Star 时间走官方 GraphQL 连接的游标分页（ASC/DESC 由服务端排好），逐页懒加载
-    val starTimeFeeds = Session.token != null && starSort == 0
-    val starCursors = remember(starQuery, starSort, starDesc, starSearchSupported) { HashMap<Int, String?>() }
-    val pager = rememberPager(
-        "rl:$kind:$login:$name:$sort:$starSort:$starDesc:$starQuery:$starSearchSupported",
-        // Star 页实际每页 100 条（GraphQL 与 REST 都是），页大小必须和接口一致，否则会误判最后一页
-        pageSize = when {
-            kind != RepoKind.Starred -> 30
-            starSearching -> StarredReposClient.PAGE_SIZE
-            starTimeFeeds -> StarFeedClient.PAGE_SIZE
-            else -> GitHub.STARRED_PER
-        },
-    ) { p, f ->
-        when (kind) {
-            RepoKind.User -> GitHub.userRepos(login, SORTS[sort].first, p, f)
-            RepoKind.Starred -> when {
-                starSearching -> {
-                    if (p > 1 && starCursors[p] == null) return@rememberPager emptyList()
-                    val page = try {
-                        StarredRepos.page(login, starQuery, starCursors[p], if (starDesc) "DESC" else "ASC")
-                    } catch (unavailable: StarSearchUnavailable) {
-                        // searchSupported 已置 false，页面会用新 key 重建为本地过滤
-                        return@rememberPager emptyList()
-                    }
-                    starCursors[p + 1] = page.nextCursor
-                    if (page.truncated) starTruncated = true
-                    page.repos
-                }
-                // 官方星标连接：orderBy STARRED_AT + ASC/DESC，游标翻页，滑到哪读到哪
-                starTimeFeeds -> {
-                    if (p > 1 && starCursors[p] == null) return@rememberPager emptyList()
-                    val page = StarFeed.page(login, starCursors[p], if (starDesc) "DESC" else "ASC")
-                    starCursors[p + 1] = page.nextCursor
-                    if (page.truncated) starTruncated = true
-                    page.items.map { it.repo }
-                }
-                // 「更新时间」不是 Star 连接的字段，仍用 REST 的 sort=updated
-                else -> GitHub.starred(if (isMe) null else login, p, f, STAR_SORTS[starSort].value, if (starDesc) "desc" else "asc")
-            }
-            RepoKind.Org -> GitHub.orgRepos(login, SORTS[sort].first, p, f)
-            RepoKind.Forks -> GitHub.forks(login, name, p, f)
-        }
-    }
-    // Pager 只按页号取数据，游标由这里按页递增记录；列表被删除时返回空页而不是崩溃。
-    // 方向一变就换一整套请求：正序 items(first, after) 从头部读，倒序 items(last, before) 从尾部读。
-    val cursors = remember(selectedList, itemDesc) { HashMap<Int, String?>() }
-    val items = rememberPager("rl-list:$selectedList:$itemDesc", pageSize = UserListsClient.DETAIL_PAGE_SIZE) { p, _ ->
-        val list = lists?.data?.firstOrNull { it.id == selectedList } ?: return@rememberPager emptyList()
-        if (p > 1 && cursors[p] == null) return@rememberPager emptyList()
-        val page = UserLists.items(account, list, cursors[p], descending = itemDesc)
-        cursors[p + 1] = page.nextCursor
-        page.items.map { it.repo }
-    }
-    LaunchedEffect(listsRevision) { if (lists?.data != null) lists.refresh() }
-    // 换账号后重新尝试服务端搜索：上一个 Token 不支持不代表下一个也不支持
-    LaunchedEffect(Session.generation) { StarredRepos.resetSupport() }
-    val title = when (kind) {
-        RepoKind.User -> "仓库"
-        RepoKind.Starred -> if (listsTab) selectedList?.let { id -> lists?.data?.firstOrNull { it.id == id }?.name } ?: "列表" else "已 Star"
-        RepoKind.Org -> "组织仓库"
-        RepoKind.Forks -> "Fork"
-    }
-    Page(title, subtitle = if (name.isNotEmpty()) "$login/$name" else login) { pad ->
-        Column(Modifier.padding(pad)) {
-            if (kind == RepoKind.Starred && Session.token != null) {
-                Segmented(listOf("全部 Star", "列表"), tab, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) { i ->
-                    tab = i
-                    if (i == 0) selectedList = null
-                }
-            }
-            if (kind == RepoKind.Starred && !listsTab) {
-                SearchBox(
-                    starInput, starQuery, { starInput = it }, applyStarSearch, clearStarSearch,
-                    "搜索 Star", "仓库名称或描述",
-                    Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp),
-                )
-                Row(
-                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    // 服务端搜索只认 Star 时间，这时只留方向切换，不假装能按更新时间排
-                    if (starSearching) {
-                        Text("搜索结果按 Star 时间排列", fontSize = 12.sp, color = Gh.c.fgMuted)
-                        Spacer(Modifier.weight(1f))
-                    } else {
-                        Dropdown(
-                            STAR_SORTS[starSort].label, STAR_SORTS.map { it.label },
-                            { starSort = it; starDesc = STAR_SORTS[it].descending }, active = starSort != 0,
-                        )
-                        Spacer(Modifier.weight(1f))
-                    }
-                    DirectionButton(starDesc) { starDesc = !starDesc }
-                }
-                val status = when {
-                    starQuery.isNotEmpty() && Session.token == null -> "登录后可搜索全部 Star · 当前仅过滤 ${pager.items.size} 个"
-                    starQuery.isNotEmpty() -> "仅过滤已加载的 ${pager.items.size} 个"
-                    starTruncated -> "GitHub 只返回前一部分 Star"
-                    else -> ""
-                }
-                if (status.isNotEmpty()) Text(
-                    status, Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
-                    fontSize = 12.sp, color = Gh.c.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (kind == RepoKind.User || kind == RepoKind.Org) {
-                Row(Modifier.padding(12.dp)) { Dropdown(SORTS[sort].second, SORTS.map { it.second }, { sort = it }) }
-                HDivider()
-            }
-            if (listsTab && lists != null) {
-                val all = lists.data
-                if (all == null) {
-                    if (lists.error != null) ErrorState(lists.error!!, Modifier.fillMaxWidth()) { lists.load(true) }
-                    else Loading(Modifier.fillMaxWidth().height(60.dp))
-                } else if (selectedList == null) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (isMe) GhButton("新建列表", enabled = all.size < UserListsClient.MAX_LISTS) { listPicker = true }
-                        GhButton("刷新", enabled = !lists.loading) { lists.load(true) }
-                    }
-                    if (lists.error != null) InlineError(lists.error!!, Modifier.padding(horizontal = 16.dp)) { lists.load(true) }
-                    Text("列表是 Star 的分类，与 GitHub 同步。", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
-                    SearchBox(
-                        listInput, listQuery, { listInput = it },
-                        { listQuery = listInput.trim() }, { listInput = ""; listQuery = "" },
-                        "搜索列表", "名称或描述",
-                        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp),
-                    )
-                    SortBar(
-                        LIST_SORTS, listSort, listDesc,
-                        { listSort = it; listDesc = LIST_SORTS[it].descending }, { listDesc = !listDesc },
-                    )
-                    // 列表最多 32 个，过滤与排序都在客户端完成；倒序只是把排好的结果翻过来
-                    val shownLists = remember(all, listQuery, listSort, listDesc) {
-                        arrangeStarLists(all, listQuery, listSort, listDesc)
-                    }
-                    when {
-                        all.isEmpty() -> EmptyState(
-                            if (isMe) "还没有 GitHub 列表" else "$login 还没有公开的 GitHub 列表",
-                            R.drawable.oc_checklist, Modifier.fillMaxSize(),
-                            if (isMe) "新建列表" else "刷新",
-                        ) { if (isMe) listPicker = true else lists.load(true) }
-                        shownLists.isEmpty() -> EmptyState(
-                            "没有匹配的列表", R.drawable.oc_checklist, Modifier.fillMaxSize(), "清除搜索",
-                        ) { listInput = ""; listQuery = "" }
-                        else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 6.dp)) {
-                            items(shownLists, key = { it.id }) { list ->
-                                Card(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).clickable { selectedList = list.id }) {
-                                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Text(list.name, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Pill(if (list.isPrivate) "私有" else "公开")
-                                        Spacer(Modifier.width(6.dp)); Pill("${list.count} 个仓库")
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    val list = all.firstOrNull { it.id == selectedList }
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        TextLink("‹ 全部列表") { selectedList = null }
-                        Spacer(Modifier.weight(1f))
-                        Text(
-                            "已加载 ${items.items.size} / ${list?.count ?: 0} 个",
-                            fontSize = 12.sp, color = Gh.c.fgMuted,
-                        )
-                    }
-                    if (list == null) EmptyState("列表已被删除", R.drawable.oc_checklist, Modifier.fillMaxSize(), "返回") { selectedList = null }
-                    else {
-                        SearchBox(
-                            itemInput, itemQuery, { itemInput = it },
-                            { itemQuery = itemInput.trim() }, { itemInput = ""; itemQuery = "" },
-                            "搜索列表内仓库", "名称或描述",
-                            Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp),
-                        )
-                        // 列表项只保留正序 / 倒序：倒序向服务端重新请求（last + before），
-                        // 数据层已把每页结果倒着放，这里不再反转
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text("GitHub 顺序", Modifier.weight(1f), fontSize = 13.sp, color = Gh.c.fgMuted)
-                            DirectionButton(itemDesc) { itemDesc = !itemDesc }
-                        }
-                        PagedList(
-                            items,
-                            empty = "列表暂无仓库，在仓库页「加入自定义列表」中添加",
-                            emptyIcon = R.drawable.oc_checklist,
-                            filteredEmpty = "列表中没有匹配的仓库",
-                            itemFilter = { starMatches(it, itemQuery) },
-                        ) { RepoItem(it) }
-                    }
-                }
-            } else PagedList(pager, empty = when (kind) {
-                RepoKind.Starred -> when {
-                    starSearching || starQuery.isNotEmpty() -> "没有匹配的 Star"
-                    isMe -> "还没有 Star 任何仓库"
-                    else -> "$login 还没有 Star 任何仓库"
-                }
-                RepoKind.Forks -> "还没有人 Fork 这个仓库"
-                else -> "没有可见的仓库"
-            }, emptyIcon = if (kind == RepoKind.Starred) R.drawable.oc_star else R.drawable.oc_repo,
-                filteredEmpty = "已加载的 Star 中没有匹配的仓库",
-                itemFilter = { kind != RepoKind.Starred || starSearching || starMatches(it, starQuery) }) {
-                RepoItem(it, extra = if (kind == RepoKind.Forks) "创建于 ${relTime(it.createdAt)}" else null)
-            }
-        }
-    }
-    if (listPicker) GitHubListEditor(null, listSaving, listError, onDismiss = { if (!listSaving) { listPicker = false; listError = null } }) { nameOf, desc, priv ->
-        listSaving = true
-        listError = null
-        entry.act({ listError = it; listSaving = false }) {
-            val created = UserLists.create(account, nameOf, desc, priv)
-            listSaving = false
-            listPicker = false
-            lists?.refresh()
-            // 新建后直接进入这个列表，省得再找一遍
-            selectedList = created.id
         }
     }
 }

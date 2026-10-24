@@ -273,6 +273,10 @@ fun <T> PagedList(
     contentPadding: PaddingValues = PaddingValues(top = 8.dp, bottom = 16.dp),
     onRefresh: () -> Unit = {},
     itemFilter: ((T) -> Boolean)? = null,
+    /** 只对已加载条目排序：分页数据无法在服务端重排时使用 */
+    itemSort: Comparator<T>? = null,
+    /** 反转 [itemSort] / 原始顺序，用于正序与倒序切换 */
+    itemReverse: Boolean = false,
     itemKey: ((T) -> Any)? = null,
     header: LazyListScope.() -> Unit = {},
     /** 已加载条目全部被 [itemFilter] 过滤掉时的提示 */
@@ -298,7 +302,9 @@ fun <T> PagedList(
             header()
             val combined = pager.items + extraItems
             val filtered = if (itemFilter == null) combined else combined.filter(itemFilter)
-            val shown = if (itemKey == null) filtered else filtered.distinctBy(itemKey)
+            val ordered = if (itemSort == null) filtered else filtered.sortedWith(itemSort)
+            val directed = if (itemReverse) ordered.reversed() else ordered
+            val shown = if (itemKey == null) directed else directed.distinctBy(itemKey)
             fun rows(list: List<T>) = itemsIndexed(list, key = if (itemKey == null) null else { _, value -> itemKey(value) }) { i, it ->
                 if (boxed) {
                     Column(Modifier.groupItem(i == 0, i == list.lastIndex, Gh.c.border, Gh.c.canvas)) { item(it) }

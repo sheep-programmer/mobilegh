@@ -242,7 +242,35 @@ object GitHub {
     suspend fun watch(o: String, n: String, on: Boolean) =
         if (on) Api.exec("PUT", "${r(o, n)}/subscription", buildJsonObject { put("subscribed", true) })
         else Api.exec("DELETE", "${r(o, n)}/subscription")
-    suspend fun fork(o: String, n: String) = Api.send<Repo>("POST", "${r(o, n)}/forks")
+    /**
+     * Fork 仓库。
+     *
+     * `POST /repos/{o}/{n}/forks` 只接受 organization / name / default_branch_only 三个参数，
+     * 没有 description；GitHub 网页端是在 fork 完成后用 PATCH 补写描述的，所以描述拆到
+     * [setDescription] 单独调用——描述写失败时已经建好的 fork 不会丢。
+     */
+    suspend fun fork(
+        o: String,
+        n: String,
+        organization: String? = null,
+        newName: String? = null,
+        defaultBranchOnly: Boolean = true,
+    ): Repo = Api.send<Repo>("POST", "${r(o, n)}/forks", forkBody(organization, newName, defaultBranchOnly))
+
+    /**
+     * fork 请求体。单独抽成纯函数便于测试：GitHub 会静默忽略不认识的字段，
+     * 只靠返回结果看不出参数是否发对了。
+     */
+    internal fun forkBody(organization: String?, newName: String?, defaultBranchOnly: Boolean) = buildJsonObject {
+        organization?.takeIf { it.isNotBlank() }?.let { put("organization", JsonPrimitive(it)) }
+        newName?.takeIf { it.isNotBlank() }?.let { put("name", JsonPrimitive(it)) }
+        // 显式传值：省略时行为依赖服务端默认，写明避免以后默认值变化
+        put("default_branch_only", JsonPrimitive(defaultBranchOnly))
+    }
+
+    /** fork 之后补写描述（fork 接口本身不接受 description） */
+    suspend fun setDescription(o: String, n: String, description: String) =
+        Api.send<Repo>("PATCH", r(o, n), buildJsonObject { put("description", JsonPrimitive(description)) })
 
     // ---------------- 提交 ----------------
     suspend fun commits(o: String, n: String, sha: String?, path: String?, page: Int, force: Boolean,

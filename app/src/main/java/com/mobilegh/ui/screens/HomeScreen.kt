@@ -25,7 +25,6 @@ import com.mobilegh.data.HomePrefs
 import com.mobilegh.data.Involvement
 import com.mobilegh.data.IssueQuery
 import com.mobilegh.data.Session
-import com.mobilegh.data.StarListAccount
 import com.mobilegh.data.UserLists
 import com.mobilegh.data.Web
 import com.mobilegh.nav.LocalNav
@@ -58,8 +57,7 @@ fun HomeScreen() {
     val g = Gh.c
     val login = Session.login ?: return
     val me = rememberLoader("me") { GitHub.viewer(it) }
-    val account = remember(login, Session.generation) { StarListAccount(login, Session.generation) }
-    val lists = rememberLoader("home-collections:$login") { UserLists.lists(account, login) }
+    val lists = rememberStarListCatalog(login)
     val badges = rememberLoader("home-achievements:$login") { Web.achievements(login, self = true) }
     val listsRevision by UserLists.changes.collectAsState()
     val observedRevision = retain("home-collections-revision:$login") { mutableLongStateOf(listsRevision) }

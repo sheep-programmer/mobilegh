@@ -293,7 +293,7 @@ fun RepoListScreen(kind: RepoKind, login: String, name: String) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val listsTab = kind == RepoKind.Starred && tab == 1 && Session.token != null
     val account = remember { StarListAccount(Session.login ?: login, Session.generation) }
-    val lists = if (kind == RepoKind.Starred && Session.token != null) rememberLoader("star-lists:$login") { UserLists.lists(account, login) } else null
+    val lists = if (kind == RepoKind.Starred && Session.token != null) rememberStarListCatalog(login) else null
     val listsRevision by UserLists.changes.collectAsState()
     var selectedList by rememberSaveable { mutableStateOf<String?>(null) }
     var listPicker by remember { mutableStateOf(false) }
@@ -371,7 +371,7 @@ fun RepoListScreen(kind: RepoKind, login: String, name: String) {
                         Text("${list?.count ?: 0} 个仓库", fontSize = 12.sp, color = Gh.c.fgMuted)
                     }
                     if (list == null) EmptyState("列表已被删除", R.drawable.oc_checklist, Modifier.fillMaxSize(), "返回") { selectedList = null }
-                    else PagedList(items, empty = "列表暂无仓库，在仓库页「加入自定义列表」中添加", emptyIcon = R.drawable.oc_checklist) { RepoItem(it) }
+                    else PagedList(items, empty = "列表暂无仓库，在仓库页长按 Star 或菜单「加入 Star 列表」中添加", emptyIcon = R.drawable.oc_checklist) { RepoItem(it) }
                 }
             } else PagedList(pager, empty = when (kind) {
                 RepoKind.Starred -> if (isMe) "还没有 Star 任何仓库" else "$login 还没有 Star 任何仓库"

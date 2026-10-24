@@ -86,7 +86,16 @@ import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.share
 import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.components.MdText
+import com.mobilegh.data.OrganizationAccess
+import com.mobilegh.data.RepoWrite
+import com.mobilegh.data.Session
+import com.mobilegh.nav.friendly
+import com.mobilegh.ui.components.RadioRow
+import com.mobilegh.ui.components.SwitchRow
 import com.mobilegh.ui.theme.Gh
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @Composable
@@ -105,6 +114,7 @@ fun RepoScreen(owner: String, name: String) {
     val watching = rememberLoader("watch-status") { entry.guarded { SubscriptionSettings.current(owner, name) } }
     var showBranches by remember { mutableStateOf(false) }
     var showClone by remember { mutableStateOf(false) }
+    var showFork by remember { mutableStateOf(false) }
     var showSubscription by remember { mutableStateOf(false) }
     var showLists by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -133,13 +143,7 @@ fun RepoScreen(owner: String, name: String) {
                         .onFailure { ctx.toast(it.message ?: "收藏失败") }
                 })
                 add(MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name") })
-                add(MenuAction("Fork 此仓库") {
-                    entry.act({ ctx.toast(it) }) {
-                        val f = GitHub.fork(owner, name)
-                        ctx.toast("已 Fork 到 ${f.fullName}")
-                        nav.push(Screen.Repo(f.owner.login, f.name))
-                    }
-                })
+                add(MenuAction("Fork 此仓库") { showFork = true })
                 if (admin) add(MenuAction("仓库设置") { nav.push(Screen.RepoSettings(owner, name)) })
             })
         },
@@ -286,6 +290,18 @@ fun RepoScreen(owner: String, name: String) {
             showBranches = false
         }
     }
+    if (showFork && r != null) {
+        ForkDialog(
+            owner = owner,
+            name = name,
+            repo = r,
+            onDismiss = { showFork = false },
+            onDone = { forked ->
+                showFork = false
+                nav.push(Screen.Repo(forked.owner.login, forked.name))
+            },
+        )
+    }
     if (showClone && r != null) {
         GhDialog("克隆", onDismiss = { showClone = false }) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -308,6 +324,134 @@ fun RepoScreen(owner: String, name: String) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ForkDialog(
+    owner: String,
+    name: String,
+    repo: Repo,
+    onDismiss: () -> Unit,
+    onDone: (Repo) -> Unit,
+) {
+    val g = Gh.c
+    val entry = LocalEntry.current
+    val ctx = rememberCtx()
+    val login = Session.login
+
+    // 组织列表按需拉取：只 fork 到自己账号时不发这个请求
+    var toOrg by rememberSaveable { mutableStateOf(false) }
+    val orgs = rememberLoader("fork-orgs") { OrganizationAccess.read(it).orgs.map { o -> o.login } }
+    var org by rememberSaveable { mutableStateOf("") }
+
+    var newName by rememberSaveable { mutableStateOf("") }
+    var desc by rememberSaveable { mutableStateOf(repo.description.orEmpty()) }
+    // 默认只复制默认分支：与 GitHub 网页端一致，也避免把无关分支一起带走
+    var defaultOnly by rememberSaveable { mutableStateOf(true) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    val trimmedName = newName.trim()
+    // 留空表示沿用原仓库名
+    val targetName = trimmedName.ifEmpty { name }
+    val nameInvalid = trimmedName.isNotEmpty() && !RepoWrite.validBranch(trimmedName)
+    val orgMissing = toOrg && org.isBlank()
+    val valid = !nameInvalid && !orgMissing && !busy
+
+    fun submit() {
+        busy = true
+        error = null
+        entry.scope.launch {
+            try {
+                val forked = GitHub.fork(
+                    owner, name,
+                    organization = if (toOrg) org.trim() else null,
+                    newName = trimmedName.ifEmpty { null },
+                    defaultBranchOnly = defaultOnly,
+                )
+                // fork 已经建好；描述写失败只提示，不当作 fork 失败
+                var descFailed = false
+                if (desc.trim() != repo.description.orEmpty().trim()) {
+                    descFailed = try {
+                        GitHub.setDescription(forked.owner.login, forked.name, desc.trim()); false
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        true
+                    }
+                }
+                busy = false
+                ctx.toast(
+                    when {
+                        descFailed -> "已 Fork 到 ${forked.fullName}，但描述未能写入"
+                        else -> "已 Fork 到 ${forked.fullName}"
+                    }
+                )
+                onDone(forked)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                busy = false
+                error = e.friendly()
+            }
+        }
+    }
+
+    GhDialog(
+        "Fork 此仓库",
+        onDismiss = { if (!busy) onDismiss() },
+        confirm = if (busy) "Fork 中…" else "Fork",
+        confirmEnabled = valid,
+        onConfirm = ::submit,
+    ) {
+        Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+            Text("$owner/$name", fontSize = 12.sp, color = g.fgMuted)
+
+            Spacer(Modifier.height(10.dp))
+            RadioRow(!toOrg, "Fork 到我的账号", login?.let { "@$it" }, enabled = !busy) { toOrg = false }
+            RadioRow(toOrg, "Fork 到组织", "需要对该组织有创建仓库的权限", enabled = !busy) { toOrg = true }
+
+            if (toOrg) {
+                Spacer(Modifier.height(6.dp))
+                val list = orgs.data
+                when {
+                    list != null && list.isEmpty() ->
+                        Text("当前授权没有返回可用的组织", fontSize = 12.sp, color = g.danger)
+                    list != null -> {
+                        Chips(list, list.indexOf(org).coerceAtLeast(0), onSelect = { org = list[it] })
+                        if (org.isBlank()) Text("请选择组织", fontSize = 12.sp, color = g.danger)
+                    }
+                    orgs.error != null -> InlineError(orgs.error!!) { orgs.refresh() }
+                    else -> Loading(Modifier.fillMaxWidth().height(60.dp))
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+            GhField(targetName, { newName = it }, "仓库名称", placeholder = name)
+            if (nameInvalid) Text("仓库名称无效", fontSize = 12.sp, color = g.danger)
+
+            Spacer(Modifier.height(10.dp))
+            GhField(desc, { desc = it }, "描述", singleLine = false, minLines = 2)
+
+            Spacer(Modifier.height(10.dp))
+            SwitchRow(
+                "只复制默认分支",
+                "关闭后连同其余分支一起 fork；GitHub 无法只挑某几个分支",
+                defaultOnly,
+                enabled = !busy,
+            ) { defaultOnly = it }
+            if (repo.defaultBranch.isNotBlank()) {
+                Text(
+                    "默认分支：${repo.defaultBranch}",
+                    Modifier.padding(start = 16.dp, top = 2.dp, bottom = 4.dp),
+                    fontSize = 12.sp,
+                    color = g.fgMuted,
+                )
+            }
+
+            error?.let { InlineError(it) }
         }
     }
 }

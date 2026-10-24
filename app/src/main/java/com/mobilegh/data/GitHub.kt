@@ -16,6 +16,9 @@ import kotlinx.serialization.json.put
 object GitHub {
     const val PER = 30
 
+    /** Star 页单独用 100 条一页：Star 数量可以上万，每页越小翻页越多 */
+    const val STARRED_PER = 100
+
     private fun r(o: String, n: String) = "/repos/$o/$n"
 
     // ---------------- 用户 ----------------
@@ -87,8 +90,20 @@ object GitHub {
         )
     }
 
-    suspend fun starred(login: String?, page: Int, force: Boolean) =
-        Api.get<List<Repo>>((if (login == null) "/user/starred" else "/users/$login/starred") + "?sort=created&per_page=$PER&page=$page", force)
+    /**
+     * 已 Star 的仓库。[sort] 只能是 created（Star 时间）、updated（更新时间）或 stars（仓库 star 数）；
+     * [direction] 为 asc / desc。REST 对不认识的 sort 会静默回退成默认顺序，不要传别的值。
+     *
+     * 每页用 100（[STARRED_PER]）：Star 可以达到上万条，30 条一页会有几百页，
+     * 100 条一页既少翻页也少占额度。
+     */
+    suspend fun starred(login: String?, page: Int, force: Boolean, sort: String = "created", direction: String = "desc") =
+        Api.get<List<Repo>>(starredUrl(login, page, sort, direction), force)
+
+    /** [starred] 的 URL 拼装：单独抽出来便于测试（REST 会静默忽略不认识的 sort，必须确定传对了） */
+    internal fun starredUrl(login: String?, page: Int, sort: String, direction: String) =
+        (if (login == null) "/user/starred" else "/users/$login/starred") +
+            "?sort=$sort&direction=$direction&per_page=$STARRED_PER&page=$page"
 
     suspend fun forks(o: String, n: String, page: Int, force: Boolean) = Api.get<List<Repo>>("${r(o, n)}/forks?sort=newest&per_page=$PER&page=$page", force)
 

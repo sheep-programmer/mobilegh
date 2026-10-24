@@ -45,6 +45,7 @@ import com.mobilegh.data.Session
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Navigator
+import com.mobilegh.nav.RepoKind
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.Tab
 import com.mobilegh.ui.components.AppLockScreen
@@ -287,7 +288,11 @@ private fun ScreenHost(s: Screen) {
         is Screen.Profile -> ProfileScreen(s.login)
         is Screen.Org -> OrgScreen(s.login)
         is Screen.Users -> UsersScreen(s.kind, s.a, s.b)
-        is Screen.Repos -> RepoListScreen(s.kind, s.login, s.name)
+        is Screen.Repos -> when (s.kind) {
+            RepoKind.Starred -> StarredRepoPage(s.login, s.name)
+            RepoKind.Forks -> ForkListScreen(s.login, s.name)
+            else -> RepoFeedScreen(s.kind, s.login, s.name)
+        }
         Screen.Orgs -> OrgsScreen()
         Screen.Invitations -> InvitationsScreen()
         is Screen.Gists -> GistsScreen(s.login)

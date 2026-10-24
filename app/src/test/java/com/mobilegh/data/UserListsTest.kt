@@ -182,6 +182,42 @@ class UserListsTest {
         }
     }
 
+    @Test fun descendingSendsItsOwnTailRequestAndReversesThePage() {
+        runBlocking {
+            val queries = ArrayList<String>()
+            val vars = ArrayList<JsonObject>()
+            val api = client { q, v ->
+                queries += q
+                vars += v
+                Json.parseToJsonElement("""{
+                  "viewer":{"login":"Alice"},"node":{"id":"L_1","user":{"login":"Alice"},"items":{
+                    "totalCount":60,
+                    "pageInfo":{"hasNextPage":true,"endCursor":"e1","hasPreviousPage":true,"startCursor":"s1"},
+                    "nodes":[
+                      {"id":"R_1","name":"a","nameWithOwner":"x/a","isPrivate":false,"stargazerCount":1,"forkCount":0,"owner":{"__typename":"User","login":"x","avatarUrl":""}},
+                      {"id":"R_2","name":"b","nameWithOwner":"x/b","isPrivate":false,"stargazerCount":1,"forkCount":0,"owner":{"__typename":"User","login":"x","avatarUrl":""}},
+                      {"id":"R_3","name":"c","nameWithOwner":"x/c","isPrivate":false,"stargazerCount":1,"forkCount":0,"owner":{"__typename":"User","login":"x","avatarUrl":""}}
+                    ]}}} """).jsonObject
+            }
+            val list = GitHubStarList("L_1", "List", "", true, "list", "Alice", 60)
+
+            val forward = api.items(alice, list, cursor = "a1").items.map { it.nodeId }
+            assertEquals(listOf("R_1", "R_2", "R_3"), forward)
+            assertEquals("正序从头部读", "a1", (vars.last()["cursor"] as JsonPrimitive).content)
+            assertTrue("正序用 first + after：${queries.last()}", queries.last().contains("items(first:") && queries.last().contains("after:\$cursor"))
+
+            // 倒序：必须换成 last + before，从列表尾部重新请求，并且把这一页倒着放
+            val backward = api.items(alice, list, cursor = "b1", descending = true)
+            assertTrue("倒序必须发 last + before 请求：${queries.last()}", queries.last().contains("items(last:"))
+            assertTrue("倒序必须带 before 游标：${queries.last()}", queries.last().contains("before:\$cursor"))
+            assertFalse("倒序不该再发 after 请求：${queries.last()}", queries.last().contains("after:"))
+            assertEquals("b1", (vars.last()["cursor"] as JsonPrimitive).content)
+            // 倒序时还有更多看 hasPreviousPage，下一页游标取 startCursor
+            assertEquals("s1", backward.nextCursor)
+            assertEquals("这一页要倒着放", listOf("R_3", "R_2", "R_1"), backward.items.map { it.nodeId })
+        }
+    }
+
     @Test fun nativeRepositoryCardsReceiveCountsLanguageTimeAndOrganizationType() {
         runBlocking {
             val api = client { query, _ ->

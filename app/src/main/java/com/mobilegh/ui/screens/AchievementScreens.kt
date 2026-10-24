@@ -61,6 +61,7 @@ import com.mobilegh.data.GitHubStarList
 import com.mobilegh.data.UserListRepository
 import com.mobilegh.data.UserLists
 import com.mobilegh.data.UserListsClient
+import com.mobilegh.data.starMatches
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.friendly
@@ -510,6 +511,8 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
     var deleting by remember { mutableStateOf<GitHubStarList?>(null) }
     var pickerOpen by remember { mutableStateOf(false) }
     var query by rememberSaveable(account, login) { mutableStateOf("") }
+    // 列表条目的方向，默认倒序：true = 倒序（从尾部 before 往回翻），false = 正序（从头部 after 往后翻）
+    var itemDesc by rememberSaveable(account, login) { mutableStateOf(true) }
     val selected = lists?.firstOrNull { it.id == selectedId }
 
     suspend fun reload() {
@@ -539,10 +542,11 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
             finally { saving = false }
         }
     }
-    LaunchedEffect(selected?.id) {
+    LaunchedEffect(selected?.id, itemDesc) {
         val list = selected
         if (list == null) detail.open(null)
-        else detail.open(list.id) { after -> UserLists.items(account, list, after) }
+        // 正序从头部 after 往后翻，倒序从尾部 before 往回翻：方向变了就重新请求，不在本地反转
+        else detail.open(list.id) { cursor -> UserLists.items(account, list, cursor, descending = itemDesc) }
     }
     LaunchedEffect(account, login, revision) {
         // Changes may originate from another screen, including a partially completed batch.
@@ -584,49 +588,85 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
                     GhButton("刷新", enabled = !saving && !loading) { load() }
                 }
                 Text(if (self) "列表与 GitHub 同步；公开列表可被其他人查看。" else "查看公开的 GitHub 列表。", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
-                if (lists!!.isEmpty()) {
-                    if (self) EmptyState("暂无 GitHub 列表，创建一个来整理 Stars。", R.drawable.oc_checklist, Modifier.weight(1f).fillMaxWidth(), "新建 GitHub 列表") { editing = null; editorOpen = true }
+                // 列表目录：和首页卡片区共用同一份搜索/排序状态
+                val browser = rememberSharedListBrowser("home-lists:$login")
+                SearchBox(
+                    browser.input, browser.query, { browser.input = it }, { browser.apply() }, { browser.clear() },
+                    "搜索列表", "名称或描述",
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                )
+                SortBar(
+                    LIST_SORTS, browser.sort, browser.descending,
+                    { browser.pick(it) }, { browser.descending = !browser.descending },
+                    enabled = !saving && !loading,
+                )
+                val shownLists = browser.shown(lists!!)
+                when {
+                    lists!!.isEmpty() -> if (self) EmptyState("暂无 GitHub 列表，创建一个来整理 Stars。", R.drawable.oc_checklist, Modifier.weight(1f).fillMaxWidth(), "新建 GitHub 列表") { editing = null; editorOpen = true }
                     else EmptyState("$login 还没有公开的 GitHub 列表", R.drawable.oc_checklist, Modifier.weight(1f).fillMaxWidth(), "刷新") { load() }
-                }
-                else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(vertical = 6.dp)) {
-                    items(lists!!, key = { it.id }) { list ->
-                        Card(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).clickable(enabled = !saving && !loading) { selectedId = list.id; query = "" }) {
-                            Column(Modifier.padding(14.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(list.name, modifier = Modifier.weight(1f), color = Gh.c.fg, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Pill(if (list.isPrivate) "私有" else "公开")
-                                    Spacer(Modifier.width(6.dp)); Pill("${list.count} 个仓库")
+                    shownLists.isEmpty() -> EmptyState("没有匹配的列表", R.drawable.oc_search, Modifier.weight(1f).fillMaxWidth(), "清除搜索") { browser.clear() }
+                    else -> LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(vertical = 6.dp)) {
+                        items(shownLists, key = { it.id }) { list ->
+                            Card(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).clickable(enabled = !saving && !loading) { selectedId = list.id; query = "" }) {
+                                Column(Modifier.padding(14.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(list.name, modifier = Modifier.weight(1f), color = Gh.c.fg, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Pill(if (list.isPrivate) "私有" else "公开")
+                                        Spacer(Modifier.width(6.dp)); Pill("${list.count} 个仓库")
+                                    }
+                                    if (list.description.isNotEmpty()) Text(list.description, modifier = Modifier.padding(top = 6.dp), color = Gh.c.fgMuted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 }
-                                if (list.description.isNotEmpty()) Text(list.description, modifier = Modifier.padding(top = 6.dp), color = Gh.c.fgMuted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
                 }
             } else {
-                Text("${if (selected.isPrivate) "私有" else "公开"} · 已加载 ${repositories.size} / $detailTotal", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
+                // 列表详情：和官方 FetchList 一样按 items 的原始顺序翻页，只提供正序 / 倒序
+                var itemInput by rememberSaveable(selected.id) { mutableStateOf("") }
+                var itemQuery by rememberSaveable(selected.id) { mutableStateOf("") }
+                Text(
+                    "${if (selected.isPrivate) "私有" else "公开"} · 已加载 ${repositories.size} / $detailTotal",
+                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.fgMuted, fontSize = 12.sp,
+                )
                 if (selected.description.isNotEmpty()) Text(selected.description, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.fgMuted, fontSize = 13.sp)
-                GhField(query, { query = it }, "搜索已加载的列表仓库", modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
-                val filtered = repositories.filter { it.repo.fullName.contains(query.trim(), true) }
-                if (filtered.isEmpty() && detailLoaded && !detail.hasMore && !loading) {
-                    if (repositories.isNotEmpty()) EmptyState("没有匹配的已加载仓库", R.drawable.oc_search, Modifier.weight(1f).fillMaxWidth(), "清除搜索") { query = "" }
-                    else if (self) EmptyState("列表暂无仓库，添加已 Star 的仓库。", R.drawable.oc_star, Modifier.weight(1f).fillMaxWidth(), "添加仓库") { pickerOpen = true }
-                    else EmptyState("列表暂无仓库", R.drawable.oc_star, Modifier.weight(1f).fillMaxWidth())
-                } else if (filtered.isEmpty() && !detailLoaded) {
-                    if (loading) Loading(Modifier.weight(1f).fillMaxWidth())
-                    else Spacer(Modifier.weight(1f))
-                } else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 12.dp)) {
-                    items(filtered, key = { it.nodeId }) { item ->
-                        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.weight(1f)) { RepoItem(item.repo) }
-                            if (self) TextButton(onClick = {
-                                mutate { UserLists.setRepositoryLists(account, item.repo.owner.login, item.repo.name, emptySet(), setOf(selected.id)) }
-                            }, enabled = !saving && !loading) { Text("移除") }
+                SearchBox(
+                    itemInput, itemQuery, { itemInput = it }, { itemQuery = itemInput.trim() },
+                    { itemInput = ""; itemQuery = "" },
+                    "搜索列表内仓库", "名称或描述",
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("GitHub 顺序", Modifier.weight(1f), color = Gh.c.fgMuted, fontSize = 13.sp)
+                    DirectionButton(itemDesc) { itemDesc = !itemDesc }
+                }
+                // 方向由服务端决定（正序 after 往后、倒序 before 往回），这里只做搜索过滤
+                run {
+                    val filtered = repositories.filter { starMatches(it.repo, itemQuery) }
+                    if (filtered.isEmpty() && detailLoaded && !detail.hasMore && !loading) {
+                        if (repositories.isNotEmpty()) EmptyState("没有匹配的已加载仓库", R.drawable.oc_search, Modifier.weight(1f).fillMaxWidth(), "清除搜索") { itemInput = ""; itemQuery = "" }
+                        else if (self) EmptyState("列表暂无仓库，添加已 Star 的仓库。", R.drawable.oc_star, Modifier.weight(1f).fillMaxWidth(), "添加仓库") { pickerOpen = true }
+                        else EmptyState("列表暂无仓库", R.drawable.oc_star, Modifier.weight(1f).fillMaxWidth())
+                    } else if (filtered.isEmpty() && !detailLoaded) {
+                        if (loading) Loading(Modifier.weight(1f).fillMaxWidth())
+                        else Spacer(Modifier.weight(1f))
+                    } else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 12.dp)) {
+                        items(filtered, key = { it.nodeId }) { item ->
+                            RepoItem(item.repo)
                         }
-                    }
-                    item {
-                        if (loading) Loading(Modifier.fillMaxWidth().height(40.dp))
-                        else if (detail.hasMore && !detail.limited) GhButton("加载更多", modifier = Modifier.padding(16.dp), enabled = !saving) { detail.loadMore() }
-                        else if (detail.limited) Text("已达 ${UserListsClient.MAX_DETAIL_ITEMS} 个仓库的显示上限，请在网页中继续查看。", Modifier.padding(16.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
+                        // 滚到底自动加载下一页，不放「加载更多」按钮
+                        item(key = "list-footer") {
+                            when {
+                                loading -> Loading(Modifier.fillMaxWidth().height(40.dp))
+                                detail.limited -> Text("已达 ${UserListsClient.MAX_DETAIL_ITEMS} 个仓库的显示上限，请在网页中继续查看。", Modifier.padding(16.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
+                                detail.hasMore -> LaunchedEffect(detail.loaded, detail.hasMore) {
+                                    // 尾部一旦进入组合（即滑到底）就继续拉下一页
+                                    if (detail.hasMore && !detail.loading && !saving) detail.loadMore()
+                                }
+                            }
+                        }
                     }
                 }
                 if (self) Text("移除分类不会取消 Star。", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Gh.c.fgMuted, fontSize = 12.sp)

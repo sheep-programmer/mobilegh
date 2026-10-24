@@ -40,6 +40,12 @@ data class GitHubStarList(
     val slug: String,
     val owner: String,
     val count: Int,
+    /** 列表创建时间（ISO 8601） */
+    val createdAt: String = "",
+    /** 列表最后更新时间 */
+    val updatedAt: String = "",
+    /** 最后一次往列表里添加仓库的时间 */
+    val lastAddedAt: String = "",
 )
 
 /**
@@ -76,12 +82,14 @@ class UserListsClient internal constructor(
         /** 归属判断一次请求里并排读几个列表的第一页（别名），以及同时发几个请求。 */
         private const val MEMBERSHIP_BATCH = 6
         private const val MEMBERSHIP_PARALLEL = 4
+        /** 列表详情的每页条数：与官方 FetchList 的 `first: 30` 保持一致 */
+        const val DETAIL_PAGE_SIZE = 30
         const val MAX_LIST_ITEMS = 50_000
         const val MAX_DETAIL_ITEMS = 5000
         const val MAX_BATCH_ADD = 10
         const val MAX_NAME = 80
         const val MAX_DESCRIPTION = 280
-        internal const val LIST_FIELDS = "id name description isPrivate slug user { login } items { totalCount }"
+        internal const val LIST_FIELDS = "id name description isPrivate slug createdAt updatedAt lastAddedAt user { login } items { totalCount }"
         /** 取仓库节点 id、Star 状态和它所属的列表：官方客户端的读法，一个请求。 */
         private const val REPOSITORY_LISTS = "query MobileGHRepositoryLists(\$owner:String!,\$name:String!) { viewer { login } repository(owner:\$owner,name:\$name) { id viewerHasStarred lists(first:$PAGE_SIZE, onlyOwnedByViewer: true) { nodes { $LIST_FIELDS } } } }"
         /** 取仓库节点 id 与 Star 状态：兜底扫描用。 */
@@ -93,7 +101,7 @@ class UserListsClient internal constructor(
          * 带上会被 GitHub 判成未知参数、整个 mutation 直接失败。
          */
         private const val UPDATE_LISTS = "mutation MobileGHSetListMemberships(\$input:UpdateUserListsForItemInput!) { updateUserListsForItem(input:\$input) { item { ... on Repository { id } } lists { id } user { login } } }"
-        private const val PAGE_FIELDS = "totalCount pageInfo { hasNextPage endCursor }"
+        private const val PAGE_FIELDS = "totalCount pageInfo { hasNextPage endCursor hasPreviousPage startCursor }"
         /**
          * 读一个列表的条目 id，用来判断仓库是否在这个列表里。
          *
@@ -149,12 +157,27 @@ class UserListsClient internal constructor(
         return result
     }
 
-    suspend fun items(account: StarListAccount, list: GitHubStarList, cursor: String? = null): UserListPage<UserListRepository> {
-        val query = "query MobileGHListItems(\$id:ID!,\$after:String) { viewer { login } node(id:\$id) { ... on UserList { id user { login } items(first:$PAGE_SIZE,after:\$after) { $PAGE_FIELDS nodes { ... on Repository { $REPO_FIELDS } } } } } }"
-        val data = call(account, query, buildJsonObject { put("id", list.id); putCursor(cursor) })
+    /**
+     * 列表里的仓库。两个方向各自向服务端发不同的请求：
+     * - 正序 [descending] = false：`items(first:, after:)`，从列表头部往后翻；
+     * - 倒序 [descending] = true：`items(last:, before:)`，从列表尾部往回翻，
+     *   并把这页结果倒过来放，界面上就是「倒着看同一份列表」。
+     *
+     * 倒序绝不是复用正序的请求再把结果反转：那样只能看到已经加载过的那部分，
+     * 列表尾部的内容永远不会被请求。
+     */
+    suspend fun items(
+        account: StarListAccount,
+        list: GitHubStarList,
+        cursor: String? = null,
+        descending: Boolean = false,
+    ): UserListPage<UserListRepository> {
+        val args = if (descending) "last:$DETAIL_PAGE_SIZE,before:\$cursor" else "first:$DETAIL_PAGE_SIZE,after:\$cursor"
+        val query = "query MobileGHListItems(\$id:ID!,\$cursor:String) { viewer { login } node(id:\$id) { ... on UserList { id user { login } items($args) { $PAGE_FIELDS nodes { ... on Repository { $REPO_FIELDS } } } } } }"
+        val data = call(account, query, buildJsonObject { put("id", list.id); put("cursor", cursor?.let(::JsonPrimitive) ?: JsonNull) })
         val node = data.requiredObject("node")
         require(node.requiredString("id") == list.id && node.requiredObject("user").requiredString("login").equals(list.owner, true)) { "GitHub 列表已变化，请刷新" }
-        return page(node.requiredObject("items")) { value ->
+        val result = page(node.requiredObject("items"), fromEnd = descending) { value ->
             val fullName = value.requiredString("nameWithOwner")
             val owner = value.requiredObject("owner")
             val id = (value["databaseId"] as? JsonPrimitive)?.longOrNull ?: 0L
@@ -168,7 +191,10 @@ class UserListsClient internal constructor(
                 updatedAt = value.stringOrEmpty("updatedAt").takeIf { it.isNotEmpty() },
             ))
         }
+        // 从尾部取回来的这一页仍是「旧 → 新」，倒着放才是用户要的倒序
+        return if (descending) result.copy(items = result.items.reversed()) else result
     }
+
 
     suspend fun create(account: StarListAccount, name: String, description: String, isPrivate: Boolean): GitHubStarList = mutationLock.withLock {
         val input = metadata(name, description, isPrivate)
@@ -423,17 +449,25 @@ class UserListsClient internal constructor(
     private fun parseList(node: JsonObject, owner: String) = GitHubStarList(
         node.requiredString("id"), node.requiredString("name"), node.stringOrEmpty("description"), node.requiredBoolean("isPrivate"),
         node.requiredString("slug"), node.requiredObject("user").requiredString("login"), node.requiredObject("items").requiredInt("totalCount"),
+        createdAt = node.stringOrEmpty("createdAt"),
+        updatedAt = node.stringOrEmpty("updatedAt"),
+        lastAddedAt = node.stringOrEmpty("lastAddedAt"),
     ).also { require(it.owner.equals(owner, true)) { "GitHub 返回了其他账号的列表" } }
 
     private fun listPage(connection: JsonObject, owner: String) = page(connection) { parseList(it, owner) }
-    private fun <T> page(connection: JsonObject, parse: (JsonObject) -> T): UserListPage<T> {
+
+    /**
+     * 解析一页连接。[fromEnd] 表示这一页是用 `last:`/`before:` 从尾部读的：
+     * 那么「还有更多」看 [hasPreviousPage]，下一页游标取 [startCursor]。
+     */
+    private fun <T> page(connection: JsonObject, fromEnd: Boolean = false, parse: (JsonObject) -> T): UserListPage<T> {
         val info = connection.requiredObject("pageInfo")
-        val hasNext = info.requiredBoolean("hasNextPage")
-        val cursor = info.stringOrEmpty("endCursor").takeIf { it.isNotBlank() }
-        require(!hasNext || cursor != null) { "GitHub 分页结果不完整，请刷新" }
+        val more = info.requiredBoolean(if (fromEnd) "hasPreviousPage" else "hasNextPage")
+        val raw = info.stringOrEmpty(if (fromEnd) "startCursor" else "endCursor").takeIf { it.isNotBlank() }
+        require(!more || raw != null) { "GitHub 分页结果不完整，请刷新" }
         val nodes = connection.requiredArray("nodes")
         require(nodes.size <= PAGE_SIZE) { "GitHub 分页超过读取上限" }
-        return UserListPage(nodes.map { parse(it as? JsonObject ?: error("GitHub 列表节点不可读取；分类未更改")) }, connection.requiredInt("totalCount"), cursor.takeIf { hasNext })
+        return UserListPage(nodes.map { parse(it as? JsonObject ?: error("GitHub 列表节点不可读取；分类未更改")) }, connection.requiredInt("totalCount"), raw.takeIf { more })
     }
     private fun incompleteMessage() = "分类读取超过上限（$PAGE_SIZE 个列表、$MAX_SCAN_ITEMS 条记录、$MAX_SCAN_PAGES 页）；为保留其他分类，未更改任何列表。请在 GitHub 网页中管理。"
 }
@@ -500,7 +534,8 @@ object UserLists {
         return root.requiredObject("data")
     }
     suspend fun lists(account: StarListAccount, login: String) = client.allLists(account, login)
-    suspend fun items(account: StarListAccount, list: GitHubStarList, cursor: String? = null) = client.items(account, list, cursor)
+    suspend fun items(account: StarListAccount, list: GitHubStarList, cursor: String? = null, descending: Boolean = false) =
+        client.items(account, list, cursor, descending)
     suspend fun memberships(account: StarListAccount, owner: String, name: String) = client.memberships(account, owner, name)
     suspend fun create(account: StarListAccount, name: String, description: String, isPrivate: Boolean) = client.create(account, name, description, isPrivate).also { changes.update { it + 1 } }
     suspend fun update(account: StarListAccount, list: GitHubStarList, name: String, description: String, isPrivate: Boolean) = client.update(account, list, name, description, isPrivate).also { changes.update { it + 1 } }

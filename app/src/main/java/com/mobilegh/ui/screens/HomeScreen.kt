@@ -3,6 +3,7 @@ package com.mobilegh.ui.screens
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
@@ -133,12 +134,26 @@ fun HomeScreen() {
                 }
                 item { SectionTitle("收藏列表") { TextLink("全部") { nav.push(Screen.StarLists(login)) } } }
                 item {
-                    HomeLists(
-                        lists.data, lists.error,
-                        onList = { nav.push(Screen.StarLists(login, it.id)) },
-                        onAll = { nav.push(Screen.StarLists(login)) },
-                        onRetry = { lists.load(true) },
-                    )
+                    // 首页和列表页共用搜索/排序状态，两处看到的顺序一致
+                    val listBrowser = rememberSharedListBrowser("home-lists:$login")
+                    Column {
+                        SearchBox(
+                            listBrowser.input, listBrowser.query, { listBrowser.input = it },
+                            { listBrowser.apply() }, { listBrowser.clear() },
+                            "搜索收藏列表", "名称或描述",
+                            Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                        )
+                        SortBar(
+                            LIST_SORTS, listBrowser.sort, listBrowser.descending,
+                            { listBrowser.pick(it) }, { listBrowser.descending = !listBrowser.descending },
+                        )
+                        HomeLists(
+                            lists.data?.let { listBrowser.shown(it) }, lists.data?.size ?: 0, lists.error,
+                            onList = { nav.push(Screen.StarLists(login, it.id)) },
+                            onAll = { nav.push(Screen.StarLists(login)) },
+                            onRetry = { lists.load(true) },
+                        )
+                    }
                 }
                 item { SectionTitle("贡献") { TextLink("详情") { nav.select(Tab.Me) } } }
                 item {

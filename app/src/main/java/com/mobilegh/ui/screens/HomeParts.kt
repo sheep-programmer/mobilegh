@@ -180,26 +180,29 @@ fun HomeInviteBanner(count: Int, onClick: () -> Unit) {
     }
 }
 
-/** 收藏列表的横向预览 */
+/** 收藏列表的横向预览：[shown] 已按首页的搜索/排序处理，[total] 是列表总数（用于「管理列表」副标题） */
 @Composable
-fun HomeLists(lists: List<GitHubStarList>?, error: String?, onList: (GitHubStarList) -> Unit, onAll: () -> Unit, onRetry: () -> Unit) {
+fun HomeLists(shown: List<GitHubStarList>?, total: Int, error: String?, onList: (GitHubStarList) -> Unit, onAll: () -> Unit, onRetry: () -> Unit) {
     val g = Gh.c
     when {
-        lists == null && error != null -> Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        shown == null && error != null -> Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("列表暂时无法读取", Modifier.weight(1f), fontSize = 13.sp, color = g.fgMuted)
             TextLink("重试", onClick = onRetry)
         }
-        lists == null -> Row(Modifier.horizontalScroll(rememberScrollState(), enabled = false).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        shown == null -> Row(Modifier.horizontalScroll(rememberScrollState(), enabled = false).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             repeat(3) { Box(Modifier.size(148.dp, 80.dp).background(g.canvasSubtle, RoundedCornerShape(8.dp))) }
         }
         else -> Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            lists.forEach { list ->
+            if (shown.isEmpty() && total > 0) ListTile(
+                R.drawable.oc_search, "没有匹配的列表", "换个关键词试试", "没有匹配的列表",
+            ) { onAll() }
+            shown.forEach { list ->
                 ListTile(
                     if (list.isPrivate) R.drawable.oc_lock else R.drawable.oc_checklist, list.name, "${list.count} 个仓库",
                     "打开列表 ${list.name}",
                 ) { onList(list) }
             }
-            ListTile(R.drawable.oc_plus, if (lists.isEmpty()) "新建列表" else "管理列表", if (lists.isEmpty()) "整理喜欢的仓库" else "${lists.size} 个列表", "打开收藏列表", muted = true, onClick = onAll)
+            ListTile(R.drawable.oc_plus, if (total == 0) "新建列表" else "管理列表", if (total == 0) "整理喜欢的仓库" else "$total 个列表", "打开收藏列表", muted = true, onClick = onAll)
         }
     }
 }

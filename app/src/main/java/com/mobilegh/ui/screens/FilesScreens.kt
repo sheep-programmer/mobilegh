@@ -198,29 +198,39 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
     val source = rememberLoader("src:$mdSource:${g.dark}") { force ->
         if (!mdSource) null else GitHub.fileRaw(owner, name, path, ref, force).let { t -> t to withContext(Dispatchers.Default) { highlightLines(t, "x.txt", sc) } }
     }
-    val canPush = rememberLoader("can-push") { GitHub.repo(owner, name, it).let { r -> r.permissions?.push == true && !r.archived } }
-    OnRepoChanged(owner, name) { body.refresh(); if (mdSource) source.refresh(); canPush.refresh() }
+    // 仓库信息除了决定能否写入，下载还要用两样：isPrivate 决定走哪个主机（私有的
+    // github.com/…/raw/… 带 Token 实测 404，公开的正常 302，所以私有只能走 raw 主机带凭据），
+    // defaultBranch 则在未选分支时给出确定的 ref，而不是赌 raw 主机能不能解析 HEAD
+    val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
+    val canPush = repo.data?.let { it.permissions?.push == true && !it.archived } == true
+    OnRepoChanged(owner, name) { body.refresh(); if (mdSource) source.refresh(); repo.refresh() }
     var deleting by remember { mutableStateOf(false) }
     if (deleting) DeleteFileDialog(owner, name, path, ref) { deleting = false }
     val fileName = path.substringAfterLast('/')
+    val downloadRef = ref ?: repo.data?.defaultBranch ?: "HEAD"
+    val downloadPrivate = repo.data?.isPrivate ?: com.mobilegh.data.Net.isPrivateRepo("$owner/$name")
     Page(
         fileName, subtitle = "${ref ?: "默认分支"} · $path",
         actions = {
             val b = body.data
             // 没有推送权限时编辑页只能提示去网页 Fork，不如直接不给入口（与「删除文件」一致）
-            val editable = canPush.data == true && ((b is FileBody.Code && b.text.length <= RepoWrite.MAX_EDIT_BYTES) || b is FileBody.Html)
+            val editable = canPush && ((b is FileBody.Code && b.text.length <= RepoWrite.MAX_EDIT_BYTES) || b is FileBody.Html)
             if (editable) OcButton(R.drawable.oc_pencil, { nav.push(Screen.EditFile(owner, name, ref, path)) })
             MoreMenu(buildList {
                 if (editable) add(MenuAction("编辑文件") { nav.push(Screen.EditFile(owner, name, ref, path)) })
                 if (b is FileBody.Code) add(MenuAction("复制全部内容") { ctx.copy(b.text) })
                 if (b is FileBody.Html) add(MenuAction(if (mdSource) "查看渲染" else "查看源码") { mdSource = !mdSource })
                 add(MenuAction(if (Session.codeWrap) "关闭自动换行" else "自动换行") { Session.toggleWrap() })
+                // 代码、图片、Markdown 以前都没有下载入口（只有二进制页有按钮），现在统一放到「更多」
+                add(MenuAction("下载") {
+                    ctx.downloadFile(repoFileDownloadUrl(owner, name, downloadRef, path, downloadPrivate), fileName, downloadPrivate)
+                })
                 add(MenuAction("文件历史") { nav.push(Screen.Commits(owner, name, ref, path)) })
                 add(MenuAction("逐行归因（Blame）") { nav.push(Screen.Blame(owner, name, path, ref)) })
                 add(MenuAction("复制路径") { ctx.copy(path) })
                 add(MenuAction("分享链接") { ctx.share("https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/$path") })
                 add(MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/$path") })
-                if (canPush.data == true) add(MenuAction("删除文件", danger = true) { deleting = true })
+                if (canPush) add(MenuAction("删除文件", danger = true) { deleting = true })
             })
         },
     ) { pad ->
@@ -250,12 +260,7 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
                 FileBody.Binary -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     EmptyState("二进制文件，无法预览", R.drawable.oc_file)
                     GhButton("下载到本机", Modifier.padding(horizontal = 32.dp).fillMaxWidth(), icon = R.drawable.oc_download) {
-                        val priv = com.mobilegh.data.Net.isPrivateRepo("$owner/$name")
-                        ctx.downloadFile(
-                            repoFileDownloadUrl(owner, name, ref ?: "HEAD", path, priv),
-                            path.substringAfterLast('/'),
-                            priv,
-                        )
+                        ctx.downloadFile(repoFileDownloadUrl(owner, name, downloadRef, path, downloadPrivate), fileName, downloadPrivate)
                     }
                 }
             }

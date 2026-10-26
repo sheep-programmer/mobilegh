@@ -91,10 +91,8 @@ class StarredReposClient internal constructor(
         if (owner.stringOrEmpty("__typename") != "User") return StarredPage(emptyList(), null, false)
         val connection = owner["starredRepositories"] as? JsonObject ?: error("GitHub 没有返回 Star 列表")
         val nodes = (connection["nodes"] as? JsonArray).orEmpty()
-        val info = connection["pageInfo"] as? JsonObject
-        val next = if ((info?.get("hasNextPage") as? JsonPrimitive)?.booleanOrNull == true) {
-            (info["endCursor"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
-        } else null
+        val info = connection.requiredObject("pageInfo")
+        val next = if (info.requiredBoolean("hasNextPage")) info.requiredString("endCursor") else null
         return StarredPage(
             repos = nodes.mapNotNull { node ->
                 (node as? JsonObject)?.let { parseRepo(it) }
@@ -146,11 +144,12 @@ internal fun starMatches(repo: Repo, query: String): Boolean {
 
 object StarredRepos {
     private val _searchSupported = MutableStateFlow(true)
+    private var supportGeneration = -1
 
     /** 服务端拒绝 query 参数后为 false；Star 页改用本地过滤并提示。 */
     val searchSupported: StateFlow<Boolean> = _searchSupported
 
-    private val client = StarredReposClient({ currentAccount() }, { _, query, variables ->
+    internal var client = StarredReposClient({ currentAccount() }, { _, query, variables ->
         Api.graphql(query, variables)
     })
 
@@ -161,13 +160,21 @@ object StarredRepos {
         return try {
             client.page(account, login, query, cursor, direction)
         } catch (unavailable: StarSearchUnavailable) {
-            _searchSupported.value = false
+            markSearchUnsupported(account.generation)
             throw unavailable
         }
     }
 
-    /** 账号或网络环境变化后允许重新尝试服务端搜索。 */
+    @Synchronized
+    private fun markSearchUnsupported(generation: Int) {
+        if (Session.generation == generation) _searchSupported.value = false
+    }
+
+    /** 每个账号只重置一次；页面保留后返回不能抹掉已确认的回退状态。 */
+    @Synchronized
     fun resetSupport() {
+        if (supportGeneration == Session.generation) return
+        supportGeneration = Session.generation
         _searchSupported.value = true
     }
 }

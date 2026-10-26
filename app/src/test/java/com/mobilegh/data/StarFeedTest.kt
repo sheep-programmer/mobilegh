@@ -93,6 +93,28 @@ class StarFeedTest {
         }
     }
 
+    @Test fun missingOrMalformedPageInfoIsAnErrorInsteadOfAFalseEnd() {
+        fun feed(info: JsonObject?) = buildJsonObject {
+            put("viewer", buildJsonObject { put("login", "Alice") })
+            put("repositoryOwner", buildJsonObject {
+                put("__typename", "User"); put("login", "Alice")
+                put("starredRepositories", buildJsonObject {
+                    put("isOverLimit", false)
+                    if (info != null) put("pageInfo", info)
+                    put("edges", JsonArray(emptyList()))
+                })
+            })
+        }
+        assertThrows(IllegalStateException::class.java) {
+            runBlocking { client { feed(null) }.page(alice, "Alice") }
+        }
+        assertThrows(IllegalStateException::class.java) {
+            runBlocking {
+                client { feed(buildJsonObject { put("hasNextPage", JsonNull) }) }.page(alice, "Alice")
+            }
+        }
+    }
+
     @Test fun invalidDirectionIsRejectedBeforeAnyRequest() {
         val failure = assertThrows(IllegalArgumentException::class.java) {
             runBlocking { client { error("must not be called") }.page(alice, "Alice", direction = "SIDEWAYS") }

@@ -12,17 +12,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -38,10 +39,13 @@ import androidx.compose.ui.window.Dialog
 import com.mobilegh.R
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.GitHubStarList
+import com.mobilegh.data.ListedRepository
+import com.mobilegh.data.LocalStarList
 import com.mobilegh.data.Repo
 import com.mobilegh.data.RepositoryListMemberships
 import com.mobilegh.data.Session
 import com.mobilegh.data.StarListAccount
+import com.mobilegh.data.StarLists
 import com.mobilegh.data.UserLists
 import com.mobilegh.data.UserListsClient
 import com.mobilegh.data.starListsForRepository
@@ -51,11 +55,15 @@ import com.mobilegh.nav.Screen
 import com.mobilegh.nav.friendly
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.ui.components.GhButton
+import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.Loading
+import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 /**
@@ -71,13 +79,21 @@ internal fun rememberStarListCatalog(login: String): Loader<List<GitHubStarList>
     }
 }
 
+internal fun starListPickedAfterWrite(wanted: Set<String>, picked: Set<String>, confirmed: Set<String>): Set<String> =
+    if (picked == wanted) confirmed else picked
+
+internal fun canCreateListWithRepository(snapshot: RepositoryListMemberships?, mine: Boolean): Boolean =
+    snapshot != null && (snapshot.starred || mine)
+
 /** 仓库菜单 / Star 长按的唯一入口：与首页同源的 Star 列表多选。 */
 @Composable
 fun AddToStarListsDialog(repo: Repo, onDismiss: () -> Unit) {
     val login = Session.login ?: return
     if (Session.token == null) return
     key(login.lowercase(Locale.ROOT), Session.generation, repo.id) {
-        StarListsPickerDialog(repo, StarListAccount(login, Session.generation), onDismiss)
+        var local by remember { mutableStateOf(false) }
+        if (local) LocalOnlyStarListDialog(repo, StarListAccount(login, Session.generation), onDismiss)
+        else StarListsPickerDialog(repo, StarListAccount(login, Session.generation), onDismiss) { local = true }
     }
 }
 
@@ -89,26 +105,28 @@ fun AddToStarListsDialog(repo: Repo, onDismiss: () -> Unit) {
  *    外层是否恰好把新值传下来，可能出现点了没反应、或第二次勾选把第一次的勾选覆盖掉。
  * 2. 归属（仓库已在哪些列表）由 `Repository.lists` 一个请求给出；它没回来之前不允许勾选，
  *    因为没有仓库节点 id 就写不了。
- * 3. 连点几下只保留最后一次结果：写入是串行的，写的时候界面先按最新选择显示，失败了再回滚。
+ * 3. 连点几下只保留最后一次结果：写入是串行的，写的时候界面先按最新选择显示；失败保留选择并允许重试，
+ *    因为响应丢失不代表服务端没有提交，不能直接回滚到可能已过期的旧归属。
  */
 @Composable
-private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismiss: () -> Unit) {
+private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismiss: () -> Unit, onLocal: () -> Unit) {
     val g = Gh.c
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
     val catalog = rememberStarListCatalog(account.login)
+    LaunchedEffect(catalog) {
+        if (catalog.data != null || catalog.error != null) catalog.refresh()
+    }
     var snapshot by remember { mutableStateOf<RepositoryListMemberships?>(null) }
     // 界面上的选择；null 表示还没读到归属
     var picked by remember { mutableStateOf<Set<String>?>(null) }
-    // GitHub 最后一次确认的选择，失败时回滚到它
+    // 最后一次服务端确认的完整归属；requested 单独记录用户上一次提交的选择。
     var applied by remember { mutableStateOf<Set<String>>(emptySet()) }
     var writing by remember { mutableStateOf(false) }
     var membershipError by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var creating by remember { mutableStateOf(false) }
-    // 弹窗内新建的列表先留在这里，等列表目录刷新后再自然合并
-    var created by remember { mutableStateOf<List<GitHubStarList>>(emptyList()) }
     var mine by remember { mutableStateOf(false) }
 
     fun loadMembership() {
@@ -130,19 +148,25 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
         }
     }
 
-    /** 把界面上的选择写进 GitHub：串行、只保留最新一次；失败回滚到上一次确认过的结果。 */
+    /** 串行写入用户增量；服务端同时出现的其它归属不纳入下一次删除范围。 */
     fun writePending() {
-        val repositoryId = snapshot?.repositoryId ?: return
-        if (writing) return
+        if (snapshot == null || writing) return
         writing = true
         scope.launch {
+            // requested 只含用户提交的选择；applied 保存服务端实际确认的完整归属。
+            var requested = applied
             try {
                 while (true) {
                     val wanted = picked ?: break
-                    if (wanted == applied) break
-                    UserLists.setRepositoryMembership(account, repositoryId, wanted)
-                    applied = wanted
-                    if (picked == wanted) {
+                    if (wanted == requested) break
+                    val confirmed = UserLists.setRepositoryLists(
+                        account, repo.owner.login, repo.name,
+                        selected = wanted, original = requested, allowUnstarred = mine,
+                    )
+                    requested = wanted
+                    applied = confirmed
+                    picked = starListPickedAfterWrite(wanted, picked ?: wanted, confirmed)
+                    if (picked == confirmed) {
                         error = null
                         break
                     }
@@ -151,7 +175,6 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                 throw cancel
             } catch (failure: Exception) {
                 error = failure.friendly()
-                picked = applied
             } finally {
                 writing = false
             }
@@ -168,15 +191,6 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
     }
 
     LaunchedEffect(account, repo.id) { loadMembership() }
-    // 勾选写的是仓库归属，列表目录没变；只有还没读到归属时才重新拉目录，免得每勾一下多一趟请求
-    val catalogRevision by UserLists.changes.collectAsState()
-    val observedRevision = remember { mutableLongStateOf(catalogRevision) }
-    LaunchedEffect(catalogRevision) {
-        if (observedRevision.longValue != catalogRevision) {
-            observedRevision.longValue = catalogRevision
-            if (snapshot == null) catalog.refresh()
-        }
-    }
     // 自己拥有但尚未 Star 的仓库沿用旧行为：确认所有者后仍可加入列表；长按入口本身只对已 Star 开放。
     LaunchedEffect(snapshot?.starred, account, repo.owner.login, repo.name) {
         mine = when {
@@ -193,9 +207,9 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
         }
     }
 
-    // 列表目录优先用与首页同源的读取结果；归属还在读取时先用归属快照里的列表兜底
-    val base = catalog.data ?: snapshot?.lists
-    val lists = remember(base, created) { (base.orEmpty() + created).distinctBy { it.id } }
+    // Repository.lists 只含已加入的列表，不能在目录读取失败时冒充完整目录。
+    val base = catalog.data
+    val lists = base.orEmpty()
     // 用打开弹窗时的归属排序，勾选过程中行不会跳动
     val ordered = remember(lists, snapshot) { starListsForRepository(lists, snapshot?.memberships.orEmpty()) }
 
@@ -205,15 +219,20 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                 saving = true
                 error = null
                 scope.launch {
+                    if (!canCreateListWithRepository(snapshot, mine)) {
+                        error = "仓库归属尚未确认，请返回后重试"
+                        saving = false
+                        return@launch
+                    }
                     try {
                         val list = UserLists.create(account, name, description, privateList)
                         if (Session.generation != account.generation || !account.login.equals(Session.login, true)) return@launch
-                        created = created + list
-                        // 新列表直接勾上并写进去，和手动勾选走同一条通道
-                        if (snapshot != null && (snapshot?.starred != false || mine)) {
-                            picked = (picked ?: applied) + list.id
-                            writePending()
-                        }
+                        val current = catalog.data
+                        if (current != null) catalog.accept((current + list).distinctBy { it.id })
+                        else catalog.refresh()
+                        // 创建入口已确认归属和可添加状态；新列表与手动勾选走同一条写入通道。
+                        picked = (picked ?: applied) + list.id
+                        writePending()
                         creating = false
                     } catch (cancel: CancellationException) {
                         throw cancel
@@ -229,14 +248,17 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
     }
 
     // 和官方客户端的选择面板一样：自己画卡片，底部不给「取消/保存」，勾选即生效
-    Dialog(onDismissRequest = { if (!saving) onDismiss() }) {
+    Dialog(onDismissRequest = { if (!saving && !writing) onDismiss() }) {
         Surface(
             Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
             color = g.canvas,
             border = BorderStroke(1.dp, g.border),
         ) {
-            Column(Modifier.padding(horizontal = 18.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                Modifier.padding(horizontal = 18.dp, vertical = 16.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("Star 列表", fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = g.fg)
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -252,7 +274,17 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                     if (mine) "这是你拥有的仓库，可以直接加入列表。" else "请先 Star 仓库再添加；仍可移除已有分类。",
                     fontSize = 12.sp, color = g.fgMuted,
                 )
-                error?.let { Text(it, color = g.danger, fontSize = 12.sp) }
+                error?.let {
+                    InlineError(it, Modifier.fillMaxWidth()) {
+                        if (!saving && !writing) {
+                            error = null
+                            writePending()
+                        }
+                    }
+                }
+                if (base != null && catalog.error != null) {
+                    InlineError("列表刷新失败：${catalog.error}", Modifier.fillMaxWidth()) { catalog.refresh() }
+                }
 
                 when {
                     base == null && catalog.error != null -> InlineError("列表读取失败：${catalog.error}", Modifier.fillMaxWidth()) { catalog.refresh() }
@@ -262,14 +294,14 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                         val failure = membershipError
                         if (snapshot == null && failure != null) InlineError("列表归属读取失败：$failure", Modifier.fillMaxWidth()) { loadMembership() }
                         if (ordered.isEmpty()) Text("还没有 GitHub 列表，新建一个后即可加入。", fontSize = 13.sp, color = g.fgMuted)
-                        else LazyColumn(Modifier.fillMaxWidth().heightIn(min = 72.dp, max = 260.dp)) {
-                            items(ordered, key = { it.id }) { list ->
+                        else Column(Modifier.fillMaxWidth()) {
+                            ordered.forEach { list ->
                                 // 直接在行内读状态：勾选变化一定让这一行自己重组，不依赖外层是否传下新值
-                                val joined = snapshot?.memberships.orEmpty()
                                 val chosen = picked ?: applied
                                 val checked = list.id in chosen
                                 val addable = snapshot?.starred != false || mine
-                                val enabled = snapshot != null && !saving && (addable || checked || list.id in joined)
+                                // 未 Star 时只允许移除已有分类；移除后不能绕过数据层校验再次添加。
+                                val enabled = snapshot != null && !saving && (addable || checked)
                                 Row(
                                     Modifier.fillMaxWidth()
                                         .toggleable(value = checked, enabled = enabled, role = Role.Checkbox) { toggle(list.id) }
@@ -292,21 +324,122 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                     }
                 }
 
-                // 新建与管理同一套外观，两个按钮等宽并排；列表满额（MAX_LISTS）就不给新建入口。
-                // 这里的可用状态只跟「有没有满额」有关，勾选/写入过程不会让它变样。
+                // 新建会同时加入当前仓库，因此归属未读妥或不可添加时不能创建后静默跳过写入。
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (lists.size < UserListsClient.MAX_LISTS) GhButton(
-                        "新建列表", Modifier.weight(1f), icon = R.drawable.oc_plus, enabled = !saving,
+                        "新建列表", Modifier.weight(1f), icon = R.drawable.oc_plus,
+                        enabled = !saving && !writing && canCreateListWithRepository(snapshot, mine),
                     ) {
                         error = null
                         creating = true
                     }
-                    GhButton("管理", Modifier.weight(1f), icon = R.drawable.oc_checklist, enabled = !saving) {
+                    GhButton("管理", Modifier.weight(1f), icon = R.drawable.oc_checklist, enabled = !saving && !writing) {
                         onDismiss()
                         nav.push(Screen.StarLists(account.login))
                     }
                 }
+                TextButton(onClick = onLocal, enabled = !saving && !writing, modifier = Modifier.fillMaxWidth()) {
+                    Text("改用本机列表（不同步 GitHub）")
+                }
             }
+        }
+    }
+}
+
+/** 本机分类是明确独立的存储，不把它包装成会同步到 GitHub 的列表。 */
+@Composable
+private fun LocalOnlyStarListDialog(repo: Repo, account: StarListAccount, onDismiss: () -> Unit) {
+    val ctx = rememberCtx()
+    val nav = LocalNav.current
+    val store = remember { StarLists.store(ctx) }
+    val scope = rememberCoroutineScope()
+    var lists by remember { mutableStateOf<List<LocalStarList>?>(null) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var starred by remember { mutableStateOf<Boolean?>(null) }
+    var loading by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val original = lists?.filter { list -> list.repositories.any { it.id == repo.id } }?.map { it.id }?.toSet().orEmpty()
+
+    fun load() {
+        if (loading || saving) return
+        loading = true
+        error = null
+        scope.launch {
+            try {
+                val local = withContext(Dispatchers.IO) { store.read(account) }
+                lists = local
+                selected = local.filter { list -> list.repositories.any { it.id == repo.id } }.map { it.id }.toSet()
+                starred = GitHub.isStarred(repo.owner.login, repo.name)
+                check(Session.generation == account.generation && account.login.equals(Session.login, true) && Session.token != null) {
+                    "账号已切换，请重新打开列表"
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                error = failure.friendly()
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    LaunchedEffect(account, repo.id) { load() }
+    GhDialog(
+        "加入本机列表",
+        onDismiss = { if (!saving) onDismiss() },
+        confirm = if (saving) "保存中…" else "保存",
+        confirmEnabled = !saving && !loading && lists != null && selected != original &&
+            (starred == true || selected.all { it in original }),
+        onConfirm = {
+            saving = true
+            error = null
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        store.setRepositoryLists(account, ListedRepository.from(repo), selected, original)
+                    }
+                    onDismiss()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    error = failure.friendly()
+                } finally {
+                    saving = false
+                }
+            }
+        },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(repo.fullName.ifBlank { "${repo.owner.login}/${repo.name}" }, fontWeight = FontWeight.SemiBold)
+            Text("仅保存在当前设备，不会同步到 GitHub。", color = Gh.c.fgMuted, fontSize = 12.sp)
+            if (starred == false) Text("请先 Star 此仓库再添加；仍可移除已有的本机分类。", color = Gh.c.fgMuted, fontSize = 12.sp)
+            error?.let { InlineError(it, Modifier.fillMaxWidth()) { load() } }
+            if (loading) Loading(Modifier.fillMaxWidth().height(48.dp))
+            if (lists?.isEmpty() == true) Text("暂无本机列表，先在管理页创建一个。", color = Gh.c.fgMuted, fontSize = 13.sp)
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp)) {
+                items(lists.orEmpty(), key = { it.id }) { list ->
+                    val checked = list.id in selected
+                    val enabled = !saving && !loading && (starred == true || checked)
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .toggleable(value = checked, enabled = enabled, role = Role.Checkbox) {
+                                selected = if (checked) selected - list.id else selected + list.id
+                            }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked, null, enabled = enabled)
+                        Spacer(Modifier.width(10.dp))
+                        Text(list.name, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            TextButton(
+                onClick = { onDismiss(); nav.push(Screen.StarLists(account.login, local = true)) },
+                enabled = !saving,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("管理 / 新建本机列表") }
         }
     }
 }

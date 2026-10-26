@@ -33,6 +33,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,7 +54,7 @@ import com.mobilegh.ui.theme.Gh
 
 /** 可横向滑动的筛选标签 */
 @Composable
-fun Chips(options: List<String>, selected: Int, modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
+fun Chips(options: List<String>, selected: Int, modifier: Modifier = Modifier, enabled: Boolean = true, onSelect: (Int) -> Unit) {
     val g = Gh.c
     Row(
         modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
@@ -68,11 +69,11 @@ fun Chips(options: List<String>, selected: Int, modifier: Modifier = Modifier, o
                     .border(1.dp, if (sel) g.accent.copy(alpha = 0.6f) else g.border, RoundedCornerShape(50))
                     // 涟漪要裁进胶囊形状，否则点击效果是越界的矩形
                     .clip(RoundedCornerShape(50))
-                    .clickable { onSelect(i) }
+                    .clickable(enabled = enabled) { onSelect(i) }
                     .padding(horizontal = 14.dp, vertical = 6.dp),
                 fontSize = 13.sp,
                 fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (sel) g.accent else g.fg,
+                color = if (!enabled) g.fgMuted else if (sel) g.accent else g.fg,
             )
         }
     }
@@ -80,13 +81,18 @@ fun Chips(options: List<String>, selected: Int, modifier: Modifier = Modifier, o
 
 /** 下拉选择按钮；active 时以强调色显示（表示已设置筛选） */
 @Composable
-fun Dropdown(label: String, options: List<String>, onSelect: (Int) -> Unit, modifier: Modifier = Modifier, active: Boolean = false) {
+fun Dropdown(label: String, options: List<String>, onSelect: (Int) -> Unit, modifier: Modifier = Modifier, active: Boolean = false, enabled: Boolean = true) {
     var open by remember { mutableStateOf(false) }
+    LaunchedEffect(enabled) { if (!enabled) open = false }
     val g = Gh.c
-    DropdownButton(label, modifier, active, menu = {
+    DropdownButton(label, modifier, active, enabled = enabled, menu = {
         DropdownMenu(open, { open = false }, containerColor = g.canvas) {
             options.forEachIndexed { i, s ->
-                DropdownMenuItem(text = { Text(s, color = g.fg) }, onClick = { open = false; onSelect(i) })
+                DropdownMenuItem(
+                    text = { Text(s, color = g.fg) },
+                    onClick = { open = false; onSelect(i) },
+                    enabled = enabled,
+                )
             }
         }
     }) { open = true }
@@ -94,7 +100,7 @@ fun Dropdown(label: String, options: List<String>, onSelect: (Int) -> Unit, modi
 
 /** 与 [Dropdown] 外观一致的按钮，点按后由调用方决定打开什么（如选择弹窗） */
 @Composable
-fun DropdownButton(label: String, modifier: Modifier = Modifier, active: Boolean = false, menu: @Composable () -> Unit = {}, onClick: () -> Unit) {
+fun DropdownButton(label: String, modifier: Modifier = Modifier, active: Boolean = false, menu: @Composable () -> Unit = {}, enabled: Boolean = true, onClick: () -> Unit) {
     val g = Gh.c
     Row(
         modifier
@@ -103,7 +109,7 @@ fun DropdownButton(label: String, modifier: Modifier = Modifier, active: Boolean
             .border(1.dp, if (active) g.accent.copy(alpha = 0.6f) else g.border, RoundedCornerShape(6.dp))
             .background(if (active) g.accentSubtle else g.btnBg, RoundedCornerShape(6.dp))
             .clip(RoundedCornerShape(6.dp))
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -141,6 +147,7 @@ fun GhField(
     modifier: Modifier = Modifier,
     singleLine: Boolean = true,
     minLines: Int = 1,
+    enabled: Boolean = true,
     placeholder: String? = null,
     // GitHub 类输入（令牌、分支、用户名）不该被键盘首字母大写，否则精确匹配永远失败
     keyboardOptions: KeyboardOptions = KeyboardOptions(
@@ -158,6 +165,7 @@ fun GhField(
         OutlinedTextField(
             value, onValueChange,
             modifier = m,
+            enabled = enabled,
             label = if (labelAbove) null else { { Text(label) } },
             placeholder = placeholder?.let { { Text(it, color = g.fgMuted) } },
             singleLine = singleLine,
@@ -254,6 +262,7 @@ fun GhDialog(
     confirm: String = "确定",
     danger: Boolean = false,
     confirmEnabled: Boolean = true,
+    dismissEnabled: Boolean = true,
     onConfirm: (() -> Unit)? = null,
     content: @Composable () -> Unit = {},
 ) {
@@ -275,7 +284,7 @@ fun GhDialog(
                 }
             }
         },
-        dismissButton = { TextButton(onDismiss) { Text(if (onConfirm == null) "关闭" else "取消", color = g.fgMuted) } },
+        dismissButton = { TextButton(onDismiss, enabled = dismissEnabled) { Text(if (onConfirm == null) "关闭" else "取消", color = g.fgMuted) } },
     )
 }
 

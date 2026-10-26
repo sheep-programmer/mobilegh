@@ -1,10 +1,12 @@
 package com.mobilegh.data
 
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -34,6 +36,96 @@ class ForkOptionsTest {
     @Test fun forkBodyNeverCarriesDescription() {
         val body = GitHub.forkBody(organization = null, newName = null, defaultBranchOnly = true)
         assertNull(body["description"])
+    }
+
+    @Test fun repositoryNamesUseRepositoryRulesInsteadOfGitBranchRules() {
+        listOf("repo..name", ".github", "a_b-c.d", "a".repeat(100)).forEach {
+            assertTrue("合法仓库名被拒绝：$it", validForkName(it))
+        }
+        listOf("", ".", "..", "a/b", "a b", "a@b", "a".repeat(101)).forEach {
+            assertFalse("非法仓库名被接受：$it", validForkName(it))
+        }
+    }
+
+    @Test fun descriptionWaitsUntilAnAsynchronouslyCreatedForkIsReadable() = runBlocking {
+        val events = mutableListOf<String>()
+        var reads = 0
+        finishFork(
+            "new description",
+            read = {
+                events += "read"
+                if (++reads < 3) throw ApiException(404, "not ready")
+            },
+            update = { events += "write:$it" },
+            pause = { events += "wait" },
+        )
+        assertEquals(listOf("read", "wait", "read", "wait", "read", "write:new description"), events)
+    }
+
+    @Test fun descriptionTimeoutDoesNotPretendTheDescriptionWasWritten() = runBlocking {
+        var reads = 0
+        val writes = mutableListOf<String>()
+        assertThrows(ApiException::class.java) {
+            runBlocking {
+                finishFork(
+                    "new description",
+                    read = { reads++; throw ApiException(404, "not ready") },
+                    update = { writes += it },
+                    pause = {},
+                )
+            }
+        }
+        assertTrue(reads > 1)
+        assertTrue(writes.isEmpty())
+    }
+
+    @Test fun descriptionDoesNotRetryPermissionOrNetworkFailures() = runBlocking {
+        var reads = 0
+        val failure = assertThrows(ApiException::class.java) {
+            runBlocking {
+                finishFork(
+                    "new description",
+                    read = { reads++; throw ApiException(403, "forbidden") },
+                    update = { error("must not write after a failed readiness check") },
+                    pause = {},
+                )
+            }
+        }
+        assertEquals(403, failure.code)
+        assertEquals(1, reads)
+    }
+
+    @Test fun unchangedDescriptionStillWaitsForTheForkToBecomeReadable() = runBlocking {
+        val events = mutableListOf<String>()
+        var reads = 0
+        finishFork(
+            null,
+            read = {
+                events += "read"
+                if (++reads < 2) throw ApiException(404, "not ready")
+            },
+            update = { events += "unexpected write:$it" },
+            pause = { events += "wait" },
+        )
+        assertEquals(listOf("read", "wait", "read"), events)
+    }
+
+    @Test fun descriptionUpdate404IsNotRetriedAsAReadinessFailure() = runBlocking {
+        var reads = 0
+        var writes = 0
+        val failure = assertThrows(ApiException::class.java) {
+            runBlocking {
+                finishFork(
+                    "new description",
+                    read = { reads++ },
+                    update = { writes++; throw ApiException(404, "description update failed") },
+                    pause = {},
+                )
+            }
+        }
+        assertEquals("description update failed", failure.message)
+        assertEquals(1, reads)
+        assertEquals(1, writes)
     }
 
     @Test fun nullOrganizationAndNameAreOmitted() {

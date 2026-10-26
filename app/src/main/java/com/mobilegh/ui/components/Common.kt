@@ -272,6 +272,8 @@ fun <T> PagedList(
     boxed: Boolean = true,
     contentPadding: PaddingValues = PaddingValues(top = 8.dp, bottom = 16.dp),
     onRefresh: () -> Unit = {},
+    /** 本地过滤时关闭自动翻页，避免空结果页持续触发请求；底部提供显式“加载更多”。 */
+    autoLoad: Boolean = true,
     itemFilter: ((T) -> Boolean)? = null,
     /** 只对已加载条目排序：分页数据无法在服务端重排时使用 */
     itemSort: Comparator<T>? = null,
@@ -293,8 +295,8 @@ fun <T> PagedList(
             (li.visibleItemsInfo.lastOrNull()?.index ?: 0) >= li.totalItemsCount - 6
         }
     }
-    LaunchedEffect(pager, state) {
-        snapshotFlow { near && !pager.loading && !pager.end && pager.error == null }
+    LaunchedEffect(pager, state, autoLoad) {
+        snapshotFlow { autoLoad && near && !pager.loading && !pager.end && pager.error == null }
             .collect { if (it) pager.loadMore() }
     }
     PullToRefreshBox(pager.refreshing, onRefresh = { pager.refresh(); onRefresh() }, modifier) {
@@ -330,6 +332,12 @@ fun <T> PagedList(
                         TextLink("加载失败，点击重试") { pager.retry() }
                     }
                     pager.loading && !pager.refreshing -> Loading(fill.padding(24.dp))
+                    !autoLoad && !pager.loading && !pager.end && shown.isEmpty() -> EmptyState(
+                        filteredEmpty, emptyIcon, fill, "加载更多", { pager.loadMore() },
+                    )
+                    !autoLoad && !pager.loading && !pager.end -> Box(
+                        Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center,
+                    ) { TextLink("加载更多") { pager.loadMore() } }
                     pager.end && shown.isEmpty() -> EmptyState(
                         if (pager.items.isEmpty()) empty else filteredEmpty, emptyIcon, fill, emptyAction,
                         onEmptyAction ?: { pager.refresh(); onRefresh() },

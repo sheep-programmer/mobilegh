@@ -69,11 +69,21 @@ class Loader<T>(private val scope: CoroutineScope, private val block: suspend (f
     fun refresh() = load(true)
 }
 
+/** 一页结果及其元数据。[onCommit] 只会在请求仍是最新时、于 Pager 所在主线程执行。 */
+data class PagerPage<T>(
+    val items: List<T>,
+    val hasMore: Boolean? = null,
+    val onCommit: () -> Unit = {},
+)
+
 /** 分页列表 */
 class Pager<T>(
     private val scope: CoroutineScope,
     private val pageSize: Int = 30,
-    private val fetch: suspend (page: Int, force: Boolean) -> List<T>,
+    /** 服务端游标分页在过滤 null 节点后可能不足 pageSize，此时由数据源明确报告是否还有下一页。 */
+    private val hasMore: ((page: Int) -> Boolean)? = null,
+    private val fetchPage: (suspend (page: Int, force: Boolean) -> PagerPage<T>)? = null,
+    private val fetch: suspend (page: Int, force: Boolean) -> List<T> = { _, _ -> error("Pager 缺少数据源") },
 ) {
     private val generation = Session.generation
     val items = mutableStateListOf<T>()
@@ -120,15 +130,17 @@ class Pager<T>(
             try {
                 do {
                     val next = if (kind == Request.Refresh) 1 else page + 1
-                    val list = withContext(Dispatchers.Default) {
+                    val result = withContext(Dispatchers.Default) {
                         if (Session.generation != generation) throw CancellationException("Account changed")
-                        fetch(next, kind == Request.Refresh)
+                        fetchPage?.invoke(next, kind == Request.Refresh)
+                            ?: PagerPage(fetch(next, kind == Request.Refresh))
                     }
                     if (id != operation || Session.generation != generation) return@launch
                     if (kind == Request.Refresh) items.clear()
-                    items.addAll(list)
+                    result.onCommit()
+                    items.addAll(result.items)
                     page = next
-                    end = list.size < pageSize
+                    end = result.hasMore?.not() ?: hasMore?.invoke(next)?.not() ?: (result.items.size < pageSize)
                 } while (kind == Request.All && !end)
             } catch (e: CancellationException) {
                 throw e
@@ -144,7 +156,14 @@ class Pager<T>(
         }
     }
 
-    fun update(transform: (MutableList<T>) -> Unit) = transform(items)
+    /** 已确认的本地写操作会使旧响应失效，避免进行中的刷新把已删除条目加回来。 */
+    fun update(transform: (MutableList<T>) -> Unit) {
+        operation++
+        job?.cancel()
+        loading = false
+        refreshing = false
+        transform(items)
+    }
 }
 
 @Composable
@@ -152,8 +171,13 @@ fun <T> rememberLoader(key: String, block: suspend (force: Boolean) -> T): Loade
     retain(key) { e -> Loader(e.scope, block).also { it.load() } }
 
 @Composable
-fun <T> rememberPager(key: String, pageSize: Int = 30, fetch: suspend (page: Int, force: Boolean) -> List<T>): Pager<T> =
-    retain(key) { e -> Pager(e.scope, pageSize, fetch).also { it.loadMore() } }
+fun <T> rememberPager(
+    key: String,
+    pageSize: Int = 30,
+    hasMore: ((page: Int) -> Boolean)? = null,
+    fetchPage: (suspend (page: Int, force: Boolean) -> PagerPage<T>)? = null,
+    fetch: suspend (page: Int, force: Boolean) -> List<T> = { _, _ -> error("Pager 缺少数据源") },
+): Pager<T> = retain(key) { e -> Pager(e.scope, pageSize, hasMore, fetchPage, fetch).also { it.loadMore() } }
 
 /** 在页面作用域内执行一次性操作（如 star、合并），并返回错误提示 */
 fun Entry.act(onError: (String) -> Unit = {}, onDone: () -> Unit = {}, block: suspend () -> Unit) {

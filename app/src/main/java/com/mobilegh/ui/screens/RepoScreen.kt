@@ -87,7 +87,9 @@ import com.mobilegh.ui.components.share
 import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.components.MdText
 import com.mobilegh.data.OrganizationAccess
-import com.mobilegh.data.RepoWrite
+import com.mobilegh.data.OrganizationDirectory
+import com.mobilegh.data.validForkName
+import com.mobilegh.data.finishFork
 import com.mobilegh.data.Session
 import com.mobilegh.nav.friendly
 import com.mobilegh.ui.components.RadioRow
@@ -343,7 +345,11 @@ private fun ForkDialog(
 
     // 组织列表按需拉取：只 fork 到自己账号时不发这个请求
     var toOrg by rememberSaveable { mutableStateOf(false) }
-    val orgs = rememberLoader("fork-orgs") { OrganizationAccess.read(it).orgs.map { o -> o.login } }
+    val loadOrganizations = toOrg
+    val orgs = rememberLoader("fork-orgs:$loadOrganizations") {
+        if (loadOrganizations) OrganizationAccess.read(it, includeRepositoryOwners = false)
+        else OrganizationDirectory(emptyList(), emptyList(), null)
+    }
     var org by rememberSaveable { mutableStateOf("") }
 
     var newName by rememberSaveable { mutableStateOf("") }
@@ -351,41 +357,54 @@ private fun ForkDialog(
     // 默认只复制默认分支：与 GitHub 网页端一致，也避免把无关分支一起带走
     var defaultOnly by rememberSaveable { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
+    var waiting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
     val trimmedName = newName.trim()
-    // 留空表示沿用原仓库名
-    val targetName = trimmedName.ifEmpty { name }
-    val nameInvalid = trimmedName.isNotEmpty() && !RepoWrite.validBranch(trimmedName)
+    val nameInvalid = trimmedName.isNotEmpty() && !validForkName(trimmedName)
     val orgMissing = toOrg && org.isBlank()
     val valid = !nameInvalid && !orgMissing && !busy
 
     fun submit() {
+        val destination = if (toOrg) org.trim() else null
+        val requestedName = trimmedName.ifEmpty { null }
+        val requestedDescription = desc.trim()
+        val descriptionChanged = requestedDescription != repo.description.orEmpty().trim()
+        val requestedDefaultOnly = defaultOnly
         busy = true
+        waiting = false
         error = null
         entry.scope.launch {
             try {
-                val forked = GitHub.fork(
-                    owner, name,
-                    organization = if (toOrg) org.trim() else null,
-                    newName = trimmedName.ifEmpty { null },
-                    defaultBranchOnly = defaultOnly,
-                )
-                // fork 已经建好；描述写失败只提示，不当作 fork 失败
-                var descFailed = false
-                if (desc.trim() != repo.description.orEmpty().trim()) {
-                    descFailed = try {
-                        GitHub.setDescription(forked.owner.login, forked.name, desc.trim()); false
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Throwable) {
-                        true
-                    }
+                val forked = entry.guarded {
+                    GitHub.fork(
+                        owner, name,
+                        organization = destination,
+                        newName = requestedName,
+                        defaultBranchOnly = requestedDefaultOnly,
+                    )
                 }
+                // Fork 是异步创建；不改描述也要等仓库可读，只对读取 404 做有限等待。
+                waiting = true
+                val followUpFailed = try {
+                    finishFork(
+                        if (descriptionChanged) requestedDescription else null,
+                        read = { entry.guarded { GitHub.repo(forked.owner.login, forked.name, force = true); Unit } },
+                        update = { description -> entry.guarded { GitHub.setDescription(forked.owner.login, forked.name, description) } },
+                    )
+                    false
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    true
+                }
+                check(entry.sameAccount()) { "账号已切换，旧账号的 Fork 结果不再打开" }
                 busy = false
+                waiting = false
                 ctx.toast(
                     when {
-                        descFailed -> "已 Fork 到 ${forked.fullName}，但描述未能写入"
+                        followUpFailed && descriptionChanged -> "已 Fork 到 ${forked.fullName}，但等待创建或写入描述失败"
+                        followUpFailed -> "已 Fork 到 ${forked.fullName}，仓库仍在创建，请稍后刷新"
                         else -> "已 Fork 到 ${forked.fullName}"
                     }
                 )
@@ -394,6 +413,7 @@ private fun ForkDialog(
                 throw e
             } catch (e: Throwable) {
                 busy = false
+                waiting = false
                 error = e.friendly()
             }
         }
@@ -402,8 +422,9 @@ private fun ForkDialog(
     GhDialog(
         "Fork 此仓库",
         onDismiss = { if (!busy) onDismiss() },
-        confirm = if (busy) "Fork 中…" else "Fork",
+        confirm = if (waiting) "等待创建…" else if (busy) "Fork 中…" else "Fork",
         confirmEnabled = valid,
+        dismissEnabled = !busy,
         onConfirm = ::submit,
     ) {
         Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
@@ -415,12 +436,20 @@ private fun ForkDialog(
 
             if (toOrg) {
                 Spacer(Modifier.height(6.dp))
-                val list = orgs.data
+                val directory = orgs.data
+                val list = directory?.orgs?.map { it.login }
+                val warnings = directory?.warnings.orEmpty()
+                if (warnings.isNotEmpty()) {
+                    InlineError("部分组织信息读取不完整：${warnings.joinToString("\n")}") { orgs.refresh() }
+                }
                 when {
-                    list != null && list.isEmpty() ->
-                        Text("当前授权没有返回可用的组织", fontSize = 12.sp, color = g.danger)
+                    list != null && list.isEmpty() -> Text(
+                        if (warnings.isEmpty()) "当前授权没有返回可用的组织"
+                        else "未读取到可用组织；请先检查上方读取警告",
+                        fontSize = 12.sp, color = g.danger,
+                    )
                     list != null -> {
-                        Chips(list, list.indexOf(org).coerceAtLeast(0), onSelect = { org = list[it] })
+                        Chips(list, list.indexOf(org), enabled = !busy, onSelect = { org = list[it] })
                         if (org.isBlank()) Text("请选择组织", fontSize = 12.sp, color = g.danger)
                     }
                     orgs.error != null -> InlineError(orgs.error!!) { orgs.refresh() }
@@ -429,11 +458,12 @@ private fun ForkDialog(
             }
 
             Spacer(Modifier.height(10.dp))
-            GhField(targetName, { newName = it }, "仓库名称", placeholder = name)
+            GhField(newName, { newName = it }, "仓库名称（可选）", enabled = !busy, placeholder = name)
+            Text("留空沿用原名；可使用字母、数字、点、下划线和连字符。", Modifier.padding(top = 4.dp), fontSize = 11.sp, color = g.fgMuted)
             if (nameInvalid) Text("仓库名称无效", fontSize = 12.sp, color = g.danger)
 
             Spacer(Modifier.height(10.dp))
-            GhField(desc, { desc = it }, "描述", singleLine = false, minLines = 2)
+            GhField(desc, { desc = it }, "描述", singleLine = false, minLines = 2, enabled = !busy)
 
             Spacer(Modifier.height(10.dp))
             SwitchRow(

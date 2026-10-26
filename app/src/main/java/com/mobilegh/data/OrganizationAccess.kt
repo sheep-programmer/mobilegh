@@ -12,7 +12,7 @@ data class OrganizationDirectory(
 
 /** Memberships and repository owners are complementary, not proof that an app is approved. */
 object OrganizationAccess {
-    suspend fun read(force: Boolean): OrganizationDirectory {
+    suspend fun read(force: Boolean, includeRepositoryOwners: Boolean = true): OrganizationDirectory {
         val orgs = linkedMapOf<String, Org>()
         val warnings = mutableListOf<String>()
         var scopes: String? = null
@@ -41,10 +41,13 @@ object OrganizationAccess {
         readPages("/user/memberships/orgs?state=active", "组织成员身份", { Api.json.decodeFromString(ListSerializer(OrgMembership.serializer()), it) }) {
             if (it.state == "active") add(it.organization)
         }
-        // A collaborator may have repositories in an org that isn't in their membership list.
-        readPages("/user/repos?affiliation=owner,collaborator,organization_member&sort=pushed", "可访问仓库", { Api.json.decodeFromString(ListSerializer(Repo.serializer()), it) }) { repo ->
-            if (repo.isPrivate) Net.markPrivate(repo.fullName)
-            if (repo.owner.type == "Organization") add(Org(login = repo.owner.login, avatarUrl = repo.owner.avatarUrl))
+        // Fork 的目的地只来自组织成员关系；完整权限诊断才需要遍历可访问仓库。
+        if (includeRepositoryOwners) {
+            // A collaborator may have repositories in an org that isn't in their membership list.
+            readPages("/user/repos?affiliation=owner,collaborator,organization_member&sort=pushed", "可访问仓库", { Api.json.decodeFromString(ListSerializer(Repo.serializer()), it) }) { repo ->
+                if (repo.isPrivate) Net.markPrivate(repo.fullName)
+                if (repo.owner.type == "Organization") add(Org(login = repo.owner.login, avatarUrl = repo.owner.avatarUrl))
+            }
         }
         if (succeeded == 0) throw ApiException(-1, warnings.joinToString("\n"))
         val scopeSet = scopes?.split(',')?.map { it.trim() }?.toSet()

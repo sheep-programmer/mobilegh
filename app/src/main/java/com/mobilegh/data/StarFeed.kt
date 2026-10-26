@@ -91,11 +91,9 @@ class StarFeedClient internal constructor(
             val repo = (node["node"] as? JsonObject)?.let(::parseRepo) ?: return@mapNotNull null
             StarFeedItem(repo, (node["starredAt"] as? JsonPrimitive)?.contentOrNull.orEmpty())
         }
-        val info = connection["pageInfo"] as? JsonObject
-        val hasNext = (info?.get("hasNextPage") as? JsonPrimitive)?.booleanOrNull == true
-        val next = if (hasNext) {
-            (info["endCursor"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
-                ?: error("Star 列表分页缺少游标")
+        val info = connection.requiredObject("pageInfo")
+        val next = if (info.requiredBoolean("hasNextPage")) {
+            info.requiredString("endCursor")
         } else null
         return StarFeedPage(
             items = items,
@@ -128,6 +126,7 @@ class StarFeedClient internal constructor(
     }
 }
 
+private fun JsonObject.requiredObject(name: String) = this[name] as? JsonObject ?: error("Star 列表字段 $name 不完整，请刷新")
 private fun JsonObject.requiredString(name: String) = (this[name] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
     ?: error("Star 列表字段 $name 不完整，请刷新")
 private fun JsonObject.stringOrEmpty(name: String) = (this[name] as? JsonPrimitive)?.contentOrNull.orEmpty()

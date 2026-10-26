@@ -1,6 +1,8 @@
 package com.mobilegh.data
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -34,6 +36,7 @@ object AppLog {
     private const val MAX_ENTRIES = 3000
     private lateinit var file: File
     private val lock = Any()
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false; isLenient = true }
     val entries = mutableStateListOf<AppLogEntry>()
     val version = mutableIntStateOf(0)
@@ -58,8 +61,10 @@ object AppLog {
     fun error(category: String, message: String, error: Throwable? = null) = write(entry("ERROR", category, message, error))
 
     fun clear() {
-        synchronized(lock) { runCatching { file.writeText("") } }
-        Snapshot.withMutableSnapshot { entries.clear(); version.intValue++ }
+        synchronized(lock) {
+            runCatching { file.writeText("") }
+            updateState { entries.clear(); version.intValue++ }
+        }
     }
 
     fun export(list: List<AppLogEntry>): String = buildString {
@@ -100,26 +105,32 @@ object AppLog {
                     file.writeBytes(bytes.copyOfRange((bytes.size - MAX_BYTES / 2).coerceAtLeast(0).toInt(), bytes.size))
                 }
             }
-        }
-        Snapshot.withMutableSnapshot {
-            entries.add(0, entry)
-            while (entries.size > MAX_ENTRIES) entries.removeAt(entries.lastIndex)
-            version.intValue++
+            // 文件写入和状态排队必须处于同一临界区，clear 才能得到完全相同的顺序。
+            updateState {
+                entries.add(0, entry)
+                while (entries.size > MAX_ENTRIES) entries.removeAt(entries.lastIndex)
+                version.intValue++
+            }
         }
     }
 
+    /** 所有状态更新按文件操作顺序进入主线程队列，避免后台写入越过随后的 clear。 */
+    private fun updateState(update: () -> Unit) {
+        mainHandler.post { Snapshot.withMutableSnapshot { update() } }
+    }
+
     private fun load() {
-        val loaded = synchronized(lock) {
-            runCatching {
+        synchronized(lock) {
+            val loaded = runCatching {
                 file.takeIf { it.exists() }?.readLines()?.takeLast(MAX_ENTRIES)?.mapNotNull { line ->
                     runCatching { json.decodeFromString(AppLogEntry.serializer(), line) }.getOrNull()
                 }.orEmpty()
             }.getOrDefault(emptyList())
-        }
-        Snapshot.withMutableSnapshot {
-            entries.clear()
-            entries.addAll(loaded.asReversed())
-            version.intValue++
+            updateState {
+                entries.clear()
+                entries.addAll(loaded.asReversed())
+                version.intValue++
+            }
         }
     }
 

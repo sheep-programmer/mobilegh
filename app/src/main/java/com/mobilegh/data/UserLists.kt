@@ -109,7 +109,7 @@ class UserListsClient internal constructor(
          * 不再把上百个列表塞进一个嵌套请求里。
          */
         private const val LIST_CONTAINS_REPOSITORY = "query MobileGHListContainsRepository(\$id:ID!,\$after:String) { viewer { login } node(id:\$id) { ... on UserList { id user { login } items(first:$PAGE_SIZE,after:\$after) { $PAGE_FIELDS nodes { ... on Repository { id } } } } } }"
-        private const val REPO_FIELDS = "id databaseId name nameWithOwner isPrivate description stargazerCount forkCount primaryLanguage { name } pushedAt updatedAt owner { __typename login avatarUrl }"
+        private const val REPO_FIELDS = "id databaseId name nameWithOwner isPrivate isFork isArchived description stargazerCount forkCount primaryLanguage { name } pushedAt updatedAt owner { __typename login avatarUrl }"
         private val LOGIN = Regex("[A-Za-z0-9-]{1,39}")
         private val NAME = Regex("[A-Za-z0-9_.-]{1,100}")
     }
@@ -185,6 +185,8 @@ class UserListsClient internal constructor(
                 id = id, name = value.requiredString("name"), fullName = fullName,
                 owner = User(login = owner.requiredString("login"), avatarUrl = owner.stringOrEmpty("avatarUrl"), type = owner.requiredString("__typename")),
                 isPrivate = value.requiredBoolean("isPrivate"), description = value.stringOrEmpty("description").takeIf { it.isNotEmpty() },
+                fork = (value["isFork"] as? JsonPrimitive)?.booleanOrNull == true,
+                archived = (value["isArchived"] as? JsonPrimitive)?.booleanOrNull == true,
                 stargazersCount = value.requiredInt("stargazerCount"), forksCount = value.requiredInt("forkCount"),
                 language = (value["primaryLanguage"] as? JsonObject)?.requiredString("name"),
                 pushedAt = value.stringOrEmpty("pushedAt").takeIf { it.isNotEmpty() },
@@ -247,7 +249,7 @@ class UserListsClient internal constructor(
         val data = call(account, REPOSITORY_LISTS, buildJsonObject { put("owner", owner); put("name", name) })
         val repository = data.requiredObject("repository")
         val lists = repository.requiredObject("lists").requiredArray("nodes")
-            .mapNotNull { it as? JsonObject }.map { parseList(it, account.login) }
+            .map { parseList(it as? JsonObject ?: error("GitHub 列表归属节点不完整；分类未更改"), account.login) }
         require(lists.map { it.id }.distinct().size == lists.size) { "GitHub 列表重复，请刷新" }
         require(lists.size <= PAGE_SIZE) { "GitHub 列表读取超过 $PAGE_SIZE 个上限，请刷新" }
         return RepositoryListMemberships(
@@ -293,7 +295,7 @@ class UserListsClient internal constructor(
         return RepositoryListMemberships(repositoryId, starred, lists, memberships)
     }
 
-    private class Pagination(val total: Int, val cursor: String, val read: Int)
+    private class Pagination(val total: Int, val cursor: String, val read: Int, val firstIds: Set<String>)
     private class BatchScan(val memberships: List<String>, val pending: Map<String, Pagination>)
 
     /** 一次请求读完几个列表的第一页：别名并排，省掉每个列表一趟来回。 */
@@ -323,7 +325,7 @@ class UserListsClient internal constructor(
             val next = itemPage.nextCursor
             when {
                 repositoryId in itemPage.items -> memberships += list.id
-                next != null -> pending[list.id] = Pagination(itemPage.totalCount, next, itemPage.items.size)
+                next != null -> pending[list.id] = Pagination(itemPage.totalCount, next, itemPage.items.size, itemPage.items.toSet())
                 else -> require(itemPage.items.size == itemPage.totalCount) { "GitHub 列表仓库读取不完整；未更改任何分类" }
             }
         }
@@ -341,7 +343,7 @@ class UserListsClient internal constructor(
     ): Boolean {
         var after = start.cursor
         var read = 0
-        val seen = HashSet<String>()
+        val seen = HashSet(start.firstIds)
         val cursors = HashSet<String>()
         while (true) {
             require(pages.incrementAndGet() <= MAX_SCAN_PAGES) { incompleteMessage() }
@@ -353,8 +355,8 @@ class UserListsClient internal constructor(
             val itemPage = page(node.requiredObject("items")) { it.requiredString("id") }
             require(itemPage.totalCount == start.total) { "GitHub 列表已变化；未更改任何分类，请刷新" }
             require(itemPage.totalCount <= MAX_LIST_ITEMS && records.addAndGet(itemPage.items.size) <= MAX_SCAN_ITEMS) { incompleteMessage() }
-            if (repositoryId in itemPage.items) return true
             itemPage.items.forEach { itemId -> require(seen.add(itemId)) { "GitHub 仓库分页重复；未更改任何分类" } }
+            if (repositoryId in itemPage.items) return true
             read += itemPage.items.size
             after = itemPage.nextCursor ?: break
         }
@@ -407,30 +409,15 @@ class UserListsClient internal constructor(
         confirmLists(data.requiredObject("updateUserListsForItem"), repositoryId, account, desired)
     }
 
-    /**
-     * 直接把仓库的归属写成 [listIds]：勾一下写一次，与官方客户端的选择面板一致。
-     *
-     * 仓库节点 id 已由 `Repository.lists` 给出，所以这里只有一次写入请求，不再读任何列表；
-     * `updateUserListsForItem` 本来就是整组替换，传进去的就是最终结果。
-     */
-    suspend fun setRepositoryMembership(account: StarListAccount, repositoryId: String, listIds: Set<String>) = mutationLock.withLock {
-        require(repositoryId.isNotBlank()) { "仓库信息未读取完整，请稍后再试" }
-        val ids = listIds.filter { it.isNotBlank() }.toSet()
-        require(ids.size <= MAX_LISTS) { "GitHub 列表超过 $MAX_LISTS 个，请在网页中管理" }
-        val input = buildJsonObject { put("itemId", repositoryId); put("listIds", JsonArray(ids.sorted().map(::JsonPrimitive))) }
-        val data = call(account, UPDATE_LISTS, buildJsonObject { put("input", input) })
-        confirmLists(data.requiredObject("updateUserListsForItem"), repositoryId, account, ids)
-    }
-
-    /** 核对写入结果。GitHub 对 `lists` 是普通数组（不是连接），没给就是没返回，不能当成失败。 */
+    /** 核对写入结果。目标账号、仓库和完整列表都必须明确返回，缺失字段不能当成成功。 */
     private fun confirmLists(payload: JsonObject, repositoryId: String, account: StarListAccount, expected: Set<String>) {
-        val owner = (payload["user"] as? JsonObject)?.stringOrEmpty("login").orEmpty()
-        require(owner.isEmpty() || owner.equals(account.login, true)) { "GitHub 返回了其他账号的列表" }
-        val item = (payload["item"] as? JsonObject)?.stringOrEmpty("id").orEmpty()
-        require(item.isEmpty() || item == repositoryId) { "GitHub 未确认分类更新，请刷新后查看" }
-        val returned = (payload["lists"] as? JsonArray)
-            ?.mapNotNull { (it as? JsonObject)?.stringOrEmpty("id")?.takeIf { id -> id.isNotBlank() } }
-            ?.toSet() ?: return
+        val owner = payload.requiredObject("user").requiredString("login")
+        require(owner.equals(account.login, true)) { "GitHub 返回了其他账号的列表" }
+        val item = payload.requiredObject("item").requiredString("id")
+        require(item == repositoryId) { "GitHub 未确认分类更新，请刷新后查看" }
+        val returned = payload.requiredArray("lists")
+            .map { (it as? JsonObject)?.requiredString("id") ?: error("GitHub 分类确认节点不完整，请刷新后查看") }
+            .toSet()
         require(returned == expected) { "GitHub 分类结果与选择不一致，请刷新后查看" }
     }
 
@@ -543,9 +530,10 @@ object UserLists {
     suspend fun setRepositoryLists(
         account: StarListAccount, owner: String, name: String, selected: Set<String>, original: Set<String>,
         allowUnstarred: Boolean = false,
-    ) {
-        client.setRepositoryLists(account, owner, name, selected, original, allowUnstarred)
+    ): Set<String> {
+        val confirmed = client.setRepositoryLists(account, owner, name, selected, original, allowUnstarred)
         changes.update { it + 1 }
+        return confirmed
     }
     suspend fun saveRepositoryLists(
         account: StarListAccount, owner: String, name: String, desired: Set<String>, allowUnstarred: Boolean = false,
@@ -553,11 +541,6 @@ object UserLists {
         client.saveRepositoryLists(account, owner, name, desired, allowUnstarred)
         changes.update { it + 1 }
     }
-    suspend fun setRepositoryMembership(account: StarListAccount, repositoryId: String, listIds: Set<String>) {
-        client.setRepositoryMembership(account, repositoryId, listIds)
-        changes.update { it + 1 }
-    }
-
     suspend fun addRepositories(account: StarListAccount, listId: String, repos: List<Repo>) {
         require(repos.size <= UserListsClient.MAX_BATCH_ADD) { "一次最多添加 ${UserListsClient.MAX_BATCH_ADD} 个仓库" }
         var completed = 0

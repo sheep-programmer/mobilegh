@@ -2,6 +2,7 @@ package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -46,9 +48,10 @@ import com.mobilegh.data.starMatches
 import com.mobilegh.nav.Loader
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.Pager
+import com.mobilegh.nav.PagerPage
 import com.mobilegh.nav.act
-import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
+import com.mobilegh.nav.retain
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.EmptyState
@@ -83,7 +86,9 @@ internal fun StarredRepoPage(login: String, name: String) {
     var selectedList by rememberSaveable { mutableStateOf<String?>(null) }
     val listsTab = tab == 1 && signedIn
     val account = remember { StarListAccount(Session.login ?: login, Session.generation) }
-    val lists = if (signedIn) rememberLoader("star-lists:$login") { UserLists.lists(account, login) } else null
+    // 换账号后重新尝试服务端搜索；只在页面级执行，切换页签不能重置支持状态。
+    LaunchedEffect(Session.generation) { StarredRepos.resetSupport() }
+    val lists = if (signedIn) rememberStarListCatalog(login) else null
     val revision by UserLists.changes.collectAsState()
     LaunchedEffect(revision) { if (lists?.data != null) lists.refresh() }
     val subtitle = if (name.isNotEmpty()) "$login/$name" else login
@@ -115,7 +120,7 @@ private fun starredTitle(listsTab: Boolean, selectedList: String?, lists: List<G
 
 // ---------------- 全部 Star ----------------
 
-/** 服务端搜索 + 三种服务端排序，每个都能切正序 / 倒序 */
+/** 服务端搜索 + 两种服务端排序，每个都能切正序 / 倒序 */
 @Composable
 private fun StarFeedTab(login: String, isMe: Boolean) {
     // 输入框与已生效关键词分开：打字过程中列表不变，按回车或点放大镜才应用
@@ -125,12 +130,15 @@ private fun StarFeedTab(login: String, isMe: Boolean) {
     var descending by rememberSaveable { mutableStateOf(STAR_SORTS[0].descending) }
     var truncated by remember(query, index, descending) { mutableStateOf(false) }
     val supported by StarredRepos.searchSupported.collectAsState()
-    // 换账号后重新尝试服务端搜索：上一个 Token 不支持不代表下一个也不支持
-    LaunchedEffect(Session.generation) { StarredRepos.resetSupport() }
+    val sortIndex = restoredStarSortIndex(index)
     val searching = query.isNotEmpty() && Session.token != null && supported
-    val pager = rememberStarFeedPager(login, isMe, query, index, descending, supported) { truncated = true }
+    val pager = rememberStarFeedPager(login, isMe, query, sortIndex, descending, supported) { truncated = true }
+    // 只有重新显示的变体才刷新；后台保留的旧搜索和排序不发请求。
+    LaunchedEffect(pager) {
+        if (pager.loadedOnce) pager.refresh()
+    }
     StarSearchControls(
-        input = input, query = query, index = index, descending = descending,
+        input = input, query = query, index = sortIndex, descending = descending,
         searching = searching, status = starStatus(query, searching, truncated, pager.items.size),
         onInput = { input = it },
         onApply = { query = input.trim() },
@@ -143,10 +151,13 @@ private fun StarFeedTab(login: String, isMe: Boolean) {
         empty = starFeedEmpty(login, isMe, query),
         emptyIcon = R.drawable.oc_star,
         filteredEmpty = "已加载的 Star 中没有匹配的仓库",
+        autoLoad = autoPageStarFeed(query, searching),
         // 服务端搜索已经筛过一遍，只有本地回退路径才需要再过滤
         itemFilter = { searching || starMatches(it, query) },
     ) { RepoItem(it) }
 }
+
+internal fun autoPageStarFeed(query: String, searching: Boolean): Boolean = query.isEmpty() || searching
 
 @Composable
 private fun starFeedEmpty(login: String, isMe: Boolean, query: String): String = when {
@@ -157,7 +168,7 @@ private fun starFeedEmpty(login: String, isMe: Boolean, query: String): String =
 
 /** 搜索框 + 排序下拉 + 方向按钮 + 状态说明 */
 @Composable
-private fun StarSearchControls(
+internal fun StarSearchControls(
     input: String,
     query: String,
     index: Int,
@@ -181,10 +192,14 @@ private fun StarSearchControls(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         // 服务端搜索只认 Star 时间，这时只留方向切换，不假装能按更新时间排
-        if (searching) Text("搜索结果按 Star 时间排列", fontSize = 12.sp, color = Gh.c.fgMuted)
-        else Dropdown(STAR_SORTS[index].label, STAR_SORTS.map { it.label }, onPick, active = index != 0)
-        Spacer(Modifier.weight(1f))
-        DirectionButton(descending, onFlip)
+        if (searching) Text(
+            "搜索结果按 Star 时间排列", Modifier.weight(1f), fontSize = 12.sp,
+            color = Gh.c.fgMuted, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        ) else {
+            Dropdown(STAR_SORTS[index].label, STAR_SORTS.map { it.label }, onPick, active = index != 0)
+            Spacer(Modifier.weight(1f))
+        }
+        DirectionButton(descending, onClick = onFlip)
     }
     if (status.isNotEmpty()) {
         Text(
@@ -207,7 +222,7 @@ private fun starStatus(query: String, searching: Boolean, truncated: Boolean, lo
 
 /**
  * 星标页分页器。Star 时间走官方 GraphQL 连接（`orderBy: STARRED_AT` + ASC / DESC），游标由服务端给；
- * 更新时间与 Star 数走 REST。两者的每页条数必须和接口一致，否则最后一页会被判错。
+ * 更新时间走 REST。每页条数必须与对应接口一致，否则 REST 最后一页会被判错。
  */
 @Composable
 private fun rememberStarFeedPager(
@@ -222,23 +237,24 @@ private fun rememberStarFeedPager(
     val searching = query.isNotEmpty() && Session.token != null && searchSupported
     // Star 时间用官方星标连接的游标分页（方向由服务端排好），逐页懒加载
     val timeFeeds = Session.token != null && index == 0
-    val cursors = remember(query, index, descending, searchSupported) { HashMap<Int, String?>() }
+    // 游标必须与 retained Pager 使用同一个 key：切走再切回时，页码和游标要一起恢复。
+    val pagerKey = "rl-starred:$login:$index:$descending:$query:$searchSupported"
+    val cursors = retain("$pagerKey:cursors") { HashMap<Int, String?>() }
     val pageSize = when {
         searching -> StarredReposClient.PAGE_SIZE
         timeFeeds -> StarFeedClient.PAGE_SIZE
         else -> GitHub.STARRED_PER
     }
-    return rememberPager("rl-starred:$login:$index:$descending:$query:$searchSupported", pageSize) { page, force ->
+    return rememberPager(pagerKey, pageSize, fetchPage = { page, force ->
         when {
             searching -> searchStarPage(login, query, descending, page, cursors, onTruncated)
             timeFeeds -> starTimePage(login, descending, page, cursors, onTruncated)
-            // 「更新时间」「Star 数」不是星标连接的字段，仍用 REST 的 sort=updated / sort=stars
-            else -> GitHub.starred(
+            else -> PagerPage(GitHub.starred(
                 if (isMe) null else login, page, force,
                 STAR_SORTS[index].value, if (descending) "desc" else "asc",
-            )
+            ))
         }
-    }
+    })
 }
 
 /** 服务端搜索：与官方 App 同一条查询；服务端不认关键字时抛 [StarSearchUnavailable] */
@@ -249,17 +265,18 @@ private suspend fun searchStarPage(
     page: Int,
     cursors: MutableMap<Int, String?>,
     onTruncated: () -> Unit,
-): List<Repo> {
-    if (page > 1 && cursors[page] == null) return emptyList()
+): PagerPage<Repo> {
+    if (page > 1 && cursors[page] == null) return PagerPage(emptyList(), hasMore = false)
     val result = try {
         StarredRepos.page(login, query, cursors[page], if (descending) "DESC" else "ASC")
     } catch (unavailable: StarSearchUnavailable) {
         // searchSupported 已置 false，页面会用新 key 重建为本地过滤
-        return emptyList()
+        return PagerPage(emptyList(), hasMore = false)
     }
-    cursors[page + 1] = result.nextCursor
-    if (result.truncated) onTruncated()
-    return result.repos
+    return PagerPage(result.repos, hasMore = result.nextCursor != null) {
+        cursors[page + 1] = result.nextCursor
+        if (result.truncated) onTruncated()
+    }
 }
 
 /** Star 时间：官方星标连接，ASC（最早在前）/ DESC（最近在前）都由服务端排好 */
@@ -269,12 +286,13 @@ private suspend fun starTimePage(
     page: Int,
     cursors: MutableMap<Int, String?>,
     onTruncated: () -> Unit,
-): List<Repo> {
-    if (page > 1 && cursors[page] == null) return emptyList()
+): PagerPage<Repo> {
+    if (page > 1 && cursors[page] == null) return PagerPage(emptyList(), hasMore = false)
     val result = StarFeed.page(login, cursors[page], if (descending) "DESC" else "ASC")
-    cursors[page + 1] = result.nextCursor
-    if (result.truncated) onTruncated()
-    return result.items.map { it.repo }
+    return PagerPage(result.items.map { it.repo }, hasMore = result.nextCursor != null) {
+        cursors[page + 1] = result.nextCursor
+        if (result.truncated) onTruncated()
+    }
 }
 
 // ---------------- 列表（Star 的分类） ----------------
@@ -299,6 +317,8 @@ private fun StarListsTab(
             pager = rememberListDetailPager(selectedList, itemDesc, lists, account),
             list = all.firstOrNull { it.id == selectedList },
             descending = itemDesc,
+            isMe = isMe,
+            account = account,
             onFlip = { itemDesc = !itemDesc },
             onBack = { onSelect(null) },
         )
@@ -320,23 +340,26 @@ private fun StarListDirectory(
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val browser = rememberListBrowser("star-lists:$login")
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (isMe) GhButton("新建列表", enabled = all.size < UserListsClient.MAX_LISTS) { picker = true }
-        GhButton("刷新", enabled = !lists.loading) { lists.load(true) }
+    val header: @Composable () -> Unit = {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (isMe) GhButton("新建列表", enabled = all.size < UserListsClient.MAX_LISTS) { picker = true }
+            GhButton("刷新", enabled = !lists.loading) { lists.load(true) }
+        }
+        lists.error?.let { InlineError(it, Modifier.padding(horizontal = 16.dp)) { lists.load(true) } }
+        Text("列表是 Star 的分类，与 GitHub 同步。", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
+        SearchBox(
+            browser.input, browser.query, { browser.input = it }, { browser.apply() }, { browser.clear() },
+            "搜索列表", "名称或描述",
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp),
+        )
+        SortBar(LIST_SORTS, browser.sort, browser.descending, { browser.pick(it) }, { browser.descending = !browser.descending })
     }
-    lists.error?.let { InlineError(it, Modifier.padding(horizontal = 16.dp)) { lists.load(true) } }
-    Text("列表是 Star 的分类，与 GitHub 同步。", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
-    SearchBox(
-        browser.input, browser.query, { browser.input = it }, { browser.apply() }, { browser.clear() },
-        "搜索列表", "名称或描述",
-        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp),
-    )
-    SortBar(LIST_SORTS, browser.sort, browser.descending, { browser.pick(it) }, { browser.descending = !browser.descending })
     StarListRows(
         all = all,
         shown = browser.shown(all),
         isMe = isMe,
         login = login,
+        header = header,
         onNewList = { picker = true },
         onRetry = { lists.load(true) },
         onClearSearch = { browser.clear() },
@@ -349,8 +372,8 @@ private fun StarListDirectory(
             val created = UserLists.create(account, nameOf, desc, priv)
             saving = false
             picker = false
-            lists.refresh()
-            // 新建后直接进入这个列表，省得再找一遍
+            // 先把服务端已创建的列表放进目录；即使随后刷新失败，详情也不能误报“已删除”。
+            lists.accept((lists.data.orEmpty() + created).distinctBy { it.id })
             onSelect(created.id)
         }
     }
@@ -363,22 +386,30 @@ private fun StarListRows(
     shown: List<GitHubStarList>,
     isMe: Boolean,
     login: String,
+    header: @Composable () -> Unit,
     onNewList: () -> Unit,
     onRetry: () -> Unit,
     onClearSearch: () -> Unit,
     onOpen: (String) -> Unit,
 ) {
     when {
-        all.isEmpty() -> EmptyState(
-            if (isMe) "还没有 GitHub 列表" else "$login 还没有公开的 GitHub 列表",
-            R.drawable.oc_checklist, Modifier.fillMaxSize(),
-            if (isMe) "新建列表" else "刷新",
-            if (isMe) onNewList else onRetry,
-        )
-        shown.isEmpty() -> EmptyState(
-            "没有匹配的列表", R.drawable.oc_checklist, Modifier.fillMaxSize(), "清除搜索", onClearSearch,
-        )
+        all.isEmpty() -> {
+            header()
+            EmptyState(
+                if (isMe) "还没有 GitHub 列表" else "$login 还没有公开的 GitHub 列表",
+                R.drawable.oc_checklist, Modifier.fillMaxSize(),
+                if (isMe) "新建列表" else "刷新",
+                if (isMe) onNewList else onRetry,
+            )
+        }
+        shown.isEmpty() -> {
+            header()
+            EmptyState(
+                "没有匹配的列表", R.drawable.oc_checklist, Modifier.fillMaxSize(), "清除搜索", onClearSearch,
+            )
+        }
         else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 6.dp)) {
+            item(contentType = "controls") { header() }
             items(shown, key = { it.id }) { list -> StarListRow(list) { onOpen(list.id) } }
         }
     }
@@ -386,13 +417,40 @@ private fun StarListRows(
 
 /** 目录里的一个列表：名称、可见性与仓库数 */
 @Composable
-private fun StarListRow(list: GitHubStarList, onClick: () -> Unit) {
-    Card(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).clickable(onClick = onClick)) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(list.name, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Pill(if (list.isPrivate) "私有" else "公开")
-            Spacer(Modifier.width(6.dp))
-            Pill("${list.count} 个仓库")
+internal fun StarListRow(list: GitHubStarList, enabled: Boolean = true, onClick: () -> Unit) {
+    Card(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).clickable(enabled = enabled, onClick = onClick)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(list.name, Modifier.fillMaxWidth(), fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Pill(if (list.isPrivate) "私有" else "公开")
+                Pill("${list.count} 个仓库")
+            }
+            if (list.description.isNotEmpty()) Text(
+                list.description, color = Gh.c.fgMuted, fontSize = 13.sp,
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+/** 仓库内容独占整行，移除按钮放在下方，避免窄屏和大字体挤压仓库名称。 */
+@Composable
+internal fun RemovableRepoItem(repo: Repo, enabled: Boolean, onRemove: (() -> Unit)?) {
+    Column(Modifier.fillMaxWidth()) {
+        RepoItem(repo)
+        if (onRemove != null) TextButton(
+            onClick = onRemove,
+            Modifier.align(Alignment.End).padding(end = 8.dp, bottom = 4.dp),
+            enabled = enabled,
+        ) { Text("移除") }
+    }
+}
+
+@Suppress("UNCHECKED_CAST")
+internal fun removeRetainedListRepository(bag: MutableMap<String, Any>, listId: String, fullName: String) {
+    listOf(false, true).forEach { descending ->
+        (bag["rl-list:$listId:$descending"] as? Pager<Repo>)?.update { items ->
+            items.removeAll { it.fullName.equals(fullName, true) }
         }
     }
 }
@@ -403,9 +461,17 @@ private fun StarListDetail(
     pager: Pager<Repo>,
     list: GitHubStarList?,
     descending: Boolean,
+    isMe: Boolean,
+    account: StarListAccount,
     onFlip: () -> Unit,
     onBack: () -> Unit,
 ) {
+    val entry = LocalEntry.current
+    LaunchedEffect(pager) {
+        if (pager.loadedOnce) pager.refresh()
+    }
+    var removing by remember(list?.id) { mutableStateOf(false) }
+    var mutationError by remember(list?.id) { mutableStateOf<String?>(null) }
     var input by rememberSaveable(list?.id) { mutableStateOf("") }
     var query by rememberSaveable(list?.id) { mutableStateOf("") }
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -424,16 +490,37 @@ private fun StarListDetail(
     )
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("GitHub 顺序", Modifier.weight(1f), fontSize = 13.sp, color = Gh.c.fgMuted)
-        DirectionButton(descending, onFlip)
+        DirectionButton(descending, onClick = onFlip)
     }
+    mutationError?.let {
+        Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.danger, fontSize = 12.sp)
+    }
+    if (isMe) Text("移除分类不会取消 Star。", Modifier.padding(horizontal = 16.dp, vertical = 2.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
     // 倒序的每页在数据层已经倒着放好，这里不再反转，只做搜索过滤
     PagedList(
         pager,
+        autoLoad = autoPageStarFeed(query, searching = false),
         empty = "列表暂无仓库，在仓库页「加入自定义列表」中添加",
         emptyIcon = R.drawable.oc_checklist,
         filteredEmpty = "列表中没有匹配的仓库",
         itemFilter = { starMatches(it, query) },
-    ) { RepoItem(it) }
+    ) { repo ->
+        RemovableRepoItem(
+            repo = repo,
+            enabled = !removing,
+            onRemove = if (isMe) ({
+                val listId = list.id
+                removing = true
+                mutationError = null
+                entry.act({ mutationError = it; removing = false }) {
+                    // 只提交“从这个列表移除”的增量，不取消 Star，也不覆盖其它列表归属。
+                    UserLists.setRepositoryLists(account, repo.owner.login, repo.name, emptySet(), setOf(listId))
+                    removeRetainedListRepository(entry.bag, listId, repo.fullName)
+                    removing = false
+                }
+            }) else null,
+        )
+    }
 }
 
 /** 列表详情的分页器：正序读 items(first, after) 从头部，倒序读 items(last, before) 从尾部 */
@@ -445,12 +532,16 @@ private fun rememberListDetailPager(
     account: StarListAccount,
 ): Pager<Repo> {
     // Pager 只按页号取数据，游标由这里按页递增记录；列表被删除时返回空页而不是崩溃
-    val cursors = remember(selectedList, descending) { HashMap<Int, String?>() }
-    return rememberPager("rl-list:$selectedList:$descending", pageSize = UserListsClient.DETAIL_PAGE_SIZE) { page, _ ->
-        val list = lists.data?.firstOrNull { it.id == selectedList } ?: return@rememberPager emptyList()
-        if (page > 1 && cursors[page] == null) return@rememberPager emptyList()
+    // 游标与 Pager 同 key 保留，避免恢复第 N 页时却拿到一张空游标表。
+    val pagerKey = "rl-list:$selectedList:$descending"
+    val cursors = retain("$pagerKey:cursors") { HashMap<Int, String?>() }
+    return rememberPager(pagerKey, pageSize = UserListsClient.DETAIL_PAGE_SIZE, fetchPage = { page, _ ->
+        val list = lists.data?.firstOrNull { it.id == selectedList }
+            ?: return@rememberPager PagerPage(emptyList(), hasMore = false)
+        if (page > 1 && cursors[page] == null) return@rememberPager PagerPage(emptyList(), hasMore = false)
         val result = UserLists.items(account, list, cursors[page], descending = descending)
-        cursors[page + 1] = result.nextCursor
-        result.items.map { it.repo }
-    }
+        PagerPage(result.items.map { it.repo }, hasMore = result.nextCursor != null) {
+            cursors[page + 1] = result.nextCursor
+        }
+    })
 }

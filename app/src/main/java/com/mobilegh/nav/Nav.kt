@@ -73,7 +73,7 @@ sealed interface Screen {
     /** id == null 表示新建 */
     data class GistEditor(val id: String? = null) : Screen
     data class Activity(val login: String) : Screen
-    data class StarLists(val login: String, val initialListId: String? = null) : Screen
+    data class StarLists(val login: String, val initialListId: String? = null, val local: Boolean = false) : Screen
     data class Achievements(val login: String) : Screen
     data object Settings : Screen
     data object Logs : Screen

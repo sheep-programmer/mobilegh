@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -175,9 +176,9 @@ fun AchievementsScreen(login: String) {
 
 /** All local detail/edit/picker states live inside the existing Screen.StarLists(login) route. */
 @Composable
-fun StarListsScreen(login: String, initialListId: String? = null) {
+fun StarListsScreen(login: String, initialListId: String? = null, initialLocal: Boolean = false) {
     key(login.lowercase(Locale.ROOT), Session.generation) {
-        var local by rememberSaveable(login, Session.generation) { mutableStateOf(false) }
+        var local by rememberSaveable(login, Session.generation) { mutableStateOf(initialLocal) }
         val self = Session.token != null && login.equals(Session.login, true)
         BackHandler(enabled = local) { local = false }
         if (local && self) StarListsContent(login, Session.generation) { local = false }
@@ -373,7 +374,7 @@ private fun StarredRepoSelectionDialog(
                 check(Session.generation == account.generation && account.login.equals(Session.login, true) && Session.token != null) { "账号已切换，请重新打开列表" }
                 repos = (repos + loaded).distinctBy { it.id }
                 page = next
-                end = loaded.size < GitHub.PER || page >= maxPages
+                end = loaded.size < GitHub.STARRED_PER || page >= maxPages
             } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Exception) { error = failure.friendly() }
             finally { loading = false }
         }
@@ -410,7 +411,7 @@ private fun StarredRepoSelectionDialog(
             }
             if (loading) Loading(Modifier.fillMaxWidth().height(36.dp))
             else if (!end) GhButton(if (error == null) "加载更多 Stars" else "重试加载", enabled = !saving) { loadMore() }
-            else if (page >= maxPages) Text("已达到 ${maxPages * GitHub.PER} 个候选仓库的读取上限。", color = Gh.c.fgMuted, fontSize = 12.sp)
+            else if (page >= maxPages) Text("已达到 ${maxPages * GitHub.STARRED_PER} 个候选仓库的读取上限。", color = Gh.c.fgMuted, fontSize = 12.sp)
         }
     }
 }
@@ -496,6 +497,7 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
     val account = remember { StarListAccount(Session.login.orEmpty(), generation) }
     val self = login.equals(account.login, true)
     val revision by UserLists.changes.collectAsState()
+    var handledRevision by remember(account, login) { mutableLongStateOf(-1) }
     var lists by remember { mutableStateOf<List<GitHubStarList>?>(null) }
     var selectedId by rememberSaveable(account, login, initialListId) { mutableStateOf(initialListId) }
     val detail = remember(account, login) { UserListDetailLoader<UserListRepository>(scope, UserListsClient.MAX_DETAIL_ITEMS) { it.nodeId } }
@@ -535,9 +537,12 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
             try {
                 action()
                 onDone()
+                // 本次 mutation 已在这里刷新，revision 观察者只处理其他页面的修改。
+                handledRevision = UserLists.changes.value
                 try { reload() } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Exception) {
                     error = "已保存到 GitHub，但刷新失败：${failure.friendly()}"
                 }
+                if (selected != null) detail.refresh()
             } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Exception) { error = failure.friendly() }
             finally { saving = false }
         }
@@ -551,6 +556,8 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
     LaunchedEffect(account, login, revision) {
         // Changes may originate from another screen, including a partially completed batch.
         while (saving || listLoading) kotlinx.coroutines.delay(30)
+        if (handledRevision == revision) return@LaunchedEffect
+        handledRevision = revision
         load()
         if (selected != null) detail.refresh()
     }
@@ -607,16 +614,7 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
                     shownLists.isEmpty() -> EmptyState("没有匹配的列表", R.drawable.oc_search, Modifier.weight(1f).fillMaxWidth(), "清除搜索") { browser.clear() }
                     else -> LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(vertical = 6.dp)) {
                         items(shownLists, key = { it.id }) { list ->
-                            Card(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).clickable(enabled = !saving && !loading) { selectedId = list.id; query = "" }) {
-                                Column(Modifier.padding(14.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(list.name, modifier = Modifier.weight(1f), color = Gh.c.fg, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Pill(if (list.isPrivate) "私有" else "公开")
-                                        Spacer(Modifier.width(6.dp)); Pill("${list.count} 个仓库")
-                                    }
-                                    if (list.description.isNotEmpty()) Text(list.description, modifier = Modifier.padding(top = 6.dp), color = Gh.c.fgMuted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
+                            StarListRow(list, enabled = !saving && !loading) { selectedId = list.id; query = "" }
                         }
                     }
                 }
@@ -654,7 +652,13 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
                         else Spacer(Modifier.weight(1f))
                     } else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 12.dp)) {
                         items(filtered, key = { it.nodeId }) { item ->
-                            RepoItem(item.repo)
+                            RemovableRepoItem(
+                                repo = item.repo,
+                                enabled = !saving && !loading,
+                                onRemove = if (self) ({
+                                    mutate { UserLists.setRepositoryLists(account, item.repo.owner.login, item.repo.name, emptySet(), setOf(selected.id)) }
+                                }) else null,
+                            )
                         }
                         // 滚到底自动加载下一页，不放「加载更多」按钮
                         item(key = "list-footer") {

@@ -299,7 +299,7 @@ private fun ScreenHost(s: Screen) {
         is Screen.GistDetail -> GistDetailScreen(s.id)
         is Screen.GistEditor -> GistEditorScreen(s.id)
         is Screen.Activity -> ActivityScreen(s.login)
-        is Screen.StarLists -> StarListsScreen(s.login, s.initialListId)
+        is Screen.StarLists -> StarListsScreen(s.login, s.initialListId, s.local)
         is Screen.Achievements -> AchievementsScreen(s.login)
         Screen.Settings -> SettingsScreen()
         Screen.Logs -> LogsScreen()

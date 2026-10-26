@@ -135,6 +135,47 @@ class StarredReposTest {
         }
     }
 
+    @Test fun nullNodesAreSkippedWithoutLosingTheNextCursor() {
+        runBlocking {
+            val api = client { _, _ ->
+                val owner = repoNode(next = "cursor-2")
+                val connection = owner["starredRepositories"]!!.jsonObject
+                val nodes = connection["nodes"] as JsonArray
+                response(JsonObject(owner + ("starredRepositories" to JsonObject(connection + ("nodes" to JsonArray(listOf(JsonNull) + nodes))))))
+            }
+            val page = api.page(alice, "Alice")
+            assertEquals(1, page.repos.size)
+            assertEquals("cursor-2", page.nextCursor)
+        }
+    }
+
+    @Test fun hasNextPageWithoutACursorIsAnErrorInsteadOfAFalseEnd() {
+        val api = client { _, _ ->
+            val owner = repoNode()
+            val connection = owner["starredRepositories"]!!.jsonObject
+            val info = connection["pageInfo"]!!.jsonObject
+            response(JsonObject(owner + ("starredRepositories" to JsonObject(connection + ("pageInfo" to JsonObject(info + ("hasNextPage" to JsonPrimitive(true))))))))
+        }
+        assertThrows(IllegalStateException::class.java) { runBlocking { api.page(alice, "Alice") } }
+    }
+
+    @Test fun missingOrMalformedPageInfoIsAnErrorInsteadOfAFalseEnd() {
+        val missing = client { _, _ ->
+            val owner = repoNode()
+            val connection = owner["starredRepositories"]!!.jsonObject
+            response(JsonObject(owner + ("starredRepositories" to JsonObject(connection - "pageInfo"))))
+        }
+        assertThrows(IllegalStateException::class.java) { runBlocking { missing.page(alice, "Alice") } }
+
+        val malformed = client { _, _ ->
+            val owner = repoNode()
+            val connection = owner["starredRepositories"]!!.jsonObject
+            val info = connection["pageInfo"]!!.jsonObject
+            response(JsonObject(owner + ("starredRepositories" to JsonObject(connection + ("pageInfo" to JsonObject(info + ("hasNextPage" to JsonNull)))))))
+        }
+        assertThrows(IllegalStateException::class.java) { runBlocking { malformed.page(alice, "Alice") } }
+    }
+
     @Test fun repositoriesOwnedByOtherAccountsAreRejected() {
         val api = client { _, _ -> response(viewer = "Mallory") }
         val failure = assertThrows(IllegalArgumentException::class.java) { runBlocking { api.page(alice, "Alice") } }
@@ -177,6 +218,36 @@ class StarredReposTest {
         val api = client { _, _ -> called = true; response() }
         assertThrows(IllegalStateException::class.java) { runBlocking { api.page(alice, "Alice") } }
         assertFalse(called)
+    }
+
+    @Test fun staleAccountCannotDisableSearchForTheCurrentAccount() {
+        val tokenField = Session::class.java.getDeclaredField("token").apply { isAccessible = true }
+        val originalClient = StarredRepos.client
+        val originalToken = tokenField.get(null)
+        val originalLogin = Session.login
+        val originalGeneration = Session.generation
+        try {
+            tokenField.set(null, "local-test-token")
+            Session.login = "Alice"
+            StarredRepos.resetSupport()
+            val staleResponse = StarredReposClient({
+                Session.login?.takeIf { Session.token != null }?.let { StarListAccount(it, Session.generation) }
+            }) { _, _, _ ->
+                Session.generation++
+                throw ApiException(400, "Field 'starredRepositories' doesn't accept argument 'query'")
+            }
+            StarredRepos.client = staleResponse
+            assertThrows(StarSearchUnavailable::class.java) {
+                runBlocking { StarredRepos.page("Alice", "kotlin") }
+            }
+            assertTrue("旧账号失败不能污染新账号", StarredRepos.searchSupported.value)
+        } finally {
+            StarredRepos.client = originalClient
+            tokenField.set(null, originalToken)
+            Session.login = originalLogin
+            Session.generation = originalGeneration
+            StarredRepos.resetSupport()
+        }
     }
 
     @Test fun localFilterMatchesNameCoordinatesDescriptionAndOwner() {

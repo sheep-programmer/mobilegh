@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.GitHubStarList
+import com.mobilegh.data.Session
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.Oc
@@ -41,17 +43,17 @@ import com.mobilegh.ui.theme.Gh
 internal data class SortChoice(val label: String, val value: String = "", val descending: Boolean = false)
 
 /**
- * 「已 Star」页的服务端排序。Star 时间走 GraphQL 星标连接（可无限游标翻页），
- * 更新时间与 Star 数走 REST 的 `sort=updated` / `sort=stars`。
+ * 「已 Star」页的服务端排序。Star 时间走 GraphQL 星标连接（可无限游标翻页），更新时间走 REST。
  *
- * REST 只真正支持这三个值：`forks` / `watchers` / `name` / `pushed` / `full_name` 都会被
- * 静默忽略并回退成默认顺序，所以不能列进菜单。
+ * `/user/starred` 只支持 `created` / `updated`；`stars` 等其它值会被静默忽略并回退成默认顺序，
+ * 所以不能列进菜单。
  */
 internal val STAR_SORTS = listOf(
     SortChoice("Star 时间", "created", descending = true),
     SortChoice("更新时间", "updated", descending = true),
-    SortChoice("Star 数", "stars", descending = true),
 )
+
+internal fun restoredStarSortIndex(index: Int): Int = index.coerceIn(0, STAR_SORTS.lastIndex)
 
 /**
  * 列表详情不做「Star 时间」排序：列表条目不带进列表时间，`starredRepositories` 也不接受按仓库过滤，
@@ -109,20 +111,20 @@ internal fun SearchBox(
 
 /** 正序 / 倒序切换：和排序字段配合，避免每个字段在菜单里列两遍 */
 @Composable
-internal fun DirectionButton(descending: Boolean, onClick: () -> Unit) {
+internal fun DirectionButton(descending: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     val g = Gh.c
     Row(
         Modifier
             .border(1.dp, g.border, RoundedCornerShape(6.dp))
             .background(g.btnBg, RoundedCornerShape(6.dp))
             .clip(RoundedCornerShape(6.dp))
-            .clickable(onClickLabel = if (descending) "改为正序" else "改为倒序", onClick = onClick)
+            .clickable(enabled = enabled, onClickLabel = if (descending) "改为正序" else "改为倒序", onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Oc(if (descending) R.drawable.oc_arrow_down else R.drawable.oc_arrow_up, g.fgMuted, 12.dp)
         Spacer(Modifier.width(4.dp))
-        Text(if (descending) "倒序" else "正序", fontSize = 13.sp, color = g.fg, fontWeight = FontWeight.Medium)
+        Text(if (descending) "倒序" else "正序", fontSize = 13.sp, color = if (enabled) g.fg else g.fgMuted, fontWeight = FontWeight.Medium, maxLines = 1)
     }
 }
 
@@ -137,13 +139,13 @@ internal fun SortBar(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    Row(
+    FlowRow(
         modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Dropdown(sorts[index].label, sorts.map { it.label }, { onPick(it) }, active = enabled && index != 0)
-        DirectionButton(descending, onFlip)
+        Dropdown(sorts[index].label, sorts.map { it.label }, { onPick(it) }, active = enabled && index != 0, enabled = enabled)
+        DirectionButton(descending, enabled, onFlip)
     }
 }
 
@@ -202,14 +204,24 @@ internal class ListBrowserState {
  * 在首页搜过的关键词，点进列表页不会莫名其妙丢掉。
  */
 private val listBrowsers = HashMap<String, ListBrowserState>()
+private var listBrowserGeneration = Session.generation
 
 @Composable
-internal fun rememberSharedListBrowser(key: String): ListBrowserState =
-    androidx.compose.runtime.remember(key) { listBrowsers.getOrPut(key) { ListBrowserState() } }
+internal fun rememberSharedListBrowser(key: String): ListBrowserState {
+    val generation = Session.generation
+    return androidx.compose.runtime.remember(key, generation) {
+        if (generation != listBrowserGeneration) {
+            listBrowsers.clear()
+            listBrowserGeneration = generation
+        }
+        listBrowsers.getOrPut(key) { ListBrowserState() }
+    }
+}
 
 /** 账号切换时清掉上一个账号的界面状态 */
 internal fun resetListBrowsers() {
     listBrowsers.clear()
+    listBrowserGeneration = Session.generation
 }
 
 /** 只属于当前页面的搜索/排序状态（列表详情之类不需要跨页共享的地方用它） */

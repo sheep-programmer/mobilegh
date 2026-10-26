@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -37,7 +38,7 @@ class UserListsTest {
         put("user", buildJsonObject { put("login", "Alice"); put("lists", connection(nodes, total, next)) })
     }
     /** `Repository.lists` 的回答：官方客户端读归属就是这么问的。 */
-    private fun repositoryLists(lists: List<JsonObject>, starred: Boolean = true, id: String = "R_target") = buildJsonObject {
+    private fun repositoryLists(lists: List<JsonElement>, starred: Boolean = true, id: String = "R_target") = buildJsonObject {
         put("viewer", buildJsonObject { put("login", "Alice") })
         put("repository", buildJsonObject {
             put("id", id); put("viewerHasStarred", starred)
@@ -221,11 +222,13 @@ class UserListsTest {
     @Test fun nativeRepositoryCardsReceiveCountsLanguageTimeAndOrganizationType() {
         runBlocking {
             val api = client { query, _ ->
+                assertTrue(query.contains("isFork isArchived"))
                 assertTrue(query.contains("stargazerCount forkCount primaryLanguage { name } pushedAt updatedAt"))
                 Json.parseToJsonElement("""{
                   "viewer":{"login":"Alice"},"node":{"id":"L_1","user":{"login":"Alice"},"items":{
                     "totalCount":1,"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{
                       "id":"R_target","databaseId":2147483648,"name":"repo","nameWithOwner":"org/repo","isPrivate":false,
+                      "isFork":true,"isArchived":true,
                       "description":"Tools","stargazerCount":42,"forkCount":7,"primaryLanguage":{"name":"Kotlin"},
                       "pushedAt":"2026-10-06T00:00:00Z","updatedAt":"2026-10-06T01:00:00Z",
                       "owner":{"__typename":"Organization","login":"org","avatarUrl":"https://github.com/avatar.png"}
@@ -235,6 +238,8 @@ class UserListsTest {
             assertEquals(2147483648L, repo.id)
             assertEquals(42, repo.stargazersCount)
             assertEquals(7, repo.forksCount)
+            assertTrue(repo.fork)
+            assertTrue(repo.archived)
             assertEquals("Kotlin", repo.language)
             assertEquals("Organization", repo.owner.type)
             assertEquals("2026-10-06T00:00:00Z", repo.pushedAt)
@@ -309,6 +314,38 @@ class UserListsTest {
         assertEquals(0, mutations)
     }
 
+    @Test fun nullMembershipNodesCannotBecomeAnIncompleteReplacementSnapshot() {
+        var mutations = 0
+        val api = client { query, vars ->
+            if (query.startsWith("mutation ")) {
+                mutations++
+                confirmed(vars)
+            } else {
+                repositoryLists(listOf(listNode("L_a"), JsonNull))
+            }
+        }
+        assertThrows(IllegalStateException::class.java) {
+            runBlocking { api.setRepositoryLists(alice, "mona", "repo", emptySet(), setOf("L_a")) }
+        }
+        assertEquals(0, mutations)
+    }
+
+    @Test fun mutationConfirmationMustIncludeTheOwnerItemAndReturnedLists() {
+        val complete = confirmed(buildJsonObject {
+            put("input", buildJsonObject { put("listIds", JsonArray(emptyList())) })
+        })["updateUserListsForItem"]!!.jsonObject
+        for (missing in listOf("user", "item", "lists")) {
+            val api = client { query, _ ->
+                if (query.startsWith("mutation ")) buildJsonObject {
+                    put("updateUserListsForItem", JsonObject(complete - missing))
+                } else repositoryLists(listOf(listNode("L_a")))
+            }
+            assertThrows("缺少 $missing 时不能报告写入成功", IllegalStateException::class.java) {
+                runBlocking { api.setRepositoryLists(alice, "mona", "repo", emptySet(), setOf("L_a")) }
+            }
+        }
+    }
+
     @Test fun fallbackScanBudgetStillBlocksTheNextWrite() {
         var requests = 0
         var mutations = 0
@@ -341,6 +378,32 @@ class UserListsTest {
         assertEquals(UserListsClient.MAX_SCAN_PAGES, pages)
         assertEquals(0, mutations)
         assertTrue(requests > pages)
+    }
+
+    @Test fun fallbackScanRejectsARepeatedPageEvenWhenItContainsTheTarget() {
+        val firstPage = (1..UserListsClient.PAGE_SIZE).map { "R_$it" }
+        val total = firstPage.size + 2
+        val api = client { query, vars ->
+            when {
+                query.contains("MobileGHRepositoryLists") -> throw fieldUnavailable()
+                query.contains("MobileGHLists") -> catalog(listOf(listNode("L_a", total)))
+                query.contains("MobileGHRepositoryId") -> probe()
+                query.contains("MobileGHBatchMemberships") -> batchPage(vars) {
+                    Triple(firstPage, total, "page-2")
+                }
+                else -> buildJsonObject {
+                    put("viewer", buildJsonObject { put("login", "Alice") })
+                    put("node", buildJsonObject {
+                        put("id", "L_a"); put("user", buildJsonObject { put("login", "Alice") })
+                        // 重复第一页的一条，同时漏掉真正的最后一条；总数检查本身发现不了。
+                        put("items", connection(ids(listOf("R_1", "R_target")), total))
+                    })
+                }
+            }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { api.memberships(alice, "mona", "repo") }
+        }
     }
 
     @Test fun accountSwitchDuringReadsAndCancelledReadsDoNotMutate() {
@@ -429,58 +492,4 @@ class UserListsTest {
         }
     }
 
-    /** 弹窗里勾一下就写一次：仓库节点 id 已经有了，所以只有一次写入请求。 */
-    @Test fun membershipWriteIsOneRequestAndSendsTheWholeSelection() {
-        runBlocking {
-            val queries = ArrayList<String>()
-            var sent: JsonObject? = null
-            val api = client { query, vars ->
-                queries += query
-                sent = vars["input"]!!.jsonObject
-                confirmed(vars)
-            }
-            api.setRepositoryMembership(alice, "R_target", setOf("L_b", "L_a"))
-            assertEquals(1, queries.size)
-            assertTrue(queries.single().startsWith("mutation "))
-            assertTrue(queries.single().contains("MobileGHSetListMemberships"))
-            assertEquals("R_target", sent!!["itemId"]!!.jsonPrimitive.content)
-            assertEquals(listOf("L_a", "L_b"), (sent!!["listIds"] as JsonArray).map { it.jsonPrimitive.content })
-        }
-    }
-
-    @Test fun membershipWriteAcceptsClearingEveryList() {
-        runBlocking {
-            var sent: JsonObject? = null
-            val api = client { _, vars -> sent = vars["input"]!!.jsonObject; confirmed(vars) }
-            api.setRepositoryMembership(alice, "R_target", emptySet())
-            assertEquals(0, (sent!!["listIds"] as JsonArray).size)
-        }
-    }
-
-    @Test fun membershipWriteRejectsBlankRepositoryIdsAndOverlongSelectionsWithoutCallingNetwork() {
-        var calls = 0
-        val api = client { _, vars -> calls++; confirmed(vars) }
-        assertThrows(IllegalArgumentException::class.java) { runBlocking { api.setRepositoryMembership(alice, "  ", setOf("L_1")) } }
-        assertThrows(IllegalArgumentException::class.java) {
-            runBlocking { api.setRepositoryMembership(alice, "R_target", (1..UserListsClient.MAX_LISTS + 1).map { "L_$it" }.toSet()) }
-        }
-        assertEquals(0, calls)
-    }
-
-    @Test fun membershipWriteRejectsAConfirmationThatDisagreesWithTheSelection() {
-        var calls = 0
-        // 返回的 lists 少一个：写入结果与选择不一致，必须报错而不是静默成功
-        val api = client { _, _ ->
-            calls++
-            buildJsonObject {
-                put("updateUserListsForItem", buildJsonObject {
-                    put("user", buildJsonObject { put("login", "Alice") })
-                    put("item", buildJsonObject { put("id", "R_target") })
-                    put("lists", JsonArray(ids(listOf("L_a"))))
-                })
-            }
-        }
-        assertThrows(IllegalArgumentException::class.java) { runBlocking { api.setRepositoryMembership(alice, "R_target", setOf("L_a", "L_b")) } }
-        assertEquals(1, calls)
-    }
 }

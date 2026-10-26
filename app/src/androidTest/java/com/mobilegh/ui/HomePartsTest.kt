@@ -36,8 +36,12 @@ class HomePartsTest {
                     Text("你好，mona", Modifier.padding(16.dp))
                     HomeShortcuts(homeShortcuts({}, {}, {}, {}, { nav.push(Screen.Repos(RepoKind.Starred, "mona")) }, { nav.push(Screen.StarLists("mona")) }, {}, {}))
                     HomeLists(
-                        if (error) null else listOf(list), if (error) "unavailable" else null,
-                        { nav.push(Screen.StarLists("mona", it.id)) }, { nav.push(Screen.StarLists("mona")) }, {},
+                        shown = if (error) null else listOf(list),
+                        total = if (error) 0 else 1,
+                        error = if (error) "unavailable" else null,
+                        onList = { nav.push(Screen.StarLists("mona", it.id)) },
+                        onAll = { nav.push(Screen.StarLists("mona")) },
+                        onRetry = {},
                     )
                     HomeAchievementsRow(if (error) null else emptyList(), if (error) "unavailable" else null, { nav.push(Screen.Achievements("mona")) }, {})
                 }

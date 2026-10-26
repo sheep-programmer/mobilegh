@@ -1,13 +1,12 @@
 package com.mobilegh.ui.screens
 
-import com.mobilegh.data.GitHub
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StarSortMenuTest {
-    /** 服务端真正认的 sort 值：REST 对其它值会静默回退成默认顺序，菜单里出现就是骗用户 */
-    private val honoured = setOf("created", "updated", "stars")
+    /** /user/starred 只支持 created / updated；其它值会被静默忽略并回退成默认顺序。 */
+    private val honoured = setOf("created", "updated")
 
     @Test fun everyStarMenuChoiceUsesASortTheServerReallyHonours() {
         for (choice in STAR_SORTS) {
@@ -18,20 +17,19 @@ class StarSortMenuTest {
         }
     }
 
-    @Test fun theMenuOffersStarTimeUpdatedAndStarCount() {
-        assertEquals(listOf("Star 时间", "更新时间", "Star 数"), STAR_SORTS.map { it.label })
-        assertEquals("Star 数", STAR_SORTS[2].label)
-        assertEquals("stars", STAR_SORTS[2].value)
-        // 选到每一项时默认降序（最近 / 最多的在前）
+    @Test fun theMenuOnlyOffersStarTimeAndUpdateTime() {
+        assertEquals(listOf("Star 时间", "更新时间"), STAR_SORTS.map { it.label })
         assertTrue(STAR_SORTS.all { it.descending })
     }
 
-    @Test fun starCountSortAsksTheRestEndpointForStars() {
-        assertTrue(GitHub.starredUrl(null, 1, STAR_SORTS[2].value, "desc").contains("sort=stars"))
+    @Test fun restoredSortIndexesAreClampedAfterMenuChoicesChange() {
+        assertEquals(1, restoredStarSortIndex(2))
+        assertEquals(0, restoredStarSortIndex(-1))
+        assertEquals(1, restoredStarSortIndex(1))
     }
 
-    @Test fun theFirstChoiceIsStarTimeSoTheRssFeedPathStillApplies() {
-        // 界面用 starSort == 0 判断「是否走 GraphQL 星标连接」，第一项必须仍是 Star 时间
+    @Test fun theFirstChoiceIsStarTimeSoTheGraphQlFeedPathStillApplies() {
         assertEquals("created", STAR_SORTS[0].value)
+        assertEquals("updated", STAR_SORTS[1].value)
     }
 }

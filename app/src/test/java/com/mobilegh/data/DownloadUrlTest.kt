@@ -49,6 +49,17 @@ class DownloadUrlTest {
         )
     }
 
+    @Test fun fileDownloadEncodesRefAndEachPathSegment() {
+        assertEquals(
+            "https://github.com/me/public-app/raw/feature/a%23b/docs/a%20%23b%3F.txt",
+            repoFileDownloadUrl("me", "public-app", "feature/a#b", "docs/a #b?.txt", isPrivate = false),
+        )
+        assertEquals(
+            "https://raw.githubusercontent.com/me/private-app/feature/a%23b/docs/a%20%23b%3F.txt",
+            repoFileDownloadUrl("me", "private-app", "feature/a#b", "docs/a #b?.txt", isPrivate = true),
+        )
+    }
+
     @Test fun actionsArtifactNeedsJsonAccept() {
         assertEquals(
             "application/vnd.github+json",

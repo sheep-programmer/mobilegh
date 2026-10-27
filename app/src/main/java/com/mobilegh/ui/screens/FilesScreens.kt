@@ -209,6 +209,8 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
     val fileName = path.substringAfterLast('/')
     val downloadRef = ref ?: repo.data?.defaultBranch ?: "HEAD"
     val downloadPrivate = repo.data?.isPrivate ?: com.mobilegh.data.Net.isPrivateRepo("$owner/$name")
+    // 可见性未知时不能猜成公开，否则私有文件地址会被送给公共镜像且不带凭据。
+    val downloadReady = repo.data != null
     Page(
         fileName, subtitle = "${ref ?: "默认分支"} · $path",
         actions = {
@@ -222,7 +224,7 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
                 if (b is FileBody.Html) add(MenuAction(if (mdSource) "查看渲染" else "查看源码") { mdSource = !mdSource })
                 add(MenuAction(if (Session.codeWrap) "关闭自动换行" else "自动换行") { Session.toggleWrap() })
                 // 代码、图片、Markdown 以前都没有下载入口（只有二进制页有按钮），现在统一放到「更多」
-                add(MenuAction("下载") {
+                if (downloadReady) add(MenuAction("下载") {
                     ctx.downloadFile(repoFileDownloadUrl(owner, name, downloadRef, path, downloadPrivate), fileName, downloadPrivate)
                 })
                 add(MenuAction("文件历史") { nav.push(Screen.Commits(owner, name, ref, path)) })
@@ -259,7 +261,10 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
                 FileBody.Image -> ZoomImage(rawUrl, Modifier.fillMaxSize())
                 FileBody.Binary -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                     EmptyState("二进制文件，无法预览", R.drawable.oc_file)
-                    GhButton("下载到本机", Modifier.padding(horizontal = 32.dp).fillMaxWidth(), icon = R.drawable.oc_download) {
+                    GhButton(
+                        "下载到本机", Modifier.padding(horizontal = 32.dp).fillMaxWidth(),
+                        icon = R.drawable.oc_download, enabled = downloadReady,
+                    ) {
                         ctx.downloadFile(repoFileDownloadUrl(owner, name, downloadRef, path, downloadPrivate), fileName, downloadPrivate)
                     }
                 }

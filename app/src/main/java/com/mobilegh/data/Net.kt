@@ -444,9 +444,13 @@ fun releaseAssetDownloadUrl(owner: String, name: String, assetId: Long, browserU
     if (isPrivate && assetId > 0) "https://api.github.com/repos/$owner/$name/releases/assets/$assetId" else browserUrl
 
 /** 文件下载地址：私有仓库的 github.com/…/raw/… 同样只认浏览器会话，改为 raw 主机 + token */
-fun repoFileDownloadUrl(owner: String, name: String, ref: String, path: String, isPrivate: Boolean): String =
-    if (isPrivate) "https://raw.githubusercontent.com/$owner/$name/$ref/$path"
-    else "https://github.com/$owner/$name/raw/$ref/$path"
+fun repoFileDownloadUrl(owner: String, name: String, ref: String, path: String, isPrivate: Boolean): String {
+    // ref 和路径里的 / 是分隔符，其余保留字符必须编码，否则 #、? 会改变 URL 的含义。
+    val encodedRef = Api.encodePath(ref)
+    val encodedPath = Api.encodePath(path)
+    return if (isPrivate) "https://raw.githubusercontent.com/$owner/$name/$encodedRef/$encodedPath"
+    else "https://github.com/$owner/$name/raw/$encodedRef/$encodedPath"
+}
 
 /** Actions 产物端点只接受 JSON 的 Accept（发 octet-stream 会得 415），其余下载端点要 octet-stream */
 fun privateDownloadAccept(url: String): String =

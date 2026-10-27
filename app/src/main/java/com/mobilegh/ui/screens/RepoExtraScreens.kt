@@ -37,6 +37,7 @@ import com.mobilegh.data.GitHub
 import com.mobilegh.data.Net
 import com.mobilegh.data.Release
 import com.mobilegh.data.releaseAssetDownloadUrl
+import com.mobilegh.data.repoArchiveDownloadUrl
 import com.mobilegh.data.Repo
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
@@ -240,13 +241,12 @@ private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean,
                         Text("${fmtSize(a.size)} · ${fmtCount(a.downloadCount)} 次下载", fontSize = 11.sp, color = g.fgMuted)
                     }
                 }
-                val repoPath = r.htmlUrl.substringBefore("/releases/")
                 listOf("zip", "tar.gz").forEach { ext ->
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             info = FileInfo(
                                 name = "$name-${r.tagName}.$ext",
-                                url = "$repoPath/archive/refs/tags/${r.tagName}.$ext",
+                                url = repoArchiveDownloadUrl(owner, name, "refs/tags/${r.tagName}", ext, priv),
                                 isPrivate = priv,
                                 details = listOf(
                                     "内容" to "标签 ${r.tagName} 的完整源代码（$ext 压缩包）",

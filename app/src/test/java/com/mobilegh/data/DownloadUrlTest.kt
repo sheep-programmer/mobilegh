@@ -70,4 +70,55 @@ class DownloadUrlTest {
             privateDownloadAccept("https://api.github.com/repos/me/app/releases/assets/633431474"),
         )
     }
+
+    /**
+     * 源码 zip 包：公开走网页 archive 地址（镜像节点能改写），私有走 API zipball。
+     * zipball 端发 octet-stream 会被 GitHub 直接 415，实测必须用 JSON 的 Accept。
+     */
+    @Test fun publicRepoZipUsesWebArchivePath() {
+        assertEquals(
+            "https://github.com/me/public-app/archive/main.zip",
+            repoZipDownloadUrl("me", "public-app", "main", isPrivate = false),
+        )
+    }
+
+    @Test fun privateRepoZipUsesApiZipball() {
+        assertEquals(
+            "https://api.github.com/repos/me/private-app/zipball/main",
+            repoZipDownloadUrl("me", "private-app", "main", isPrivate = true),
+        )
+    }
+
+    @Test fun repoArchiveEncodesRefWithoutEncodingSlash() {
+        assertEquals(
+            "https://github.com/me/public-app/archive/feature/a%23b.zip",
+            repoZipDownloadUrl("me", "public-app", "feature/a#b", isPrivate = false),
+        )
+        assertEquals(
+            "https://api.github.com/repos/me/private-app/zipball/feature/a%23b",
+            repoZipDownloadUrl("me", "private-app", "feature/a#b", isPrivate = true),
+        )
+    }
+
+    @Test fun releaseSourceArchivesUseTheSameVisibilityAndEncodingRules() {
+        assertEquals(
+            "https://github.com/me/public-app/archive/refs/tags/v1%20%23x.tar.gz",
+            repoArchiveDownloadUrl("me", "public-app", "refs/tags/v1 #x", "tar.gz", isPrivate = false),
+        )
+        assertEquals(
+            "https://api.github.com/repos/me/private-app/tarball/refs/tags/v1%20%23x",
+            repoArchiveDownloadUrl("me", "private-app", "refs/tags/v1 #x", "tar.gz", isPrivate = true),
+        )
+    }
+
+    @Test fun zipballNeedsJsonAccept() {
+        assertEquals(
+            "application/vnd.github+json",
+            privateDownloadAccept("https://api.github.com/repos/me/private-app/zipball/main"),
+        )
+        assertEquals(
+            "application/vnd.github+json",
+            privateDownloadAccept("https://api.github.com/repos/me/private-app/tarball/main"),
+        )
+    }
 }

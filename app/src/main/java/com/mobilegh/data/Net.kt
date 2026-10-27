@@ -452,9 +452,36 @@ fun repoFileDownloadUrl(owner: String, name: String, ref: String, path: String, 
     else "https://github.com/$owner/$name/raw/$encodedRef/$encodedPath"
 }
 
-/** Actions 产物端点只接受 JSON 的 Accept（发 octet-stream 会得 415），其余下载端点要 octet-stream */
+/**
+ * 源码压缩包下载地址，支持 zip 和 tar.gz。
+ *
+ * 公开仓库走网页 archive 地址，转发类加速节点同样能改写；私有仓库换成 API 的
+ * zipball/tarball 端点，和 raw 一样带 Token 请求网页地址不可靠。
+ * 压缩包是 GitHub 收到请求时现打包的，地址本身不能预测大小。
+ */
+fun repoArchiveDownloadUrl(owner: String, name: String, ref: String, extension: String, isPrivate: Boolean): String {
+    require(extension == "zip" || extension == "tar.gz") { "不支持的源码压缩包格式" }
+    // 保留 ref 里的 / 分隔，其余保留字符必须编码，否则 # 会变成 URL 片段。
+    val encodedRef = Api.encodePath(ref)
+    if (isPrivate) {
+        val endpoint = if (extension == "zip") "zipball" else "tarball"
+        return "https://api.github.com/repos/$owner/$name/$endpoint/$encodedRef"
+    }
+    return "https://github.com/$owner/$name/archive/$encodedRef.$extension"
+}
+
+fun repoZipDownloadUrl(owner: String, name: String, ref: String, isPrivate: Boolean): String =
+    repoArchiveDownloadUrl(owner, name, ref, "zip", isPrivate)
+
+/**
+ * 私有下载要发的 Accept。
+ *
+ * Actions 产物和源码打包端点都只接受 JSON（源码打包端发 octet-stream 会得 415，
+ * 实测 API 会直接拒绝整个请求），其余下载端点要 octet-stream。
+ */
 fun privateDownloadAccept(url: String): String =
-    if (url.contains("/actions/artifacts/")) "application/vnd.github+json" else "application/octet-stream"
+    if (url.contains("/actions/artifacts/") || url.contains("/zipball/") || url.contains("/tarball/")) "application/vnd.github+json"
+    else "application/octet-stream"
 
 /**
  * 下载地址按节点排序：上次成功的 → 当前选中的 → 测速快的 → 未测速的 → 失败过的，

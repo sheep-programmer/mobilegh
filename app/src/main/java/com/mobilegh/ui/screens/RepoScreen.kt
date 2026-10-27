@@ -45,6 +45,7 @@ import com.mobilegh.data.GitHub
 import com.mobilegh.data.HomePrefs
 import com.mobilegh.data.SubscriptionSettings
 import com.mobilegh.data.Repo
+import com.mobilegh.data.repoZipDownloadUrl
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.RepoKind
@@ -59,6 +60,8 @@ import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.boxedItems
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.ErrorState
+import com.mobilegh.ui.components.FileInfo
+import com.mobilegh.ui.components.FileInfoDialog
 import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
@@ -119,6 +122,7 @@ fun RepoScreen(owner: String, name: String) {
     var showFork by remember { mutableStateOf(false) }
     var showSubscription by remember { mutableStateOf(false) }
     var showLists by remember { mutableStateOf(false) }
+    var zipInfo by remember { mutableStateOf<FileInfo?>(null) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -134,6 +138,22 @@ fun RepoScreen(owner: String, name: String) {
                 add(MenuAction("分享") { ctx.share("https://github.com/$owner/$name") })
                 add(MenuAction("复制链接") { ctx.copy("https://github.com/$owner/$name") })
                 add(MenuAction("克隆地址…") { showClone = true })
+                // 和网页上 Code → Download ZIP 一样：把当前分支/标签的源码打包下来，不用 clone
+                if (r != null) add(MenuAction("下载源码 zip") {
+                    val refName = branch ?: r.defaultBranch
+                    zipInfo = FileInfo(
+                        name = "${r.name}-${refName.replace('/', '-')}.zip",
+                        url = repoZipDownloadUrl(owner, name, refName, r.isPrivate),
+                        isPrivate = r.isPrivate,
+                        mimeType = "application/zip",
+                        details = listOf(
+                            "内容" to "分支 / 标签 $refName 的完整源代码（zip 压缩包）",
+                            "仓库" to "$owner/$name",
+                            "大小" to "下载时由 GitHub 实时打包，大小未知",
+                            "说明" to "不含提交历史，也不含子模块内容",
+                        ),
+                    )
+                })
                 if (r != null) add(MenuAction("加入 Star 列表…") { showLists = true })
                 if (HomePrefs.layout().isFavorite(owner, name)) add(MenuAction("移出首页收藏") {
                     HomePrefs.toggleFavorite(owner, name)
@@ -284,6 +304,7 @@ fun RepoScreen(owner: String, name: String) {
         }
     }
 
+    zipInfo?.let { FileInfoDialog(it) { zipInfo = null } }
     if (showSubscription && entry.sameAccount()) SubscriptionDialog(owner, name, { showSubscription = false }) { watching.accept(it) }
     if (showLists && r != null) AddToStarListsDialog(r) { showLists = false }
     if (showBranches && r != null) {

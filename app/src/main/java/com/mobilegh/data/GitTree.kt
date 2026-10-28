@@ -55,8 +55,13 @@ object GitTree {
         for (e in entries) {
             if (e.segments.isEmpty()) continue
             var node = root
-            for (s in e.segments.dropLast(1)) node = node.dirs.getOrPut(s) { Node() }
-            node.files[e.segments.last()] = e.mode to e.sha
+            for (s in e.segments.dropLast(1)) {
+                require(!node.files.containsKey(s)) { "路径冲突：$s 同时是文件和目录" }
+                node = node.dirs.getOrPut(s) { Node() }
+            }
+            val leaf = e.segments.last()
+            require(!node.dirs.containsKey(leaf)) { "路径冲突：$leaf 同时是文件和目录" }
+            node.files[leaf] = e.mode to e.sha
         }
 
         fun emit(node: Node): String {

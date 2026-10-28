@@ -90,9 +90,6 @@ object GitUpload {
     const val MAX_DEPTH = 24
     const val MAX_FOLDER_FILES = 3000
 
-    /** 提交里的应用署名（git trailer） */
-    const val SIGNATURE = "Co-authored-by: MobileGH <noreply@github.com>"
-
     /**
      * commit 对象里的身份行：`名字 <邮箱> <秒级时间> <时区>`。
      *
@@ -132,7 +129,7 @@ object GitUpload {
                 val name = i.path.substringAfterLast('/')
                 val base = i.copy(name = name)
                 when {
-                    !seen.add(i.path.lowercase()) -> { dropped++; null }
+                    !seen.add(i.path) -> { dropped++; null }
                     !CodeReading.validPath(i.path) -> { dropped++; null }
                     i.size > MAX_FILE_BYTES -> base.copy(skip = "超过 GitHub 的 ${MAX_FILE_BYTES / 1024 / 1024} MB 单文件上限，任何人都无法上传（请用 Git LFS）")
                     else -> base
@@ -238,17 +235,14 @@ object GitUpload {
     private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
 
     /**
-     * 权限位：仓库里同路径已经是 100755 就保持可执行；否则按 shebang 和常见脚本后缀判断。
-     * SAF 不携带 POSIX 权限位，这是最接近 `git add` 的结果。
+     * 权限位：仓库里同路径已经是 100755 就保持可执行；新文件只有 shebang 能证明它应当可执行。
+     * SAF 不携带 POSIX 权限位，不能仅凭 `.py`、`.sh` 等扩展名改变仓库权限。
      */
     fun modeOf(path: String, head: ByteArray, existing: RepoBlob?): String = when {
         head.size >= 2 && head[0] == '#'.code.toByte() && head[1] == '!'.code.toByte() -> "100755"
         existing?.mode == "100755" -> "100755"
-        path.lowercase().substringAfterLast('.') in EXEC_EXT -> "100755"
         else -> "100644"
     }
-
-    private val EXEC_EXT = setOf("sh", "bash", "zsh", "fish", "py", "rb", "pl", "php", "lua")
 
     /** 内容和权限位都没变就不必重新写入 */
     fun needsWrite(sha: String, mode: String, existing: RepoBlob?): Boolean {
@@ -276,16 +270,29 @@ object GitUpload {
         return out
     }
 
-    /** 提交信息末尾追加应用署名；已经有署名或空信息时保持原样 */
-    fun messageWithSignature(message: String): String {
-        val m = message.trim()
-        if (m.isEmpty() || m.contains(SIGNATURE)) return m
-        return "$m\n\n$SIGNATURE"
+    /** 只整理用户输入，不向提交信息追加任何工具署名。 */
+    fun commitMessage(message: String): String = message.trim()
+
+    /** 覆盖文件时必须有完整基准树，否则无法可靠保留现有权限位。 */
+    fun completeSnapshot(index: TreeIndex): Map<String, RepoBlob> {
+        if (index.truncated)
+            throw ApiException(409, "无法完整读取基准目录，为避免改变现有文件权限，请稍后重试")
+        return index.blobs
+    }
+
+    /** 每次网络阶段前复核账号，避免上传中途切换账号后拿新凭据继续写。 */
+    internal fun uploadAccountGuard(): () -> Unit {
+        val generation = Session.generation
+        val login = Session.login
+        return {
+            if (Session.generation != generation || Session.login != login)
+                throw ApiException(409, "账号已切换，上传已停止；请在新账号下重新选择并上传")
+        }
     }
 
     /** 一行清单说明：文件数 + 合计大小 + 被排除的数量 */
     fun summary(ok: Int, bytes: Long, skipped: Int): String =
-        "$ok 个文件 · " + com.mobilegh.ui.components.fmtSize(bytes) + (if (skipped > 0) " · $skipped 项不上传" else "")
+        "$ok 个文件 · " + com.mobilegh.ui.components.fmtSize(bytes) + if (skipped > 0) " · $skipped 项不上传" else ""
 
     /**
      * 把上传失败换成能看懂的下一步。分支引用只允许快进，所以「别人先推了」和「受保护分支」
@@ -297,7 +304,12 @@ object GitUpload {
 
     /** [raw] 是服务端或底层错误的原文片段 */
     fun explain(raw: String, commit: String?): String {
-        val saved = commit?.takeIf { it.isNotEmpty() }?.let { "内容已经生成提交 ${it.take(7)}，但分支没有更新。" } ?: ""
+        val saved = commit?.takeIf { it.isNotEmpty() }?.let {
+            val uncertain = raw.isBlank() || listOf("timeout", "network", "socket", "connection", "网络", "连接", "中断")
+                .any { word -> raw.contains(word, true) }
+            if (uncertain) "内容已经生成提交 ${it.take(7)}，但分支更新结果未确认；请先查看分支和提交历史再重试。"
+            else "内容已经生成提交 ${it.take(7)}，但分支没有更新。"
+        } ?: ""
         val hint = when {
             raw.contains("not a fast forward", true) || raw.contains("cannot lock ref", true) ->
                 "这个分支在你上传期间有了新提交。重新上传一次即可，会基于最新内容。"
@@ -324,6 +336,7 @@ object GitUpload {
      * [newBranch] 表示目标分支还不存在，直接让新分支指向这个提交。
      * [onCommit] 在提交已经生成、但分支还没更新时回调：那一步失败时内容不会回滚，界面必须说清楚。
      */
+    @Suppress("ComplexMethod")
     suspend fun run(
         owner: String,
         name: String,
@@ -337,19 +350,21 @@ object GitUpload {
         onCommit: suspend (String) -> Unit = {},
     ): UploadResult {
         if (files.isEmpty()) throw ApiException(400, "请先选择要上传的文件")
+        val checkAccount = uploadAccountGuard()
         val total = files.sumOf { it.size }.coerceAtLeast(0)
 
         // 基准提交。实测：空仓库（没有任何提交）时 /commits/{ref} 返回 409「Git Repository is empty」，
         // ref 不存在才是 404。空仓库没有基准可用，走 bootstrap（本地建树与建提交），不拦用户
         if (baseRef.isBlank()) throw ApiException(400, "分支名无效，请重新选择分支后再上传")
         val base = try {
+            checkAccount()
             withContext(Dispatchers.IO) { GitHub.resolveSha(owner, name, baseRef) }
         } catch (e: ApiException) {
             if (e.code == 409 || e.message.contains("empty", true)) null
             else if (e.code == 404) throw ApiException(404, "找不到 $baseRef，请重新选择分支后再上传")
             else throw e
         }
-        if (base == null) return bootstrap(owner, name, targetBranch, files, message, open, onProgress)
+        if (base == null) return bootstrap(owner, name, targetBranch, files, message, open, onProgress, checkAccount)
 
         var bytesDone = 0L
         var done = 0
@@ -357,10 +372,11 @@ object GitUpload {
             onProgress(UploadProgress(done, files.size, bytesDone.coerceAtMost(total), total, current, stage))
 
         step("读取仓库当前内容")
+        checkAccount()
         val baseTree = withContext(Dispatchers.IO) { GitHub.commitTreeSha(owner, name, base) }
-        // 已有文件表：拿不到或被截断时按「全部都要写」处理，最多多做无用功，不会漏掉文件
-        val snapshot = runCatching { withContext(Dispatchers.IO) { GitHub.treeIndex(owner, name, baseTree) } }
-            .getOrNull()?.takeIf { !it.truncated }?.blobs
+        // 读取失败或树被截断时不能猜现有权限位；必须停止，而不是把可执行文件改成普通文件。
+        checkAccount()
+        val snapshot = completeSnapshot(withContext(Dispatchers.IO) { GitHub.treeIndex(owner, name, baseTree) })
 
         // 1) 流式算 sha，确定哪些文件真的要写入
         val scanned = scan(files, open, snapshot) { d, b, n -> done = d; bytesDone = b; step(n) }
@@ -368,12 +384,14 @@ object GitUpload {
             throw ApiException(400, "所选文件与 $baseRef 上的内容完全一致，没有需要提交的改动")
 
         // 2) 用 git 传输把 blob 推进仓库：借一条确实存在的 ref 发空操作指令（实测不会动到分支）
+        checkAccount()
         val ref = GitPack.pickRef(GitPack.advertise(owner, name), baseRef)
             ?: throw ApiException(409, "仓库状态变了（现在没有可借用的分支），请重新打开本页再上传")
         val groups = packGroups(scanned.pending)
         for ((i, part) in groups.withIndex()) {
             val batchNote = if (groups.size > 1) "（第 ${i + 1}/${groups.size} 批）" else ""
             step("打包上传$batchNote", UploadStage.Sending)
+            checkAccount()
             val receipt = GitPack.push(
                 owner, name, GitPack.noOpCommand(ref),
                 part.map { it.sha to PackObject(GitPack.TYPE_BLOB, it.size, it.open) },
@@ -394,6 +412,7 @@ object GitUpload {
         val treeGroups = batches(scanned.writes)
         for ((i, part) in treeGroups.withIndex()) {
             step(if (treeGroups.size > 1) "整理文件 ${i + 1}/${treeGroups.size}" else "")
+            checkAccount()
             tree = withContext(Dispatchers.IO) {
                 try {
                     GitHub.createTree(owner, name, tree, part.map { it.payload() })
@@ -407,12 +426,14 @@ object GitUpload {
 
         // 4) 一个提交，然后才移动分支
         step("生成提交", UploadStage.Finalizing)
+        checkAccount()
         val sha = withContext(Dispatchers.IO) {
-            GitHub.createCommit(owner, name, messageWithSignature(message), tree, listOf(base))
+            GitHub.createCommit(owner, name, commitMessage(message), tree, listOf(base))
         }
         // 到这里内容已经是一个完整提交，只是分支还没跟上来
         withContext(Dispatchers.Main) { onCommit(sha) }
         step(if (newBranch) "创建分支 $targetBranch" else "推送到 $targetBranch")
+        checkAccount()
         withContext(Dispatchers.IO) {
             if (newBranch) GitHub.createRef(owner, name, targetBranch, sha)
             else GitHub.updateBranch(owner, name, targetBranch, sha)
@@ -485,10 +506,12 @@ object GitUpload {
         message: String,
         open: (UploadItem) -> InputStream?,
         onProgress: (UploadProgress) -> Unit,
+        checkAccount: () -> Unit,
     ): UploadResult {
-        val plan = planBootstrap(files, message, open, onProgress)
+        val plan = planBootstrap(files, message, open, onProgress, checkAccount)
         onProgress(UploadProgress(files.size, files.size, plan.total, plan.total,
             "创建分支 $targetBranch", UploadStage.Sending))
+        checkAccount()
         val receipt = GitPack.push(owner, name, GitPack.createCommand(targetBranch, plan.commitSha), plan.objects)
         // 这一条指令是真的要把分支建出来的：没建出来就是失败，不能只当对象落库就算成功
         // 只抛服务端原文，由界面统一 explain()：这里套一层、界面再套一层会变成
@@ -520,6 +543,7 @@ object GitUpload {
         message: String,
         open: (UploadItem) -> InputStream?,
         onProgress: (UploadProgress) -> Unit = {},
+        checkAccount: () -> Unit = {},
     ): BootPlan {
         val total = files.sumOf { it.size }.coerceAtLeast(0)
         val scanned = scan(files, open, null) { d, b, n ->
@@ -531,12 +555,13 @@ object GitUpload {
         val built = withContext(Dispatchers.Default) { GitTree.buildRootTree(entries) }
         // 作者身份只影响首个提交显示成谁；拿不到（未登录或断网）就用登录名，GitHub 照样接受
         val ident = withContext(Dispatchers.IO) {
+            checkAccount()
             val me = runCatching { GitHub.viewer() }.getOrNull()
             identOf(me?.login?.takeIf { it.isNotBlank() } ?: Session.login ?: "MobileGH", me?.id ?: 0L,
                 java.time.ZonedDateTime.now().toEpochSecond())
         }
         val commit = withContext(Dispatchers.Default) {
-            GitTree.commitBytes(built.sha, messageWithSignature(message), emptyList(), ident)
+            GitTree.commitBytes(built.sha, commitMessage(message), emptyList(), ident)
         }
         val commitSha = GitTree.commitSha(commit)
 

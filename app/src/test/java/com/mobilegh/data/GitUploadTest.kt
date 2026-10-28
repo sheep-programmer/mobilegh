@@ -85,22 +85,23 @@ class GitUploadTest {
     @Test fun triageDropsDuplicatesAndFlagsOversizedFiles() {
         val items = listOf(
             UploadItem("u1", "a.txt", "dir/a.txt", 10),
-            // 大小写不同的同路径在仓库里是同一个文件，只留先选中的
+            // Git 路径大小写敏感，两项都必须保留
             UploadItem("u2", "A.TXT", "dir/A.TXT", 20),
             UploadItem("u3", "huge.bin", "huge.bin", GitUpload.MAX_FILE_BYTES + 1),
             UploadItem("u4", "bad", "docs/../x", 5),
             UploadItem("u5", "ok.sh", "ok.sh", 5),
         )
         val r = GitUpload.triage(items)
-        assertEquals(3, r.items.size)
-        assertEquals(2, r.dropped)
+        assertEquals(4, r.items.size)
+        assertEquals(1, r.dropped)
         val byUri = r.items.associateBy { it.uri }
         assertNull(byUri["u1"]!!.skip)
+        assertNull(byUri["u2"]!!.skip)
         assertNotNull(byUri["u3"]!!.skip)
         assertTrue(byUri["u3"]!!.skip!!, byUri["u3"]!!.skip!!.contains("100"))
         // 这种文件谁都传不上去，必须告诉用户 LFS 是出路
         assertTrue(byUri["u3"]!!.skip!!, byUri["u3"]!!.skip!!.contains("LFS"))
-        assertEquals(listOf("u1", "u5"), GitUpload.usable(r.items).map { it.uri })
+        assertEquals(listOf("u1", "u2", "u5"), GitUpload.usable(r.items).map { it.uri })
     }
 
     /** 去重要在整理路径之后做：清单里的路径带多余空白或斜杠也拦不住重复 */
@@ -126,11 +127,13 @@ class GitUploadTest {
         r.items.forEach { assertNull(it.skip) }
     }
 
-    @Test fun fileModeFollowsShebangExistingModeAndExtension() {
+    @Test fun fileModeFollowsShebangAndExistingMode() {
         val shebang = "#!/bin/sh\n".toByteArray()
         val plain = "text".toByteArray()
         assertEquals("100755", GitUpload.modeOf("run.txt", shebang, null))
-        assertEquals("100755", GitUpload.modeOf("deploy.py", plain, null))
+        // 普通脚本文件也不能仅凭扩展名被改成可执行文件
+        assertEquals("100644", GitUpload.modeOf("deploy.py", plain, null))
+        assertEquals("100644", GitUpload.modeOf("run.sh", plain, null))
         // 本机不带权限位，但仓库里已经是可执行的不能被打回普通文件
         assertEquals("100755", GitUpload.modeOf("task.ps1", plain, RepoBlob("x", "100755")))
         assertEquals("100644", GitUpload.modeOf("notes.md", plain, RepoBlob("x", "100644")))
@@ -178,12 +181,10 @@ class GitUploadTest {
         assertEquals(99 * mb, g2[0][0].size)
     }
 
-    @Test fun commitMessageCarriesSignatureOnce() {
-        val once = GitUpload.messageWithSignature("Add logo")
-        assertTrue(once, once.startsWith("Add logo"))
-        assertTrue(once, once.contains(GitUpload.SIGNATURE))
-        assertEquals(once, GitUpload.messageWithSignature(once))
-        assertEquals("", GitUpload.messageWithSignature("   "))
+    @Test fun commitMessageDoesNotAddAttribution() {
+        assertEquals("Add logo", GitUpload.commitMessage("  Add logo  "))
+        assertEquals("", GitUpload.commitMessage("   "))
+        assertFalse(GitUpload.commitMessage("Add logo").contains("Co-authored-by", ignoreCase = true))
     }
 
     @Test fun defaultMessageMatchesFileCount() {
@@ -239,6 +240,13 @@ class GitUploadTest {
         assertTrue(partial, partial.contains("0123456"))
         assertTrue(partial, partial.contains("分支没有更新"))
 
+        val uncertain = GitUpload.explain(
+            ApiException(-1, "timeout"),
+            "0123456789abcdef0123456789abcdef01234567",
+        )
+        assertTrue(uncertain, uncertain.contains("结果未确认"))
+        assertFalse(uncertain, uncertain.contains("分支没有更新"))
+
         val conflict = GitUpload.explain(ApiException(422, "GitRPC::BadObjectState"), null)
         assertTrue(conflict, conflict.contains("路径冲突"))
 
@@ -255,6 +263,32 @@ class GitUploadTest {
         // 每条都必须承认「上传未完成」
         listOf(stale, lock, protectedBranch, hook, indexPack, partial, conflict, sso, network).forEach {
             assertTrue(it, it.startsWith("上传未完成"))
+        }
+    }
+
+    @Test fun completeSnapshotRejectsTruncatedTree() {
+        val blobs = mapOf("run.sh" to RepoBlob("abc", "100755"))
+        assertEquals(blobs, GitUpload.completeSnapshot(TreeIndex(blobs, truncated = false)))
+        val e = capture { GitUpload.completeSnapshot(TreeIndex(blobs, truncated = true)) }
+        assertTrue(e is ApiException)
+        assertTrue(e.message!!, e.message!!.contains("基准目录"))
+    }
+
+    @Test fun accountGuardRejectsSwitchBeforeNextWrite() {
+        val oldLogin = Session.login
+        val oldGeneration = Session.generation
+        try {
+            Session.login = "first"
+            val guard = GitUpload.uploadAccountGuard()
+            guard()
+            Session.login = "second"
+            Session.generation++
+            val e = capture { guard() }
+            assertTrue(e is ApiException)
+            assertTrue(e.message!!, e.message!!.contains("账号已切换"))
+        } finally {
+            Session.login = oldLogin
+            Session.generation = oldGeneration
         }
     }
 

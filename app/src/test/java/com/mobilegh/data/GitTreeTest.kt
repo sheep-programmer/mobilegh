@@ -122,6 +122,16 @@ class GitTreeTest {
         assertTrue(t.bytes.hex(), t.bytes.hex().contains("31303036343420524541444d452e6d6400$deep"))
     }
 
+    @Test fun fileAndDirectoryPrefixConflictsAreRejectedInEitherOrder() {
+        val file = GitTree.Entry(listOf("foo"), GitTree.MODE_FILE, readme)
+        val child = GitTree.Entry(listOf("foo", "bar.txt"), GitTree.MODE_FILE, deep)
+        listOf(listOf(file, child), listOf(child, file)).forEach { conflict ->
+            val e = runCatching { GitTree.buildRootTree(conflict) }.exceptionOrNull()
+            assertTrue("foo 与 foo/bar.txt 不能同时进入一棵树", e is IllegalArgumentException)
+            assertTrue(e!!.message!!, e.message!!.contains("路径冲突"))
+        }
+    }
+
     private fun ByteArray.hex(): String = joinToString("") { "%02x".format(it) }
 
     private fun ByteArray.text(): String = String(this, Charsets.UTF_8)

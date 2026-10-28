@@ -34,7 +34,7 @@ class GitPackBodyE2ETest {
             val pseudo = ByteArray(4 * 1024 * 1024 + 7)
             var s = 0x1234567L
             for (i in pseudo.indices) {
-                s = (s * 6364136223846793005L + 1442695040888963407L) and Long.MAX_VALUE
+                s = s * 6364136223846793005L + 1442695040888963407L and Long.MAX_VALUE
                 pseudo[i] = ((s ushr 33) and 0xFF).toByte()
             }
             listOf(text, script, pseudo).map { d ->

@@ -260,6 +260,16 @@ class GitPackTest {
         assertTrue(e.message ?: "", e.message!!.contains("改动"))
     }
 
+    @Test fun receiveBodyRejectsSameSizeContentThatDoesNotMatchOid() {
+        val expected = GitUpload.blobSha("content-A".toByteArray())
+        val body = GitPack.ReceiveBody(
+            "x y refs/heads/main",
+            listOf(expected to blob("content-B".toByteArray())),
+        ) { _, _ -> }
+        val e = capture { body.writeTo(okio.Buffer()) }
+        assertTrue(e.message ?: "", e.message!!.contains("改动"))
+    }
+
     @Test fun unreadableObjectFailsWithClearReason() {
         val gone = PackObject(GitPack.TYPE_BLOB, 5L) { null }
         val e = capture { GitPack.buildPack(listOf(gone)) }

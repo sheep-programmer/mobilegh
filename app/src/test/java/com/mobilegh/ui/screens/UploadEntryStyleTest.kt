@@ -44,6 +44,16 @@ class UploadEntryStyleTest {
         assertTrue("这些文件里出现了自建文件浏览器：$offenders", offenders.isEmpty())
     }
 
+    @Test fun uploadScreenUsesStageAwareProgress() {
+        val s = source("FileUploadScreen.kt")
+        assertTrue("发送和收尾阶段必须使用不确定进度", s.contains("if (determinateProgress(p))"))
+    }
+
+    @Test fun cancellationAfterCommitDoesNotClaimRefWasNotUpdated() {
+        val s = source("FileUploadScreen.kt")
+        assertFalse("取消时引用更新结果也不确定", s.contains("已经生成，但分支没有更新"))
+    }
+
     /** 文件夹仍然要能带上层级：由 UploadSource 递归展开，不靠用户改选多次 */
     @Test fun folderExpansionStillLivesInDataSource() {
         val s = File(repoRoot, "app/src/main/java/com/mobilegh/data/UploadSource.kt").readText()

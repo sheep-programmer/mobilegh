@@ -23,7 +23,10 @@ object UploadSource {
     class Group(val entries: List<Entry>, val note: String? = null)
 
     private const val MAX_DEPTH = GitUpload.MAX_DEPTH
-    private const val MAX_FILES = GitUpload.MAX_FOLDER_FILES
+    internal const val MAX_FOLDER_FILES = GitUpload.MAX_FOLDER_FILES
+    private const val MAX_FILES = MAX_FOLDER_FILES
+
+    internal fun shouldRecurseDirectory(name: String): Boolean = name != ".git"
 
     private val CHILD_COLUMNS = arrayOf(
         DocumentsContract.Document.COLUMN_DOCUMENT_ID,
@@ -37,13 +40,14 @@ object UploadSource {
         val out = ArrayList<Entry>()
         val notes = ArrayList<String>()
         var unreadable = 0
+        var truncated = false
         uris.forEach { uri ->
             if (isDirectory(ctx, uri)) {
                 val tree = treeOf(uri)
                 val docId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull()
                 if (tree != null && docId != null) {
                     val name = safeName(displayName(ctx, uri) ?: docId.tail())
-                    if (name == null) unreadable++ else walk(ctx, tree, docId, name, 0, out, notes)
+                    if (name == null) unreadable++ else walk(ctx, tree, docId, name, 0, out, notes) { truncated = true }
                 } else unreadable++
             } else {
                 val info = meta(ctx, uri)
@@ -51,7 +55,7 @@ object UploadSource {
             }
         }
         if (unreadable > 0) notes.add("$unreadable 项读不到，已跳过")
-        Group(out.limit(notes), notes.joinToString(" · ").ifBlank { null })
+        Group(out.limit(notes, truncated), notes.joinToString(" · ").ifBlank { null })
     }
 
     /** 递归读取用户选中的文件夹；文件夹名成为顶层目录 */
@@ -62,12 +66,13 @@ object UploadSource {
             ?: return@withContext Group(emptyList(), "文件夹名称无法使用")
         val out = ArrayList<Entry>()
         val notes = ArrayList<String>()
-        walk(ctx, root, treeId, name, 0, out, notes)
-        Group(out.limit(notes), notes.joinToString(" · ").ifBlank { null })
+        var truncated = false
+        walk(ctx, root, treeId, name, 0, out, notes) { truncated = true }
+        Group(out.limit(notes, truncated), notes.joinToString(" · ").ifBlank { null })
     }
 
-    private fun List<Entry>.limit(notes: MutableList<String>): List<Entry> =
-        if (size > MAX_FILES) { notes.add("文件超过 $MAX_FILES 个，只保留前 $MAX_FILES 个"); take(MAX_FILES) } else this
+    internal fun List<Entry>.limit(notes: MutableList<String>, truncated: Boolean = false): List<Entry> =
+        if (size > MAX_FILES || truncated) { notes.add("文件超过 $MAX_FILES 个，只保留前 $MAX_FILES 个"); take(MAX_FILES) } else this
 
     /** "primary:Documents/sub" → "sub"；没有分隔符时原样返回 */
     private fun String.tail(): String = trimEnd('/').substringAfterLast('/').substringAfterLast(':').trim()
@@ -84,7 +89,7 @@ object UploadSource {
         column(ctx, uri, DocumentsContract.Document.COLUMN_MIME_TYPE) == DocumentsContract.Document.MIME_TYPE_DIR
 
     /**
-     * 展开一个目录：只带普通文件，跳过 `.git`、`.idea` 这类隐藏目录（与 git 默认忽略未跟踪的 .git 一致）。
+     * 展开一个目录：只带普通文件，仅跳过 Git 内部目录 `.git`；`.github` 等隐藏目录必须保留。
      * [prefix] 是已确定的相对路径，递归时逐级追加；读不下去的子目录记进 [notes]，不整体失败。
      */
     private fun walk(
@@ -95,8 +100,9 @@ object UploadSource {
         depth: Int,
         out: MutableList<Entry>,
         notes: MutableList<String>,
+        onTruncated: () -> Unit,
     ) {
-        if (docId.isBlank() || out.size >= MAX_FILES) return
+        if (docId.isBlank()) return
         if (depth > MAX_DEPTH) { notes.add("层级超过 $MAX_DEPTH 层，未继续深入"); return }
         val children = runCatching { DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId) }.getOrNull() ?: return
         val rows = runCatching {
@@ -114,15 +120,15 @@ object UploadSource {
         }.getOrNull()
         if (rows == null) { notes.add("读不到「$prefix」的内容，已跳过"); return }
         for ((id, raw, info) in rows) {
+            if (out.size >= MAX_FILES) { onTruncated(); return }
             val (mime, size) = info
             val name = safeName(raw)
             if (name == null) { notes.add("跳过异常名称「$raw」"); continue }
             val rel = "$prefix/$name"
             if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
-                if (name.startsWith('.')) continue
-                walk(ctx, tree, id, rel, depth + 1, out, notes)
+                if (!shouldRecurseDirectory(name)) continue
+                walk(ctx, tree, id, rel, depth + 1, out, notes, onTruncated)
             } else {
-                if (out.size >= MAX_FILES) return
                 out.add(Entry(DocumentsContract.buildDocumentUriUsingTree(tree, id).toString(), rel, size.coerceAtLeast(0)))
             }
         }
@@ -136,7 +142,7 @@ object UploadSource {
                 DocumentsContract.Document.COLUMN_SIZE,
             ), null, null, null)?.use { c ->
                 if (!c.moveToFirst()) null else (if (c.isNull(0)) null else c.getString(0)) to
-                    (if (c.isNull(1)) 0L else runCatching { c.getLong(1) }.getOrDefault(0L))
+                    if (c.isNull(1)) 0L else runCatching { c.getLong(1) }.getOrDefault(0L)
             }
         }.getOrNull()
         val name = safeName(row?.first ?: uri.lastPathSegment?.substringAfterLast('/')) ?: return null

@@ -270,6 +270,14 @@ object GitPack {
                 emit(objectHeader(obj.type, obj.size))
                 val input = obj.open() ?: throw ApiException(-1, GitUpload.UNREADABLE)
                 input.use { read ->
+                    val typeWord = when (obj.type) {
+                        TYPE_COMMIT -> "commit"
+                        TYPE_TREE -> "tree"
+                        TYPE_BLOB -> "blob"
+                        else -> throw ApiException(-1, "不支持的 Git 对象类型 ${obj.type}")
+                    }
+                    val objectMd = MessageDigest.getInstance("SHA-1")
+                    objectMd.update("$typeWord ${obj.size}\u0000".toByteArray(Charsets.UTF_8))
                     // 关掉 Deflater 才会把尾巴的压缩数据吐完；HashedSink.close 是空实现，不会误关 raw
                     val def = DeflaterOutputStream(counted, Deflater(Deflater.DEFAULT_COMPRESSION), CHUNK)
                     val buf = ByteArray(CHUNK)
@@ -279,9 +287,12 @@ object GitPack {
                         if (n < 0) break
                         total += n
                         if (total > obj.size) throw ApiException(-1, "文件在打包期间变大了，请重新选择")
+                        objectMd.update(buf, 0, n)
                         def.write(buf, 0, n)
                     }
                     if (total != obj.size) throw ApiException(-1, CHANGE_MIDWAY)
+                    val actual = objectMd.digest().joinToString("") { "%02x".format(it) }
+                    if (!actual.equals(oid, ignoreCase = true)) throw ApiException(-1, CHANGE_MIDWAY)
                     def.close()
                 }
             }

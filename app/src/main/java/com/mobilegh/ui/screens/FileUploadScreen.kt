@@ -29,6 +29,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -130,7 +131,7 @@ private class UploadState {
     /** 底部一行：文件数 + 合计大小 + 被排除的数量 */
     fun lineSummary(): String {
         val size = if (usable.isEmpty()) "" else " · " + fmtSize(bytes)
-        return "${usable.size} 个文件$size" + (if (skipped > 0) " · $skipped 项不上传" else "")
+        return "${usable.size} 个文件$size" + if (skipped > 0) " · $skipped 项不上传" else ""
     }
 }
 
@@ -144,6 +145,7 @@ private class UploadState {
  * 那三条路径在 40 MiB 就拒收，会把本来能传的文件拦住。
  */
 @Composable
+@Suppress("CyclomaticComplexMethod")
 fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
     val nav = LocalNav.current
     val ctx = rememberCtx()
@@ -162,7 +164,7 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
     // 空仓库：没有提交可当基准，也没有既有分支可提，就把选中的内容直接建成默认分支的第一个提交；
     // 也不能挑新分支去建 PR（目标分支还不存在），所以这里固定不新建分支
     val emptyRepo = t?.emptyRepo == true
-    val newBranch = !emptyRepo && (st.useNewBranch ?: (t?.branch == null))
+    val newBranch = if (emptyRepo) false else st.useNewBranch ?: (t?.branch == null)
     // 新建分支时留空就用和网页一致的默认名（<login>-patch-1）
     val suggestedBranch = RepoWrite.patchBranch(Session.login, branches.data ?: emptyList())
     val branch = if (newBranch) branchInput.trim().ifBlank { suggestedBranch } else t?.baseRef.orEmpty()
@@ -237,7 +239,7 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
             } catch (e: CancellationException) {
                 st.busy = false
                 st.progress = null
-                st.error = "已取消上传。" + (st.commit?.let { "提交 ${it.take(7)} 已经生成，但分支没有更新，可以在提交历史里看到它。" } ?: "GitHub 上还没有产生提交。")
+                st.error = "已取消上传。" + (st.commit?.let { "提交 ${it.take(7)} 已经生成，但分支更新结果未确认，请先查看分支和提交历史。" } ?: "GitHub 上还没有产生提交。")
                 throw e
             } catch (e: Throwable) {
                 st.busy = false
@@ -249,7 +251,7 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
 
     Page(
         "上传文件（夹）",
-        subtitle = "${t?.baseRef ?: ref ?: "默认分支"} · $owner/$name" + (if (path.isEmpty()) "" else " · $path/"),
+        subtitle = "${t?.baseRef ?: ref ?: "默认分支"} · $owner/$name" + if (path.isEmpty()) "" else " · $path/",
         onBack = { if (st.busy || st.raw.isNotEmpty()) st.confirmLeave = true else nav.pop() },
         actions = {
             if (st.raw.isNotEmpty() && !st.busy) OcButton(R.drawable.oc_trash, { st.confirmClear = true }, g.fgMuted, description = "清空已选")
@@ -262,7 +264,7 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
                         Text(st.lineSummary(), fontSize = 12.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (st.skipped > 0 || st.dropped > 0) Text(
                             (if (st.skipped > 0) "不上传的项在列表里标了原因" else "") +
-                                (if (st.dropped > 0) (if (st.skipped > 0) "；" else "") + "${st.dropped} 项路径重复或无效，已去掉" else ""),
+                                if (st.dropped > 0) (if (st.skipped > 0) "；" else "") + "${st.dropped} 项路径重复或无效，已去掉" else "",
                             fontSize = 11.sp, color = g.attention, maxLines = 2, overflow = TextOverflow.Ellipsis,
                         )
                     }
@@ -336,22 +338,7 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
                             }
                         }
 
-                        if (st.busy) Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
-                            Column(Modifier.padding(12.dp)) {
-                                val p = st.progress
-                                LinearProgressIndicator(
-                                    progress = { if (p != null && p.totalBytes > 0) (p.bytesDone.toFloat() / p.totalBytes).coerceIn(0f, 1f) else 0f },
-                                    modifier = Modifier.fillMaxWidth().height(6.dp),
-                                    color = g.accent, trackColor = g.neutralMuted,
-                                )
-                                Spacer(Modifier.height(6.dp))
-                                Text(
-                                    (p?.let { "${it.done}/${it.total} 个文件 · ${fmtSize(it.bytesDone)} / ${fmtSize(it.totalBytes)}" } ?: "准备中…") +
-                                        (if (p != null && p.current.isNotEmpty()) "\n${p.current}" else ""),
-                                    fontSize = 12.sp, lineHeight = 17.sp, color = g.fgMuted,
-                                )
-                            }
-                        }
+                        if (st.busy) UploadProgressCard(st.progress)
                         st.error?.let { InlineError(it, Modifier.padding(horizontal = 16.dp)) }
 
                         if (st.items.isEmpty()) {
@@ -359,7 +346,7 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
                         } else {
                             HDivider()
                             Text(
-                                "已选 ${st.items.size} 项" + (if (st.skipped > 0) "（${st.skipped} 项不上传）" else ""),
+                                "已选 ${st.items.size} 项" + if (st.skipped > 0) "（${st.skipped} 项不上传）" else "",
                                 Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 4.dp),
                                 fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = g.fg,
                             )
@@ -408,6 +395,36 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
             st.doneMsg = null
             if (sha != null) nav.push(Screen.CommitDetail(owner, name, sha))
         }) { Text(msg, fontSize = 14.sp, color = g.fg) }
+    }
+}
+
+@Composable
+internal fun UploadProgressCard(p: UploadProgress?) {
+    val g = Gh.c
+    Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            if (determinateProgress(p)) {
+                LinearProgressIndicator(
+                    progress = { (p!!.bytesDone.toFloat() / p.totalBytes).coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().height(6.dp).testTag("upload-progress"),
+                    color = g.accent, trackColor = g.neutralMuted,
+                )
+            } else {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(6.dp).testTag("upload-progress"),
+                    color = g.accent, trackColor = g.neutralMuted,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                (p?.let {
+                    if (determinateProgress(it)) "${it.done}/${it.total} 个文件 · ${fmtSize(it.bytesDone)} / ${fmtSize(it.totalBytes)}"
+                    else "${it.done}/${it.total} 个文件"
+                } ?: "准备中…") +
+                    if (p != null && p.current.isNotEmpty()) "\n${p.current}" else "",
+                fontSize = 12.sp, lineHeight = 17.sp, color = g.fgMuted,
+            )
+        }
     }
 }
 

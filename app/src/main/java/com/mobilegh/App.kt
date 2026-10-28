@@ -15,6 +15,7 @@ import com.mobilegh.data.History
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
+        com.mobilegh.i18n.I18n.init(this)
         Api.cacheDir = cacheDir
         AppLog.init(this)
         com.mobilegh.data.AppNetwork.init(this)

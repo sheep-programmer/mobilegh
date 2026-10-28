@@ -27,6 +27,8 @@ import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.launch
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 @Composable
 fun UpdateDialog(onDismiss: () -> Unit) {
@@ -37,10 +39,10 @@ fun UpdateDialog(onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         containerColor = g.canvas,
         shape = RoundedCornerShape(12.dp),
-        title = { Text("在线更新", color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) },
+        title = { Text(tr("在线更新"), color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) },
         text = {
             Column {
-                Text("当前版本 v${BuildConfig.VERSION_NAME} · 设备架构 ${Update.abi}", fontSize = 13.sp, color = g.fgMuted)
+                Text(trf("当前版本 v{0} · 设备架构 {1}", BuildConfig.VERSION_NAME, Update.abi), fontSize = 13.sp, color = g.fgMuted)
                 Spacer(Modifier.height(12.dp))
                 val info = Update.available
                 when {
@@ -48,11 +50,11 @@ fun UpdateDialog(onDismiss: () -> Unit) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(Modifier.size(18.dp), color = g.accent, strokeWidth = 2.dp)
                             Spacer(Modifier.width(10.dp))
-                            Text("正在读取最新 Release…", color = g.fg, fontSize = 14.sp)
+                            Text(tr("正在读取最新 Release…"), color = g.fg, fontSize = 14.sp)
                         }
                     }
                     info != null -> {
-                        Text("发现新版本 v${info.version}", color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text(trf("发现新版本 v{0}", info.version), color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                         Spacer(Modifier.height(6.dp))
                         Text(info.assetName + " · " + fmtSize(info.size), fontSize = 12.sp, color = g.fgMuted)
                         info.notes?.takeIf { it.isNotBlank() }?.let {
@@ -61,7 +63,7 @@ fun UpdateDialog(onDismiss: () -> Unit) {
                         }
                     }
                     else -> {
-                        Text(Update.error ?: "已是最新版本", color = if (Update.error != null) g.danger else g.fg, fontSize = 14.sp)
+                        Text(Update.error ?: tr("已是最新版本"), color = if (Update.error != null) g.danger else g.fg, fontSize = 14.sp)
                     }
                 }
             }
@@ -72,15 +74,15 @@ fun UpdateDialog(onDismiss: () -> Unit) {
                 TextButton({
                     onDismiss()
                     Update.download(info)
-                    ctx.toast("正在下载，完成后在下载记录中安装")
-                }) { Text("下载更新", color = g.accent, fontWeight = FontWeight.SemiBold) }
+                    ctx.toast(tr("正在下载，完成后在下载记录中安装"))
+                }) { Text(tr("下载更新"), color = g.accent, fontWeight = FontWeight.SemiBold) }
             } else {
                 TextButton({ scope.launch { Update.check() } }, enabled = !Update.checking) {
-                    Text("重新检查", color = if (Update.checking) g.fgMuted else g.accent, fontWeight = FontWeight.SemiBold)
+                    Text(tr("重新检查"), color = if (Update.checking) g.fgMuted else g.accent, fontWeight = FontWeight.SemiBold)
                 }
             }
         },
-        dismissButton = { TextButton(onDismiss) { Text("关闭", color = g.fgMuted) } },
+        dismissButton = { TextButton(onDismiss) { Text(tr("关闭"), color = g.fgMuted) } },
     )
     LaunchedEffect(Unit) { if (Update.available == null && !Update.checking) Update.check() }
 }

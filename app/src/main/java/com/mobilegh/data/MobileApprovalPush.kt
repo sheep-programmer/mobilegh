@@ -20,28 +20,29 @@ import javax.crypto.spec.IvParameterSpec
 import javax.crypto.spec.SecretKeySpec
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
+import com.mobilegh.i18n.tr
 
 internal object MobilePushCodec {
     fun number(input: InputStream): Long {
         var value = 0L
         for (shift in 0..63 step 7) {
             val b = input.read()
-            if (b < 0) throw EOFException("推送数据被截断")
-            require(shift != 63 || b and 254 == 0) { "推送整数溢出" }
+            if (b < 0) throw EOFException(tr("推送数据被截断"))
+            require(shift != 63 || b and 254 == 0) { tr("推送整数溢出") }
             value = value or ((b and 127).toLong() shl shift)
             if (b and 128 == 0) return value
         }
-        error("推送数据格式无效")
+        error(tr("推送数据格式无效"))
     }
 
     fun exact(input: InputStream, length: Int): ByteArray {
-        require(length in 0..1_048_576) { "推送数据长度无效" }
+        require(length in 0..1_048_576) { tr("推送数据长度无效") }
         val bytes = ByteArray(length)
         var offset = 0
         while (offset < length) {
             val n = input.read(bytes, offset, length - offset)
-            if (n < 0) throw EOFException("推送数据被截断")
-            if (n == 0) throw EOFException("推送连接没有返回数据")
+            if (n < 0) throw EOFException(tr("推送数据被截断"))
+            if (n == 0) throw EOFException(tr("推送连接没有返回数据"))
             offset += n
         }
         return bytes
@@ -58,7 +59,7 @@ internal object MobilePushCodec {
                 1 -> exact(input, 8)
                 2 -> { val length = number(input); require(length in 0..1_048_576); exact(input, length.toInt()) }
                 5 -> exact(input, 4)
-                else -> error("推送数据类型无效")
+                else -> error(tr("推送数据类型无效"))
             }
             fields.getOrPut((tag ushr 3).toInt()) { mutableListOf() }.add(value)
         }
@@ -67,12 +68,12 @@ internal object MobilePushCodec {
 
     fun decrypt(encoded: String, credentials: JsonObject): JsonObject {
         val data = Base64.getDecoder().decode(encoded)
-        require(data.size >= 65 && data[0] == 0x80.toByte() && (data.size - 49) % 16 == 0) { "认证推送格式无效" }
+        require(data.size >= 65 && data[0] == 0x80.toByte() && (data.size - 49) % 16 == 0) { tr("认证推送格式无效") }
         val encryption = Base64.getDecoder().decode(credentials.getValue("encryptionKey").jsonPrimitive.content)
         val auth = Base64.getDecoder().decode(credentials.getValue("hmacKey").jsonPrimitive.content)
         require(encryption.size == 32 && auth.size == 32)
         val mac = Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec(auth, "HmacSHA256")); update(data, 0, data.size - 32) }.doFinal()
-        require(MessageDigest.isEqual(mac, data.copyOfRange(data.size - 32, data.size))) { "认证推送校验失败" }
+        require(MessageDigest.isEqual(mac, data.copyOfRange(data.size - 32, data.size))) { tr("认证推送校验失败") }
         val plain = Cipher.getInstance("AES/CBC/PKCS5Padding").run {
             init(Cipher.DECRYPT_MODE, SecretKeySpec(encryption, "AES"), IvParameterSpec(data, 1, 16))
             doFinal(data, 17, data.size - 49)
@@ -113,24 +114,24 @@ internal class MobileApprovalPush(private val credentials: JsonObject, private v
                 output.write(41)
                 send(output, 2, login)
                 val version = input.read()
-                check(version == 41 || version == 38) { "推送协议版本不支持" }
-                check(input.read() == 3) { "认证推送登录失败" }
+                check(version == 41 || version == 38) { tr("推送协议版本不支持") }
+                check(input.read() == 3) { tr("认证推送登录失败") }
                 val loginResponse = MobilePushCodec.fields(packet(input))
-                check(loginResponse[3] == null) { "认证推送登录被拒绝" }
+                check(loginResponse[3] == null) { tr("认证推送登录被拒绝") }
                 onConnected(true)
                 var lastInbound = System.currentTimeMillis()
                 while (true) {
                     currentCoroutineContext().ensureActive()
                     val tag = try { input.read() } catch (_: SocketTimeoutException) {
-                        check(System.currentTimeMillis() - lastInbound < 180_000) { "认证推送连接已超时" }
+                        check(System.currentTimeMillis() - lastInbound < 180_000) { tr("认证推送连接已超时") }
                         send(output, 0, byteArrayOf())
                         continue
                     }
-                    if (tag < 0) throw EOFException("认证推送连接已关闭")
+                    if (tag < 0) throw EOFException(tr("认证推送连接已关闭"))
                     val data = packet(input)
                     lastInbound = System.currentTimeMillis()
                     if (tag == 0) { send(output, 1, byteArrayOf()); continue }
-                    check(tag != 4 && tag != 10) { "认证推送连接已断开" }
+                    check(tag != 4 && tag != 10) { tr("认证推送连接已断开") }
                     if (tag != 8) continue
                     val fields = MobilePushCodec.fields(data)
                     fun text(field: Int) = fields[field]?.firstOrNull()?.toString(Charsets.UTF_8)

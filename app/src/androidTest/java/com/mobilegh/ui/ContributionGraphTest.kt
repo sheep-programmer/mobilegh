@@ -17,6 +17,7 @@ import com.mobilegh.data.ContributionPoint
 import com.mobilegh.ui.screens.WeeklyContributionGraph
 import com.mobilegh.ui.theme.MobileGhTheme
 import java.time.LocalDate
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -47,10 +48,14 @@ class ContributionGraphTest {
                 }
             }
         }
-        compose.onNodeWithText("查看每周数据").performClick()
-        compose.onNodeWithText("9,223,372,036,854,775,807 次提交", substring = true).performScrollTo().assertIsDisplayed()
+        // 默认选中最后一周（数据缺失），用前一周按钮逐周回看，每周只显示一行明细
+        compose.onNodeWithText("数据缺失", substring = true).performScrollTo().assertIsDisplayed()
+        val before = compose.onAllNodes(hasClickAction()).fetchSemanticsNodes().size
+        assertTrue("应有前后周按钮", before >= 2)
+        compose.onAllNodes(hasClickAction())[0].performClick()
         compose.onNodeWithText("0 次提交", substring = true).assertExists()
-        compose.onNodeWithText("数据缺失", substring = true).assertExists()
+        compose.onAllNodes(hasClickAction())[0].performClick()
+        compose.onNodeWithText("9,223,372,036,854,775,807 次提交", substring = true).performScrollTo().assertIsDisplayed()
     }
 
     private fun point(day: Int, commits: Long?) = ContributionPoint(

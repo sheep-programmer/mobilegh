@@ -8,6 +8,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.UUID
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** 首页「我的工作」里的内置入口；顺序即默认布局 */
 enum class BuiltinShortcut(val id: String) {
@@ -106,8 +108,8 @@ class HomeLayoutStore internal constructor(private val storage: LocalRecordStora
             if (l.isFavorite(owner, name)) l.copy(favorites = l.favorites.filterNot { it.fullName.equals("$owner/$name", true) })
             else {
                 val f = FavoriteRepo(owner, name)
-                require(repoName.matches(f.fullName)) { "无效的仓库名" }
-                require(l.favorites.size < HomeLayout.MAX_FAVORITES) { "首页最多收藏 ${HomeLayout.MAX_FAVORITES} 个仓库" }
+                require(repoName.matches(f.fullName)) { tr("无效的仓库名") }
+                require(l.favorites.size < HomeLayout.MAX_FAVORITES) { trf("首页最多收藏 {0} 个仓库", HomeLayout.MAX_FAVORITES) }
                 added = true
                 l.copy(favorites = l.favorites + f)
             }
@@ -130,10 +132,10 @@ class HomeLayoutStore internal constructor(private val storage: LocalRecordStora
 
     fun addSearch(login: String, name: String, icon: String, query: IssueQuery): SavedSearch {
         val clean = name.trim()
-        require(clean.isNotEmpty() && clean.length <= HomeLayout.MAX_NAME && clean.none(Char::isISOControl)) { "名称需为 1–${HomeLayout.MAX_NAME} 个字符" }
+        require(clean.isNotEmpty() && clean.length <= HomeLayout.MAX_NAME && clean.none(Char::isISOControl)) { trf("名称需为 1–{0} 个字符", HomeLayout.MAX_NAME) }
         val s = SavedSearch(UUID.randomUUID().toString(), clean, icon.takeIf { it in SAVED_SEARCH_ICONS } ?: "search", query.normalized())
         change(login) { l ->
-            require(l.searches.size < HomeLayout.MAX_SEARCHES) { "最多保存 ${HomeLayout.MAX_SEARCHES} 个搜索" }
+            require(l.searches.size < HomeLayout.MAX_SEARCHES) { trf("最多保存 {0} 个搜索", HomeLayout.MAX_SEARCHES) }
             val next = l.copy(searches = l.searches + s)
             // 已编辑过布局时，新的搜索会由 slots() 自动追加到末尾
             next.copy(shortcuts = l.shortcuts?.let { next.slots() })

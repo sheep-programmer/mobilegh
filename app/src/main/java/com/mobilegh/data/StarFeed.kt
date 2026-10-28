@@ -13,6 +13,8 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** 一页 Star 记录。[nextCursor] 为空表示已经到底。 */
 data class StarFeedPage(val items: List<StarFeedItem>, val nextCursor: String?, val truncated: Boolean)
@@ -51,7 +53,7 @@ class StarFeedClient internal constructor(
     private fun checkAccount(account: StarListAccount) {
         val active = activeAccount()
         check(active != null && active.generation == account.generation && active.login.equals(account.login, true)) {
-            "账号已切换或退出，请重新打开 Star 页"
+            tr("账号已切换或退出，请重新打开 Star 页")
         }
     }
 
@@ -62,8 +64,8 @@ class StarFeedClient internal constructor(
         cursor: String? = null,
         direction: String = "DESC",
     ): StarFeedPage {
-        require(LOGIN.matches(login)) { "无效的 GitHub 用户名" }
-        require(direction == "ASC" || direction == "DESC") { "无效的排序方向" }
+        require(LOGIN.matches(login)) { tr("无效的 GitHub 用户名") }
+        require(direction == "ASC" || direction == "DESC") { tr("无效的排序方向") }
         checkAccount(account)
         val data = request(account, query(), buildJsonObject {
             put("login", login)
@@ -72,19 +74,19 @@ class StarFeedClient internal constructor(
             put("order", buildJsonObject { put("field", "STARRED_AT"); put("direction", direction) })
         })
         checkAccount(account)
-        val viewer = data["viewer"] as? JsonObject ?: error("GitHub 没有返回当前账号")
+        val viewer = data["viewer"] as? JsonObject ?: error(tr("GitHub 没有返回当前账号"))
         require((viewer["login"] as? JsonPrimitive)?.contentOrNull?.equals(account.login, true) == true) {
-            "Star 列表返回了其他账号的数据"
+            tr("Star 列表返回了其他账号的数据")
         }
-        val owner = data["repositoryOwner"] as? JsonObject ?: error("GitHub 没有返回 $login")
+        val owner = data["repositoryOwner"] as? JsonObject ?: error(trf("GitHub 没有返回 {0}", login))
         // 组织不能 Star；返回空页而不是报错，页面仍能显示「没有 Star 任何仓库」
         if ((owner["__typename"] as? JsonPrimitive)?.contentOrNull != "User") {
             return StarFeedPage(emptyList(), null, false)
         }
         require((owner["login"] as? JsonPrimitive)?.contentOrNull?.equals(login, true) == true) {
-            "Star 列表返回了其他账号的数据"
+            tr("Star 列表返回了其他账号的数据")
         }
-        val connection = owner["starredRepositories"] as? JsonObject ?: error("GitHub 没有返回 Star 列表")
+        val connection = owner["starredRepositories"] as? JsonObject ?: error(tr("GitHub 没有返回 Star 列表"))
         val edges = (connection["edges"] as? JsonArray).orEmpty()
         val items = edges.mapNotNull { edge ->
             val node = edge as? JsonObject ?: return@mapNotNull null
@@ -103,7 +105,7 @@ class StarFeedClient internal constructor(
     }
 
     private fun parseRepo(node: JsonObject): Repo {
-        val owner = node["owner"] as? JsonObject ?: error("Star 列表字段 owner 不完整，请刷新")
+        val owner = node["owner"] as? JsonObject ?: error(tr("Star 列表字段 owner 不完整，请刷新"))
         return Repo(
             id = (node["databaseId"] as? JsonPrimitive)?.longOrNull ?: 0L,
             name = node.requiredString("name"),
@@ -126,12 +128,12 @@ class StarFeedClient internal constructor(
     }
 }
 
-private fun JsonObject.requiredObject(name: String) = this[name] as? JsonObject ?: error("Star 列表字段 $name 不完整，请刷新")
+private fun JsonObject.requiredObject(name: String) = this[name] as? JsonObject ?: error(trf("Star 列表字段 {0} 不完整，请刷新", name))
 private fun JsonObject.requiredString(name: String) = (this[name] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
-    ?: error("Star 列表字段 $name 不完整，请刷新")
+    ?: error(trf("Star 列表字段 {0} 不完整，请刷新", name))
 private fun JsonObject.stringOrEmpty(name: String) = (this[name] as? JsonPrimitive)?.contentOrNull.orEmpty()
 private fun JsonObject.requiredBoolean(name: String) = (this[name] as? JsonPrimitive)?.booleanOrNull
-    ?: error("Star 列表字段 $name 不完整，请刷新")
+    ?: error(trf("Star 列表字段 {0} 不完整，请刷新", name))
 
 object StarFeed {
     private val client = StarFeedClient({ currentAccount() }, { _, query, variables -> Api.graphql(query, variables) })
@@ -139,7 +141,7 @@ object StarFeed {
     private fun currentAccount() = Session.login?.takeIf { Session.token != null }?.let { StarListAccount(it, Session.generation) }
 
     suspend fun page(login: String, cursor: String? = null, direction: String = "DESC"): StarFeedPage {
-        val account = currentAccount() ?: throw ApiException(401, "按 Star 时间排序需要先登录 GitHub")
+        val account = currentAccount() ?: throw ApiException(401, tr("按 Star 时间排序需要先登录 GitHub"))
         return client.page(account, login, cursor, direction)
     }
 }

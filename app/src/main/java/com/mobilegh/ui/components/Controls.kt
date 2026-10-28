@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
 
 /** 可横向滑动的筛选标签 */
 @Composable
@@ -259,7 +260,7 @@ fun RadioRow(selected: Boolean, title: String, desc: String? = null, enabled: Bo
 fun GhDialog(
     title: String,
     onDismiss: () -> Unit,
-    confirm: String = "确定",
+    confirm: String = tr("确定"),
     danger: Boolean = false,
     confirmEnabled: Boolean = true,
     dismissEnabled: Boolean = true,
@@ -284,7 +285,7 @@ fun GhDialog(
                 }
             }
         },
-        dismissButton = { TextButton(onDismiss, enabled = dismissEnabled) { Text(if (onConfirm == null) "关闭" else "取消", color = g.fgMuted) } },
+        dismissButton = { TextButton(onDismiss, enabled = dismissEnabled) { Text(if (onConfirm == null) tr("关闭") else tr("取消"), color = g.fgMuted) } },
     )
 }
 

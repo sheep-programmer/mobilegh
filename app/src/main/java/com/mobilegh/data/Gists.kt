@@ -5,6 +5,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /**
  * Gist 写入用到的纯逻辑（网络请求在 [GitHub] 里），便于离线单元测试：
@@ -28,19 +30,19 @@ data class GistDraftFile(
  * removed 是已移除的原文件名（编辑已有 Gist 时）。
  */
 fun gistFilesError(files: List<GistDraftFile>, removed: Collection<String> = emptyList()): String? {
-    if (files.isEmpty()) return "至少要保留一个文件"
+    if (files.isEmpty()) return tr("至少要保留一个文件")
     files.forEach { f ->
-        if (f.filename.isBlank()) return "文件名不能为空"
-        if (f.filename.contains('/')) return "文件名不能包含 /"
-        if (!f.truncated && f.content.isBlank()) return "文件「${f.filename.trim()}」的内容不能为空"
+        if (f.filename.isBlank()) return tr("文件名不能为空")
+        if (f.filename.contains('/')) return tr("文件名不能包含 /")
+        if (!f.truncated && f.content.isBlank()) return trf("文件「{0}」的内容不能为空", f.filename.trim())
     }
     val names = files.map { it.filename.trim() }
-    if (names.size != names.toSet().size) return "文件名不能重复"
+    if (names.size != names.toSet().size) return tr("文件名不能重复")
     // 新文件名不能占用另一行改名前 / 已删除的文件名，否则 PATCH 里的键会互相覆盖
     val taken = files.mapNotNull { it.original } + removed
     files.forEach { f ->
         val name = f.filename.trim()
-        if (name != f.original && name in taken) return "文件名「$name」与被改名或删除的文件冲突，请先保存一次再改"
+        if (name != f.original && name in taken) return trf("文件名「{0}」与被改名或删除的文件冲突，请先保存一次再改", name)
     }
     return null
 }

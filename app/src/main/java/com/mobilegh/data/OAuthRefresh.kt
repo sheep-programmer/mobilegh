@@ -3,6 +3,7 @@ package com.mobilegh.data
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import com.mobilegh.i18n.tr
 
 /** Serializes token rotation for OkHttp worker threads. A dedicated auth client avoids recursion. */
 object OAuthRefresh {
@@ -21,7 +22,7 @@ object OAuthRefresh {
             runBlocking(Dispatchers.IO) {
                 val r = DeviceAuth.refresh(current.clientId, current.refreshToken)
                 if (r !is DevicePoll.Authorized) {
-                    AppLog.warn("auth", "OAuth 刷新未成功，需要重新授权")
+                    AppLog.warn("auth", tr("OAuth 刷新未成功，需要重新授权"))
                     failedToken = expectedToken; lastFailureAt = System.currentTimeMillis()
                     return@runBlocking null
                 }
@@ -29,7 +30,7 @@ object OAuthRefresh {
             }
         } catch (e: Exception) {
             // Do not log the refresh response/body: it contains rotating credentials.
-            AppLog.warn("auth", "OAuth 刷新请求未完成")
+            AppLog.warn("auth", tr("OAuth 刷新请求未完成"))
             failedToken = expectedToken; lastFailureAt = System.currentTimeMillis()
             null
         }

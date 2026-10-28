@@ -12,12 +12,14 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** 星标页的一页结果。[truncated] 对应 GitHub 的 isOverLimit：Star 太多时服务端只返回一部分。 */
 data class StarredPage(val repos: List<Repo>, val nextCursor: String?, val truncated: Boolean)
 
 /** 服务端不接受 `starredRepositories(query:)` 时抛出；界面随即改为只过滤已加载的 Star。 */
-class StarSearchUnavailable : Exception("当前账号无法在服务端搜索 Star")
+class StarSearchUnavailable : Exception(tr("当前账号无法在服务端搜索 Star"))
 
 /**
  * 官方客户端的星标查询：`starredRepositories(query:, orderBy: {field: STARRED_AT, direction:})`，游标分页。
@@ -46,7 +48,7 @@ class StarredReposClient internal constructor(
     private fun checkAccount(account: StarListAccount) {
         val active = activeAccount()
         check(active != null && active.generation == account.generation && active.login.equals(account.login, true)) {
-            "账号已切换或退出，请重新打开 Star 页"
+            tr("账号已切换或退出，请重新打开 Star 页")
         }
     }
 
@@ -61,10 +63,10 @@ class StarredReposClient internal constructor(
         cursor: String? = null,
         direction: String = "DESC",
     ): StarredPage {
-        require(LOGIN.matches(login)) { "无效的 GitHub 用户名" }
-        require(direction == "ASC" || direction == "DESC") { "无效的排序方向" }
+        require(LOGIN.matches(login)) { tr("无效的 GitHub 用户名") }
+        require(direction == "ASC" || direction == "DESC") { tr("无效的排序方向") }
         val keyword = query.trim()
-        require(keyword.length <= MAX_QUERY) { "搜索关键词最多 $MAX_QUERY 个字符" }
+        require(keyword.length <= MAX_QUERY) { trf("搜索关键词最多 {0} 个字符", MAX_QUERY) }
         checkAccount(account)
         val gql = "query MobileGHStarredRepositories(\$login:String!,\$query:String,\$first:Int!,\$after:String,\$order:StarOrder) {" +
             " viewer { login }" +
@@ -85,11 +87,11 @@ class StarredReposClient internal constructor(
         }
         checkAccount(account)
         val viewer = data.requiredObject("viewer").requiredString("login")
-        require(viewer.equals(account.login, true)) { "Star 列表返回了其他账号的数据" }
-        val owner = data["repositoryOwner"] as? JsonObject ?: error("GitHub 没有返回这个用户")
+        require(viewer.equals(account.login, true)) { tr("Star 列表返回了其他账号的数据") }
+        val owner = data["repositoryOwner"] as? JsonObject ?: error(tr("GitHub 没有返回这个用户"))
         // 组织不能 Star；返回空页而不是报错，页面仍能显示“没有 Star 任何仓库”
         if (owner.stringOrEmpty("__typename") != "User") return StarredPage(emptyList(), null, false)
-        val connection = owner["starredRepositories"] as? JsonObject ?: error("GitHub 没有返回 Star 列表")
+        val connection = owner["starredRepositories"] as? JsonObject ?: error(tr("GitHub 没有返回 Star 列表"))
         val nodes = (connection["nodes"] as? JsonArray).orEmpty()
         val info = connection.requiredObject("pageInfo")
         val next = if (info.requiredBoolean("hasNextPage")) info.requiredString("endCursor") else null
@@ -126,12 +128,12 @@ class StarredReposClient internal constructor(
     }
 }
 
-private fun JsonObject.requiredObject(name: String) = this[name] as? JsonObject ?: error("Star 列表字段 $name 不完整，请刷新")
+private fun JsonObject.requiredObject(name: String) = this[name] as? JsonObject ?: error(trf("Star 列表字段 {0} 不完整，请刷新", name))
 private fun JsonObject.requiredString(name: String) = (this[name] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
-    ?: error("Star 列表字段 $name 不完整，请刷新")
+    ?: error(trf("Star 列表字段 {0} 不完整，请刷新", name))
 private fun JsonObject.stringOrEmpty(name: String) = (this[name] as? JsonPrimitive)?.contentOrNull.orEmpty()
 private fun JsonObject.requiredBoolean(name: String) = (this[name] as? JsonPrimitive)?.booleanOrNull
-    ?: error("Star 列表字段 $name 不完整，请刷新")
+    ?: error(trf("Star 列表字段 {0} 不完整，请刷新", name))
 
 /** 本地过滤：名称、坐标或描述命中即可；空白关键词视为全部命中。 */
 internal fun starMatches(repo: Repo, query: String): Boolean {
@@ -156,7 +158,7 @@ object StarredRepos {
     private fun currentAccount() = Session.login?.takeIf { Session.token != null }?.let { StarListAccount(it, Session.generation) }
 
     suspend fun page(login: String, query: String = "", cursor: String? = null, direction: String = "DESC"): StarredPage {
-        val account = currentAccount() ?: throw ApiException(401, "搜索全部 Star 需要先登录 GitHub")
+        val account = currentAccount() ?: throw ApiException(401, tr("搜索全部 Star 需要先登录 GitHub"))
         return try {
             client.page(account, login, query, cursor, direction)
         } catch (unavailable: StarSearchUnavailable) {

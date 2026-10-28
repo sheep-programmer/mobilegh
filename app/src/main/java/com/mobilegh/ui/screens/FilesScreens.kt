@@ -75,6 +75,9 @@ import com.mobilegh.ui.components.MdText
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trc
+import com.mobilegh.i18n.trf
 
 internal val IMAGE_EXT = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif")
 private val MD_EXT = setOf("md", "markdown", "mdown", "mkd", "rst", "adoc", "asciidoc", "org", "textile")
@@ -98,13 +101,13 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
             OcButton(R.drawable.oc_history, { nav.push(Screen.Commits(owner, name, ref, path.ifEmpty { null })) })
             MoreMenu(buildList {
                 if (canPush.data == true) {
-                    add(MenuAction("新建文件") { nav.push(Screen.EditFile(owner, name, ref, null, path)) })
+                    add(MenuAction(tr("新建文件")) { nav.push(Screen.EditFile(owner, name, ref, null, path)) })
                     // 当前目录就是上传的目标目录，选文件夹时会在下面再建一层
-                    add(MenuAction("上传文件（夹）") { nav.push(Screen.UploadFiles(owner, name, ref, path)) })
+                    add(MenuAction(tr("上传文件（夹）")) { nav.push(Screen.UploadFiles(owner, name, ref, path)) })
                 }
-                add(MenuAction("复制路径") { ctx.copy(path.ifEmpty { "/" }) })
-                add(MenuAction("查找仓库文件") { nav.push(Screen.FileFinder(owner, name, ref)) })
-                add(MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name/tree/${ref ?: "HEAD"}/$path") })
+                add(MenuAction(tr("复制路径")) { ctx.copy(path.ifEmpty { "/" }) })
+                add(MenuAction(tr("查找仓库文件")) { nav.push(Screen.FileFinder(owner, name, ref)) })
+                add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$owner/$name/tree/${ref ?: "HEAD"}/$path") })
             })
         },
     ) { pad ->
@@ -162,7 +165,7 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
                         if (c.type == "file") Text(fmtSize(c.size), fontSize = 12.sp, color = g.fgMuted)
                     }
                 }
-                if (list.isEmpty()) emptyItem(listState, "空目录", R.drawable.oc_file_directory)
+                if (list.isEmpty()) emptyItem(listState, tr("空目录"), R.drawable.oc_file_directory)
             }
         }
     }
@@ -216,27 +219,27 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
     // 可见性未知时不能猜成公开，否则私有文件地址会被送给公共镜像且不带凭据。
     val downloadReady = repo.data != null
     Page(
-        fileName, subtitle = "${ref ?: "默认分支"} · $path",
+        fileName, subtitle = "${ref ?: tr("默认分支")} · $path",
         actions = {
             val b = body.data
             // 没有推送权限时编辑页只能提示去网页 Fork，不如直接不给入口（与「删除文件」一致）
             val editable = canPush && ((b is FileBody.Code && b.text.length <= RepoWrite.MAX_EDIT_BYTES) || b is FileBody.Html)
             if (editable) OcButton(R.drawable.oc_pencil, { nav.push(Screen.EditFile(owner, name, ref, path)) })
             MoreMenu(buildList {
-                if (editable) add(MenuAction("编辑文件") { nav.push(Screen.EditFile(owner, name, ref, path)) })
-                if (b is FileBody.Code) add(MenuAction("复制全部内容") { ctx.copy(b.text) })
-                if (b is FileBody.Html) add(MenuAction(if (mdSource) "查看渲染" else "查看源码") { mdSource = !mdSource })
-                add(MenuAction(if (Session.codeWrap) "关闭自动换行" else "自动换行") { Session.toggleWrap() })
+                if (editable) add(MenuAction(tr("编辑文件")) { nav.push(Screen.EditFile(owner, name, ref, path)) })
+                if (b is FileBody.Code) add(MenuAction(tr("复制全部内容")) { ctx.copy(b.text) })
+                if (b is FileBody.Html) add(MenuAction(if (mdSource) tr("查看渲染") else tr("查看源码")) { mdSource = !mdSource })
+                add(MenuAction(if (Session.codeWrap) tr("关闭自动换行") else tr("自动换行")) { Session.toggleWrap() })
                 // 代码、图片、Markdown 以前都没有下载入口（只有二进制页有按钮），现在统一放到「更多」
-                if (downloadReady) add(MenuAction("下载") {
+                if (downloadReady) add(MenuAction(tr("下载")) {
                     ctx.downloadFile(repoFileDownloadUrl(owner, name, downloadRef, path, downloadPrivate), fileName, downloadPrivate)
                 })
-                add(MenuAction("文件历史") { nav.push(Screen.Commits(owner, name, ref, path)) })
-                add(MenuAction("逐行归因（Blame）") { nav.push(Screen.Blame(owner, name, path, ref)) })
-                add(MenuAction("复制路径") { ctx.copy(path) })
-                add(MenuAction("分享链接") { ctx.share("https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/$path") })
-                add(MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/$path") })
-                if (canPush) add(MenuAction("删除文件", danger = true) { deleting = true })
+                add(MenuAction(tr("文件历史")) { nav.push(Screen.Commits(owner, name, ref, path)) })
+                add(MenuAction(tr("逐行归因（Blame）")) { nav.push(Screen.Blame(owner, name, path, ref)) })
+                add(MenuAction(tr("复制路径")) { ctx.copy(path) })
+                add(MenuAction(tr("分享链接")) { ctx.share("https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/$path") })
+                add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/$path") })
+                if (canPush) add(MenuAction(tr("删除文件"), danger = true) { deleting = true })
             })
         },
     ) { pad ->
@@ -244,8 +247,8 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
             when (b) {
                 is FileBody.Code -> Column(Modifier.fillMaxSize()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("${b.lines.size} 行 · ${fmtSize(b.text.length.toLong())}", fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.weight(1f))
-                        if (b.text.length > 400_000) Pill("过大，仅显示前 400KB", g.attention)
+                        Text(trf("{0} 行 · {1}", b.lines.size, fmtSize(b.text.length.toLong())), fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.weight(1f))
+                        if (b.text.length > 400_000) Pill(tr("过大，仅显示前 400KB"), g.attention)
                     }
                     HDivider()
                     CodeView(b.lines, Session.codeWrap)
@@ -264,9 +267,9 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
                 }
                 FileBody.Image -> ZoomImage(rawUrl, Modifier.fillMaxSize())
                 FileBody.Binary -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                    EmptyState("二进制文件，无法预览", R.drawable.oc_file)
+                    EmptyState(tr("二进制文件，无法预览"), R.drawable.oc_file)
                     GhButton(
-                        "下载到本机", Modifier.padding(horizontal = 32.dp).fillMaxWidth(),
+                        tr("下载到本机"), Modifier.padding(horizontal = 32.dp).fillMaxWidth(),
                         icon = R.drawable.oc_download, enabled = downloadReady,
                     ) {
                         ctx.downloadFile(repoFileDownloadUrl(owner, name, downloadRef, path, downloadPrivate), fileName, downloadPrivate)
@@ -293,13 +296,13 @@ fun BranchesScreen(owner: String, name: String) {
     var creatingFrom by remember { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<com.mobilegh.data.Branch?>(null) }
     Page(
-        "分支与标签", subtitle = "$owner/$name",
+        tr("分支与标签"), subtitle = "$owner/$name",
         actions = {
             if (canPush) OcButton(R.drawable.oc_plus, { creatingFrom = r?.defaultBranch ?: "" })
         },
     ) { pad ->
         Column(Modifier.padding(pad)) {
-            Chips(listOf("分支", "标签"), tab) { tab = it }
+            Chips(listOf(tr("分支"), trc("标签", "git")), tab) { tab = it }
             HDivider()
             if (tab == 0) {
                 com.mobilegh.ui.components.PagedList(branches) { b ->
@@ -311,31 +314,31 @@ fun BranchesScreen(owner: String, name: String) {
                         Oc(R.drawable.oc_git_branch, g.fgMuted)
                         Spacer(Modifier.width(10.dp))
                         Text(b.name, color = g.fg, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (isDefault) { Spacer(Modifier.width(6.dp)); Pill("默认", g.accent) }
+                        if (isDefault) { Spacer(Modifier.width(6.dp)); Pill(tr("默认"), g.accent) }
                         if (b.protected) {
                             Spacer(Modifier.width(6.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Oc(R.drawable.oc_shield_lock, g.attention, 12.dp)
                                 Spacer(Modifier.width(2.dp))
-                                Pill("受保护", g.attention)
+                                Pill(tr("受保护"), g.attention)
                             }
                         }
                         Spacer(Modifier.width(6.dp))
                         Text(b.commit.sha.take(7), fontSize = 12.sp, color = g.fgMuted, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                             modifier = Modifier.clickable { nav.push(Screen.CommitDetail(owner, name, b.commit.sha)) })
                         MoreMenu(buildList {
-                            add(MenuAction("浏览代码") { nav.push(Screen.Files(owner, name, "", b.name)) })
-                            add(MenuAction("提交历史") { nav.push(Screen.Commits(owner, name, b.name)) })
-                            if (canPush) add(MenuAction("从此分支新建分支") { creatingFrom = b.name })
-                            if (!isDefault && r != null) add(MenuAction("与 ${r.defaultBranch} 比较") { nav.push(Screen.Compare(owner, name, r.defaultBranch, b.name)) })
-                            if (!isDefault && r != null && canPush) add(MenuAction("发起拉取请求") { nav.push(Screen.NewPull(owner, name, b.name, r.defaultBranch, b.name)) })
-                            add(MenuAction("复制分支名") { ctx.copy(b.name) })
-                            if (canPush && !isDefault) add(MenuAction("删除分支", danger = true) { deleting = b })
+                            add(MenuAction(tr("浏览代码")) { nav.push(Screen.Files(owner, name, "", b.name)) })
+                            add(MenuAction(tr("提交历史")) { nav.push(Screen.Commits(owner, name, b.name)) })
+                            if (canPush) add(MenuAction(tr("从此分支新建分支")) { creatingFrom = b.name })
+                            if (!isDefault && r != null) add(MenuAction(trf("与 {0} 比较", r.defaultBranch)) { nav.push(Screen.Compare(owner, name, r.defaultBranch, b.name)) })
+                            if (!isDefault && r != null && canPush) add(MenuAction(tr("发起拉取请求")) { nav.push(Screen.NewPull(owner, name, b.name, r.defaultBranch, b.name)) })
+                            add(MenuAction(tr("复制分支名")) { ctx.copy(b.name) })
+                            if (canPush && !isDefault) add(MenuAction(tr("删除分支"), danger = true) { deleting = b })
                         }, g.fgMuted)
                     }
                 }
             } else {
-                com.mobilegh.ui.components.PagedList(tags, empty = "没有标签") { t ->
+                com.mobilegh.ui.components.PagedList(tags, empty = tr("没有标签")) { t ->
                     Row(
                         Modifier.fillMaxWidth().clickable { nav.push(Screen.Files(owner, name, "", t.name)) }.padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -345,9 +348,9 @@ fun BranchesScreen(owner: String, name: String) {
                         Text(t.name, color = g.fg, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(t.commit.sha.take(7), fontSize = 12.sp, color = g.fgMuted, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                         MoreMenu(buildList {
-                            add(MenuAction("浏览代码") { nav.push(Screen.Files(owner, name, "", t.name)) })
-                            if (canPush) add(MenuAction("从此标签新建分支") { creatingFrom = t.name })
-                            add(MenuAction("复制标签名") { ctx.copy(t.name) })
+                            add(MenuAction(tr("浏览代码")) { nav.push(Screen.Files(owner, name, "", t.name)) })
+                            if (canPush) add(MenuAction(tr("从此标签新建分支")) { creatingFrom = t.name })
+                            add(MenuAction(tr("复制标签名")) { ctx.copy(t.name) })
                         }, g.fgMuted)
                     }
                 }
@@ -358,14 +361,14 @@ fun BranchesScreen(owner: String, name: String) {
         NewBranchDialog(owner, name, from, onDismiss = { creatingFrom = null }) { created ->
             creatingFrom = null
             tab = 0
-            ctx.toast("已创建分支 $created")
+            ctx.toast(trf("已创建分支 {0}", created))
         }
     }
     deleting?.let { b ->
         DeleteBranchDialog(owner, name, b, onDismiss = { deleting = null }) {
             deleting = null
             branches.update { list -> list.removeAll { it.name == b.name } }
-            ctx.toast("已删除分支 ${b.name}")
+            ctx.toast(trf("已删除分支 {0}", b.name))
         }
     }
 }
@@ -381,12 +384,12 @@ private fun NewBranchDialog(owner: String, name: String, initialSource: String, 
     var error by remember { mutableStateOf<String?>(null) }
     val nameOk = RepoWrite.validBranch(branch.trim())
     GhDialog(
-        "新建分支", onDismiss = { if (!busy) onDismiss() },
-        confirm = if (busy) "创建中…" else "创建", confirmEnabled = nameOk && source.isNotBlank() && !busy,
+        tr("新建分支"), onDismiss = { if (!busy) onDismiss() },
+        confirm = if (busy) tr("创建中…") else tr("创建"), confirmEnabled = nameOk && source.isNotBlank() && !busy,
         onConfirm = {
             busy = true
             error = null
-            entry.act({ busy = false; error = if (it.contains("already exists", true)) "分支 ${branch.trim()} 已存在" else it }) {
+            entry.act({ busy = false; error = if (it.contains("already exists", true)) trf("分支 {0} 已存在", branch.trim()) else it }) {
                 val sha = GitHub.resolveSha(owner, name, source.trim())
                 GitHub.createBranch(owner, name, branch.trim(), sha)
                 RepoWrite.changed(owner, name)
@@ -396,14 +399,14 @@ private fun NewBranchDialog(owner: String, name: String, initialSource: String, 
         },
     ) {
         Column {
-            GhField(branch, { branch = it }, "分支名称", placeholder = "例如 feature/login")
-            if (branch.isNotBlank() && !nameOk) Text("分支名称无效：不能包含空格、..、~ ^ : ? * [ 等字符", fontSize = 12.sp, color = g.danger)
+            GhField(branch, { branch = it }, tr("分支名称"), placeholder = tr("例如 feature/login"))
+            if (branch.isNotBlank() && !nameOk) Text(tr("分支名称无效：不能包含空格、..、~ ^ : ? * [ 等字符"), fontSize = 12.sp, color = g.danger)
             Spacer(Modifier.height(8.dp))
             GhField(
-                source, { source = it }, "来源（分支、标签或提交 SHA）",
+                source, { source = it }, tr("来源（分支、标签或提交 SHA）"),
                 trailing = { OcButton(R.drawable.oc_git_branch, { picking = true }, g.fgMuted, enabled = !busy) },
             )
-            Text("新分支将指向来源当前所在的提交", Modifier.padding(top = 4.dp), fontSize = 12.sp, color = g.fgMuted)
+            Text(tr("新分支将指向来源当前所在的提交"), Modifier.padding(top = 4.dp), fontSize = 12.sp, color = g.fgMuted)
             error?.let { com.mobilegh.ui.components.InlineError(it) }
         }
     }
@@ -417,8 +420,8 @@ private fun DeleteBranchDialog(owner: String, name: String, b: com.mobilegh.data
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     GhDialog(
-        "删除分支", onDismiss = { if (!busy) onDismiss() },
-        confirm = if (busy) "删除中…" else "删除", danger = true, confirmEnabled = !busy,
+        tr("删除分支"), onDismiss = { if (!busy) onDismiss() },
+        confirm = if (busy) tr("删除中…") else tr("删除"), danger = true, confirmEnabled = !busy,
         onConfirm = {
             busy = true
             error = null
@@ -431,12 +434,12 @@ private fun DeleteBranchDialog(owner: String, name: String, b: com.mobilegh.data
         },
     ) {
         Column {
-            Text("确定删除分支 ${b.name} 吗？", fontSize = 14.sp, color = g.fg)
+            Text(trf("确定删除分支 {0} 吗？", b.name), fontSize = 14.sp, color = g.fg)
             Spacer(Modifier.height(6.dp))
-            Text("最新提交 ${b.commit.sha.take(7)}。只存在于该分支上的提交在删除后只能通过 SHA 找回；以该分支发起的拉取请求会被关闭。", fontSize = 13.sp, color = g.fgMuted)
+            Text(trf("最新提交 {0}。只存在于该分支上的提交在删除后只能通过 SHA 找回；以该分支发起的拉取请求会被关闭。", b.commit.sha.take(7)), fontSize = 13.sp, color = g.fgMuted)
             if (b.protected) {
                 Spacer(Modifier.height(6.dp))
-                Text("该分支受保护，GitHub 可能拒绝删除。", fontSize = 13.sp, color = g.attention)
+                Text(tr("该分支受保护，GitHub 可能拒绝删除。"), fontSize = 13.sp, color = g.attention)
             }
             error?.let { com.mobilegh.ui.components.InlineError(it) }
         }

@@ -6,6 +6,8 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.util.Locale
 import java.util.UUID
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** Only repository identity is persisted, not tokens, private descriptions, or API responses. */
 @Serializable
@@ -62,38 +64,38 @@ class LocalStarListsStore internal constructor(
     }
 
     fun create(account: StarListAccount, name: String, description: String = ""): List<LocalStarList> = change(account) { lists ->
-        require(lists.size < MAX_LISTS) { "每个账号最多创建 $MAX_LISTS 个本机列表" }
+        require(lists.size < MAX_LISTS) { trf("每个账号最多创建 {0} 个本机列表", MAX_LISTS) }
         val clean = checkedName(name)
         checkUniqueName(lists, clean)
         lists + LocalStarList(UUID.randomUUID().toString(), clean, checkedDescription(description))
     }
 
     fun update(account: StarListAccount, id: String, name: String, description: String): List<LocalStarList> = change(account) { lists ->
-        require(lists.any { it.id == id }) { "列表已被删除，请返回重试" }
+        require(lists.any { it.id == id }) { tr("列表已被删除，请返回重试") }
         val clean = checkedName(name)
         checkUniqueName(lists.filterNot { it.id == id }, clean)
         lists.map { if (it.id == id) it.copy(name = clean, description = checkedDescription(description)) else it }
     }
 
     fun delete(account: StarListAccount, id: String): List<LocalStarList> = change(account) { lists ->
-        require(lists.any { it.id == id }) { "列表已被删除，请返回重试" }
+        require(lists.any { it.id == id }) { tr("列表已被删除，请返回重试") }
         lists.filterNot { it.id == id }
     }
 
     fun addRepositories(account: StarListAccount, id: String, repositories: List<ListedRepository>): List<LocalStarList> = change(account) { lists ->
-        require(lists.any { it.id == id }) { "列表已被删除，请返回重试" }
+        require(lists.any { it.id == id }) { tr("列表已被删除，请返回重试") }
         repositories.forEach(::checkRepository)
         lists.map { list ->
             if (list.id != id) list else {
                 val merged = (list.repositories + repositories).distinctBy { it.id }
-                require(merged.size <= MAX_REPOSITORIES) { "每个本机列表最多保存 $MAX_REPOSITORIES 个仓库" }
+                require(merged.size <= MAX_REPOSITORIES) { trf("每个本机列表最多保存 {0} 个仓库", MAX_REPOSITORIES) }
                 list.copy(repositories = merged)
             }
         }
     }
 
     fun removeRepository(account: StarListAccount, id: String, repositoryId: Long): List<LocalStarList> = change(account) { lists ->
-        require(lists.any { it.id == id }) { "列表已被删除，请返回重试" }
+        require(lists.any { it.id == id }) { tr("列表已被删除，请返回重试") }
         lists.map { if (it.id == id) it.copy(repositories = it.repositories.filterNot { repo -> repo.id == repositoryId }) else it }
     }
 
@@ -107,12 +109,12 @@ class LocalStarListsStore internal constructor(
         checkRepository(repository)
         val added = listIds - originalListIds
         val removed = originalListIds - listIds
-        require(added.all { id -> lists.any { it.id == id } }) { "列表已被删除，请重新选择" }
+        require(added.all { id -> lists.any { it.id == id } }) { tr("列表已被删除，请重新选择") }
         lists.map { list ->
             if (list.id !in added && list.id !in removed) list else {
                 val others = list.repositories.filterNot { it.id == repository.id }
                 val members = if (list.id in added) others + repository else others
-                require(members.size <= MAX_REPOSITORIES) { "「${list.name}」最多保存 $MAX_REPOSITORIES 个仓库" }
+                require(members.size <= MAX_REPOSITORIES) { trf("「{0}」最多保存 {1} 个仓库", list.name, MAX_REPOSITORIES) }
                 list.copy(repositories = members)
             }
         }
@@ -122,10 +124,10 @@ class LocalStarListsStore internal constructor(
         val lists = transform(readState(account).lists)
         checkLists(lists)
         val encoded = json.encodeToString(StoredStarLists(System.currentTimeMillis(), lists))
-        require(encoded.toByteArray(Charsets.UTF_8).size <= MAX_BYTES) { "本机列表数据超过存储上限" }
+        require(encoded.toByteArray(Charsets.UTF_8).size <= MAX_BYTES) { tr("本机列表数据超过存储上限") }
         val key = key(account)
         checkAccount(account)
-        check(storage.write(key, encoded)) { "本机列表保存失败，请重试" }
+        check(storage.write(key, encoded)) { tr("本机列表保存失败，请重试") }
         checkAccount(account)
         lists
     }
@@ -133,9 +135,9 @@ class LocalStarListsStore internal constructor(
     private fun readState(account: StarListAccount): StoredStarLists {
         checkAccount(account)
         val raw = storage.read(key(account)) ?: return StoredStarLists()
-        require(raw.length <= MAX_BYTES && raw.toByteArray(Charsets.UTF_8).size <= MAX_BYTES) { "本机列表数据超过读取上限" }
+        require(raw.length <= MAX_BYTES && raw.toByteArray(Charsets.UTF_8).size <= MAX_BYTES) { tr("本机列表数据超过读取上限") }
         val state = try { json.decodeFromString<StoredStarLists>(raw) } catch (_: Exception) {
-            throw IllegalStateException("本机列表数据无法读取；原数据已保留")
+            throw IllegalStateException(tr("本机列表数据无法读取；原数据已保留"))
         }
         checkLists(state.lists)
         return state
@@ -144,37 +146,37 @@ class LocalStarListsStore internal constructor(
     private fun checkAccount(account: StarListAccount) {
         val active = activeAccount()
         check(LOGIN.matches(account.login) && active != null && active.generation == account.generation &&
-            active.login.equals(account.login, true)) { "账号已切换或退出，请重新打开本机列表" }
+            active.login.equals(account.login, true)) { tr("账号已切换或退出，请重新打开本机列表") }
     }
 
     private fun key(account: StarListAccount) = "account:${account.login.lowercase(Locale.ROOT)}"
 
     private fun checkedName(value: String): String = value.trim().also {
-        require(it.isNotEmpty() && it.length <= MAX_NAME && it.none(Char::isISOControl)) { "列表名称需为 1–$MAX_NAME 个字符" }
+        require(it.isNotEmpty() && it.length <= MAX_NAME && it.none(Char::isISOControl)) { trf("列表名称需为 1–{0} 个字符", MAX_NAME) }
     }
 
     private fun checkedDescription(value: String): String = value.trim().also {
-        require(it.length <= MAX_DESCRIPTION) { "列表描述最多 $MAX_DESCRIPTION 个字符" }
+        require(it.length <= MAX_DESCRIPTION) { trf("列表描述最多 {0} 个字符", MAX_DESCRIPTION) }
     }
 
     private fun checkUniqueName(lists: List<LocalStarList>, name: String) {
-        require(lists.none { it.name.equals(name, true) }) { "已存在同名本机列表" }
+        require(lists.none { it.name.equals(name, true) }) { tr("已存在同名本机列表") }
     }
 
     private fun checkRepository(repo: ListedRepository) {
-        require(repo.id > 0 && FULL_NAME.matches(repo.fullName) && repo.name !in setOf(".", "..")) { "无效的仓库信息" }
+        require(repo.id > 0 && FULL_NAME.matches(repo.fullName) && repo.name !in setOf(".", "..")) { tr("无效的仓库信息") }
     }
 
     private fun checkLists(lists: List<LocalStarList>) {
         require(lists.size <= MAX_LISTS && lists.sumOf { it.repositories.size } <= MAX_MEMBERSHIPS) {
-            "每个账号最多保存 $MAX_LISTS 个本机列表、$MAX_MEMBERSHIPS 条仓库记录"
+            trf("每个账号最多保存 {0} 个本机列表、{1} 条仓库记录", MAX_LISTS, MAX_MEMBERSHIPS)
         }
-        require(lists.distinctBy { it.id }.size == lists.size) { "本机列表数据重复" }
+        require(lists.distinctBy { it.id }.size == lists.size) { tr("本机列表数据重复") }
         lists.forEach { list ->
-            require(list.id.isNotBlank() && list.id.length <= 64) { "无效的本机列表数据" }
+            require(list.id.isNotBlank() && list.id.length <= 64) { tr("无效的本机列表数据") }
             checkedName(list.name)
             checkedDescription(list.description)
-            require(list.repositories.size <= MAX_REPOSITORIES && list.repositories.distinctBy { it.id }.size == list.repositories.size) { "本机列表仓库数据超过上限或重复" }
+            require(list.repositories.size <= MAX_REPOSITORIES && list.repositories.distinctBy { it.id }.size == list.repositories.size) { tr("本机列表仓库数据超过上限或重复") }
             list.repositories.forEach(::checkRepository)
         }
     }

@@ -82,7 +82,7 @@ class GitUploadTest {
         assertEquals("docs/a_b.txt", GitUpload.pathOf("docs", emptyList(), "a/b.txt"))
     }
 
-    @Test fun triageDropsDuplicatesAndFlagsOversizedFiles() {
+    @Test fun triageDropsDuplicatesAndRoutesOversizedFilesToLfs() {
         val items = listOf(
             UploadItem("u1", "a.txt", "dir/a.txt", 10),
             // Git 路径大小写敏感，两项都必须保留
@@ -90,18 +90,21 @@ class GitUploadTest {
             UploadItem("u3", "huge.bin", "huge.bin", GitUpload.MAX_FILE_BYTES + 1),
             UploadItem("u4", "bad", "docs/../x", 5),
             UploadItem("u5", "ok.sh", "ok.sh", 5),
+            UploadItem("u6", "giant.iso", "giant.iso", GitLfs.MAX_BYTES + 1),
         )
         val r = GitUpload.triage(items)
-        assertEquals(4, r.items.size)
+        assertEquals(5, r.items.size)
         assertEquals(1, r.dropped)
         val byUri = r.items.associateBy { it.uri }
         assertNull(byUri["u1"]!!.skip)
         assertNull(byUri["u2"]!!.skip)
-        assertNotNull(byUri["u3"]!!.skip)
-        assertTrue(byUri["u3"]!!.skip!!, byUri["u3"]!!.skip!!.contains("100"))
-        // 这种文件谁都传不上去，必须告诉用户 LFS 是出路
-        assertTrue(byUri["u3"]!!.skip!!, byUri["u3"]!!.skip!!.contains("LFS"))
-        assertEquals(listOf("u1", "u2", "u5"), GitUpload.usable(r.items).map { it.uri })
+        // 超过 100 MiB 的文件不再被拒绝，而是改走 Git LFS
+        assertNull(byUri["u3"]!!.skip)
+        assertTrue(byUri["u3"]!!.lfs)
+        assertFalse(byUri["u1"]!!.lfs)
+        // LFS 自己也有上限：超过就只能排除，并写明原因
+        assertTrue(byUri["u6"]!!.skip!!, byUri["u6"]!!.skip!!.contains("LFS"))
+        assertEquals(listOf("u1", "u2", "u3", "u5"), GitUpload.usable(r.items).map { it.uri })
     }
 
     /** 去重要在整理路径之后做：清单里的路径带多余空白或斜杠也拦不住重复 */
@@ -125,6 +128,8 @@ class GitUploadTest {
         assertEquals(2, r.items.size)
         assertTrue(GitUpload.usable(r.items).isEmpty().not())
         r.items.forEach { assertNull(it.skip) }
+        // 正好等于仓库上限的文件仍然可以直接提交，不需要 LFS
+        r.items.forEach { assertFalse(it.lfs) }
     }
 
     @Test fun fileModeFollowsShebangAndExistingMode() {
@@ -301,6 +306,8 @@ class GitUploadTest {
         assertEquals(UploadStage.Reading, reading.stage)
         assertTrue(com.mobilegh.ui.screens.determinateProgress(reading))
         assertFalse(com.mobilegh.ui.screens.determinateProgress(reading.copy(stage = UploadStage.Sending)))
+        // LFS 上传能数出已发送的真实字节数，所以进度条也是确定的
+        assertTrue(com.mobilegh.ui.screens.determinateProgress(reading.copy(stage = UploadStage.Lfs)))
         assertFalse(com.mobilegh.ui.screens.determinateProgress(reading.copy(stage = UploadStage.Finalizing)))
         // 总数未知（个别内容提供者不给大小）时也别画假比例
         assertFalse(com.mobilegh.ui.screens.determinateProgress(reading.copy(totalBytes = 0)))
@@ -333,6 +340,31 @@ class GitUploadTest {
     /** 同样输入必须得出同样的身份行：不然重传时 commit sha 会变，对不上账 */
     @Test fun identIsDeterministic() {
         assertEquals(GitUpload.identOf("a", 1L, 2L), GitUpload.identOf("a", 1L, 2L))
+    }
+
+    /**
+     * 空仓库起步时，LFS 文件在 pack 里只放指针；.gitattributes 同时写入，克隆后 git-lfs 才会还原大文件。
+     * 这里用一个 1 字节小文件并标成 lfs 来走同一条路径，不需要真造 100 MiB。
+     */
+    @Test fun lfsFilesBecomePointersAndGetTrackedInGitattributes() = runBlocking {
+        val bytes = "hello world\n".toByteArray()
+        val big = UploadItem("u-big", "big.bin", "media/big.bin", bytes.size.toLong(), lfs = true)
+        val small = UploadItem("u-small", "a.txt", "a.txt", 3)
+        val plan = GitUpload.planBootstrap(listOf(big, small), "add", { f -> if (f.uri == "u-big") bytes.inputStream() else "abc".toByteArray().inputStream() })
+        val lfs = plan.lfs.single()
+        assertEquals("a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447", lfs.oid)
+        assertEquals(12L, lfs.size)
+        assertEquals("media/big.bin", lfs.path)
+        // 仓库里放的是指针，不是原文件
+        val pointer = GitLfs.pointer(lfs.oid, lfs.size)
+        val blobs = plan.objects.filter { it.second.type == GitPack.TYPE_BLOB }.associate { it.first to it.second.open()!!.readBytes() }
+        assertTrue(blobs.containsKey(GitUpload.blobSha(pointer)))
+        assertFalse(blobs.containsKey(GitUpload.blobSha(bytes)))
+        val attrs = blobs.values.map { String(it) }.single { it.contains("filter=lfs") }
+        assertEquals("media/big.bin filter=lfs diff=lfs merge=lfs -text\n", attrs)
+        assertTrue(blobs.containsKey(GitUpload.blobSha("abc".toByteArray())))
+        // 总字节数里包含 LFS 文件，进度才对得上
+        assertTrue(plan.total >= bytes.size)
     }
 
     @Test fun emptyFileListNeverReachesTheApi() = runBlocking {

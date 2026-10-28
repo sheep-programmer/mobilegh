@@ -98,6 +98,8 @@ import com.mobilegh.ui.theme.CodeStyle
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 // ======================= Gist 列表 =======================
 
@@ -118,14 +120,14 @@ fun GistsScreen(login: String?) {
     ) { pad ->
         Column(Modifier.padding(pad)) {
             if (own) {
-                Segmented(listOf("我的", "已加星标"), tab, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) { tab = it }
+                Segmented(listOf(tr("我的"), tr("已加星标")), tab, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) { tab = it }
             }
             val showStarred = own && tab == 1
             PagedList(
                 if (showStarred) starred else mine,
-                empty = if (showStarred) "还没有加星标的 Gist" else "没有 Gist",
+                empty = if (showStarred) tr("还没有加星标的 Gist") else tr("没有 Gist"),
                 emptyIcon = if (showStarred) R.drawable.oc_star else R.drawable.oc_code_square,
-                emptyAction = if (!showStarred && own && Session.token != null) "新建 Gist" else "刷新",
+                emptyAction = if (!showStarred && own && Session.token != null) tr("新建 Gist") else tr("刷新"),
                 onEmptyAction = if (!showStarred && own && Session.token != null) ({ nav.push(Screen.GistEditor()) }) else null,
             ) { gist ->
                 GistRow(gist) { nav.push(Screen.GistDetail(gist.id)) }
@@ -145,12 +147,12 @@ private fun GistRow(g0: Gist, onClick: () -> Unit) {
             Text("${g0.owner?.login ?: ""} / ", color = g.fgMuted, fontSize = 14.sp)
             Text(first, fontWeight = FontWeight.SemiBold, color = g.fg, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, false))
             Spacer(Modifier.width(6.dp))
-            if (!g0.public) Pill("私密")
+            if (!g0.public) com.mobilegh.ui.components.VisibilityBadge(true, label = tr("私密"))
         }
         if (!g0.description.isNullOrBlank()) {
             MdText(g0.description, Modifier.padding(top = 4.dp), fontSize = 13.sp, color = g.fgMuted, maxLines = 2)
         }
-        Text("${g0.files.size} 个文件 · ${g0.comments} 条评论 · 更新于 ${relTime(g0.updatedAt)}", fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(top = 4.dp))
+        Text(trf("{0} 个文件 · {1} 条评论 · 更新于 {2}", g0.files.size, g0.comments, relTime(g0.updatedAt)), fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
@@ -211,7 +213,7 @@ fun GistDetailScreen(id: String) {
                         starBusy = true
                         entry.write({ starred = !on; starBusy = false; ctx.toast(it) }, {
                             starBusy = false
-                            ctx.toast(if (on) "已加星标" else "已取消星标")
+                            ctx.toast(if (on) tr("已加星标") else tr("已取消星标"))
                             nav.refreshGistLists()
                         }) { GitHub.starGist(id, on) }
                     },
@@ -222,25 +224,25 @@ fun GistDetailScreen(id: String) {
             MoreMenu(buildList {
                 if (d != null && signedIn) {
                     if (mine) {
-                        add(MenuAction("编辑") { nav.push(Screen.GistEditor(id)) })
+                        add(MenuAction(tr("编辑")) { nav.push(Screen.GistEditor(id)) })
                     } else {
-                        add(MenuAction("Fork 到我的 Gist") {
+                        add(MenuAction(tr("Fork 到我的 Gist")) {
                             if (busy) return@MenuAction
                             busy = true
                             entry.write<Gist>({ busy = false; ctx.toast(it) }, { fork ->
                                 busy = false
-                                ctx.toast("已 Fork")
+                                ctx.toast(tr("已 Fork"))
                                 nav.refreshGistLists()
                                 nav.push(Screen.GistDetail(fork.id))
                             }) { GitHub.forkGist(id) }
                         })
                     }
                 }
-                add(MenuAction("刷新") { gist.refresh(); starState.load(true); comments.load(true) })
-                add(MenuAction("复制链接") { ctx.copy(url) })
-                add(MenuAction("分享") { ctx.share(url) })
-                add(MenuAction("在浏览器打开") { ctx.openBrowser(url) })
-                if (mine) add(MenuAction("删除 Gist", danger = true) { confirmDelete = true })
+                add(MenuAction(tr("刷新")) { gist.refresh(); starState.load(true); comments.load(true) })
+                add(MenuAction(tr("复制链接")) { ctx.copy(url) })
+                add(MenuAction(tr("分享")) { ctx.share(url) })
+                add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser(url) })
+                if (mine) add(MenuAction(tr("删除 Gist"), danger = true) { confirmDelete = true })
             })
         },
         bottomBar = {
@@ -255,7 +257,7 @@ fun GistDetailScreen(id: String) {
                         if (comment.text == submitted.body) comment = TextFieldValue()
                         previewComment = false
                         sending = false
-                        ctx.toast("评论已发布")
+                        ctx.toast(tr("评论已发布"))
                         comments.load(true)
                         nav.refreshGistLists()
                     }) { GitHub.addGistComment(id, submitted.body.trim()) }
@@ -270,7 +272,7 @@ fun GistDetailScreen(id: String) {
                     Column(Modifier.padding(16.dp)) {
                         if (!d.description.isNullOrBlank()) Text(d.description, fontSize = 16.sp, color = g.fg)
                         Text(
-                            "创建于 ${fmtDateTime(d.createdAt)} · ${if (d.public) "公开" else "私密"} · ${d.files.size} 个文件",
+                            trf("创建于 {0} · {1} · {2} 个文件", fmtDateTime(d.createdAt), if (d.public) tr("公开") else tr("私密"), d.files.size),
                             fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(top = 4.dp),
                         )
                     }
@@ -290,7 +292,7 @@ fun GistDetailScreen(id: String) {
                 }
                 item(key = "comments:title") {
                     HDivider()
-                    SectionTitle("评论 ${comments.data?.size ?: d.comments}")
+                    SectionTitle(trf("评论 {0}", comments.data?.size ?: d.comments))
                 }
                 val list = comments.data
                 when {
@@ -300,27 +302,27 @@ fun GistDetailScreen(id: String) {
                     list == null -> item(key = "comments:loading") { Loading(Modifier.fillMaxWidth().height(64.dp)) }
                     list.isEmpty() -> item(key = "comments:empty") {
                         Text(
-                            if (signedIn) "还没有评论，在下方发表第一条评论" else "还没有评论",
+                            if (signedIn) tr("还没有评论，在下方发表第一条评论") else tr("还没有评论"),
                             Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 13.sp, color = g.fgMuted,
                         )
                     }
                     else -> items(list, key = { "c${it.id}" }) { c ->
                         val own = me != null && c.user?.login.equals(me, ignoreCase = true)
                         TimelineCard(
-                            c.user, c.createdAt, if (c.user?.login != null && c.user.login == d.owner?.login) "作者" else null,
+                            c.user, c.createdAt, if (c.user?.login != null && c.user.login == d.owner?.login) tr("作者") else null,
                             c.bodyHtml, "https://gist.github.com/",
                             menu = buildList {
                                 if (own && signedIn) {
-                                    add(MenuAction("编辑") { editing = c })
-                                    add(MenuAction("删除", danger = true) { deleting = c })
+                                    add(MenuAction(tr("编辑")) { editing = c })
+                                    add(MenuAction(tr("删除"), danger = true) { deleting = c })
                                 }
-                                add(MenuAction("复制内容") { ctx.copy(c.body.orEmpty()) })
+                                add(MenuAction(tr("复制内容")) { ctx.copy(c.body.orEmpty()) })
                             },
                         )
                     }
                 }
                 if (list != null && list.size >= 100) item(key = "comments:more") {
-                    GhButton("评论较多，在浏览器查看全部", Modifier.padding(16.dp).fillMaxWidth()) { ctx.openBrowser(url) }
+                    GhButton(tr("评论较多，在浏览器查看全部"), Modifier.padding(16.dp).fillMaxWidth()) { ctx.openBrowser(url) }
                 }
                 item { Spacer(Modifier.height(32.dp)) }
             }
@@ -329,31 +331,31 @@ fun GistDetailScreen(id: String) {
     }
 
     editing?.let { c ->
-        EditDialog("编辑评论", null, c.body.orEmpty(), null, onDismiss = { editing = null }) { _, body ->
+        EditDialog(tr("编辑评论"), null, c.body.orEmpty(), null, onDismiss = { editing = null }) { _, body ->
             editing = null
-            entry.write({ ctx.toast(it) }, { ctx.toast("已保存"); comments.load(true) }) { GitHub.editGistComment(id, c.id, body) }
+            entry.write({ ctx.toast(it) }, { ctx.toast(tr("已保存")); comments.load(true) }) { GitHub.editGistComment(id, c.id, body) }
         }
     }
     deleting?.let { c ->
-        GhDialog("删除评论", { deleting = null }, confirm = "删除", danger = true, onConfirm = {
+        GhDialog(tr("删除评论"), { deleting = null }, confirm = tr("删除"), danger = true, onConfirm = {
             deleting = null
-            entry.write({ ctx.toast(it) }, { ctx.toast("已删除"); comments.load(true); nav.refreshGistLists() }) { GitHub.deleteGistComment(id, c.id) }
-        }) { Text("删除后无法恢复。", color = g.fg) }
+            entry.write({ ctx.toast(it) }, { ctx.toast(tr("已删除")); comments.load(true); nav.refreshGistLists() }) { GitHub.deleteGistComment(id, c.id) }
+        }) { Text(tr("删除后无法恢复。"), color = g.fg) }
     }
     if (confirmDelete) {
         GhDialog(
-            "删除 Gist", { if (!busy) confirmDelete = false }, confirm = if (busy) "删除中…" else "删除", danger = true, confirmEnabled = !busy,
+            tr("删除 Gist"), { if (!busy) confirmDelete = false }, confirm = if (busy) tr("删除中…") else tr("删除"), danger = true, confirmEnabled = !busy,
             onConfirm = {
                 busy = true
                 entry.write({ busy = false; confirmDelete = false; ctx.toast(it) }, {
                     busy = false
                     confirmDelete = false
-                    ctx.toast("已删除")
+                    ctx.toast(tr("已删除"))
                     nav.refreshGistLists()
                     nav.pop()
                 }) { GitHub.deleteGist(id) }
             },
-        ) { Text("将永久删除这个 Gist 及其全部文件、评论和修订历史，无法恢复。", color = g.fg) }
+        ) { Text(tr("将永久删除这个 Gist 及其全部文件、评论和修订历史，无法恢复。"), color = g.fg) }
     }
 }
 
@@ -415,14 +417,14 @@ fun GistEditorScreen(id: String?) {
     )
     androidx.activity.compose.BackHandler(enabled = dirty) { confirmLeave = true }
     if (confirmLeave) {
-        GhDialog("放弃修改？", { confirmLeave = false }, confirm = "放弃", danger = true, onConfirm = {
+        GhDialog(tr("放弃修改？"), { confirmLeave = false }, confirm = tr("放弃"), danger = true, onConfirm = {
             confirmLeave = false
             nav.pop()
-        }) { Text(if (id == null) "尚未创建的 Gist 内容不会保存。" else "未保存的修改将会丢失。", color = g.fg) }
+        }) { Text(if (id == null) tr("尚未创建的 Gist 内容不会保存。") else tr("未保存的修改将会丢失。"), color = g.fg) }
     }
 
     Page(
-        if (id == null) "新建 Gist" else "编辑 Gist", subtitle = Session.login,
+        if (id == null) tr("新建 Gist") else tr("编辑 Gist"), subtitle = Session.login,
         onBack = { if (dirty) confirmLeave = true else nav.pop() },
     ) { pad ->
         LoadBox(source, Modifier.padding(pad).fillMaxSize()) { loaded ->
@@ -431,22 +433,22 @@ fun GistEditorScreen(id: String?) {
             val validation = gistFilesError(state.files, state.removed)
             Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
                 GhField(
-                    state.description, { if (!busy) state.description = it }, "描述（可选）",
-                    Modifier.padding(horizontal = 16.dp), placeholder = "这个 Gist 是做什么的",
+                    state.description, { if (!busy) state.description = it }, tr("描述（可选）"),
+                    Modifier.padding(horizontal = 16.dp), placeholder = tr("这个 Gist 是做什么的"),
                 )
                 if (id == null) {
-                    SectionTitle("可见性")
+                    SectionTitle(tr("可见性"))
                     Column(Modifier.padding(horizontal = 16.dp)) {
-                        RadioRow(!state.public, "私密（Secret）", "不会出现在搜索和你的主页中，但拿到链接的人都能查看", enabled = !busy) { state.public = false }
-                        RadioRow(state.public, "公开", "所有人都能看到，会出现在搜索和你的主页中", enabled = !busy) { state.public = true }
+                        RadioRow(!state.public, tr("私密（Secret）"), tr("不会出现在搜索和你的主页中，但拿到链接的人都能查看"), enabled = !busy) { state.public = false }
+                        RadioRow(state.public, tr("公开"), tr("所有人都能看到，会出现在搜索和你的主页中"), enabled = !busy) { state.public = true }
                     }
                 } else {
                     Text(
-                        "${if (state.public) "公开" else "私密"} Gist · 可见性需在 GitHub 网页上修改",
+                        trf("{0} Gist · 可见性需在 GitHub 网页上修改", if (state.public) tr("公开") else tr("私密")),
                         Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 12.sp, color = g.fgMuted,
                     )
                 }
-                SectionTitle("文件 ${state.files.size}")
+                SectionTitle(trf("文件 {0}", state.files.size))
                 state.files.forEachIndexed { i, f ->
                     GistFileEditor(
                         f, enabled = !busy, removable = state.files.size > 1,
@@ -457,12 +459,12 @@ fun GistEditorScreen(id: String?) {
                 }
                 if (state.removed.isNotEmpty()) {
                     Text(
-                        "将删除：" + state.removed.joinToString("、"),
+                        tr("将删除：") + state.removed.joinToString("、"),
                         Modifier.padding(horizontal = 16.dp), fontSize = 12.sp, color = g.danger,
                     )
                     Spacer(Modifier.height(8.dp))
                 }
-                GhButton("添加文件", Modifier.padding(horizontal = 16.dp), icon = R.drawable.oc_plus, enabled = !busy) {
+                GhButton(tr("添加文件"), Modifier.padding(horizontal = 16.dp), icon = R.drawable.oc_plus, enabled = !busy) {
                     state.files.add(GistDraftFile())
                 }
                 Spacer(Modifier.height(16.dp))
@@ -473,10 +475,10 @@ fun GistEditorScreen(id: String?) {
                 }
                 GhButton(
                     when {
-                        busy -> if (id == null) "创建中…" else "保存中…"
-                        id != null -> "保存修改"
-                        state.public -> "创建公开 Gist"
-                        else -> "创建私密 Gist"
+                        busy -> if (id == null) tr("创建中…") else tr("保存中…")
+                        id != null -> tr("保存修改")
+                        state.public -> tr("创建公开 Gist")
+                        else -> tr("创建私密 Gist")
                     },
                     Modifier.padding(horizontal = 16.dp).fillMaxWidth(), primary = true,
                     enabled = !busy && validation == null && Session.token != null,
@@ -488,21 +490,21 @@ fun GistEditorScreen(id: String?) {
                         busy = true
                         entry.write<Gist>({ busy = false; error = it }, { created ->
                             busy = false
-                            ctx.toast("Gist 已创建")
+                            ctx.toast(tr("Gist 已创建"))
                             nav.refreshGistLists()
                             nav.replace(Screen.GistDetail(created.id))
                         }) { GitHub.createGist(payload) }
                     } else {
                         val payload = gistPatchPayload(state.originalDescription, state.description, state.files, state.removed)
                         if (payload == null) {
-                            ctx.toast("没有修改")
+                            ctx.toast(tr("没有修改"))
                             nav.pop()
                             return@GhButton
                         }
                         busy = true
                         entry.write<Gist>({ busy = false; error = it }, {
                             busy = false
-                            ctx.toast("已保存")
+                            ctx.toast(tr("已保存"))
                             nav.refreshRetained { s -> s == Screen.GistDetail(id) || s is Screen.Gists }
                             nav.pop()
                         }) { GitHub.editGist(id, payload) }
@@ -532,8 +534,8 @@ private fun GistFileEditor(
             ) {
                 Box(Modifier.weight(1f)) {
                     GhField(
-                        file.filename, { if (enabled) onChange(file.copy(filename = it)) }, "文件名（含扩展名）",
-                        placeholder = "例如 hello.py",
+                        file.filename, { if (enabled) onChange(file.copy(filename = it)) }, tr("文件名（含扩展名）"),
+                        placeholder = tr("例如 hello.py"),
                     )
                 }
                 OcButton(R.drawable.oc_trash, onRemove, g.danger, enabled = enabled && removable)
@@ -541,7 +543,7 @@ private fun GistFileEditor(
             HDivider()
             if (file.truncated) {
                 Text(
-                    "文件过大，内容未完整返回，只能改名或删除；修改内容请在 GitHub 网页上进行。",
+                    tr("文件过大，内容未完整返回，只能改名或删除；修改内容请在 GitHub 网页上进行。"),
                     Modifier.padding(12.dp), fontSize = 13.sp, color = g.fgMuted,
                 )
             } else {
@@ -549,7 +551,7 @@ private fun GistFileEditor(
                     file.content, { if (enabled) onChange(file.copy(content = it)) },
                     Modifier.fillMaxWidth().heightIn(min = 160.dp).padding(8.dp),
                     textStyle = CodeStyle.copy(color = g.fg),
-                    placeholder = { Text("文件内容", color = g.fgMuted, fontSize = 13.sp) },
+                    placeholder = { Text(tr("文件内容"), color = g.fgMuted, fontSize = 13.sp) },
                     minLines = 8,
                     shape = RoundedCornerShape(6.dp),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default, autoCorrectEnabled = false),
@@ -560,7 +562,7 @@ private fun GistFileEditor(
                 )
             }
             if (file.original != null && file.filename.trim() != file.original) {
-                Text("原文件名：${file.original}", Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp), fontSize = 12.sp, color = g.fgMuted)
+                Text(trf("原文件名：{0}", file.original), Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp), fontSize = 12.sp, color = g.fgMuted)
             }
         }
     }

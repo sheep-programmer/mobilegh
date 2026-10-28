@@ -14,6 +14,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.put
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trc
+import com.mobilegh.i18n.trf
 
 /** GitHub REST / GraphQL 接口封装 */
 object GitHub {
@@ -83,7 +86,7 @@ object GitHub {
                 orgReposAll(org, sort, force).forEach { result[it.id] = it }
             } catch (e: kotlinx.coroutines.CancellationException) { throw e
             } catch (e: ApiException) {
-                AppLog.warn("network", "组织仓库读取失败：$org (${e.code})")
+                AppLog.warn("network", trf("组织仓库读取失败：{0} ({1})", org, e.code))
                 if (orgs.size == 1 && result.isEmpty()) throw e
             }
         }
@@ -208,7 +211,7 @@ object GitHub {
     /** 某个提交对应的文件树 sha */
     suspend fun commitTreeSha(o: String, n: String, sha: String): String =
         Api.get<Commit>("${r(o, n)}/commits/$sha", force = true).commit.tree?.sha?.takeIf { it.length >= 40 }
-            ?: throw ApiException(500, "GitHub 没有返回该提交的文件树，请稍后重试")
+            ?: throw ApiException(500, tr("GitHub 没有返回该提交的文件树，请稍后重试"))
 
     /**
      * 递归读取一棵树，得到「仓库里已经有哪些文件」。
@@ -227,7 +230,7 @@ object GitHub {
             put("base_tree", base)
             put("tree", JsonArray(entries))
         }
-        return shaOf("POST", "${r(o, n)}/git/trees", body = body, what = "文件树")
+        return shaOf("POST", "${r(o, n)}/git/trees", body = body, what = tr("文件树"))
     }
 
     /** 用现成的树生成一个提交（作者与提交者由 GitHub 按 Token 归属，和网页提交一致） */
@@ -237,7 +240,7 @@ object GitHub {
             put("tree", tree)
             put("parents", JsonArray(parents.map { JsonPrimitive(it) }))
         }
-        return shaOf("POST", "${r(o, n)}/git/commits", body = body, what = "提交")
+        return shaOf("POST", "${r(o, n)}/git/commits", body = body, what = trc("提交", "noun"))
     }
 
     /** 把分支快进到 [sha]，等价于 `git push`；受保护分支或非快进会被 GitHub 拒绝 */
@@ -256,7 +259,7 @@ object GitHub {
         val resp = Api.ensureOk(Api.call(method, path, body, force = true))
         val sha = runCatching { (Api.json.parseToJsonElement(resp.body) as? JsonObject)?.get("sha") as? JsonPrimitive }
             .getOrNull()?.takeIf { it !is JsonNull }?.contentOrNull
-        return sha ?: throw ApiException(500, "GitHub 没有返回新的$what，请先打开提交列表确认写入结果，再决定是否重试")
+        return sha ?: throw ApiException(500, trf("GitHub 没有返回新的{0}，请先打开提交列表确认写入结果，再决定是否重试", what))
     }
 
     // ---------------- 分支 ----------------
@@ -302,7 +305,7 @@ object GitHub {
     private suspend fun <T> ownerOnlyList(kind: String, block: suspend () -> T): T = try {
         block()
     } catch (e: ApiException) {
-        if (e.code == 404) throw ApiException(404, "GitHub 只向仓库所有者公开 $kind 用户列表") else throw e
+        if (e.code == 404) throw ApiException(404, trf("GitHub 只向仓库所有者公开 {0} 用户列表", kind)) else throw e
     }
 
     suspend fun isStarred(o: String, n: String) = Api.exists("/user/starred/$o/$n")
@@ -405,7 +408,7 @@ object GitHub {
         }
         // 「已解决」与精确的「已过时」状态只有 GraphQL 提供；拿不到时退回 REST 的行号判断
         val threads = try { reviewThreads(o, n, num) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) {
-            AppLog.warn("network", "审查会话状态读取失败：${e.message}")
+            AppLog.warn("network", trf("审查会话状态读取失败：{0}", e.message))
             emptyMap()
         }
         return all.map { c -> threads[c.id]?.let { t -> c.copy(resolved = t.resolved, isOutdated = t.outdated, threadId = t.id) } ?: c }
@@ -472,7 +475,7 @@ object GitHub {
     /** GraphQL 变更：出错时 data 中对应字段为 null，需要单独判断 */
     private suspend fun mutate(field: String, query: String, vars: Map<String, Any?>) {
         val data = Api.graphql(query, vars)
-        if (data.obj(field) == null) throw ApiException(403, "操作失败（可能没有权限）")
+        if (data.obj(field) == null) throw ApiException(403, tr("操作失败（可能没有权限）"))
     }
 
     suspend fun resolveThread(threadId: String, resolve: Boolean) {
@@ -546,7 +549,7 @@ object GitHub {
                     } catch (e: kotlinx.coroutines.CancellationException) {
                         throw e
                     } catch (e: Throwable) {
-                        AppLog.warn("network", "Issue 模板读取失败：${f.path}")
+                        AppLog.warn("network", trf("Issue 模板读取失败：{0}", f.path))
                         null
                     }
                 }
@@ -676,7 +679,7 @@ object GitHub {
             }
             delay(1500L * (attempt + 1))
         }
-        throw ApiException(202, "GitHub 正在计算贡献者统计，请稍后刷新")
+        throw ApiException(202, tr("GitHub 正在计算贡献者统计，请稍后刷新"))
     }
 
     /** 统计接口在首次计算时返回 202，需要稍后重试 */
@@ -802,7 +805,7 @@ object GitHub {
         val vars = if (year == null) mapOf("login" to login)
         else mapOf("login" to login, "from" to "$year-01-01T00:00:00Z", "to" to "$year-12-31T23:59:59Z")
         val data = Api.graphql(CONTRIB_Q, vars)
-        val c = data.obj("user")?.get("contributionsCollection") ?: throw ApiException(404, "用户不存在")
+        val c = data.obj("user")?.get("contributionsCollection") ?: throw ApiException(404, tr("用户不存在"))
         val result: Contributions = Api.plain.decodeFromJsonElement(c)
         // 自己最近一年的数据同步给桌面贡献图小组件
         if (year == null && login.equals(Session.login, true)) WidgetStore.saveContributions(login, result.contributionCalendar)

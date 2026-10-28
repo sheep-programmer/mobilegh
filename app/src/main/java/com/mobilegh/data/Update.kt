@@ -9,6 +9,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.mobilegh.BuildConfig
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /**
  * 在线更新：从 GitHub Release 读取最新版本，按当前设备架构挑选对应 APK。
@@ -62,11 +64,11 @@ object Update {
                 ?: return null.also { available = null }
             val info = Info(version, rel.tagName, rel.body, asset.name, asset.browserDownloadUrl, asset.size)
             available = info.takeIf { isNewer(it.version, BuildConfig.VERSION_NAME) }
-            AppLog.info("update", "检查更新：远端 $version / 当前 ${BuildConfig.VERSION_NAME} / 架构 $abi")
+            AppLog.info("update", trf("检查更新：远端 {0} / 当前 {1} / 架构 {2}", version, BuildConfig.VERSION_NAME, abi))
             available
         } catch (e: Throwable) {
-            error = e.networkHint() ?: e.message ?: "检查更新失败"
-            AppLog.warn("update", "检查更新失败", e)
+            error = e.networkHint() ?: e.message ?: tr("检查更新失败")
+            AppLog.warn("update", tr("检查更新失败"), e)
             null
         } finally {
             checking = false

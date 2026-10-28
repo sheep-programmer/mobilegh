@@ -62,7 +62,11 @@ import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.retain
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.DiffLine
+import com.mobilegh.ui.components.DiffModeToggle
 import com.mobilegh.ui.components.DiffRow
+import com.mobilegh.ui.components.SplitDiffRow
+import com.mobilegh.ui.components.SplitScroll
+import com.mobilegh.ui.components.splitRows
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.HDivider
@@ -88,6 +92,8 @@ import com.mobilegh.ui.theme.CodeStyle
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 // ============ 行内审查评论 ============
 
@@ -205,11 +211,11 @@ private fun ReviewThreadCard(
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    "${thread.root.user?.login ?: "ghost"} 的${if (thread.size > 1) "${thread.size} 条" else ""}评论" +
-                        if (thread.resolved) "（已解决）" else if (thread.outdated) "（已过时）" else "",
+                    trf("{0} 的{1}评论", thread.root.user?.login ?: "ghost", if (thread.size > 1) trf("{0} 条", thread.size) else "") +
+                        if (thread.resolved) tr("（已解决）") else if (thread.outdated) tr("（已过时）") else "",
                     Modifier.weight(1f), fontSize = 12.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
-                Text("展开", fontSize = 12.sp, color = g.accent)
+                Text(tr("展开"), fontSize = 12.sp, color = g.accent)
             }
             return@Column
         }
@@ -219,17 +225,17 @@ private fun ReviewThreadCard(
                     .padding(start = 10.dp, end = 0.dp, top = 2.dp, bottom = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (thread.resolved) { Pill("已解决", g.done); Spacer(Modifier.width(6.dp)) }
-                if (thread.outdated) { Pill("已过时", g.attention); Spacer(Modifier.width(6.dp)) }
+                if (thread.resolved) { Pill(tr("已解决"), g.done); Spacer(Modifier.width(6.dp)) }
+                if (thread.outdated) { Pill(tr("已过时"), g.attention); Spacer(Modifier.width(6.dp)) }
                 Text(
                     when {
-                        thread.root.fileLevel -> "文件评论"
-                        thread.line != null -> "第 ${thread.line} 行" + if (thread.side == "LEFT") "（删除）" else ""
-                        else -> thread.root.originalLine?.let { "原第 $it 行" } ?: ""
+                        thread.root.fileLevel -> tr("文件评论")
+                        thread.line != null -> trf("第 {0} 行", thread.line) + if (thread.side == "LEFT") tr("（删除）") else ""
+                        else -> thread.root.originalLine?.let { trf("原第 {0} 行", it) } ?: ""
                     },
                     Modifier.weight(1f), fontSize = 12.sp, color = g.fgMuted, maxLines = 1,
                 )
-                TextLink("收起", g.fgMuted, onToggle)
+                TextLink(tr("收起"), g.fgMuted, onToggle)
             }
             // 已过时的评论无法挂到当前 diff，用评论时的 diff 片段（最后几行）还原上下文
             if (thread.outdated) thread.diffHunk?.let { hunk ->
@@ -250,10 +256,10 @@ private fun ReviewThreadCard(
                     Text(relTime(c.createdAt), fontSize = 12.sp, color = g.fgMuted, maxLines = 1)
                     Spacer(Modifier.weight(1f))
                     com.mobilegh.ui.components.MoreMenu(buildList {
-                        add(MenuAction("复制链接") { ctx.copy(c.htmlUrl) })
+                        add(MenuAction(tr("复制链接")) { ctx.copy(c.htmlUrl) })
                         if (c.user?.login == me) {
-                            add(MenuAction("编辑") { onEdit(c) })
-                            add(MenuAction("删除", danger = true) { onDelete(c) })
+                            add(MenuAction(tr("编辑")) { onEdit(c) })
+                            add(MenuAction(tr("删除"), danger = true) { onDelete(c) })
                         }
                     }, g.fgMuted)
                 }
@@ -263,9 +269,9 @@ private fun ReviewThreadCard(
                 Modifier.fillMaxWidth().padding(start = 6.dp, end = 8.dp, top = 2.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextLink("回复") { onReply() }
+                TextLink(tr("回复")) { onReply() }
                 if (thread.root.threadId != null && onResolve != null) {
-                    TextLink(if (thread.resolved) "重新打开" else "标记为已解决") { onResolve(!thread.resolved) }
+                    TextLink(if (thread.resolved) tr("重新打开") else tr("标记为已解决")) { onResolve(!thread.resolved) }
                 }
             }
         }
@@ -310,9 +316,9 @@ private fun SuggestionBox(s: Suggestion, original: List<String>?, onApply: () ->
         ) {
             Oc(R.drawable.oc_light_bulb, g.attention, 14.dp)
             Spacer(Modifier.width(6.dp))
-            Text("建议的更改", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+            Text(tr("建议的更改"), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
             Spacer(Modifier.weight(1f))
-            if (original != null && original.isNotEmpty()) Text("第 ${s.startLine} 行", fontSize = 11.sp, color = g.fgMuted)
+            if (original != null && original.isNotEmpty()) Text(trf("第 {0} 行", s.startLine), fontSize = 11.sp, color = g.fgMuted)
         }
         original?.forEach { line ->
             Row(Modifier.fillMaxWidth().background(g.diffDel).padding(horizontal = 8.dp, vertical = 2.dp)) {
@@ -328,9 +334,9 @@ private fun SuggestionBox(s: Suggestion, original: List<String>?, onApply: () ->
         }
         Row(Modifier.fillMaxWidth().background(canvas).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             if (original != null && original.isNotEmpty()) {
-                GhButton("应用建议", icon = R.drawable.oc_check) { onApply() }
+                GhButton(tr("应用建议"), icon = R.drawable.oc_check) { onApply() }
             }
-            GhButton("复制建议", icon = R.drawable.oc_copy) { ctx.copy(s.newText, "建议代码已复制") }
+            GhButton(tr("复制建议"), icon = R.drawable.oc_copy) { ctx.copy(s.newText, tr("建议代码已复制")) }
         }
     }
 }
@@ -378,7 +384,7 @@ private fun CommentComposer(
                 target.replyTo != null -> GitHub.replyReviewComment(owner, name, number, target.replyTo.id, text)
                 else -> {
                     val sha = commitId
-                    if (sha.isNullOrBlank()) throw ApiException(400, "PR 信息尚未加载完成，请稍后重试")
+                    if (sha.isNullOrBlank()) throw ApiException(400, tr("PR 信息尚未加载完成，请稍后重试"))
                     GitHub.addReviewComment(owner, name, number, text, sha, target.path, line, target.side)
                 }
             }
@@ -389,14 +395,14 @@ private fun CommentComposer(
 
     GhDialog(
         when {
-            target.edit != null -> "编辑评论"
-            target.replyTo != null -> "回复评论"
-            line == null -> "评论文件"
-            target.side == "LEFT" -> "评论删除的第 $line 行"
-            else -> "评论第 $line 行"
+            target.edit != null -> tr("编辑评论")
+            target.replyTo != null -> tr("回复评论")
+            line == null -> tr("评论文件")
+            target.side == "LEFT" -> trf("评论删除的第 {0} 行", line)
+            else -> trf("评论第 {0} 行", line)
         },
         onDismiss,
-        confirm = if (sending) "发送中…" else "发表评论",
+        confirm = if (sending) tr("发送中…") else tr("发表评论"),
         confirmEnabled = body.text.isNotBlank() && !sending,
         onConfirm = { submit() },
     ) {
@@ -412,11 +418,11 @@ private fun CommentComposer(
                 }
             }
             Spacer(Modifier.height(8.dp))
-            MarkdownEditor(body, { body = it }, placeholder = "发表评论（支持 Markdown）", contextRepo = "$owner/$name", minLines = 4)
+            MarkdownEditor(body, { body = it }, placeholder = tr("发表评论（支持 Markdown）"), contextRepo = "$owner/$name", minLines = 4)
             if (canSuggest) {
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextLink("插入代码建议") {
+                    TextLink(tr("插入代码建议")) {
                         val block = "```suggestion\n${target.preview}\n```"
                         val text = body.text
                         body = TextFieldValue(
@@ -424,7 +430,7 @@ private fun CommentComposer(
                             androidx.compose.ui.text.TextRange(Int.MAX_VALUE),
                         )
                     }
-                    Text("可让作者一键采纳这一行", fontSize = 11.sp, color = g.fgMuted)
+                    Text(tr("可让作者一键采纳这一行"), fontSize = 11.sp, color = g.fgMuted)
                 }
             }
         }
@@ -484,7 +490,7 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
 
     fun reloadComments() = comments.load(true)
 
-    Page("文件变更", subtitle = "$owner/$name #$number") { pad ->
+    Page(tr("文件变更"), subtitle = "$owner/$name #$number") { pad ->
         LoadBox(files, Modifier.padding(pad).fillMaxSize()) { list ->
             // 文件内容变了（sha 不同）就不再算已查看
             val current = list.mapNotNull { pf -> pf.file.sha?.let { pf.file.filename to it } }.toMap()
@@ -494,15 +500,17 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
                 item {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("${list.size} 个文件  ", fontSize = 14.sp, color = g.fg, fontWeight = FontWeight.SemiBold)
+                            Text(trf("{0} 个文件  ", list.size), fontSize = 14.sp, color = g.fg, fontWeight = FontWeight.SemiBold)
                             Text("+${list.sumOf { it.file.additions }} ", fontSize = 14.sp, color = g.success, fontWeight = FontWeight.SemiBold)
                             Text("−${list.sumOf { it.file.deletions }}", fontSize = 14.sp, color = g.danger, fontWeight = FontWeight.SemiBold)
                             Spacer(Modifier.weight(1f))
-                            TextLink("全部折叠") { list.forEach { collapsed[it.file.filename] = true } }
+                            TextLink(tr("全部折叠")) { list.forEach { collapsed[it.file.filename] = true } }
                         }
                         Spacer(Modifier.height(8.dp))
+                        DiffModeToggle()
+                        Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("$count/${list.size} 个文件已查看", fontSize = 13.sp, color = if (count == list.size && list.isNotEmpty()) g.success else g.fgMuted)
+                            Text(trf("{0}/{1} 个文件已查看", count, list.size), fontSize = 13.sp, color = if (count == list.size && list.isNotEmpty()) g.success else g.fgMuted)
                             Spacer(Modifier.width(8.dp))
                             LinearProgressIndicator(
                                 progress = { if (list.isEmpty()) 0f else count.toFloat() / list.size },
@@ -513,15 +521,15 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
                         }
                         if (comments.data?.isNotEmpty() == true) {
                             Spacer(Modifier.height(6.dp))
-                            Text("共 ${threads.size} 条行内评论 · 点按代码行可发表评论", fontSize = 12.sp, color = g.fgMuted)
+                            Text(trf("共 {0} 条行内评论 · 点按代码行可发表评论", threads.size), fontSize = 12.sp, color = g.fgMuted)
                         } else {
                             Spacer(Modifier.height(6.dp))
-                            Text("点按代码行可发表行内评论", fontSize = 12.sp, color = g.fgMuted)
+                            Text(tr("点按代码行可发表行内评论"), fontSize = 12.sp, color = g.fgMuted)
                         }
-                        if (stale) Text("部分文件在查看后又有改动，已重新计为未查看", fontSize = 12.sp, color = g.attention)
+                        if (stale) Text(tr("部分文件在查看后又有改动，已重新计为未查看"), fontSize = 12.sp, color = g.attention)
                         if (comments.error != null) {
                             Spacer(Modifier.height(4.dp))
-                            InlineError("行内评论加载失败：${comments.error}") { reloadComments() }
+                            InlineError(trf("行内评论加载失败：{0}", comments.error)) { reloadComments() }
                         }
                     }
                     HDivider()
@@ -548,7 +556,7 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
                         onResolve = if (access.write || access.author) { t, resolve ->
                             entry.act({ ctx.toast(it) }, ::reloadComments) {
                                 GitHub.resolveThread(t.root.threadId!!, resolve)
-                                ctx.toast(if (resolve) "已标记为已解决" else "已重新打开")
+                                ctx.toast(if (resolve) tr("已标记为已解决") else tr("已重新打开"))
                             }
                         } else null,
                     )
@@ -561,27 +569,27 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
     target?.let { t ->
         CommentComposer(owner, name, number, headSha, t, { target = null }) {
             target = null
-            ctx.toast(if (t.edit != null) "已保存" else "评论已发表")
+            ctx.toast(if (t.edit != null) tr("已保存") else tr("评论已发表"))
             reloadComments()
         }
     }
     applying?.let { (t, text) ->
         val line = t.line
         GhDialog(
-            "应用建议", { applying = null }, confirm = "发表建议",
+            tr("应用建议"), { applying = null }, confirm = tr("发表建议"),
             confirmEnabled = headSha != null && line != null,
             onConfirm = {
                 applying = null
                 val sha = headSha
                 if (sha != null && line != null) entry.act({ ctx.toast(it) }, ::reloadComments) {
                     GitHub.addReviewComment(owner, name, number, "```suggestion\n$text\n```", sha, t.path, line, t.side, t.startLine, t.side)
-                    ctx.toast("建议已发表")
+                    ctx.toast(tr("建议已发表"))
                 }
             },
         ) {
             Column {
                 Text(
-                    "将以你的名义在同一位置发表这条建议，PR 作者可在 GitHub 上一键提交。",
+                    tr("将以你的名义在同一位置发表这条建议，PR 作者可在 GitHub 上一键提交。"),
                     fontSize = 13.sp, color = g.fg,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -590,10 +598,10 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
         }
     }
     deleting?.let { c ->
-        GhDialog("删除评论", { deleting = null }, confirm = "删除", danger = true, onConfirm = {
+        GhDialog(tr("删除评论"), { deleting = null }, confirm = tr("删除"), danger = true, onConfirm = {
             deleting = null
-            entry.act({ ctx.toast(it) }, ::reloadComments) { GitHub.deleteReviewComment(owner, name, c.id); ctx.toast("已删除") }
-        }) { Text("删除后无法恢复。", color = g.fg) }
+            entry.act({ ctx.toast(it) }, ::reloadComments) { GitHub.deleteReviewComment(owner, name, c.id); ctx.toast(tr("已删除")) }
+        }) { Text(tr("删除后无法恢复。"), color = g.fg) }
     }
 }
 
@@ -643,9 +651,9 @@ private fun LazyListScope.pullFileDiff(
             onViewed = { onViewed(f, it) },
             comments = threads.comments,
             menu = buildList {
-                if (f.status != "removed") add(MenuAction("查看文件") { onOpen() })
-                add(MenuAction("评论此文件") { onFileComment() })
-                add(MenuAction("复制文件路径") { onCopyPath() })
+                if (f.status != "removed") add(MenuAction(tr("查看文件")) { onOpen() })
+                add(MenuAction(tr("评论此文件")) { onFileComment() })
+                add(MenuAction(tr("复制文件路径")) { onCopyPath() })
             },
         )
     }
@@ -654,7 +662,7 @@ private fun LazyListScope.pullFileDiff(
         item(key = "e:$path") {
             val g = Gh.c
             Text(
-                if (f.status == "renamed") "文件已重命名（无内容变化）" else "二进制文件或变更过大，无法显示 diff",
+                if (f.status == "renamed") tr("文件已重命名（无内容变化）") else tr("二进制文件或变更过大，无法显示 diff"),
                 Modifier.padding(16.dp), fontSize = 13.sp, color = g.fgMuted,
             )
         }
@@ -662,7 +670,19 @@ private fun LazyListScope.pullFileDiff(
         if (threads.level.isNotEmpty()) item(key = "fl:$path", contentType = "thread") {
             Column(Modifier.padding(vertical = 4.dp)) { threads.level.forEach { thread(it) } }
         }
-        itemsIndexed(pf.lines, key = { i, _ -> "$path:$i" }) { _, d ->
+        if (Session.diffSplit) {
+            val rows = splitRows(pf.lines)
+            val scroll = SplitScroll.of("pr:$path")
+            itemsIndexed(rows, key = { i, _ -> "$path:$i" }) { _, r ->
+                Column {
+                    SplitDiffRow(r, Gh.c, path, scroll, onLineClick = onLineClick)
+                    // 行内评论挂在对应那一行的下方：左右两侧各自的评论都显示
+                    listOfNotNull(r.left, r.right).distinct().forEach { d ->
+                        lineKeys(d).forEach { k -> threads.byLine[k]?.forEach { thread(it) } }
+                    }
+                }
+            }
+        } else itemsIndexed(pf.lines, key = { i, _ -> "$path:$i" }) { _, d ->
             Column {
                 DiffRow(d, Gh.c, path, onLineClick = { onLineClick(d) })
                 lineKeys(d).forEach { k -> threads.byLine[k]?.forEach { thread(it) } }
@@ -672,7 +692,7 @@ private fun LazyListScope.pullFileDiff(
     if (threads.outdated.isNotEmpty()) item(key = "ot:$path") {
         Column(Modifier.padding(vertical = 4.dp)) {
             Text(
-                "${threads.outdated.size} 个讨论所在的代码已改动",
+                trf("{0} 个讨论所在的代码已改动", threads.outdated.size),
                 Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 12.sp, color = Gh.c.fgMuted,
             )
             threads.outdated.forEach { thread(it) }
@@ -690,10 +710,10 @@ private fun threadExpanded(state: Map<Long, Boolean>, t: ReviewThread) = state[t
 fun ChecksSummaryRow(checks: Checks, onOpen: (() -> Unit)? = null) {
     val g = Gh.c
     val (icon, color, text) = when {
-        checks.total == 0 -> Triple(R.drawable.oc_skip, g.fgMuted, "未配置检查")
-        checks.failed > 0 -> Triple(R.drawable.oc_x_circle_fill, g.danger, "${checks.failed} 项检查未通过")
-        checks.pending > 0 -> Triple(R.drawable.oc_dot_fill, g.attention, "${checks.pending} 项检查进行中")
-        else -> Triple(R.drawable.oc_check_circle_fill, g.success, "全部 ${checks.total} 项检查通过")
+        checks.total == 0 -> Triple(R.drawable.oc_skip, g.fgMuted, tr("未配置检查"))
+        checks.failed > 0 -> Triple(R.drawable.oc_x_circle_fill, g.danger, trf("{0} 项检查未通过", checks.failed))
+        checks.pending > 0 -> Triple(R.drawable.oc_dot_fill, g.attention, trf("{0} 项检查进行中", checks.pending))
+        else -> Triple(R.drawable.oc_check_circle_fill, g.success, trf("全部 {0} 项检查通过", checks.total))
     }
     Row(
         Modifier.fillMaxWidth().then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier).padding(vertical = 2.dp),
@@ -702,7 +722,7 @@ fun ChecksSummaryRow(checks: Checks, onOpen: (() -> Unit)? = null) {
         Oc(icon, color, 14.dp)
         Spacer(Modifier.width(6.dp))
         Text(text, Modifier.weight(1f), fontSize = 13.sp, color = color, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (checks.total > 0) Text("${checks.passed} 通过 · ${checks.failed} 失败 · ${checks.pending} 进行中", fontSize = 11.sp, color = g.fgMuted, maxLines = 1)
+        if (checks.total > 0) Text(trf("{0} 通过 · {1} 失败 · {2} 进行中", checks.passed, checks.failed, checks.pending), fontSize = 11.sp, color = g.fgMuted, maxLines = 1)
         if (onOpen != null) {
             Spacer(Modifier.width(4.dp))
             Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
@@ -717,7 +737,7 @@ fun PullChecksScreen(owner: String, name: String, number: Int, sha: String) {
     val ctx = rememberCtx()
     val checks = rememberLoader("checks") { GitHub.checks(owner, name, sha, it) }
     val pr = rememberLoader("pr") { GitHub.pull(owner, name, number, it) }
-    Page("检查", subtitle = "$owner/$name #$number") { pad ->
+    Page(tr("检查"), subtitle = "$owner/$name #$number") { pad ->
         LoadBox(checks, Modifier.padding(pad).fillMaxSize()) { c ->
             LazyColumn(Modifier.fillMaxSize()) {
                 item {
@@ -726,16 +746,16 @@ fun PullChecksScreen(owner: String, name: String, number: Int, sha: String) {
                         Spacer(Modifier.height(6.dp))
                         ChecksSummaryRow(c)
                         Spacer(Modifier.height(4.dp))
-                        Text("提交 ${sha.take(7)}", fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = g.fgMuted)
+                        Text(trf("提交 {0}", sha.take(7)), fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = g.fgMuted)
                     }
                     HDivider()
                 }
                 if (c.runs.isNotEmpty()) {
-                    item { Text("检查", Modifier.padding(start = 16.dp, top = 16.dp, bottom = 6.dp), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg) }
+                    item { Text(tr("检查"), Modifier.padding(start = 16.dp, top = 16.dp, bottom = 6.dp), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg) }
                     items(c.runs, key = { "r${it.id}" }) { r -> CheckRunRow(r) { openCheck(ctx, nav, r.htmlUrl ?: r.detailsUrl) } }
                 }
                 if (c.statuses.isNotEmpty()) {
-                    item { Text("状态", Modifier.padding(start = 16.dp, top = 20.dp, bottom = 6.dp), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg) }
+                    item { Text(tr("状态"), Modifier.padding(start = 16.dp, top = 20.dp, bottom = 6.dp), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg) }
                     items(c.statuses, key = { "s${it.id}" }) { s ->
                         Row(
                             Modifier.fillMaxWidth().clickable { openCheck(ctx, nav, s.targetUrl) }.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -756,7 +776,7 @@ fun PullChecksScreen(owner: String, name: String, number: Int, sha: String) {
                     }
                 }
                 if (c.total == 0) item {
-                    Text("这个提交没有检查结果。", Modifier.padding(16.dp), fontSize = 13.sp, color = g.fgMuted)
+                    Text(tr("这个提交没有检查结果。"), Modifier.padding(16.dp), fontSize = 13.sp, color = g.fgMuted)
                 }
                 item { Spacer(Modifier.height(32.dp)) }
             }
@@ -794,9 +814,9 @@ private fun CheckRunRow(r: CheckRun, onOpen: () -> Unit) {
 private fun duration(r: CheckRun): String {
     val start = r.startedAt ?: r.completedAt
     return if (start == null) "" else when (r.status) {
-        "completed" -> "耗时 " + fmtDuration(start, r.completedAt)
-        "in_progress" -> "已运行 " + fmtDuration(start, null)
-        else -> "已等待 " + fmtDuration(start, null)
+        "completed" -> tr("耗时 ") + fmtDuration(start, r.completedAt)
+        "in_progress" -> tr("已运行 ") + fmtDuration(start, null)
+        else -> tr("已等待 ") + fmtDuration(start, null)
     }
 }
 
@@ -814,7 +834,7 @@ private fun statusVisual(state: String): Pair<Int, Color> {
 /** 详情链接优先在应用内打开（Actions 运行页），否则交给浏览器 */
 private fun openCheck(ctx: android.content.Context, nav: com.mobilegh.nav.Navigator, url: String?) {
     if (url.isNullOrBlank()) {
-        ctx.toast("该项检查没有提供详情链接")
+        ctx.toast(tr("该项检查没有提供详情链接"))
         return
     }
     val route = runCatching { Links.route(url) }.getOrNull()

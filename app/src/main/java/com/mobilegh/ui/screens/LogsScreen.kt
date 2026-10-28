@@ -43,20 +43,21 @@ import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.share
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
 
 private val LOG_CATEGORIES = listOf(
-    "all" to "全部",
-    "auth" to "认证",
-    "2fa_setup" to "审批启用",
-    "2fa" to "数字审批",
-    "2fa_push" to "审批推送",
-    "network" to "网络",
-    "update" to "更新",
-    "download" to "下载",
+    "all" to tr("全部"),
+    "auth" to tr("认证"),
+    "2fa_setup" to tr("审批启用"),
+    "2fa" to tr("数字审批"),
+    "2fa_push" to tr("审批推送"),
+    "network" to tr("网络"),
+    "update" to tr("更新"),
+    "download" to tr("下载"),
     "actions" to "Actions",
-    "webview" to "网页渲染",
-    "crash" to "崩溃",
-    "app" to "应用",
+    "webview" to tr("网页渲染"),
+    "crash" to tr("崩溃"),
+    "app" to tr("应用"),
 )
 
 @Composable
@@ -74,14 +75,14 @@ fun LogsScreen(onBack: (() -> Unit)? = null) {
             (query.isBlank() || entry.message.contains(query, true) || entry.detail?.contains(query, true) == true)
     }
     Page(
-        "日志与诊断",
-        subtitle = filtered.size.toString() + " 条",
+        tr("日志与诊断"),
+        subtitle = filtered.size.toString() + tr(" 条"),
         onBack = onBack,
         actions = {
             MoreMenu(listOf(
-                MenuAction("导出当前筛选") { ctx.share(AppLog.export(filtered)) },
-                MenuAction("导出全部日志") { ctx.share(AppLog.export(all)) },
-                MenuAction("清除全部日志", danger = true) { confirmClear = true },
+                MenuAction(tr("导出当前筛选")) { ctx.share(AppLog.export(filtered)) },
+                MenuAction(tr("导出全部日志")) { ctx.share(AppLog.export(all)) },
+                MenuAction(tr("清除全部日志"), danger = true) { confirmClear = true },
             ))
         },
     ) { pad ->
@@ -92,12 +93,12 @@ fun LogsScreen(onBack: (() -> Unit)? = null) {
             GhField(
                 query,
                 { query = it },
-                "筛选日志",
+                tr("筛选日志"),
                 Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp),
-                placeholder = "搜索错误、请求路径或文件名",
+                placeholder = tr("搜索错误、请求路径或文件名"),
             )
             if (filtered.isEmpty()) {
-                EmptyState(if (query.isBlank()) "暂无日志" else "没有匹配的日志", R.drawable.oc_log, action = if (query.isBlank()) null else "清除搜索", onAction = { query = "" })
+                EmptyState(if (query.isBlank()) tr("暂无日志") else tr("没有匹配的日志"), R.drawable.oc_log, action = if (query.isBlank()) null else tr("清除搜索"), onAction = { query = "" })
             } else {
                 LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
                     items(filtered, key = { it.id }) { entry ->
@@ -111,9 +112,9 @@ fun LogsScreen(onBack: (() -> Unit)? = null) {
     }
     if (confirmClear) {
         GhDialog(
-            "清除日志",
+            tr("清除日志"),
             onDismiss = { confirmClear = false },
-            confirm = "清除",
+            confirm = tr("清除"),
             danger = true,
             onConfirm = {
                 AppLog.clear()
@@ -121,7 +122,7 @@ fun LogsScreen(onBack: (() -> Unit)? = null) {
                 expanded = null
             },
         ) {
-            Text("会删除本机保存的所有 MobileGH 诊断日志，无法恢复。", color = g.fg)
+            Text(tr("会删除本机保存的所有 MobileGH 诊断日志，无法恢复。"), color = g.fg)
         }
     }
 }
@@ -157,7 +158,7 @@ private fun LogRow(entry: AppLogEntry, expanded: Boolean, onClick: () -> Unit) {
             }
             if (expanded && entry.thread != null) {
                 Spacer(Modifier.height(5.dp))
-                Text("线程：" + entry.thread, color = g.fgMuted, fontSize = 11.sp)
+                Text(tr("线程：") + entry.thread, color = g.fgMuted, fontSize = 11.sp)
             }
         }
     }

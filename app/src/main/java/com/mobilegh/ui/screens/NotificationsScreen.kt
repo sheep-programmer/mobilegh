@@ -96,29 +96,32 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeout
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trc
+import com.mobilegh.i18n.trf
 
 // ---------------- 文案映射 ----------------
 
 /** reason 筛选下拉里的选项：null 表示不筛选 */
 private val REASON_FILTERS = listOf(
-    null to "全部原因",
-    "assign" to "被指派",
-    "mention" to "被提及",
-    "review_requested" to "评审请求",
-    "author" to "作者",
-    "comment" to "评论",
-    "team_mention" to "团队提及",
-    "state_change" to "状态变化",
-    "ci_activity" to "CI 活动",
-    "security_alert" to "安全告警",
-    "subscribed" to "订阅",
+    null to tr("全部原因"),
+    "assign" to tr("被指派"),
+    "mention" to tr("被提及"),
+    "review_requested" to tr("评审请求"),
+    "author" to tr("作者"),
+    "comment" to trc("评论", "reason"),
+    "team_mention" to tr("团队提及"),
+    "state_change" to tr("状态变化"),
+    "ci_activity" to tr("CI 活动"),
+    "security_alert" to tr("安全告警"),
+    "subscribed" to tr("订阅"),
 )
 
 /** 行内 Pill 的文案：比筛选项多一些 GitHub 会返回的原因 */
 private val REASON_EXTRA = mapOf(
-    "manual" to "手动订阅",
-    "invitation" to "邀请",
-    "approval_requested" to "等待批准",
+    "manual" to tr("手动订阅"),
+    "invitation" to tr("邀请"),
+    "approval_requested" to tr("等待批准"),
 )
 
 /** 需要优先处理的提及类原因：Pill 用强调色 */
@@ -131,10 +134,10 @@ private fun subjectTypeZh(type: String) = when (type) {
     "PullRequest" -> "Pull Request"
     "Release" -> "Release"
     "Commit" -> "Commit"
-    "Discussion" -> "讨论"
+    "Discussion" -> tr("讨论")
     "CheckSuite", "WorkflowRun" -> "Actions"
-    "RepositoryInvitation" -> "仓库邀请"
-    "RepositoryVulnerabilityAlert", "RepositoryDependabotAlertsThread" -> "安全告警"
+    "RepositoryInvitation" -> tr("仓库邀请")
+    "RepositoryVulnerabilityAlert", "RepositoryDependabotAlertsThread" -> tr("安全告警")
     else -> type
 }
 
@@ -244,7 +247,8 @@ private fun bumpBadge(delta: Int) {
 
 // ---------------- 批量操作 ----------------
 
-private enum class BulkKind(val label: String) { Done("完成"), Read("标为已读"), Ignore("忽略") }
+private enum class BulkKind(private val labelZh: String) { Done("完成"), Read("标为已读"), Ignore("忽略");
+    val label: String get() = tr(labelZh) }
 
 internal class BulkResult(val ok: Int, val failed: Int, val failedIds: List<String>, val firstError: String?)
 
@@ -284,7 +288,7 @@ internal suspend fun runBulk(ids: List<String>, onProgress: (Int) -> Unit, run: 
 private fun BulkBanner(label: String, finished: Int, total: Int) {
     val g = Gh.c
     Column(Modifier.fillMaxWidth().background(g.canvasSubtle).padding(horizontal = 16.dp, vertical = 10.dp)) {
-        Text("正在$label：$finished/$total", fontSize = 12.sp, color = g.fg)
+        Text(trf("正在{0}：{1}/{2}", label, finished, total), fontSize = 12.sp, color = g.fg)
         Spacer(Modifier.height(6.dp))
         LinearProgressIndicator(
             progress = { if (total == 0) 0f else finished.toFloat() / total },
@@ -373,11 +377,11 @@ private fun NotificationRow(
         backgroundContent = {
             // 用 dismissDirection 而不是 targetValue：后者在越过阈值前一直是 Settled
             if (dismiss.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
-                SwipeAction(R.drawable.oc_check, "完成", g.doneSubtle, g.done, atEnd = true)
+                SwipeAction(R.drawable.oc_check, tr("完成"), g.doneSubtle, g.done, atEnd = true)
             } else {
                 SwipeAction(
                     if (unread) R.drawable.oc_dot_fill else R.drawable.oc_eye,
-                    if (unread) "标为已读" else "标为未读",
+                    if (unread) tr("标为已读") else tr("标为未读"),
                     g.accentSubtle, g.accent, atEnd = false,
                 )
             }
@@ -400,7 +404,8 @@ private fun NotificationRow(
                 .combinedClickable(enabled = !busy, onClick = onOpen, onLongClick = onToggleSelect)
                 .padding(start = 8.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
         ) {
-            Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) {
+            // 与类型图标同一水平线：未读点/勾选框的中心对齐到第一行文字
+            Box(Modifier.width(34.dp).height(20.dp), contentAlignment = Alignment.Center) {
                 if (selection) CheckMark(selected)
                 else if (unread) Box(Modifier.size(8.dp).background(g.accent, CircleShape))
             }
@@ -447,10 +452,10 @@ private fun NotificationRow(
             if (!selection && !busy) {
                 MoreMenu(
                     listOf(
-                        MenuAction(if (unread) "标为已读" else "标为未读", onClick = onToggleRead),
-                        MenuAction("完成", onClick = onDone),
-                        MenuAction("取消订阅此线程", onClick = onUnsubscribe),
-                        MenuAction("忽略此线程", danger = true, onClick = onIgnore),
+                        MenuAction(if (unread) tr("标为已读") else tr("标为未读"), onClick = onToggleRead),
+                        MenuAction(tr("完成"), onClick = onDone),
+                        MenuAction(tr("取消订阅此线程"), onClick = onUnsubscribe),
+                        MenuAction(tr("忽略此线程"), danger = true, onClick = onIgnore),
                     ),
                     tint = g.fgMuted,
                 )
@@ -483,10 +488,10 @@ private fun DoneRow(n: Notification, pending: Boolean, onOpen: () -> Unit, onUnd
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Oc(R.drawable.oc_check, g.done, 12.dp)
                 Spacer(Modifier.width(4.dp))
-                Text(if (pending) "已完成 · 待同步" else "已完成 · ${relTime(n.updatedAt)}", fontSize = 12.sp, color = g.done)
+                Text(if (pending) tr("已完成 · 待同步") else trf("已完成 · {0}", relTime(n.updatedAt)), fontSize = 12.sp, color = g.done)
             }
         }
-        if (onUndo != null) TextLink("撤销", onClick = onUndo)
+        if (onUndo != null) TextLink(tr("撤销"), onClick = onUndo)
     }
 }
 
@@ -498,14 +503,14 @@ private fun DoneView(items: List<Notification>, state: NotifState, onOpen: (Noti
     LazyColumn(Modifier.fillMaxSize(), state = listState) {
         item {
             Text(
-                "已完成列表只保留在本机本次会话（GitHub 接口不提供已完成通知的查询）",
+                tr("已完成列表只保留在本机本次会话（GitHub 接口不提供已完成通知的查询）"),
                 fontSize = 11.sp, color = g.fgMuted,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
         if (items.isEmpty()) {
             item {
-                EmptyState("还没有已完成的通知", R.drawable.oc_check_circle, Modifier.fillMaxWidth().height(240.dp))
+                EmptyState(tr("还没有已完成的通知"), R.drawable.oc_check_circle, Modifier.fillMaxWidth().height(240.dp))
             }
         } else {
             boxedItems(items, key = { it.id }) { n ->
@@ -575,7 +580,7 @@ fun NotificationsScreen() {
                         entry.login?.let { com.mobilegh.data.NotificationStore.save(it, saved) }
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e
-                } catch (e: Exception) { com.mobilegh.data.AppLog.warn("notifications", "本机通知状态保存失败", e) }
+                } catch (e: Exception) { com.mobilegh.data.AppLog.warn("notifications", tr("本机通知状态保存失败"), e) }
             }
         }
     }
@@ -621,8 +626,8 @@ fun NotificationsScreen() {
                 val result = try {
                     withTimeout(UNDO_MS) {
                         snackbar.showSnackbar(
-                            "已完成「${n.subject.title.take(24)}」",
-                            actionLabel = "撤销",
+                            trf("已完成「{0}」", n.subject.title.take(24)),
+                            actionLabel = tr("撤销"),
                             withDismissAction = true,
                             duration = SnackbarDuration.Indefinite,
                         )
@@ -643,7 +648,7 @@ fun NotificationsScreen() {
                 } catch (e: Throwable) {
                     // 服务端失败：本地也撤回，条目回到列表
                     restoreDone(n.id)
-                    ctx.toast("完成失败：${e.friendly()}")
+                    ctx.toast(trf("完成失败：{0}", e.friendly()))
                 }
             } finally {
                 // Entry cancellation must not leave a permanently hidden, pending row.
@@ -682,7 +687,7 @@ fun NotificationsScreen() {
             // GitHub 没有「标为未读」接口，只能在本机模拟
             state.markUnread(n.id)
             bumpBadge(1)
-            ctx.toast("已在本机标为未读（GitHub 不支持远程标为未读）")
+            ctx.toast(tr("已在本机标为未读（GitHub 不支持远程标为未读）"))
         }
     }
 
@@ -715,7 +720,7 @@ fun NotificationsScreen() {
                     if (ignore) GitHub.ignoreThread(id) else GitHub.unsubscribeThread(id)
                     if (id !in state.unsubscribed) state.unsubscribed.add(id)
                 }
-                ctx.toast(if (ignore) "已忽略所选线程" else "已取消订阅所选线程")
+                ctx.toast(if (ignore) tr("已忽略所选线程") else tr("已取消订阅所选线程"))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -737,8 +742,8 @@ fun NotificationsScreen() {
         state.busyDone = 0
         state.busyTotal = ids.size
         fun report(res: BulkResult, verb: String) = ctx.toast(
-            if (res.failed == 0) "已$verb ${res.ok} 条"
-            else "已$verb ${res.ok} 条，${res.failed} 条失败：${res.firstError ?: ""}",
+            if (res.failed == 0) trf("已{0} {1} 条", verb, res.ok)
+            else trf("已{0} {1} 条，{2} 条失败：{3}", verb, res.ok, res.failed, res.firstError ?: ""),
         )
         entry.scope.launch {
             try {
@@ -790,21 +795,21 @@ fun NotificationsScreen() {
     BackHandler(enabled = selection) { clearSelection() }
 
     Page(
-        if (selection) "已选择 ${selected.size} 条" else "通知",
+        if (selection) trf("已选择 {0} 条", selected.size) else tr("通知"),
         back = false,
         contentWindowInsets = WindowInsets(0),
         subtitle = when {
             doneTab || selection -> null
-            busy -> "正在${state.busyLabel}：${state.busyDone}/${state.busyTotal}"
+            busy -> trf("正在{0}：{1}/{2}", state.busyLabel, state.busyDone, state.busyTotal)
             matched.isEmpty() -> null
-            filter == 0 -> "${matched.count { state.unread(it) }} 条未读"
-            else -> "${matched.size} 条"
+            filter == 0 -> trf("{0} 条未读", matched.count { state.unread(it) })
+            else -> trf("{0} 条", matched.size)
         },
         actions = {
             when {
                 selection -> {
                     val all = matched.isNotEmpty() && matched.all { it.id in selected }
-                    TextLink(if (all) "取消全选" else "全选") {
+                    TextLink(if (all) tr("取消全选") else tr("全选")) {
                         val ids = matched.map { it.id }
                         if (ids.isNotEmpty() && ids.all { it in selected }) selected.removeAll(ids)
                         else selected.addAll(ids.filterNot { it in selected })
@@ -817,24 +822,24 @@ fun NotificationsScreen() {
                     OcButton(R.drawable.oc_check, { askBulk = BulkKind.Done }, enabled = canAct)
                     MoreMenu(
                         listOf(
-                            MenuAction("标为已读") {
+                            MenuAction(tr("标为已读")) {
                                 if (canAct) {
                                     runBatch(BulkKind.Read, visible.filter { it.id in selected })
                                     clearSelection()
                                 }
                             },
-                            MenuAction("完成") { if (canAct) askBulk = BulkKind.Done },
-                            MenuAction("标为未读（仅本机）") {
+                            MenuAction(tr("完成")) { if (canAct) askBulk = BulkKind.Done },
+                            MenuAction(tr("标为未读（仅本机）")) {
                                 if (!canAct) return@MenuAction
                                 val items = visible.filter { it.id in selected }
                                 val wasUnread = items.count { state.unread(it) }
                                 items.forEach { state.markUnread(it.id) }
                                 bumpBadge(items.size - wasUnread)
-                                if (items.isNotEmpty()) ctx.toast("已在本机将 ${items.size} 条标为未读")
+                                if (items.isNotEmpty()) ctx.toast(trf("已在本机将 {0} 条标为未读", items.size))
                                 clearSelection()
                             },
-                            MenuAction("忽略所选线程", danger = true) { if (canAct) askBulk = BulkKind.Ignore },
-                            MenuAction("取消") { clearSelection() },
+                            MenuAction(tr("忽略所选线程"), danger = true) { if (canAct) askBulk = BulkKind.Ignore },
+                            MenuAction(tr("取消")) { clearSelection() },
                         ),
                     )
                 }
@@ -848,7 +853,7 @@ fun NotificationsScreen() {
         },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            Chips(listOf("未读", "全部", "参与的", "已完成"), filter) {
+            Chips(listOf(tr("未读"), tr("全部"), tr("参与的"), tr("已完成")), filter) {
                 filter = it
                 if (it != TAB_DONE) apiFilter = it
                 reason = 0
@@ -864,9 +869,9 @@ fun NotificationsScreen() {
                     Spacer(Modifier.width(10.dp))
                     Text(
                         when {
-                            reason != 0 -> "只筛选已加载的通知：GitHub 接口不支持按原因过滤"
-                            grouped -> "按仓库分组"
-                            else -> "按时间排列"
+                            reason != 0 -> tr("只筛选已加载的通知：GitHub 接口不支持按原因过滤")
+                            grouped -> tr("按仓库分组")
+                            else -> tr("按时间排列")
                         },
                         Modifier.weight(1f),
                         fontSize = 11.sp, lineHeight = 14.sp, color = g.fgMuted, maxLines = 2,
@@ -886,13 +891,13 @@ fun NotificationsScreen() {
                     PagedList(
                         pager,
                         state = listState,
-                        empty = if (filter == 0) "没有未读通知，全部处理完了" else "暂无通知",
+                        empty = if (filter == 0) tr("没有未读通知，全部处理完了") else tr("暂无通知"),
                         emptyIcon = R.drawable.oc_bell,
                         itemKey = { it.id },
                         extraItems = extraUnread,
                         // 不筛 read：点开/标为已读后条目留在列表里（变灰），与 GitHub 客户端一致
                         itemFilter = { it.id !in state.done && (reason == 0 || REASON_FILTERS[reason].first == it.reason) },
-                        filteredEmpty = if (reason != 0) "已加载的通知里没有这个原因" else "没有匹配的通知",
+                        filteredEmpty = if (reason != 0) tr("已加载的通知里没有这个原因") else tr("没有匹配的通知"),
                         groupKey = if (grouped) { n -> n.repository.id } else null,
                         groupHeader = { list ->
                             RepoHeader(list) { nav.push(Screen.Repo(list.first().repository.owner.login, list.first().repository.name)) }
@@ -930,10 +935,10 @@ fun NotificationsScreen() {
     }
 
     if (confirmAll) {
-        GhDialog("全部标为已读", { confirmAll = false }, confirmEnabled = !busy && state.writing.isEmpty() && state.pending.isEmpty(), onConfirm = {
+        GhDialog(tr("全部标为已读"), { confirmAll = false }, confirmEnabled = !busy && state.writing.isEmpty() && state.pending.isEmpty(), onConfirm = {
             if (state.busyLabel != null || state.writing.isNotEmpty() || state.pending.isNotEmpty()) return@GhDialog
             confirmAll = false
-            state.busyLabel = "全部标为已读"
+            state.busyLabel = tr("全部标为已读")
             entry.scope.launch {
                 try {
                     GitHub.markAllRead()
@@ -941,7 +946,7 @@ fun NotificationsScreen() {
                     (pager.items + state.known).distinctBy { it.id }.forEach { state.markRead(it.id) }
                     Badges.unread = 0
                     entry.login?.let { com.mobilegh.data.WidgetStore.saveInbox(it, emptyList(), false) }
-                    ctx.toast("已全部标为已读")
+                    ctx.toast(tr("已全部标为已读"))
                     pager.refresh()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
@@ -951,14 +956,14 @@ fun NotificationsScreen() {
                     state.busyLabel = null
                 }
             }
-        }) { Text("确定将所有通知标记为已读吗？", color = g.fg) }
+        }) { Text(tr("确定将所有通知标记为已读吗？"), color = g.fg) }
     }
 
     askBulk?.let { kind ->
         val items = visible.filter { it.id in selected }
         if (items.isNotEmpty()) {
             GhDialog(
-                if (kind == BulkKind.Done) "完成所选通知" else "忽略所选线程",
+                if (kind == BulkKind.Done) tr("完成所选通知") else tr("忽略所选线程"),
                 onDismiss = { askBulk = null },
                 confirm = kind.label,
                 onConfirm = {
@@ -969,9 +974,9 @@ fun NotificationsScreen() {
             ) {
                 Text(
                     if (kind == BulkKind.Done) {
-                        "将把所选 ${items.size} 条通知从收件箱移除（DELETE /notifications/threads/{id}）。批量完成无法逐条撤销。"
+                        trf("将把所选 {0} 条通知从收件箱移除（DELETE /notifications/threads/{id}）。批量完成无法逐条撤销。", items.size)
                     } else {
-                        "将忽略所选 ${items.size} 个线程（PUT .../subscription {ignored:true}），之后即使被 @ 也不再收到通知。"
+                        trf("将忽略所选 {0} 个线程（PUT .../subscription {ignored:true}），之后即使被 @ 也不再收到通知。", items.size)
                     },
                     color = g.fg,
                 )

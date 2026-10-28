@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.mobilegh.i18n.tr
 
 /**
  * 应用锁：启动时以及离开应用超过设定时长后，需要通过指纹 / 面容 / 锁屏密码验证。
@@ -14,7 +15,7 @@ import androidx.compose.runtime.setValue
  */
 object AppLock {
     /** 离开应用后多久重新锁定（毫秒） */
-    val timeouts = listOf(0L to "立即", 60_000L to "1 分钟", 300_000L to "5 分钟", 900_000L to "15 分钟")
+    val timeouts get() = listOf(0L to tr("立即"), 60_000L to tr("1 分钟"), 300_000L to tr("5 分钟"), 900_000L to tr("15 分钟"))
 
     private var prefs: SharedPreferences? = null
 

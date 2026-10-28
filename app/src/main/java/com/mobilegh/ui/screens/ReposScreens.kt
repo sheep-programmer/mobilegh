@@ -56,7 +56,11 @@ import com.mobilegh.ui.components.ErrorState
 import com.mobilegh.ui.components.EventCat
 import com.mobilegh.ui.components.eventCat
 import com.mobilegh.ui.components.EventItem
+import com.mobilegh.ui.components.FilterCard
 import com.mobilegh.ui.components.FilterEntry
+import com.mobilegh.ui.components.FilterSheet
+import com.mobilegh.ui.components.CompactSearchField
+import com.mobilegh.ui.components.FieldAction
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.HDivider
@@ -74,16 +78,18 @@ import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.components.UserItem
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
-internal val SORTS = listOf("pushed" to "最近推送", "updated" to "最近更新", "full_name" to "名称", "created" to "创建时间")
+internal val SORTS get() = listOf("pushed" to tr("最近推送"), "updated" to tr("最近更新"), "full_name" to tr("名称"), "created" to tr("创建时间"))
 
 /** Repositories available to the signed-in account, including collaborators and organizations. */
 @Composable
 fun ReposTab() {
     val nav = LocalNav.current
     val g = Gh.c
-    val filters = listOf("全部" to "owner,collaborator,organization_member", "我的" to "owner", "协作" to "collaborator", "组织" to "organization_member")
-    val vis = listOf("all" to "全部可见性", "public" to "公开", "private" to "私有")
+    val filters = listOf(tr("全部") to "owner,collaborator,organization_member", tr("我的") to "owner", tr("协作") to "collaborator", tr("组织") to "organization_member")
+    val vis = listOf("all" to tr("全部可见性"), "public" to tr("公开"), "private" to tr("私有"))
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var sort by rememberSaveable { mutableIntStateOf(0) }
     var visibility by rememberSaveable { mutableIntStateOf(0) }
@@ -103,21 +109,20 @@ fun ReposTab() {
     var sheet by rememberSaveable { mutableStateOf(false) }
     // 非默认的排序、可见性、Fork、组织都以可撤销标签展示，一眼能看出当前列表被什么收窄
     val active = buildList {
-        if (sort != 0) add("sort" to "按${SORTS[sort].second}")
-        if (visibility != 0) add("visibility" to "仅${vis[visibility].second}")
-        if (hideForks) add("forks" to "隐藏 Fork")
+        if (sort != 0) add("sort" to trf("按{0}", SORTS[sort].second))
+        if (visibility != 0) add("visibility" to trf("仅{0}", vis[visibility].second))
+        if (hideForks) add("forks" to tr("隐藏 Fork"))
         if (filter == 3 && safeOrg != null) add("org" to safeOrg)
     }
-    Page("仓库", back = false, contentWindowInsets = WindowInsets(0), actions = {
+    Page(tr("仓库"), back = false, contentWindowInsets = WindowInsets(0), actions = {
         OcButton(R.drawable.oc_plus, { nav.push(Screen.CreateRepo) })
         OcButton(R.drawable.oc_shield_lock, { nav.push(Screen.OrgDiagnostics) })
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                GhField(
-                    query, { query = it }, "筛选仓库", Modifier.weight(1f), placeholder = "名称或描述",
-                    leading = { Oc(R.drawable.oc_search, g.fgMuted, 18.dp) },
-                    trailing = if (query.isEmpty()) null else { { OcButton(R.drawable.oc_x, { query = "" }, g.fgMuted, description = "清空筛选关键词") } },
+                CompactSearchField(
+                    query, { query = it }, tr("筛选仓库"), Modifier.weight(1f), hint = tr("名称或描述"),
+                    trailing = if (query.isEmpty()) null else { { FieldAction(R.drawable.oc_x, tr("清空筛选关键词")) { query = "" } } },
                 )
                 Spacer(Modifier.width(8.dp))
                 FilterEntry(active.size) { sheet = true }
@@ -144,8 +149,8 @@ fun ReposTab() {
                         SORTS[sort].first, query.trim(), hideForks, directory.data?.warnings.orEmpty(), Modifier.weight(1f), directory::refresh)
                 }
             } else {
-                PagedList(pager, Modifier.weight(1f), state = state, empty = "没有匹配的仓库", emptyIcon = R.drawable.oc_repo,
-                    emptyAction = if (query.isNotBlank() || hideForks || visibility != 0 || filter != 0) "清除筛选" else "新建仓库",
+                PagedList(pager, Modifier.weight(1f), state = state, empty = tr("没有匹配的仓库"), emptyIcon = R.drawable.oc_repo,
+                    emptyAction = if (query.isNotBlank() || hideForks || visibility != 0 || filter != 0) tr("清除筛选") else tr("新建仓库"),
                     onEmptyAction = {
                         if (query.isNotBlank() || hideForks || visibility != 0 || filter != 0) {
                             query = ""; hideForks = false; visibility = 0; filter = 0
@@ -180,42 +185,26 @@ private fun ReposFilterSheet(
     canReset: Boolean, onReset: () -> Unit, onDismiss: () -> Unit,
 ) {
     val g = Gh.c
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = g.canvas,
-        scrimColor = Color.Black.copy(alpha = 0.4f),
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    FilterSheet(
+        tr("排序与筛选"), tr("选择后立即生效"), tr("关闭筛选"), onDismiss,
+        footer = {
+            GhButton(tr("重置"), Modifier.weight(1f), enabled = canReset) { onReset() }
+            GhButton(tr("完成"), Modifier.weight(1f), primary = true) { onDismiss() }
+        },
     ) {
-        Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("排序与筛选", color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                    Text("选择后立即生效", color = g.fgMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
-                }
-                OcButton(R.drawable.oc_x, onDismiss, description = "关闭筛选")
+        FilterCard(null) {
+            ChoicePicker(tr("排序"), SORTS.map { it.second }, sort, onSort)
+        }
+        FilterCard(null) {
+            ChoicePicker(tr("可见性"), listOf(tr("全部"), tr("公开"), tr("私有")), visibility, onVisibility)
+            ChoicePicker("Fork", listOf(tr("包含 Fork"), tr("隐藏 Fork")), if (hideForks) 1 else 0) { onHideForks(it == 1) }
+        }
+        if (orgs != null) FilterCard(tr("组织")) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (orgsLoading) tr("读取中…") else trf("{0} 个组织", orgs.size), Modifier.weight(1f), color = g.fgMuted, fontSize = 13.sp)
+                OcButton(R.drawable.oc_sync, onRefreshOrgs, g.fgMuted, description = tr("刷新组织列表"))
             }
-            HDivider(Modifier.padding(top = 8.dp))
-            Column(
-                Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-            ) {
-                ChoicePicker("排序", SORTS.map { it.second }, sort, onSort)
-                ChoicePicker("可见性", listOf("全部", "公开", "私有"), visibility, onVisibility)
-                ChoicePicker("Fork", listOf("包含 Fork", "隐藏 Fork"), if (hideForks) 1 else 0) { onHideForks(it == 1) }
-                if (orgs != null) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("组织", Modifier.weight(1f), fontSize = 14.sp, color = g.fg)
-                        Text(if (orgsLoading) "读取中…" else "${orgs.size} 个组织", color = g.fgMuted, fontSize = 12.sp)
-                        OcButton(R.drawable.oc_sync, onRefreshOrgs, g.fgMuted, description = "刷新组织列表")
-                    }
-                    Dropdown(selectedOrg ?: "全部组织", listOf("全部组织") + orgs, { onOrg(orgs.getOrNull(it - 1)) }, active = selectedOrg != null)
-                }
-            }
-            HDivider()
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GhButton("重置", Modifier.weight(1f), enabled = canReset) { onReset() }
-                GhButton("完成", Modifier.weight(1f), primary = true) { onDismiss() }
-            }
+            Dropdown(selectedOrg ?: tr("全部组织"), listOf(tr("全部组织")) + orgs, { onOrg(orgs.getOrNull(it - 1)) }, active = selectedOrg != null)
         }
     }
 }
@@ -239,8 +228,8 @@ private fun OrganizationReposPanel(
         LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
             item {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("${filtered.size} 个组织仓库", Modifier.weight(1f), fontWeight = FontWeight.SemiBold, color = g.fg)
-                    TextLink("权限诊断") { nav.push(Screen.OrgDiagnostics) }
+                    Text(trf("{0} 个组织仓库", filtered.size), Modifier.weight(1f), fontWeight = FontWeight.SemiBold, color = g.fg)
+                    TextLink(tr("权限诊断")) { nav.push(Screen.OrgDiagnostics) }
                 }
             }
             if (warnings.isNotEmpty()) item {
@@ -249,20 +238,20 @@ private fun OrganizationReposPanel(
             if (repos.loading) item { Loading(Modifier.fillMaxWidth().height(80.dp)) }
             repos.error?.let { msg -> item { ErrorState(msg, Modifier.fillMaxWidth()) { repos.refresh() } } }
             if (filtered.isEmpty() && !repos.loading && repos.error == null) item {
-                EmptyState(if (orgs.isEmpty()) "当前授权未返回组织，查看权限诊断或待处理邀请" else "没有匹配仓库；私有仓库需相应权限和 SSO 授权", R.drawable.oc_organization)
+                EmptyState(if (orgs.isEmpty()) tr("当前授权未返回组织，查看权限诊断或待处理邀请") else tr("没有匹配仓库；私有仓库需相应权限和 SSO 授权"), R.drawable.oc_organization)
             }
             filtered.groupBy { it.owner.login }.toSortedMap(String.CASE_INSENSITIVE_ORDER).forEach { (org, group) ->
-                item(key = "group:$org") { SectionTitle(org) { TextLink("组织") { nav.push(Screen.Org(org)) } } }
+                item(key = "group:$org") { SectionTitle(org) { TextLink(tr("组织")) { nav.push(Screen.Org(org)) } } }
                 boxedItems(group, key = { "repo:${it.id}" }) { RepoItem(it, showOwner = false) }
             }
-            item { SectionTitle("组织动态") }
+            item { SectionTitle(tr("组织动态")) }
             item { Chips(EventCat.entries.map { it.label }, EventCat.entries.indexOf(category)) { category = EventCat.entries[it] } }
             val activity = events.data.orEmpty().distinctBy { it.id }.filter { category == EventCat.All || eventCat(it) == category }
             boxedItems(activity, key = { "event:${it.id}" }) { EventItem(it) }
             if (events.loading) item { Loading(Modifier.fillMaxWidth().height(64.dp)) }
             events.error?.let { msg -> item { ErrorState(msg, Modifier.fillMaxWidth()) { events.refresh() } } }
-            if (activity.isEmpty() && !events.loading && events.error == null) item { EmptyState("该分类暂时没有动态", R.drawable.oc_pulse) }
-            item { Text("事件由 GitHub 提供，可能延迟；下拉刷新更新。", Modifier.padding(16.dp), color = g.fgMuted, fontSize = 12.sp) }
+            if (activity.isEmpty() && !events.loading && events.error == null) item { EmptyState(tr("该分类暂时没有动态"), R.drawable.oc_pulse) }
+            item { Text(tr("事件由 GitHub 提供，可能延迟；下拉刷新更新。"), Modifier.padding(16.dp), color = g.fgMuted, fontSize = 12.sp) }
         }
     }
 }
@@ -280,26 +269,26 @@ fun CreateRepoScreen() {
     var readme by rememberSaveable { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
     val owners = listOf(Session.login ?: "") + orgs.data.orEmpty().map { it.login }
-    Page("新建仓库") { pad ->
+    Page(tr("新建仓库")) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
             Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("所有者", color = Gh.c.fgMuted, fontSize = 14.sp)
+                Text(tr("所有者"), color = Gh.c.fgMuted, fontSize = 14.sp)
                 Spacer(Modifier.width(12.dp))
                 Dropdown(owners.getOrElse(owner) { "" }, owners, { owner = it })
             }
             Spacer(Modifier.height(12.dp))
-            GhField(name, { name = it.replace(' ', '-') }, "仓库名称", Modifier.padding(horizontal = 16.dp))
+            GhField(name, { name = it.replace(' ', '-') }, tr("仓库名称"), Modifier.padding(horizontal = 16.dp))
             Spacer(Modifier.height(10.dp))
-            GhField(desc, { desc = it }, "描述（可选）", Modifier.padding(horizontal = 16.dp), singleLine = false, minLines = 2)
+            GhField(desc, { desc = it }, tr("描述（可选）"), Modifier.padding(horizontal = 16.dp), singleLine = false, minLines = 2)
             Spacer(Modifier.height(8.dp))
-            SwitchRow("私有仓库", "只有你和你授权的人可以看到", private) { private = it }
-            SwitchRow("添加 README", "用 README 文件初始化仓库", readme) { readme = it }
+            SwitchRow(tr("私有仓库"), tr("只有你和你授权的人可以看到"), private) { private = it }
+            SwitchRow(tr("添加 README"), tr("用 README 文件初始化仓库"), readme) { readme = it }
             Spacer(Modifier.height(16.dp))
-            GhButton("创建仓库", Modifier.padding(horizontal = 16.dp).fillMaxWidth(), primary = true, enabled = name.isNotBlank() && !busy) {
+            GhButton(tr("创建仓库"), Modifier.padding(horizontal = 16.dp).fillMaxWidth(), primary = true, enabled = name.isNotBlank() && !busy) {
                 busy = true
                 entry.act({ busy = false; ctx.toast(it) }) {
                     val r = GitHub.createRepo(if (owner == 0) null else owners[owner], name.trim(), desc.trim(), private, readme)
-                    ctx.toast("已创建 ${r.fullName}")
+                    ctx.toast(trf("已创建 {0}", r.fullName))
                     nav.replace(Screen.Repo(r.owner.login, r.name))
                 }
             }
@@ -312,22 +301,22 @@ fun OrgsScreen() {
     val nav = LocalNav.current
     val g = Gh.c
     val access = rememberLoader("myorgs") { GitHub.orgAccess(it) }
-    Page("我的组织", actions = { OcButton(R.drawable.oc_shield_lock, { nav.push(Screen.OrgDiagnostics) }) }) { pad ->
+    Page(tr("我的组织"), actions = { OcButton(R.drawable.oc_shield_lock, { nav.push(Screen.OrgDiagnostics) }) }) { pad ->
         com.mobilegh.ui.components.LoadBox(access, Modifier.padding(pad).fillMaxSize()) { data ->
             LazyColumn(Modifier.fillMaxSize()) {
-                item { SectionTitle("${data.orgs.size} 个可访问组织") { TextLink("权限诊断") { nav.push(Screen.OrgDiagnostics) } } }
+                item { SectionTitle(trf("{0} 个可访问组织", data.orgs.size)) { TextLink(tr("权限诊断")) { nav.push(Screen.OrgDiagnostics) } } }
                 if (data.warnings.isNotEmpty()) item {
                     Text(data.warnings.joinToString("\n"), Modifier.padding(16.dp), color = g.attention, fontSize = 13.sp)
                 }
-                if (data.orgs.isEmpty()) item { EmptyState("当前授权没有返回组织。请检查权限、组织策略、SSO 和邀请状态。", R.drawable.oc_organization) }
+                if (data.orgs.isEmpty()) item { EmptyState(tr("当前授权没有返回组织。请检查权限、组织策略、SSO 和邀请状态。"), R.drawable.oc_organization) }
                 boxedItems(data.orgs, key = { it.login }) { o ->
                     UserItem(com.mobilegh.data.User(login = o.login, avatarUrl = o.avatarUrl, type = "Organization", description = o.description))
                 }
                 item {
                     Spacer(Modifier.height(16.dp))
-                    GhButton("重新读取组织", Modifier.padding(horizontal = 16.dp).fillMaxWidth(), icon = R.drawable.oc_sync) { access.refresh() }
+                    GhButton(tr("重新读取组织"), Modifier.padding(horizontal = 16.dp).fillMaxWidth(), icon = R.drawable.oc_sync) { access.refresh() }
                     Spacer(Modifier.height(8.dp))
-                    GhButton("待处理组织邀请", Modifier.padding(horizontal = 16.dp).fillMaxWidth(), icon = R.drawable.oc_mail) { nav.push(Screen.Invitations) }
+                    GhButton(tr("待处理组织邀请"), Modifier.padding(horizontal = 16.dp).fillMaxWidth(), icon = R.drawable.oc_mail) { nav.push(Screen.Invitations) }
                 }
             }
         }
@@ -344,7 +333,7 @@ fun InvitationsScreen() {
     val repoInv = rememberLoader("rinv") { GitHub.repoInvitations(it) }
     val orgInv = rememberLoader("oinv") { runCatching { GitHub.orgInvitations(it) }.getOrDefault(emptyList()) }
     var hidden by remember { mutableStateOf(setOf<String>()) }
-    Page("待处理邀请") { pad ->
+    Page(tr("待处理邀请")) { pad ->
         val list = repoInv.data
         when {
             list == null && repoInv.error != null -> ErrorState(repoInv.error!!, Modifier.padding(pad)) { repoInv.load(true) }
@@ -353,15 +342,15 @@ fun InvitationsScreen() {
                 LazyColumn(Modifier.fillMaxSize()) {
                     val orgs = orgInv.data.orEmpty().filter { "o${it.organization.login}" !in hidden }
                     if (orgs.isNotEmpty()) {
-                        item { SectionTitle("组织邀请") }
+                        item { SectionTitle(tr("组织邀请")) }
                         boxedItems(orgs) { m -> OrgInviteRow(m) {
                             hidden = hidden + "o${m.organization.login}"
-                            entry.act({ ctx.toast(it) }) { GitHub.acceptOrg(m.organization.login); ctx.toast("已加入 ${m.organization.login}") }
+                            entry.act({ ctx.toast(it) }) { GitHub.acceptOrg(m.organization.login); ctx.toast(trf("已加入 {0}", m.organization.login)) }
                         } }
                     }
-                    item { SectionTitle("仓库协作邀请") }
+                    item { SectionTitle(tr("仓库协作邀请")) }
                     val repos = list.filter { "r${it.id}" !in hidden }
-                    if (repos.isEmpty()) item { EmptyState("没有待处理的仓库邀请", R.drawable.oc_mail) }
+                    if (repos.isEmpty()) item { EmptyState(tr("没有待处理的仓库邀请"), R.drawable.oc_mail) }
                     boxedItems(repos, key = { it.id }) { inv ->
                         RepoInviteRow(
                             inv,
@@ -369,7 +358,7 @@ fun InvitationsScreen() {
                                 hidden = hidden + "r${inv.id}"
                                 entry.act({ ctx.toast(it); hidden = hidden - "r${inv.id}" }) {
                                     GitHub.acceptInvitation(inv.id)
-                                    ctx.toast("已接受，现在可以在「仓库 → 协作的」中找到它")
+                                    ctx.toast(tr("已接受，现在可以在「仓库 → 协作的」中找到它"))
                                 }
                             },
                             onDecline = {
@@ -381,7 +370,7 @@ fun InvitationsScreen() {
                     }
                     item {
                         Text(
-                            "提示：接受邀请后，官方 App 的仓库列表仍只显示你创建的仓库，而本应用的「仓库 → 协作的」会显示它们。",
+                            tr("提示：接受邀请后，官方 App 的仓库列表仍只显示你创建的仓库，而本应用的「仓库 → 协作的」会显示它们。"),
                             Modifier.padding(16.dp), fontSize = 12.sp, color = g.fgMuted,
                         )
                     }
@@ -400,15 +389,15 @@ private fun RepoInviteRow(inv: Invitation, onAccept: () -> Unit, onDecline: () -
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(inv.repository.fullName, fontWeight = FontWeight.SemiBold, color = g.accent, fontSize = 15.sp, modifier = Modifier.then(Modifier))
-                Text("${inv.inviter?.login ?: ""} 邀请你以「${permZh(inv.permissions)}」权限协作 · ${relTime(inv.createdAt)}", fontSize = 12.sp, color = g.fgMuted)
+                Text(trf("{0} 邀请你以「{1}」权限协作 · {2}", inv.inviter?.login ?: "", permZh(inv.permissions), relTime(inv.createdAt)), fontSize = 12.sp, color = g.fgMuted)
             }
         }
-        if (inv.expired) Text("邀请已过期", color = g.danger, fontSize = 12.sp)
+        if (inv.expired) Text(tr("邀请已过期"), color = g.danger, fontSize = 12.sp)
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GhButton("接受", primary = true, enabled = !inv.expired, onClick = onAccept)
-            GhButton("拒绝", danger = true, onClick = onDecline)
-            GhButton("查看", onClick = onOpen)
+            GhButton(tr("接受"), primary = true, enabled = !inv.expired, onClick = onAccept)
+            GhButton(tr("拒绝"), danger = true, onClick = onDecline)
+            GhButton(tr("查看"), onClick = onOpen)
         }
     }
 }
@@ -420,17 +409,17 @@ private fun OrgInviteRow(m: OrgMembership, onAccept: () -> Unit) {
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(m.organization.login, fontWeight = FontWeight.SemiBold, color = Gh.c.fg)
-            Text("角色：${if (m.role == "admin") "管理员" else "成员"}", fontSize = 12.sp, color = Gh.c.fgMuted)
+            Text(trf("角色：{0}", if (m.role == "admin") tr("管理员") else tr("成员")), fontSize = 12.sp, color = Gh.c.fgMuted)
         }
-        GhButton("加入", primary = true, onClick = onAccept)
+        GhButton(tr("加入"), primary = true, onClick = onAccept)
     }
 }
 
 fun permZh(p: String) = when (p) {
-    "read", "pull" -> "只读"
-    "triage" -> "分类"
-    "write", "push" -> "写入"
-    "maintain" -> "维护"
-    "admin" -> "管理员"
+    "read", "pull" -> tr("只读")
+    "triage" -> tr("分类")
+    "write", "push" -> tr("写入")
+    "maintain" -> tr("维护")
+    "admin" -> tr("管理员")
     else -> p
 }

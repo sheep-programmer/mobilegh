@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import com.mobilegh.i18n.tr
 
 /** Keep signing and user confirmation in the already registered GitHub Mobile app. */
 object GitHubCompanion {
@@ -28,16 +29,16 @@ object GitHubCompanion {
     /** No request ids, challenge digits, tokens or private Activity extras leave MobileGH. */
     fun open(context: Context): String? {
         val intent = context.packageManager.getLaunchIntentForPackage(PACKAGE)
-            ?: return "未找到可打开的 GitHub Mobile，请先安装并登录官方 App"
+            ?: return tr("未找到可打开的 GitHub Mobile，请先安装并登录官方 App")
         return try {
             // The package manager supplies the app's exported launcher. Don't guess private routes.
             context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            AppLog.info("auth", "已打开 GitHub Mobile；等待用户在官方 App 完成验证")
+            AppLog.info("auth", tr("已打开 GitHub Mobile；等待用户在官方 App 完成验证"))
             null
         } catch (_: ActivityNotFoundException) {
-            "GitHub Mobile 的入口不可用，请更新或重新启用官方 App"
+            tr("GitHub Mobile 的入口不可用，请更新或重新启用官方 App")
         } catch (_: SecurityException) {
-            "系统阻止打开 GitHub Mobile，请检查官方 App 是否已启用"
+            tr("系统阻止打开 GitHub Mobile，请检查官方 App 是否已启用")
         }
     }
 

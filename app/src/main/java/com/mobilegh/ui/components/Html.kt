@@ -27,6 +27,7 @@ import com.mobilegh.nav.Links
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Navigator
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
 
 /**
  * Compose 把宽高打包进同一个 long，要求两者的位数之和不超过 31。所以「安全的最大高度」
@@ -93,7 +94,7 @@ fun HtmlView(
                         // 直接换算成 dp 会触发 Compose Constraints 崩溃。
                         if (v > heightLimit && !warned) {
                             warned = true
-                            AppLog.warn("webview", "HTML 高度异常：" + v + "px，已限制")
+                            AppLog.warn("webview", tr("HTML 高度异常：") + v + tr("px，已限制"))
                         }
                         height = v.coerceIn(24, heightLimit)
                     }
@@ -132,7 +133,7 @@ fun HtmlView(
 class GhWebClient(private val ctx: Context, private val nav: Navigator) : WebViewClient() {
     override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
         // Chromium 的网页渲染进程崩溃时让 App 继续运行；当前卡片留空，用户可以返回或刷新。
-        AppLog.error("webview", "网页渲染进程退出：didCrash=" + detail.didCrash())
+        AppLog.error("webview", tr("网页渲染进程退出：didCrash=") + detail.didCrash())
         runCatching { view.stopLoading(); view.destroy() }
         return true
     }

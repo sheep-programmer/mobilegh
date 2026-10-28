@@ -16,18 +16,21 @@ import java.net.InetSocketAddress
 import java.net.Proxy
 import java.util.IdentityHashMap
 import java.util.concurrent.TimeUnit
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
-enum class ProxyMode(val label: String) { System("跟随系统"), Http("HTTP"), Socks("SOCKS5") }
+enum class ProxyMode(private val labelZh: String) { System("跟随系统"), Http("HTTP"), Socks("SOCKS5");
+    val label: String get() = tr(labelZh) }
 
 data class NetworkProxy(val mode: ProxyMode = ProxyMode.System, val host: String = "127.0.0.1", val port: Int = 7890) {
     fun validated(): NetworkProxy {
         if (mode == ProxyMode.System) return this
         val address = host.trim().removeSurrounding("[", "]")
-        require(address.isNotBlank() && address.none { it.isWhitespace() || it in "/\\@?#" }) { "请输入代理主机名或 IP，不要填写网址、路径或账号" }
-        require(port in 1..65535) { "端口应为 1–65535" }
+        require(address.isNotBlank() && address.none { it.isWhitespace() || it in "/\\@?#" }) { tr("请输入代理主机名或 IP，不要填写网址、路径或账号") }
+        require(port in 1..65535) { tr("端口应为 1–65535") }
         val authority = if (':' in address) "[$address]" else address
         val url = "http://$authority:$port".toHttpUrlOrNull()
-        require(url != null && url.host.isNotBlank()) { "代理地址无效" }
+        require(url != null && url.host.isNotBlank()) { tr("代理地址无效") }
         return copy(host = url.host)
     }
 
@@ -45,7 +48,7 @@ object AppNetwork {
         private set
     private val clients = IdentityHashMap<OkHttpClient, OkHttpClient>()
 
-    val description: String get() = if (config.mode == ProxyMode.System) "跟随系统代理 / VPN" else "${config.mode.label} · ${config.host}:${config.port}"
+    val description: String get() = if (config.mode == ProxyMode.System) tr("跟随系统代理 / VPN") else "${config.mode.label} · ${config.host}:${config.port}"
 
     fun init(context: Context) {
         this.context = context.applicationContext
@@ -67,11 +70,11 @@ object AppNetwork {
     @Synchronized
     private fun persist(valid: NetworkProxy) {
         check(context.getSharedPreferences("network_transport", Context.MODE_PRIVATE).edit()
-            .putString("mode", valid.mode.name).putString("host", valid.host).putInt("port", valid.port).commit()) { "无法保存网络设置" }
+            .putString("mode", valid.mode.name).putString("host", valid.host).putInt("port", valid.port).commit()) { tr("无法保存网络设置") }
         clients.values.forEach { it.connectionPool.evictAll() }
         clients.clear()
         current = valid
-        AppLog.info("network", "传输线路已切换：${valid.mode.label}")
+        AppLog.info("network", trf("传输线路已切换：{0}", valid.mode.label))
     }
 
     @Synchronized
@@ -90,10 +93,10 @@ object AppNetwork {
         val valid = value.validated()
         // 数字审批注册推送设备还需要 Google 的两个接口，一并检查避免「GitHub 全绿却启用失败」
         listOf(
-            "GitHub 登录" to "https://github.com/",
+            tr("GitHub 登录") to "https://github.com/",
             "GitHub API" to "https://api.github.com/",
-            "Google 推送注册" to "https://android.clients.google.com/",
-            "Google 设备凭证" to "https://firebaseinstallations.googleapis.com/",
+            tr("Google 推送注册") to "https://android.clients.google.com/",
+            tr("Google 设备凭证") to "https://firebaseinstallations.googleapis.com/",
         ).map { (label, url) ->
             async(Dispatchers.IO) {
                 val client = OkHttpClient.Builder().proxy(valid.proxy())
@@ -102,12 +105,12 @@ object AppNetwork {
                 try {
                     val request = Request.Builder().url(url).head().header("User-Agent", "MobileGH").build()
                     client.newCall(request).await().use {
-                        Connection(label, true, "已连通（HTTP ${it.code}）")
+                        Connection(label, true, trf("已连通（HTTP {0}）", it.code))
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    Connection(label, false, e.networkHint() ?: "连接失败，请检查代理地址及端口")
+                    Connection(label, false, e.networkHint() ?: tr("连接失败，请检查代理地址及端口"))
                 } finally {
                     client.connectionPool.evictAll()
                     client.dispatcher.executorService.shutdown()

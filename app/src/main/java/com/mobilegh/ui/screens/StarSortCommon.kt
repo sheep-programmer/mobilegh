@@ -30,11 +30,14 @@ import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.GitHubStarList
 import com.mobilegh.data.Session
+import com.mobilegh.ui.components.CompactSearchField
 import com.mobilegh.ui.components.Dropdown
+import com.mobilegh.ui.components.FieldAction
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
 
 /**
  * 排序项：[value] 是 REST/GraphQL 的排序键，[descending] 是选到这一项时的默认方向。
@@ -49,8 +52,8 @@ internal data class SortChoice(val label: String, val value: String = "", val de
  * 所以不能列进菜单。
  */
 internal val STAR_SORTS = listOf(
-    SortChoice("Star 时间", "created", descending = true),
-    SortChoice("更新时间", "updated", descending = true),
+    SortChoice(tr("Star 时间"), "created", descending = true),
+    SortChoice(tr("更新时间"), "updated", descending = true),
 )
 
 internal fun restoredStarSortIndex(index: Int): Int = index.coerceIn(0, STAR_SORTS.lastIndex)
@@ -70,10 +73,10 @@ internal fun restoredStarSortIndex(index: Int): Int = index.coerceIn(0, STAR_SOR
  * 默认「最后更新时间」倒序（新 → 旧）。
  */
 internal val LIST_SORTS = listOf(
-    SortChoice("最后更新时间", descending = true),
-    SortChoice("创建时间", descending = true),
-    SortChoice("名称"),
-    SortChoice("仓库数", descending = true),
+    SortChoice(tr("最后更新时间"), descending = true),
+    SortChoice(tr("创建时间"), descending = true),
+    SortChoice(tr("名称")),
+    SortChoice(tr("仓库数"), descending = true),
 )
 
 /** 默认排在「最后更新时间」（= `lastAddedAt`，最后一次加仓库的时间） */
@@ -95,15 +98,12 @@ internal fun SearchBox(
     modifier: Modifier = Modifier,
 ) {
     val dirty = value.trim() != applied
-    GhField(
-        value, onValueChange, label, modifier, placeholder = placeholder,
-        leading = { Oc(R.drawable.oc_search, Gh.c.fgMuted, 18.dp) },
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+    CompactSearchField(
+        value, onValueChange, label, modifier, hint = placeholder, onSearch = onSearch,
         // 输入框尾部只放一个按钮：有待生效的关键词时是"搜索"，否则是"清空"，不会挤掉输入区
         trailing = when {
-            dirty -> { { OcButton(R.drawable.oc_search, onSearch, Gh.c.accent, description = "应用搜索") } }
-            value.isNotEmpty() -> { { OcButton(R.drawable.oc_x, onClear, Gh.c.fgMuted, description = "清空搜索") } }
+            dirty -> { { FieldAction(R.drawable.oc_search, tr("应用搜索"), Gh.c.accent, onSearch) } }
+            value.isNotEmpty() -> { { FieldAction(R.drawable.oc_x, tr("清空搜索"), Gh.c.fgMuted, onClear) } }
             else -> null
         },
     )
@@ -118,13 +118,13 @@ internal fun DirectionButton(descending: Boolean, enabled: Boolean = true, onCli
             .border(1.dp, g.border, RoundedCornerShape(6.dp))
             .background(g.btnBg, RoundedCornerShape(6.dp))
             .clip(RoundedCornerShape(6.dp))
-            .clickable(enabled = enabled, onClickLabel = if (descending) "改为正序" else "改为倒序", onClick = onClick)
+            .clickable(enabled = enabled, onClickLabel = if (descending) tr("改为正序") else tr("改为倒序"), onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Oc(if (descending) R.drawable.oc_arrow_down else R.drawable.oc_arrow_up, g.fgMuted, 12.dp)
         Spacer(Modifier.width(4.dp))
-        Text(if (descending) "倒序" else "正序", fontSize = 13.sp, color = if (enabled) g.fg else g.fgMuted, fontWeight = FontWeight.Medium, maxLines = 1)
+        Text(if (descending) tr("倒序") else tr("正序"), fontSize = 13.sp, color = if (enabled) g.fg else g.fgMuted, fontWeight = FontWeight.Medium, maxLines = 1)
     }
 }
 

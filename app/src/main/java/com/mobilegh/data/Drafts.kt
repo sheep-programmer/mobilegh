@@ -7,6 +7,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.security.MessageDigest
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 @Serializable
 data class DraftValue(val title: String = "", val body: String = "", val category: String? = null) {
@@ -22,11 +24,11 @@ class DraftStore internal constructor(private val storage: LocalRecordStorage) {
     }
     fun load(login: String, context: String): DraftValue {
         val raw = storage.read(key(login, context)) ?: return DraftValue()
-        require(raw.length <= 300_000) { "草稿超过读取上限" }
+        require(raw.length <= 300_000) { tr("草稿超过读取上限") }
         return json.decodeFromString<DraftValue>(raw)
     }
     fun save(login: String, context: String, value: DraftValue) {
-        require(value.title.length <= 1024 && value.body.length <= 65_536) { "草稿太长，无法保存在本机" }
+        require(value.title.length <= 1024 && value.body.length <= 65_536) { tr("草稿太长，无法保存在本机") }
         if (value.empty) clear(login, context) else storage.write(key(login, context), json.encodeToString(value))
     }
     fun clear(login: String, context: String) = storage.remove(key(login, context))
@@ -50,7 +52,7 @@ class DraftController internal constructor(private val store: DraftStore, privat
     var error by mutableStateOf<String?>(null)
         private set
     val initial: DraftValue = login?.let { owner -> runCatching { store.load(owner, context) }.getOrElse {
-        error = "草稿读取失败，原数据已保留：${it.message}"
+        error = trf("草稿读取失败，原数据已保留：{0}", it.message)
         DraftValue()
     } } ?: DraftValue()
     private var current = initial
@@ -71,7 +73,7 @@ class DraftController internal constructor(private val store: DraftStore, privat
         val owner = login ?: return@synchronized
         if (!dirty) return@synchronized
         runCatching { store.save(owner, context, current) }.onSuccess { dirty = false; error = null }
-            .onFailure { error = "草稿保存失败：${it.message}" }
+            .onFailure { error = trf("草稿保存失败：{0}", it.message) }
     }
     fun flush() = synchronized(lock) {
         job?.cancel()
@@ -81,7 +83,7 @@ class DraftController internal constructor(private val store: DraftStore, privat
         val owner = login ?: return@synchronized
         if (current != value) return@synchronized
         job?.cancel()
-        runCatching { store.clear(owner, context) }.onSuccess { error = null }.onFailure { error = "已提交，但草稿清理失败：${it.message}" }
+        runCatching { store.clear(owner, context) }.onSuccess { error = null }.onFailure { error = trf("已提交，但草稿清理失败：{0}", it.message) }
         current = DraftValue()
         suppressed = value
         dirty = false

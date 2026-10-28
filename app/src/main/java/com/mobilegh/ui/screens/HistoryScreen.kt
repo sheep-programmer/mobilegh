@@ -40,8 +40,10 @@ import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
 import com.mobilegh.ui.components.*
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
-private val searchTypeLabels = listOf("仓库", "用户", "Issue", "PR", "代码")
+private val searchTypeLabels get() = listOf(tr("仓库"), tr("用户"), "Issue", "PR", tr("代码"))
 
 /**
  * 搜索历史列表。
@@ -65,10 +67,10 @@ fun SearchHistorySection(
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("搜索历史", Modifier.padding(vertical = 14.dp), color = Gh.c.fg, fontSize = 14.sp)
+            Text(tr("搜索历史"), Modifier.padding(vertical = 14.dp), color = Gh.c.fg, fontSize = 14.sp)
             // 历史较多时收起态也能一键清空；操作过宽时换行而不挤掉标题
-            if (!collapsed || entries.size > 3) TextButton(onClear) { Text("清空", color = Gh.c.fgMuted) }
-            if (collapsed) TextButton({ nav.push(Screen.SearchHistory) }) { Text("查看全部", color = Gh.c.accent) }
+            if (!collapsed || entries.size > 3) TextButton(onClear) { Text(tr("清空"), color = Gh.c.fgMuted) }
+            if (collapsed) TextButton({ nav.push(Screen.SearchHistory) }) { Text(tr("查看全部"), color = Gh.c.accent) }
         }
         shown.forEach { entry ->
             SearchHistoryRow(entry, onOpen, onRemove)
@@ -79,7 +81,7 @@ fun SearchHistorySection(
                     Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { expanded = true }.padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("展开其余 ${entries.size - 3} 条", color = Gh.c.accent, fontSize = 13.sp)
+                    Text(trf("展开其余 {0} 条", entries.size - 3), color = Gh.c.accent, fontSize = 13.sp)
                     Spacer(Modifier.width(4.dp))
                     Oc(R.drawable.oc_chevron_down, Gh.c.accent, 12.dp)
                 }
@@ -88,7 +90,7 @@ fun SearchHistorySection(
                     Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { expanded = false }.padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("收起", color = Gh.c.fgMuted, fontSize = 13.sp)
+                    Text(tr("收起"), color = Gh.c.fgMuted, fontSize = 13.sp)
                     Spacer(Modifier.width(4.dp))
                     Oc(R.drawable.oc_chevron_down, Gh.c.fgMuted, 12.dp, Modifier.rotate(180f))
                 }
@@ -104,7 +106,7 @@ private fun SearchHistoryRow(entry: SearchHistoryEntry, onOpen: (SearchHistoryEn
         Oc(R.drawable.oc_history, Gh.c.fgMuted)
         Text(entry.query, Modifier.weight(1f).padding(horizontal = 12.dp), color = Gh.c.fg, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(searchTypeLabels.getOrElse(entry.type) { "" }, color = Gh.c.fgMuted, fontSize = 11.sp)
-        IconButton({ onRemove(entry) }, Modifier.semantics { contentDescription = "移除搜索历史：${entry.query}" }) { Oc(R.drawable.oc_x) }
+        IconButton({ onRemove(entry) }, Modifier.semantics { contentDescription = trf("移除搜索历史：{0}", entry.query) }) { Oc(R.drawable.oc_x) }
     }
 }
 
@@ -116,14 +118,14 @@ fun SearchHistoryScreen() {
     var type by rememberSaveable { mutableStateOf(-1) }
     val shown = if (type < 0) all else all.filter { it.type == type }
 
-    Page("搜索历史", actions = { if (all.isNotEmpty()) OcButton(R.drawable.oc_trash, { History.clearSearches() }, description = "清空搜索历史") }) { pad ->
+    Page(tr("搜索历史"), actions = { if (all.isNotEmpty()) OcButton(R.drawable.oc_trash, { History.clearSearches() }, description = tr("清空搜索历史")) }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            Chips(listOf("全部") + searchTypeLabels, type + 1) { type = it - 1 }
+            Chips(listOf(tr("全部")) + searchTypeLabels, type + 1) { type = it - 1 }
             HDivider()
             if (all.isEmpty()) {
-                EmptyState("还没有搜索记录", R.drawable.oc_history)
+                EmptyState(tr("还没有搜索记录"), R.drawable.oc_history)
             } else if (shown.isEmpty()) {
-                EmptyState("这个类型还没有搜索记录", R.drawable.oc_search, action = "查看全部") { type = -1 }
+                EmptyState(tr("这个类型还没有搜索记录"), R.drawable.oc_search, action = tr("查看全部")) { type = -1 }
             } else {
                 LazyColumn {
                     items(shown, key = { "${it.type}:${it.query}" }) { entry ->
@@ -139,7 +141,7 @@ fun SearchHistoryScreen() {
                             }
                             IconButton(
                                 { History.removeSearch(entry) },
-                                Modifier.semantics { contentDescription = "移除搜索历史：${entry.query}" },
+                                Modifier.semantics { contentDescription = trf("移除搜索历史：{0}", entry.query) },
                             ) { Oc(R.drawable.oc_x) }
                         }
                         HDivider()
@@ -157,20 +159,20 @@ fun RecentRepositoriesScreen() {
     var filter by rememberSaveable { mutableStateOf("") }
     val all = History.data().repositories
     val shown = all.filter { it.fullName.contains(filter.trim(), true) }
-    Page("最近浏览", actions = { if (all.isNotEmpty()) OcButton(R.drawable.oc_trash, { History.clearRepositories() }, description = "清空最近浏览") }) { pad ->
+    Page(tr("最近浏览"), actions = { if (all.isNotEmpty()) OcButton(R.drawable.oc_trash, { History.clearRepositories() }, description = tr("清空最近浏览")) }) { pad ->
         Column(Modifier.padding(pad).consumeWindowInsets(pad).imePadding().fillMaxSize()) {
-            GhField(filter, { filter = it }, "搜索最近浏览的仓库", Modifier.padding(12.dp), trailing = {
-                if (filter.isNotEmpty()) OcButton(R.drawable.oc_x, { filter = "" }, description = "清空最近浏览搜索")
+            GhField(filter, { filter = it }, tr("搜索最近浏览的仓库"), Modifier.padding(12.dp), trailing = {
+                if (filter.isNotEmpty()) OcButton(R.drawable.oc_x, { filter = "" }, description = tr("清空最近浏览搜索"))
             })
-            Text("仅保存在本机，按账号区分", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
-            if (all.isEmpty()) EmptyState("还没有浏览过仓库", R.drawable.oc_history)
-            else if (shown.isEmpty()) EmptyState("没有匹配的仓库", R.drawable.oc_search, action = "清除搜索") { filter = "" }
+            Text(tr("仅保存在本机，按账号区分"), Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
+            if (all.isEmpty()) EmptyState(tr("还没有浏览过仓库"), R.drawable.oc_history)
+            else if (shown.isEmpty()) EmptyState(tr("没有匹配的仓库"), R.drawable.oc_search, action = tr("清除搜索")) { filter = "" }
             else LazyColumn {
                 items(shown, key = { it.fullName.lowercase() }) { repo ->
                     Row(Modifier.fillMaxWidth().clickable { nav.push(Screen.Repo(repo.owner, repo.name)) }.padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Oc(R.drawable.oc_repo)
                         Text(repo.fullName, Modifier.weight(1f).padding(12.dp), color = Gh.c.accent, fontSize = 14.sp)
-                        IconButton({ History.removeRepository(repo) }, Modifier.semantics { contentDescription = "移除最近浏览：${repo.fullName}" }) { Oc(R.drawable.oc_x) }
+                        IconButton({ History.removeRepository(repo) }, Modifier.semantics { contentDescription = trf("移除最近浏览：{0}", repo.fullName) }) { Oc(R.drawable.oc_x) }
                     }
                 }
             }

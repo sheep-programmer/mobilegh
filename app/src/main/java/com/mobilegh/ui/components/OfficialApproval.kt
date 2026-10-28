@@ -15,6 +15,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mobilegh.R
 import com.mobilegh.data.GitHubCompanion
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
 
 /** App installation is observable. An approval result is never inferred from coming back. */
 @Composable
@@ -45,16 +46,16 @@ fun OfficialApprovalCard(
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Oc(R.drawable.oc_shield_lock, g.accent, 24.dp)
-                Text("GitHub Mobile 批准", Modifier.weight(1f), color = g.fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                Pill(if (status.launchable) "已安装" else if (status.installed) "无法打开" else "未安装", if (status.launchable) g.success else g.fgMuted)
+                Text(tr("GitHub Mobile 批准"), Modifier.weight(1f), color = g.fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Pill(if (status.launchable) tr("已安装") else if (status.installed) tr("无法打开") else tr("未安装"), if (status.launchable) g.success else g.fgMuted)
             }
             Text(
-                if (waitingForOAuth) "官方 App 需登录同一账号。"
-                else "浏览器提示两位数字时，在同账号的官方 App 中手动批准。",
+                if (waitingForOAuth) tr("官方 App 需登录同一账号。")
+                else tr("浏览器提示两位数字时，在同账号的官方 App 中手动批准。"),
                 color = g.fgMuted, fontSize = 13.sp,
             )
             GhButton(
-                if (status.launchable) "打开 GitHub Mobile" else if (status.installed) "重试打开" else "安装 GitHub Mobile",
+                if (status.launchable) tr("打开 GitHub Mobile") else if (status.installed) tr("重试打开") else tr("安装 GitHub Mobile"),
                 Modifier.fillMaxWidth(), icon = R.drawable.oc_link_external,
             ) {
                 status = GitHubCompanion.availability(ctx)
@@ -68,13 +69,13 @@ fun OfficialApprovalCard(
                 }
             }
             if (waitingForOAuth) {
-                Text("手动批准后，回到浏览器完成授权。", color = g.fgMuted, fontSize = 12.sp)
+                Text(tr("手动批准后，回到浏览器完成授权。"), color = g.fgMuted, fontSize = 12.sp)
                 if (opened && onContinueInBrowser != null) {
-                    GhButton("继续浏览器授权", Modifier.fillMaxWidth(), icon = R.drawable.oc_link_external) {
+                    GhButton(tr("继续浏览器授权"), Modifier.fillMaxWidth(), icon = R.drawable.oc_link_external) {
                         onContinueInBrowser()
                     }
                 }
-            } else if (opened) Text("手动批准后，回到浏览器继续。", color = g.fgMuted, fontSize = 12.sp)
+            } else if (opened) Text(tr("手动批准后，回到浏览器继续。"), color = g.fgMuted, fontSize = 12.sp)
             error?.let { Text(it, color = g.danger, fontSize = 13.sp) }
         }
     }

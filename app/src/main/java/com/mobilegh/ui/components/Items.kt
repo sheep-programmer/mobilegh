@@ -33,6 +33,9 @@ import com.mobilegh.data.str
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trc
+import com.mobilegh.i18n.trf
 
 @Composable
 fun RepoItem(repo: Repo, showOwner: Boolean = true, extra: String? = null) {
@@ -55,13 +58,13 @@ fun RepoItem(repo: Repo, showOwner: Boolean = true, extra: String? = null) {
             )
             Spacer(Modifier.width(8.dp))
             when {
-                repo.archived -> Pill("归档", g.attention)
-                repo.isPrivate -> Pill("私有")
-                repo.isTemplate -> Pill("模板")
+                repo.archived -> Pill(tr("归档"), g.attention)
+                repo.isPrivate -> VisibilityBadge(true)
+                repo.isTemplate -> Pill(tr("模板"))
             }
         }
         if (repo.fork && repo.parent != null) {
-            Text("Fork 自 ${repo.parent.fullName}", fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(top = 2.dp))
+            Text(trf("Fork 自 {0}", repo.parent.fullName), fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(top = 2.dp))
         }
         if (!repo.description.isNullOrBlank()) {
             Spacer(Modifier.height(4.dp))
@@ -79,7 +82,7 @@ fun RepoItem(repo: Repo, showOwner: Boolean = true, extra: String? = null) {
             IconText(R.drawable.oc_star, fmtCount(repo.stargazersCount))
             if (repo.forksCount > 0) IconText(R.drawable.oc_repo_forked, fmtCount(repo.forksCount))
             if (repo.fork && repo.parent == null) IconText(R.drawable.oc_repo_forked, "Fork")
-            Text(extra ?: ("更新于 " + relTime(repo.pushedAt ?: repo.updatedAt)), fontSize = 12.sp, color = g.fgMuted)
+            Text(extra ?: (tr("更新于 ") + relTime(repo.pushedAt ?: repo.updatedAt)), fontSize = 12.sp, color = g.fgMuted)
         }
     }
 }
@@ -90,9 +93,10 @@ fun UserItem(user: User, subtitle: String? = null) {
     Row(
         Modifier.fillMaxWidth().clickable {
             nav.push(if (user.type == "Organization") Screen.Org(user.login) else Screen.Profile(user.login))
-        }.padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        }.padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top,
     ) {
+        // 多行文字时头像与第一行对齐（GitHub 的用户列表同样顶部对齐）
         Avatar(user.avatarUrl, 40.dp, square = user.type == "Organization")
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
@@ -128,7 +132,7 @@ fun IssueItem(issue: Issue, repoName: String? = null, onClick: () -> Unit) {
             }
             Spacer(Modifier.height(4.dp))
             Text(
-                (if (repoName == null) "#${issue.number} · " else "") + "${issue.user?.login ?: ""} 开启于 ${relTime(issue.createdAt)}",
+                (if (repoName == null) "#${issue.number} · " else "") + trf("{0} 开启于 {1}", issue.user?.login ?: "", relTime(issue.createdAt)),
                 fontSize = 12.sp, color = g.fgMuted,
             )
         }
@@ -156,8 +160,9 @@ fun PullItem(pr: Pull, onClick: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(4.dp))
-            Text("#${pr.number} · ${pr.user?.login ?: ""} 开启于 ${relTime(pr.createdAt)}", fontSize = 12.sp, color = g.fgMuted)
-            Text("${pr.head.label} → ${pr.base.ref}", fontSize = 12.sp, color = g.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(trf("#{0} · {1} 开启于 {2}", pr.number, pr.user?.login ?: "", relTime(pr.createdAt)), fontSize = 12.sp, color = g.fgMuted)
+            if (pr.head.label.isNotBlank() && pr.base.ref.isNotBlank())
+                Text("${pr.head.label} → ${pr.base.ref}", fontSize = 12.sp, color = g.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -198,7 +203,8 @@ fun EventItem(e: Event) {
 }
 
 /** 动态分类（用于按类型筛选信息流） */
-enum class EventCat(val label: String) { All("全部"), Push("提交"), Pr("PR"), Issue("Issue"), Release("发布"), Social("Star/Fork"), Other("其他") }
+enum class EventCat(private val labelZh: String) { All("全部"), Push("提交"), Pr("PR"), Issue("Issue"), Release("发布"), Social("Star/Fork"), Other("其他");
+    val label: String get() = trc(labelZh, "cat") }
 
 fun eventCat(e: Event): EventCat = when (e.type) {
     "PushEvent", "CreateEvent", "DeleteEvent", "GollumEvent", "CommitCommentEvent" -> EventCat.Push
@@ -216,69 +222,69 @@ private fun describeEvent(e: Event, o: String, r: String): EventDesc {
     val p = e.payload
     val repo = Screen.Repo(o, r)
     return when (e.type) {
-        "WatchEvent" -> EventDesc(R.drawable.oc_star, "star 了", null, repo)
-        "ForkEvent" -> EventDesc(R.drawable.oc_repo_forked, "fork 了", p.obj("forkee").str("full_name")?.let { "→ $it" }, repo)
+        "WatchEvent" -> EventDesc(R.drawable.oc_star, tr("star 了"), null, repo)
+        "ForkEvent" -> EventDesc(R.drawable.oc_repo_forked, tr("fork 了"), p.obj("forkee").str("full_name")?.let { "→ $it" }, repo)
         "CreateEvent" -> {
             val t = p.str("ref_type")
-            if (t == "repository") EventDesc(R.drawable.oc_repo, "创建了仓库", p.str("description"), repo)
-            else EventDesc(if (t == "tag") R.drawable.oc_tag else R.drawable.oc_git_branch, "创建了${if (t == "tag") "标签" else "分支"} ${p.str("ref") ?: ""} 于", null, repo)
+            if (t == "repository") EventDesc(R.drawable.oc_repo, tr("创建了仓库"), p.str("description"), repo)
+            else EventDesc(if (t == "tag") R.drawable.oc_tag else R.drawable.oc_git_branch, trf("创建了{0} {1} 于", if (t == "tag") trc("标签", "event") else trc("分支", "event"), p.str("ref") ?: ""), null, repo)
         }
-        "DeleteEvent" -> EventDesc(R.drawable.oc_trash, "删除了${if (p.str("ref_type") == "tag") "标签" else "分支"} ${p.str("ref") ?: ""} 于", null, repo)
+        "DeleteEvent" -> EventDesc(R.drawable.oc_trash, trf("删除了{0} {1} 于", if (p.str("ref_type") == "tag") tr("标签") else tr("分支"), p.str("ref") ?: ""), null, repo)
         "PushEvent" -> {
             val branch = p.str("ref")?.removePrefix("refs/heads/")
             val commits = (p["commits"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { it.str("message")?.lineSequence()?.firstOrNull() }
             val size = p.int("size") ?: commits?.size
             EventDesc(
                 R.drawable.oc_repo_push,
-                "推送${size?.let { " $it 个提交" } ?: ""}到 ${branch ?: ""} @",
+                trf("推送{0}到 {1} @", size?.let { trf(" {0} 个提交", it) } ?: "", branch ?: ""),
                 commits?.take(3)?.joinToString("\n") { "• $it" },
                 Screen.Commits(o, r, branch),
             )
         }
         "IssuesEvent" -> {
             val n = p.obj("issue").int("number") ?: 0
-            EventDesc(R.drawable.oc_issue_opened, "${actionZh(p.str("action"))}了 Issue #$n 于", p.obj("issue").str("title"), Screen.IssueDetail(o, r, n, false))
+            EventDesc(R.drawable.oc_issue_opened, trf("{0}了 Issue #{1} 于", actionZh(p.str("action")), n), p.obj("issue").str("title"), Screen.IssueDetail(o, r, n, false))
         }
         "IssueCommentEvent" -> {
             val issue = p.obj("issue")
             val n = issue.int("number") ?: 0
             val isPr = issue.obj("pull_request") != null
-            EventDesc(R.drawable.oc_comment, "评论了 #$n 于", p.obj("comment").str("body")?.take(200), Screen.IssueDetail(o, r, n, isPr))
+            EventDesc(R.drawable.oc_comment, trf("评论了 #{0} 于", n), p.obj("comment").str("body")?.take(200), Screen.IssueDetail(o, r, n, isPr))
         }
         "PullRequestEvent" -> {
             val pr = p.obj("pull_request")
             val n = p.int("number") ?: pr.int("number") ?: 0
             val merged = pr.str("merged") == "true"
-            val act = if (p.str("action") == "closed" && merged) "合并" else actionZh(p.str("action"))
-            EventDesc(R.drawable.oc_git_pull_request, "${act}了 PR #$n 于", pr.str("title"), Screen.IssueDetail(o, r, n, true))
+            val act = if (p.str("action") == "closed" && merged) tr("合并") else actionZh(p.str("action"))
+            EventDesc(R.drawable.oc_git_pull_request, trf("{0}了 PR #{1} 于", act, n), pr.str("title"), Screen.IssueDetail(o, r, n, true))
         }
         "PullRequestReviewEvent" -> {
             val n = p.obj("pull_request").int("number") ?: 0
-            EventDesc(R.drawable.oc_eye, "审查了 PR #$n 于", p.obj("pull_request").str("title"), Screen.IssueDetail(o, r, n, true))
+            EventDesc(R.drawable.oc_eye, trf("审查了 PR #{0} 于", n), p.obj("pull_request").str("title"), Screen.IssueDetail(o, r, n, true))
         }
         "PullRequestReviewCommentEvent" -> {
             val n = p.obj("pull_request").int("number") ?: 0
-            EventDesc(R.drawable.oc_comment, "评论了 PR #$n 于", p.obj("comment").str("body")?.take(200), Screen.IssueDetail(o, r, n, true))
+            EventDesc(R.drawable.oc_comment, trf("评论了 PR #{0} 于", n), p.obj("comment").str("body")?.take(200), Screen.IssueDetail(o, r, n, true))
         }
-        "ReleaseEvent" -> EventDesc(R.drawable.oc_tag, "发布了 ${p.obj("release").str("tag_name") ?: ""} 于", p.obj("release").str("name"), Screen.Releases(o, r))
-        "PublicEvent" -> EventDesc(R.drawable.oc_globe, "公开了", null, repo)
-        "MemberEvent" -> EventDesc(R.drawable.oc_person, "添加了协作者 ${p.obj("member").str("login") ?: ""} 到", null, repo)
-        "GollumEvent" -> EventDesc(R.drawable.oc_book, "编辑了 Wiki", null, repo)
-        "CommitCommentEvent" -> EventDesc(R.drawable.oc_comment, "评论了提交于", p.obj("comment").str("body")?.take(200), repo)
-        "DiscussionEvent" -> EventDesc(R.drawable.oc_comment_discussion, "发起了讨论于", p.obj("discussion").str("title"), repo)
-        "SponsorshipEvent" -> EventDesc(R.drawable.oc_heart, "赞助了", null, repo)
-        else -> EventDesc(R.drawable.oc_pulse, e.type?.removeSuffix("Event") ?: "动态", null, repo)
+        "ReleaseEvent" -> EventDesc(R.drawable.oc_tag, trf("发布了 {0} 于", p.obj("release").str("tag_name") ?: ""), p.obj("release").str("name"), Screen.Releases(o, r))
+        "PublicEvent" -> EventDesc(R.drawable.oc_globe, tr("公开了"), null, repo)
+        "MemberEvent" -> EventDesc(R.drawable.oc_person, trf("添加了协作者 {0} 到", p.obj("member").str("login") ?: ""), null, repo)
+        "GollumEvent" -> EventDesc(R.drawable.oc_book, tr("编辑了 Wiki"), null, repo)
+        "CommitCommentEvent" -> EventDesc(R.drawable.oc_comment, tr("评论了提交于"), p.obj("comment").str("body")?.take(200), repo)
+        "DiscussionEvent" -> EventDesc(R.drawable.oc_comment_discussion, tr("发起了讨论于"), p.obj("discussion").str("title"), repo)
+        "SponsorshipEvent" -> EventDesc(R.drawable.oc_heart, tr("赞助了"), null, repo)
+        else -> EventDesc(R.drawable.oc_pulse, e.type?.removeSuffix("Event") ?: tr("动态"), null, repo)
     }
 }
 
 private fun actionZh(a: String?) = when (a) {
-    "opened" -> "开启"
-    "closed" -> "关闭"
-    "reopened" -> "重新开启"
-    "edited" -> "编辑"
-    "assigned" -> "指派"
-    "labeled" -> "标记"
-    "synchronize" -> "更新"
-    "review_requested" -> "请求审查"
+    "opened" -> trc("开启", "event")
+    "closed" -> trc("关闭", "event")
+    "reopened" -> tr("重新开启")
+    "edited" -> trc("编辑", "event")
+    "assigned" -> trc("指派", "event")
+    "labeled" -> trc("标记", "event")
+    "synchronize" -> trc("更新", "event")
+    "review_requested" -> trc("请求审查", "event")
     else -> a ?: ""
 }

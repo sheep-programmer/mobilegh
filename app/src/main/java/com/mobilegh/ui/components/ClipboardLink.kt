@@ -26,6 +26,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mobilegh.nav.Links
 import com.mobilegh.nav.Navigator
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** 全局底部快捷打开入口。Android 仅允许获得输入焦点的前台应用读取剪贴板。 */
 @Composable
@@ -72,8 +74,8 @@ fun ClipboardLinkHost(nav: Navigator, modifier: Modifier = Modifier) {
     LaunchedEffect(pending) {
         val link = pending ?: return@LaunchedEffect
         val result = host.showSnackbar(
-            message = "剪贴板有 ${link.label}，可快速打开",
-            actionLabel = "打开",
+            message = trf("剪贴板有 {0}，可快速打开", link.label),
+            actionLabel = tr("打开"),
             withDismissAction = true,
             duration = SnackbarDuration.Long,
         )

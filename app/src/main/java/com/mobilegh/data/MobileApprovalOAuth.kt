@@ -15,6 +15,8 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
 import java.util.concurrent.TimeUnit
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 internal object ApprovalOAuthProtocol {
     const val CLIENT_ID = "3f8b8834a91f0caad392"
@@ -25,17 +27,17 @@ internal object ApprovalOAuthProtocol {
         .encodeToString(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)))
     fun callback(url: String, expectedState: String): String {
         val uri = URI(url)
-        require(uri.scheme == "github" && uri.rawAuthority == "com.github.android" && uri.path == "/oauth" && uri.fragment == null) { "授权回调地址无效" }
+        require(uri.scheme == "github" && uri.rawAuthority == "com.github.android" && uri.path == "/oauth" && uri.fragment == null) { tr("授权回调地址无效") }
         val pairs = uri.rawQuery.orEmpty().split('&').filter { it.isNotEmpty() }.map {
             val split = it.split('=', limit = 2)
             URLDecoder.decode(split[0], "UTF-8") to URLDecoder.decode(split.getOrElse(1) { "" }, "UTF-8")
         }
-        require(pairs.map { it.first }.distinct().size == pairs.size) { "授权回调参数无效" }
+        require(pairs.map { it.first }.distinct().size == pairs.size) { tr("授权回调参数无效") }
         val params = pairs.toMap()
-        require(params["iss"] == null || params["iss"] == "https://github.com/login/oauth") { "授权提供方不匹配" }
-        require(MessageDigest.isEqual(params["state"].orEmpty().toByteArray(), expectedState.toByteArray())) { "授权请求不匹配，请重新开始" }
-        check(params["error"] == null) { "GitHub 授权已取消" }
-        return params["code"]?.takeIf { it.isNotBlank() } ?: error("GitHub 未返回授权码")
+        require(params["iss"] == null || params["iss"] == "https://github.com/login/oauth") { tr("授权提供方不匹配") }
+        require(MessageDigest.isEqual(params["state"].orEmpty().toByteArray(), expectedState.toByteArray())) { tr("授权请求不匹配，请重新开始") }
+        check(params["error"] == null) { tr("GitHub 授权已取消") }
+        return params["code"]?.takeIf { it.isNotBlank() } ?: error(tr("GitHub 未返回授权码"))
     }
 }
 
@@ -65,7 +67,7 @@ object MobileApprovalOAuth {
         .readTimeout(25, TimeUnit.SECONDS).callTimeout(30, TimeUnit.SECONDS).followRedirects(false).build()
 
     fun begin(context: Context, purpose: ApprovalOAuthPurpose = ApprovalOAuthPurpose.ApprovalOnly): String {
-        check(!state.value.busy) { "正在等待 GitHub 授权" }
+        check(!state.value.busy) { tr("正在等待 GitHub 授权") }
         lastCallback = null
         issued = null
         operation++
@@ -75,7 +77,7 @@ object MobileApprovalOAuth {
         val pending = buildJsonObject { put("state", state); put("verifier", verifier)
             put("createdAt", System.currentTimeMillis()); put("login", Session.login.orEmpty()); put("purpose", purpose.name) }
         check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString("pending", Crypto.encrypt(pending.toString())).commit()) { "无法保存授权请求" }
+            .putString("pending", Crypto.encrypt(pending.toString())).commit()) { tr("无法保存授权请求") }
         mutableState.value = ApprovalSetupState(busy = true, waitingForBrowser = true)
         val values = listOf("client_id" to ApprovalOAuthProtocol.CLIENT_ID, "redirect_uri" to ApprovalOAuthProtocol.REDIRECT,
             "scope" to DeviceAuth.SCOPES, "state" to state,
@@ -99,55 +101,55 @@ object MobileApprovalOAuth {
             try {
                 val encrypted = prefs.getString("pending", null)
                 if (encrypted == null) {
-                    mutableState.value = ApprovalSetupState(error = "授权请求已结束，请重新开始")
+                    mutableState.value = ApprovalSetupState(error = tr("授权请求已结束，请重新开始"))
                     return@launch
                 }
                 val pending = Api.plain.parseToJsonElement(Crypto.decrypt(encrypted)).jsonObject
-                check(System.currentTimeMillis() - pending.getValue("createdAt").jsonPrimitive.long in 0..900_000) { "授权请求已过期" }
+                check(System.currentTimeMillis() - pending.getValue("createdAt").jsonPrimitive.long in 0..900_000) { tr("授权请求已过期") }
                 val code = ApprovalOAuthProtocol.callback(url, pending.getValue("state").jsonPrimitive.content)
                 val purpose = pending["purpose"]?.jsonPrimitive?.content?.let { value -> ApprovalOAuthPurpose.entries.firstOrNull { it.name == value } }
                     ?: ApprovalOAuthPurpose.ApprovalOnly
                 val startingLogin = pending.getValue("login").jsonPrimitive.content.takeIf { it.isNotBlank() }
                 val generation = initiatingGeneration ?: Session.generation.also { initiatingGeneration = it }
                 fun checkSession() {
-                    check(operation == authorization && Session.generation == generation && startingLogin.equals(Session.login, true)) { "账号已切换，请重新授权" }
+                    check(operation == authorization && Session.generation == generation && startingLogin.equals(Session.login, true)) { tr("账号已切换，请重新授权") }
                 }
                 checkSession()
                 stage = "token"
-                AppLog.info("2fa_setup", "开始完成 GitHub 授权")
+                AppLog.info("2fa_setup", tr("开始完成 GitHub 授权"))
                 val (token, grantedScopes) = issued?.takeIf { it.first == url }?.let { it.second to it.third }
                     ?: exchange(code, pending.getValue("verifier").jsonPrimitive.content).also { issued = Triple(url, it.first, it.second) }
                 checkSession()
                 val user = MobileApproval.user(token)
                 checkSession()
                 val expectedLogin = if (purpose == ApprovalOAuthPurpose.SignIn) null else startingLogin
-                check(expectedLogin == null || expectedLogin.equals(user.login, true)) { "请授权当前账号 @$expectedLogin" }
+                check(expectedLogin == null || expectedLogin.equals(user.login, true)) { trf("请授权当前账号 @{0}", expectedLogin) }
                 stage = "registration"
-                AppLog.info("2fa_setup", "开始自动注册本机验证设备")
+                AppLog.info("2fa_setup", tr("开始自动注册本机验证设备"))
                 MobileApproval.activate(app, token, expectedLogin, ::checkSession)
                 checkSession()
                 if (purpose != ApprovalOAuthPurpose.ApprovalOnly || Session.token == null) {
                     Session.signIn(token, user, clientId = ApprovalOAuthProtocol.CLIENT_ID, scopes = grantedScopes)
                 }
-                check(prefs.edit().remove("pending").commit()) { "无法更新授权请求" }
+                check(prefs.edit().remove("pending").commit()) { tr("无法更新授权请求") }
                 lastCallback = null
                 issued = null
                 MobileApprovalMonitor.reload(app)
                 MobileApprovalMonitor.ensureStarted(app)
                 mutableState.value = ApprovalSetupState()
-                AppLog.info("2fa_setup", "数字审批已自动启用")
+                AppLog.info("2fa_setup", tr("数字审批已自动启用"))
             } catch (e: CancellationException) { throw e
             } catch (e: Exception) {
                 val raw = e.networkHint() ?: (e as? ApiException)?.takeIf { it.code == -1 }?.message
                 // 注册推送设备阶段连接的是 Google 的服务而非 GitHub，提示要如实反映
-                val hint = if (raw != null && stage == "registration") raw.replace("GitHub", "Google 推送服务") else raw
-                AppLog.warn("2fa_setup", "数字审批自动启用失败：$stage，${e.javaClass.simpleName}")
+                val hint = if (raw != null && stage == "registration") raw.replace("GitHub", tr("Google 推送服务")) else raw
+                AppLog.warn("2fa_setup", trf("数字审批自动启用失败：{0}，{1}", stage, e.javaClass.simpleName))
                 if (hint == null) {
                     prefs.edit().remove("pending").apply()
                     lastCallback = null
                     issued = null
                 }
-                mutableState.value = ApprovalSetupState(error = hint ?: e.message ?: "数字审批启用失败", canRetry = hint != null)
+                mutableState.value = ApprovalSetupState(error = hint ?: e.message ?: tr("数字审批启用失败"), canRetry = hint != null)
             }
         }
     }
@@ -169,16 +171,16 @@ object MobileApprovalOAuth {
         while (true) {
             try {
                 val response = withContext(Dispatchers.IO) { client.routed().newCall(request).await().use {
-                    check(it.isSuccessful) { "无法完成 GitHub 授权 (${it.code})" }
+                    check(it.isSuccessful) { trf("无法完成 GitHub 授权 ({0})", it.code) }
                     Api.plain.parseToJsonElement(it.body.string()).jsonObject
                 } }
                 val token = response["access_token"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-                    ?: error("GitHub 未完成授权，请重新开始")
+                    ?: error(tr("GitHub 未完成授权，请重新开始"))
                 return token to DeviceAuth.parseScopes(response["scope"]?.jsonPrimitive?.content)
             } catch (e: java.io.IOException) {
                 if (attempt == EXCHANGE_ATTEMPTS) throw e
-                AppLog.warn("2fa_setup", "兑换授权码连接失败，第 $attempt 次：${e.javaClass.simpleName}")
-                mutableState.value = ApprovalSetupState(busy = true, notice = "连接 GitHub 较慢，正在重试（${attempt + 1}/$EXCHANGE_ATTEMPTS）")
+                AppLog.warn("2fa_setup", trf("兑换授权码连接失败，第 {0} 次：{1}", attempt, e.javaClass.simpleName))
+                mutableState.value = ApprovalSetupState(busy = true, notice = trf("连接 GitHub 较慢，正在重试（{0}/{1}）", attempt + 1, EXCHANGE_ATTEMPTS))
                 delay(2_000L * attempt++)
             }
         }

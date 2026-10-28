@@ -20,6 +20,7 @@ import com.mobilegh.ui.components.*
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import com.mobilegh.i18n.tr
 
 @Composable
 fun SubscriptionDialog(owner: String, name: String, onDismiss: () -> Unit, onSaved: (SubscriptionMode) -> Unit) {
@@ -30,15 +31,15 @@ fun SubscriptionDialog(owner: String, name: String, onDismiss: () -> Unit, onSav
     var selected by remember { mutableStateOf<SubscriptionMode?>(null) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    GhDialog("仓库订阅", { if (!saving) onDismiss() }, confirm = if (saving) "保存中…" else "保存",
+    GhDialog(tr("仓库订阅"), { if (!saving) onDismiss() }, confirm = if (saving) tr("保存中…") else tr("保存"),
         confirmEnabled = state.data != null && !saving, onConfirm = {
             val target = selected ?: state.data ?: return@GhDialog
             saving = true
             scope.launch {
                 try {
-                    check(Session.login == account.first && Session.generation == account.second && Session.token != null) { "账号已切换，请重新打开订阅设置" }
+                    check(Session.login == account.first && Session.generation == account.second && Session.token != null) { tr("账号已切换，请重新打开订阅设置") }
                     SubscriptionSettings.set(owner, name, target)
-                    check(Session.login == account.first && Session.generation == account.second) { "账号已切换，旧账号的订阅结果不再更新当前页面" }
+                    check(Session.login == account.first && Session.generation == account.second) { tr("账号已切换，旧账号的订阅结果不再更新当前页面") }
                     onSaved(target)
                     onDismiss()
                 } catch (e: CancellationException) { throw e }
@@ -48,7 +49,7 @@ fun SubscriptionDialog(owner: String, name: String, onDismiss: () -> Unit, onSav
         }) {
         Column {
             if (state.loading && state.data == null) Loading(Modifier.fillMaxWidth().height(96.dp))
-            state.error?.let { Text(it, color = Gh.c.danger); TextLink("重试") { state.load(true) } }
+            state.error?.let { Text(it, color = Gh.c.danger); TextLink(tr("重试")) { state.load(true) } }
             if (state.data != null) SubscriptionMode.entries.forEach { mode ->
                 RadioRow((selected ?: state.data) == mode, mode.title, mode.description, enabled = !saving) { selected = mode }
             }
@@ -65,7 +66,7 @@ private val ProfileFieldsSaver = listSaver<ProfileFields, String>(
 fun EditProfileScreen() {
     val nav = LocalNav.current
     val user = rememberLoader("profile-edit") { GitHub.viewer(true) }
-    Page("编辑个人资料") { pad ->
+    Page(tr("编辑个人资料")) { pad ->
         LoadBox(user, Modifier.padding(pad).fillMaxSize()) { original ->
             var fields by rememberSaveable(original.login, stateSaver = ProfileFieldsSaver) { mutableStateOf(ProfileFields.from(original)) }
             var saving by remember { mutableStateOf(false) }
@@ -89,15 +90,15 @@ fun EditProfileScreen() {
 fun ProfileEditorForm(fields: ProfileFields, onChange: (ProfileFields) -> Unit, saving: Boolean, error: String?, onSave: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         fun change(next: ProfileFields) { if (!saving) onChange(next) }
-        GhField(fields.name, { change(fields.copy(name = it)) }, "显示名称")
-        GhField(fields.bio, { change(fields.copy(bio = it)) }, "个人简介（最多 160 字符）", singleLine = false, minLines = 3)
-        GhField(fields.company, { change(fields.copy(company = it)) }, "公司 / 组织")
-        GhField(fields.location, { change(fields.copy(location = it)) }, "所在地")
-        GhField(fields.website, { change(fields.copy(website = it)) }, "网站")
-        GhField(fields.twitter, { change(fields.copy(twitter = it)) }, "Twitter 用户名")
-        GhField(fields.email, { change(fields.copy(email = it)) }, "公开邮箱")
-        SwitchRow("接受工作机会", checked = fields.hireable, enabled = !saving) { change(fields.copy(hireable = it)) }
+        GhField(fields.name, { change(fields.copy(name = it)) }, tr("显示名称"))
+        GhField(fields.bio, { change(fields.copy(bio = it)) }, tr("个人简介（最多 160 字符）"), singleLine = false, minLines = 3)
+        GhField(fields.company, { change(fields.copy(company = it)) }, tr("公司 / 组织"))
+        GhField(fields.location, { change(fields.copy(location = it)) }, tr("所在地"))
+        GhField(fields.website, { change(fields.copy(website = it)) }, tr("网站"))
+        GhField(fields.twitter, { change(fields.copy(twitter = it)) }, tr("Twitter 用户名"))
+        GhField(fields.email, { change(fields.copy(email = it)) }, tr("公开邮箱"))
+        SwitchRow(tr("接受工作机会"), checked = fields.hireable, enabled = !saving) { change(fields.copy(hireable = it)) }
         error?.let { Text(it, color = Gh.c.danger, fontSize = 13.sp) }
-        GhButton(if (saving) "保存中…" else "保存资料", Modifier.fillMaxWidth(), primary = true, enabled = !saving, onClick = onSave)
+        GhButton(if (saving) tr("保存中…") else tr("保存资料"), Modifier.fillMaxWidth(), primary = true, enabled = !saving, onClick = onSave)
     }
 }

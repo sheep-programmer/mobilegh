@@ -48,6 +48,8 @@ import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.fmtCount
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** 首页顶部的个人信息条，点击进入「我的」 */
 @Composable
@@ -62,7 +64,7 @@ fun HomeProfile(login: String, user: User?, avatar: String?, onClick: () -> Unit
         Column(Modifier.weight(1f)) {
             Text(user?.name?.takeIf { it.isNotBlank() } ?: login, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
-                if (user == null) "@$login" else "@$login · ${fmtCount(user.publicRepos + (user.ownedPrivateRepos ?: 0))} 仓库 · ${fmtCount(user.followers)} 关注者",
+                if (user == null) "@$login" else trf("@{0} · {1} 仓库 · {2} 关注者", login, fmtCount(user.publicRepos + (user.ownedPrivateRepos ?: 0)), fmtCount(user.followers)),
                 fontSize = 13.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
@@ -83,12 +85,12 @@ fun homeShortcuts(
     return listOf(
         HomeShortcut(R.drawable.oc_issue_opened, "Issues", g.success, onIssues, BuiltinShortcut.Issues.id),
         HomeShortcut(R.drawable.oc_git_pull_request, "PR", g.accent, onPulls, BuiltinShortcut.Pulls.id),
-        HomeShortcut(R.drawable.oc_repo, "仓库", g.fgMuted, onRepos, BuiltinShortcut.Repos.id),
-        HomeShortcut(R.drawable.oc_organization, "组织", g.severe, onOrgs, BuiltinShortcut.Orgs.id),
-        HomeShortcut(R.drawable.oc_star_fill, "已 Star", g.attention, onStars, BuiltinShortcut.Stars.id),
-        HomeShortcut(R.drawable.oc_checklist, "列表", g.done, onLists, BuiltinShortcut.Lists.id),
+        HomeShortcut(R.drawable.oc_repo, tr("仓库"), g.fgMuted, onRepos, BuiltinShortcut.Repos.id),
+        HomeShortcut(R.drawable.oc_organization, tr("组织"), g.severe, onOrgs, BuiltinShortcut.Orgs.id),
+        HomeShortcut(R.drawable.oc_star_fill, tr("已 Star"), g.attention, onStars, BuiltinShortcut.Stars.id),
+        HomeShortcut(R.drawable.oc_checklist, tr("列表"), g.done, onLists, BuiltinShortcut.Lists.id),
         HomeShortcut(R.drawable.oc_code_square, "Gists", g.sponsors, onGists, BuiltinShortcut.Gists.id),
-        HomeShortcut(R.drawable.oc_history, "最近浏览", g.accent, onRecent, BuiltinShortcut.Recent.id),
+        HomeShortcut(R.drawable.oc_history, tr("最近浏览"), g.accent, onRecent, BuiltinShortcut.Recent.id),
     )
 }
 
@@ -114,7 +116,7 @@ fun HomeFavoriteRow(repo: FavoriteRepo, canUp: Boolean, canDown: Boolean, onOpen
     var menu by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth()
-            .combinedClickable(onClickLabel = "打开仓库", onLongClickLabel = "调整收藏", onLongClick = { menu = true }, onClick = onOpen)
+            .combinedClickable(onClickLabel = tr("打开仓库"), onLongClickLabel = tr("调整收藏"), onLongClick = { menu = true }, onClick = onOpen)
             .padding(horizontal = 16.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -130,9 +132,9 @@ fun HomeFavoriteRow(repo: FavoriteRepo, canUp: Boolean, canDown: Boolean, onOpen
         Spacer(Modifier.width(6.dp))
         Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
         DropdownMenu(menu, { menu = false }, containerColor = g.canvas) {
-            if (canUp) DropdownMenuItem(text = { Text("上移", color = g.fg) }, onClick = { menu = false; onMove(-1) })
-            if (canDown) DropdownMenuItem(text = { Text("下移", color = g.fg) }, onClick = { menu = false; onMove(1) })
-            DropdownMenuItem(text = { Text("移出首页收藏", color = g.danger) }, onClick = { menu = false; onRemove() })
+            if (canUp) DropdownMenuItem(text = { Text(tr("上移"), color = g.fg) }, onClick = { menu = false; onMove(-1) })
+            if (canDown) DropdownMenuItem(text = { Text(tr("下移"), color = g.fg) }, onClick = { menu = false; onMove(1) })
+            DropdownMenuItem(text = { Text(tr("移出首页收藏"), color = g.danger) }, onClick = { menu = false; onRemove() })
         }
     }
 }
@@ -147,7 +149,7 @@ fun HomeShortcuts(items: List<HomeShortcut>) {
                     Column(
                         Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
                             .clickable(role = Role.Button, onClick = s.onClick)
-                            .semantics { contentDescription = "打开${s.label}" }
+                            .semantics { contentDescription = trf("打开{0}", s.label) }
                             .padding(vertical = 10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -175,7 +177,7 @@ fun HomeInviteBanner(count: Int, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Oc(R.drawable.oc_mail, g.attention, 16.dp)
-        Text("你有 $count 个待处理邀请", Modifier.weight(1f).padding(horizontal = 10.dp), fontSize = 14.sp, color = g.fg)
+        Text(trf("你有 {0} 个待处理邀请", count), Modifier.weight(1f).padding(horizontal = 10.dp), fontSize = 14.sp, color = g.fg)
         Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
     }
 }
@@ -186,23 +188,24 @@ fun HomeLists(shown: List<GitHubStarList>?, total: Int, error: String?, onList: 
     val g = Gh.c
     when {
         shown == null && error != null -> Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("列表暂时无法读取", Modifier.weight(1f), fontSize = 13.sp, color = g.fgMuted)
-            TextLink("重试", onClick = onRetry)
+            Text(tr("列表暂时无法读取"), Modifier.weight(1f), fontSize = 13.sp, color = g.fgMuted)
+            TextLink(tr("重试"), onClick = onRetry)
         }
-        shown == null -> Row(Modifier.horizontalScroll(rememberScrollState(), enabled = false).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        shown == null -> Row(Modifier.horizontalScroll(rememberScrollState(), enabled = false).padding(start = 16.dp, end = 16.dp, top = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             repeat(3) { Box(Modifier.size(148.dp, 80.dp).background(g.canvasSubtle, RoundedCornerShape(8.dp))) }
         }
-        else -> Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        // 与上面的搜索栏、排序按钮之间留出间距，卡片不再贴着按钮
+        else -> Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 12.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (shown.isEmpty() && total > 0) ListTile(
-                R.drawable.oc_search, "没有匹配的列表", "换个关键词试试", "没有匹配的列表",
+                R.drawable.oc_search, tr("没有匹配的列表"), tr("换个关键词试试"), tr("没有匹配的列表"),
             ) { onAll() }
             shown.forEach { list ->
                 ListTile(
-                    if (list.isPrivate) R.drawable.oc_lock else R.drawable.oc_checklist, list.name, "${list.count} 个仓库",
-                    "打开列表 ${list.name}",
+                    if (list.isPrivate) R.drawable.oc_lock else R.drawable.oc_checklist, list.name, trf("{0} 个仓库", list.count),
+                    trf("打开列表 {0}", list.name),
                 ) { onList(list) }
             }
-            ListTile(R.drawable.oc_plus, if (total == 0) "新建列表" else "管理列表", if (total == 0) "整理喜欢的仓库" else "$total 个列表", "打开收藏列表", muted = true, onClick = onAll)
+            ListTile(R.drawable.oc_plus, if (total == 0) tr("新建列表") else tr("管理列表"), if (total == 0) tr("整理喜欢的仓库") else trf("{0} 个列表", total), tr("打开收藏列表"), muted = true, onClick = onAll)
         }
     }
 }
@@ -231,26 +234,26 @@ fun HomeAchievementsRow(badges: List<Achievement>?, error: String?, onOpen: () -
     val g = Gh.c
     Row(
         Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onOpen)
-            .semantics(mergeDescendants = true) { contentDescription = "打开我的成就" }
+            .semantics(mergeDescendants = true) { contentDescription = tr("打开我的成就") }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Oc(R.drawable.oc_verified, g.done, 16.dp)
         Spacer(Modifier.width(8.dp))
-        Text("成就", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+        Text(tr("成就"), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
         Spacer(Modifier.width(10.dp))
         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
             when {
                 !badges.isNullOrEmpty() -> badges.take(5).forEach { b ->
                     NetImage(b.imageUrl, Modifier.size(26.dp), contentScale = ContentScale.Fit, placeholder = false)
                 }
-                badges != null -> Text("暂无公开徽章", fontSize = 13.sp, color = g.fgMuted)
-                error != null -> Text("暂时无法读取", fontSize = 13.sp, color = g.fgMuted)
+                badges != null -> Text(tr("暂无公开徽章"), fontSize = 13.sp, color = g.fgMuted)
+                error != null -> Text(tr("暂时无法读取"), fontSize = 13.sp, color = g.fgMuted)
             }
         }
         when {
-            !badges.isNullOrEmpty() -> Text("${badges.size} 个徽章", fontSize = 13.sp, color = g.fgMuted)
-            badges == null && error != null -> TextLink("重试", onClick = onRetry)
+            !badges.isNullOrEmpty() -> Text(trf("{0} 个徽章", badges.size), fontSize = 13.sp, color = g.fgMuted)
+            badges == null && error != null -> TextLink(tr("重试"), onClick = onRetry)
         }
         Spacer(Modifier.width(4.dp))
         Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)

@@ -30,6 +30,8 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicInteger
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** Public GitHub GraphQL UserList API, not GitHub's private web endpoints. */
 data class GitHubStarList(
@@ -118,7 +120,7 @@ class UserListsClient internal constructor(
     private fun checkAccount(account: StarListAccount) {
         val active = activeAccount()
         check(active != null && active.generation == account.generation && active.login.equals(account.login, true)) {
-            "账号已切换或退出，请重新打开 GitHub 列表"
+            tr("账号已切换或退出，请重新打开 GitHub 列表")
         }
     }
 
@@ -129,12 +131,12 @@ class UserListsClient internal constructor(
         currentCoroutineContext().ensureActive()
         checkAccount(account)
         // viewer is a Query field. Mutations validate the owner in their own payload below.
-        if (query.startsWith("query ")) require(data.requiredObject("viewer").requiredString("login").equals(account.login, true)) { "GitHub 列表返回了其他账号的数据" }
+        if (query.startsWith("query ")) require(data.requiredObject("viewer").requiredString("login").equals(account.login, true)) { tr("GitHub 列表返回了其他账号的数据") }
         return data
     }
 
     suspend fun lists(account: StarListAccount, login: String, cursor: String? = null): UserListPage<GitHubStarList> {
-        require(LOGIN.matches(login)) { "无效的 GitHub 用户名" }
+        require(LOGIN.matches(login)) { tr("无效的 GitHub 用户名") }
         val query = "query MobileGHLists(\$login:String!,\$after:String) { viewer { login } user(login:\$login) { lists(first:$PAGE_SIZE,after:\$after) { $PAGE_FIELDS nodes { $LIST_FIELDS } } } }"
         val data = call(account, query, buildJsonObject { put("login", login); putCursor(cursor) })
         return listPage(data.requiredObject("user").requiredObject("lists"), login)
@@ -147,12 +149,12 @@ class UserListsClient internal constructor(
         do {
             val page = lists(account, login, cursor)
             // 读的时候按翻页上限卡，不按新建上限卡：账号里真有几个超额的列表也要能显示出来
-            require(page.totalCount <= PAGE_SIZE) { "GitHub 列表超过 $PAGE_SIZE 个读取上限，请在网页中查看" }
+            require(page.totalCount <= PAGE_SIZE) { trf("GitHub 列表超过 {0} 个读取上限，请在网页中查看", PAGE_SIZE) }
             result += page.items
-            require(result.size <= PAGE_SIZE && result.map { it.id }.distinct().size == result.size) { "GitHub 列表分页重复或超过上限，请刷新" }
+            require(result.size <= PAGE_SIZE && result.map { it.id }.distinct().size == result.size) { tr("GitHub 列表分页重复或超过上限，请刷新") }
             cursor = page.nextCursor
-            if (cursor != null) require(seen.add(cursor)) { "GitHub 列表分页游标重复，请刷新" }
-            else require(result.size == page.totalCount) { "GitHub 列表读取不完整，请刷新" }
+            if (cursor != null) require(seen.add(cursor)) { tr("GitHub 列表分页游标重复，请刷新") }
+            else require(result.size == page.totalCount) { tr("GitHub 列表读取不完整，请刷新") }
         } while (cursor != null)
         return result
     }
@@ -176,7 +178,7 @@ class UserListsClient internal constructor(
         val query = "query MobileGHListItems(\$id:ID!,\$cursor:String) { viewer { login } node(id:\$id) { ... on UserList { id user { login } items($args) { $PAGE_FIELDS nodes { ... on Repository { $REPO_FIELDS } } } } } }"
         val data = call(account, query, buildJsonObject { put("id", list.id); put("cursor", cursor?.let(::JsonPrimitive) ?: JsonNull) })
         val node = data.requiredObject("node")
-        require(node.requiredString("id") == list.id && node.requiredObject("user").requiredString("login").equals(list.owner, true)) { "GitHub 列表已变化，请刷新" }
+        require(node.requiredString("id") == list.id && node.requiredObject("user").requiredString("login").equals(list.owner, true)) { tr("GitHub 列表已变化，请刷新") }
         val result = page(node.requiredObject("items"), fromEnd = descending) { value ->
             val fullName = value.requiredString("nameWithOwner")
             val owner = value.requiredObject("owner")
@@ -205,16 +207,16 @@ class UserListsClient internal constructor(
     }
 
     suspend fun update(account: StarListAccount, list: GitHubStarList, name: String, description: String, isPrivate: Boolean): GitHubStarList = mutationLock.withLock {
-        require(list.owner.equals(account.login, true)) { "只能管理本人 GitHub 列表" }
+        require(list.owner.equals(account.login, true)) { tr("只能管理本人 GitHub 列表") }
         val input = JsonObject(metadata(name, description, isPrivate) + ("listId" to JsonPrimitive(list.id)))
         val data = call(account, "mutation MobileGHUpdateList(\$input:UpdateUserListInput!) { updateUserList(input:\$input) { list { $LIST_FIELDS } } }", buildJsonObject { put("input", input) })
-        parseList(data.requiredObject("updateUserList").requiredObject("list"), account.login).also { require(it.id == list.id) { "GitHub 返回了其他列表" } }
+        parseList(data.requiredObject("updateUserList").requiredObject("list"), account.login).also { require(it.id == list.id) { tr("GitHub 返回了其他列表") } }
     }
 
     suspend fun delete(account: StarListAccount, list: GitHubStarList) = mutationLock.withLock {
-        require(list.owner.equals(account.login, true)) { "只能管理本人 GitHub 列表" }
+        require(list.owner.equals(account.login, true)) { tr("只能管理本人 GitHub 列表") }
         val data = call(account, "mutation MobileGHDeleteList(\$input:DeleteUserListInput!) { deleteUserList(input:\$input) { user { login } } }", buildJsonObject { put("input", buildJsonObject { put("listId", list.id) }) })
-        require(data.requiredObject("deleteUserList").requiredObject("user").requiredString("login").equals(account.login, true)) { "GitHub 未确认列表删除，请刷新后查看" }
+        require(data.requiredObject("deleteUserList").requiredObject("user").requiredString("login").equals(account.login, true)) { tr("GitHub 未确认列表删除，请刷新后查看") }
     }
 
     /**
@@ -225,7 +227,7 @@ class UserListsClient internal constructor(
      * 退回 [scanMemberships] 逐个列表读条目——慢一些，结果一样。
      */
     suspend fun memberships(account: StarListAccount, owner: String, name: String): RepositoryListMemberships {
-        require(LOGIN.matches(owner) && NAME.matches(name) && name !in setOf(".", "..")) { "无效的仓库信息" }
+        require(LOGIN.matches(owner) && NAME.matches(name) && name !in setOf(".", "..")) { tr("无效的仓库信息") }
         return try {
             repositoryLists(account, owner, name)
         } catch (cancel: CancellationException) {
@@ -249,9 +251,9 @@ class UserListsClient internal constructor(
         val data = call(account, REPOSITORY_LISTS, buildJsonObject { put("owner", owner); put("name", name) })
         val repository = data.requiredObject("repository")
         val lists = repository.requiredObject("lists").requiredArray("nodes")
-            .map { parseList(it as? JsonObject ?: error("GitHub 列表归属节点不完整；分类未更改"), account.login) }
-        require(lists.map { it.id }.distinct().size == lists.size) { "GitHub 列表重复，请刷新" }
-        require(lists.size <= PAGE_SIZE) { "GitHub 列表读取超过 $PAGE_SIZE 个上限，请刷新" }
+            .map { parseList(it as? JsonObject ?: error(tr("GitHub 列表归属节点不完整；分类未更改")), account.login) }
+        require(lists.map { it.id }.distinct().size == lists.size) { tr("GitHub 列表重复，请刷新") }
+        require(lists.size <= PAGE_SIZE) { trf("GitHub 列表读取超过 {0} 个上限，请刷新", PAGE_SIZE) }
         return RepositoryListMemberships(
             repository.requiredString("id"),
             repository.requiredBoolean("viewerHasStarred"),
@@ -317,16 +319,16 @@ class UserListsClient internal constructor(
         val pending = LinkedHashMap<String, Pagination>()
         batch.forEachIndexed { index, list ->
             val node = data.requiredObject("l$index")
-            require(node.requiredString("id") == list.id) { "GitHub 列表已变化；未更改任何分类" }
-            require(node.requiredObject("user").requiredString("login").equals(account.login, true)) { "GitHub 列表已变化；未更改任何分类" }
+            require(node.requiredString("id") == list.id) { tr("GitHub 列表已变化；未更改任何分类") }
+            require(node.requiredObject("user").requiredString("login").equals(account.login, true)) { tr("GitHub 列表已变化；未更改任何分类") }
             val itemPage = page(node.requiredObject("items")) { it.requiredString("id") }
-            require(itemPage.items.toSet().size == itemPage.items.size) { "GitHub 仓库分页重复；未更改任何分类" }
+            require(itemPage.items.toSet().size == itemPage.items.size) { tr("GitHub 仓库分页重复；未更改任何分类") }
             require(itemPage.totalCount <= MAX_LIST_ITEMS && records.addAndGet(itemPage.items.size) <= MAX_SCAN_ITEMS) { incompleteMessage() }
             val next = itemPage.nextCursor
             when {
                 repositoryId in itemPage.items -> memberships += list.id
                 next != null -> pending[list.id] = Pagination(itemPage.totalCount, next, itemPage.items.size, itemPage.items.toSet())
-                else -> require(itemPage.items.size == itemPage.totalCount) { "GitHub 列表仓库读取不完整；未更改任何分类" }
+                else -> require(itemPage.items.size == itemPage.totalCount) { tr("GitHub 列表仓库读取不完整；未更改任何分类") }
             }
         }
         return BatchScan(memberships, pending)
@@ -347,20 +349,20 @@ class UserListsClient internal constructor(
         val cursors = HashSet<String>()
         while (true) {
             require(pages.incrementAndGet() <= MAX_SCAN_PAGES) { incompleteMessage() }
-            require(cursors.add(after)) { "GitHub 仓库分页重复；未更改任何分类" }
+            require(cursors.add(after)) { tr("GitHub 仓库分页重复；未更改任何分类") }
             val data = call(account, LIST_CONTAINS_REPOSITORY, buildJsonObject { put("id", list.id); putCursor(after) })
             val node = data.requiredObject("node")
-            require(node.requiredString("id") == list.id) { "GitHub 列表已变化；未更改任何分类" }
-            require(node.requiredObject("user").requiredString("login").equals(account.login, true)) { "GitHub 列表已变化；未更改任何分类" }
+            require(node.requiredString("id") == list.id) { tr("GitHub 列表已变化；未更改任何分类") }
+            require(node.requiredObject("user").requiredString("login").equals(account.login, true)) { tr("GitHub 列表已变化；未更改任何分类") }
             val itemPage = page(node.requiredObject("items")) { it.requiredString("id") }
-            require(itemPage.totalCount == start.total) { "GitHub 列表已变化；未更改任何分类，请刷新" }
+            require(itemPage.totalCount == start.total) { tr("GitHub 列表已变化；未更改任何分类，请刷新") }
             require(itemPage.totalCount <= MAX_LIST_ITEMS && records.addAndGet(itemPage.items.size) <= MAX_SCAN_ITEMS) { incompleteMessage() }
-            itemPage.items.forEach { itemId -> require(seen.add(itemId)) { "GitHub 仓库分页重复；未更改任何分类" } }
+            itemPage.items.forEach { itemId -> require(seen.add(itemId)) { tr("GitHub 仓库分页重复；未更改任何分类") } }
             if (repositoryId in itemPage.items) return true
             read += itemPage.items.size
             after = itemPage.nextCursor ?: break
         }
-        require(start.read + read == start.total) { "GitHub 列表仓库读取不完整；未更改任何分类" }
+        require(start.read + read == start.total) { tr("GitHub 列表仓库读取不完整；未更改任何分类") }
         return false
     }
 
@@ -378,7 +380,7 @@ class UserListsClient internal constructor(
         val removed = original - selected
         if (added.isEmpty() && removed.isEmpty()) return@withLock selected
         val latest = memberships(account, owner, name)
-        require(added.isEmpty() || latest.starred || allowUnstarred) { "请先 Star 此仓库，再加入 GitHub 列表" }
+        require(added.isEmpty() || latest.starred || allowUnstarred) { tr("请先 Star 此仓库，再加入 GitHub 列表") }
         // 要新增的列表必须在自己的列表目录里；只做移除时用当前归属就够了
         val available = if (added.isEmpty()) latest.lists.map { it.id }.toSet() else allLists(account, account.login).map { it.id }.toSet()
         val ids = replacementMemberships(available, latest.memberships, added, removed)
@@ -398,12 +400,12 @@ class UserListsClient internal constructor(
     suspend fun saveRepositoryLists(
         account: StarListAccount, owner: String, name: String, desired: Set<String>, allowUnstarred: Boolean = false,
     ) = mutationLock.withLock {
-        require(LOGIN.matches(owner) && NAME.matches(name) && name !in setOf(".", "..")) { "无效的仓库信息" }
-        require(desired.size <= MAX_LISTS) { "GitHub 列表超过 $MAX_LISTS 个，请在网页中管理" }
+        require(LOGIN.matches(owner) && NAME.matches(name) && name !in setOf(".", "..")) { tr("无效的仓库信息") }
+        require(desired.size <= MAX_LISTS) { trf("GitHub 列表超过 {0} 个，请在网页中管理", MAX_LISTS) }
         val probe = call(account, REPOSITORY_PROBE, buildJsonObject { put("owner", owner); put("name", name) })
         val node = probe.requiredObject("repository")
         val repositoryId = node.requiredString("id")
-        require(desired.isEmpty() || node.requiredBoolean("viewerHasStarred") || allowUnstarred) { "请先 Star 此仓库，再加入 GitHub 列表" }
+        require(desired.isEmpty() || node.requiredBoolean("viewerHasStarred") || allowUnstarred) { tr("请先 Star 此仓库，再加入 GitHub 列表") }
         val input = buildJsonObject { put("itemId", repositoryId); put("listIds", JsonArray(desired.sorted().map(::JsonPrimitive))) }
         val data = call(account, UPDATE_LISTS, buildJsonObject { put("input", input) })
         confirmLists(data.requiredObject("updateUserListsForItem"), repositoryId, account, desired)
@@ -412,24 +414,24 @@ class UserListsClient internal constructor(
     /** 核对写入结果。目标账号、仓库和完整列表都必须明确返回，缺失字段不能当成成功。 */
     private fun confirmLists(payload: JsonObject, repositoryId: String, account: StarListAccount, expected: Set<String>) {
         val owner = payload.requiredObject("user").requiredString("login")
-        require(owner.equals(account.login, true)) { "GitHub 返回了其他账号的列表" }
+        require(owner.equals(account.login, true)) { tr("GitHub 返回了其他账号的列表") }
         val item = payload.requiredObject("item").requiredString("id")
-        require(item == repositoryId) { "GitHub 未确认分类更新，请刷新后查看" }
+        require(item == repositoryId) { tr("GitHub 未确认分类更新，请刷新后查看") }
         val returned = payload.requiredArray("lists")
-            .map { (it as? JsonObject)?.requiredString("id") ?: error("GitHub 分类确认节点不完整，请刷新后查看") }
+            .map { (it as? JsonObject)?.requiredString("id") ?: error(tr("GitHub 分类确认节点不完整，请刷新后查看")) }
             .toSet()
-        require(returned == expected) { "GitHub 分类结果与选择不一致，请刷新后查看" }
+        require(returned == expected) { tr("GitHub 分类结果与选择不一致，请刷新后查看") }
     }
 
     internal fun replacementMemberships(available: Set<String>, current: Set<String>, added: Set<String>, removed: Set<String>): Set<String> {
-        require(added.all { it in available } && current.all { it in available }) { "列表已被删除或读取不完整，请重新选择" }
+        require(added.all { it in available } && current.all { it in available }) { tr("列表已被删除或读取不完整，请重新选择") }
         return (current + added) - removed
     }
 
     private fun metadata(name: String, description: String, isPrivate: Boolean): JsonObject {
         val clean = name.trim()
-        require(clean.isNotEmpty() && clean.length <= MAX_NAME && clean.none(Char::isISOControl)) { "列表名称需为 1–$MAX_NAME 个字符" }
-        require(description.trim().length <= MAX_DESCRIPTION) { "列表描述最多 $MAX_DESCRIPTION 个字符" }
+        require(clean.isNotEmpty() && clean.length <= MAX_NAME && clean.none(Char::isISOControl)) { trf("列表名称需为 1–{0} 个字符", MAX_NAME) }
+        require(description.trim().length <= MAX_DESCRIPTION) { trf("列表描述最多 {0} 个字符", MAX_DESCRIPTION) }
         return buildJsonObject { put("name", clean); put("description", description.trim()); put("isPrivate", isPrivate) }
     }
 
@@ -439,7 +441,7 @@ class UserListsClient internal constructor(
         createdAt = node.stringOrEmpty("createdAt"),
         updatedAt = node.stringOrEmpty("updatedAt"),
         lastAddedAt = node.stringOrEmpty("lastAddedAt"),
-    ).also { require(it.owner.equals(owner, true)) { "GitHub 返回了其他账号的列表" } }
+    ).also { require(it.owner.equals(owner, true)) { tr("GitHub 返回了其他账号的列表") } }
 
     private fun listPage(connection: JsonObject, owner: String) = page(connection) { parseList(it, owner) }
 
@@ -451,12 +453,12 @@ class UserListsClient internal constructor(
         val info = connection.requiredObject("pageInfo")
         val more = info.requiredBoolean(if (fromEnd) "hasPreviousPage" else "hasNextPage")
         val raw = info.stringOrEmpty(if (fromEnd) "startCursor" else "endCursor").takeIf { it.isNotBlank() }
-        require(!more || raw != null) { "GitHub 分页结果不完整，请刷新" }
+        require(!more || raw != null) { tr("GitHub 分页结果不完整，请刷新") }
         val nodes = connection.requiredArray("nodes")
-        require(nodes.size <= PAGE_SIZE) { "GitHub 分页超过读取上限" }
-        return UserListPage(nodes.map { parse(it as? JsonObject ?: error("GitHub 列表节点不可读取；分类未更改")) }, connection.requiredInt("totalCount"), raw.takeIf { more })
+        require(nodes.size <= PAGE_SIZE) { tr("GitHub 分页超过读取上限") }
+        return UserListPage(nodes.map { parse(it as? JsonObject ?: error(tr("GitHub 列表节点不可读取；分类未更改"))) }, connection.requiredInt("totalCount"), raw.takeIf { more })
     }
-    private fun incompleteMessage() = "分类读取超过上限（$PAGE_SIZE 个列表、$MAX_SCAN_ITEMS 条记录、$MAX_SCAN_PAGES 页）；为保留其他分类，未更改任何列表。请在 GitHub 网页中管理。"
+    private fun incompleteMessage() = trf("分类读取超过上限（{0} 个列表、{1} 条记录、{2} 页）；为保留其他分类，未更改任何列表。请在 GitHub 网页中管理。", PAGE_SIZE, MAX_SCAN_ITEMS, MAX_SCAN_PAGES)
 }
 
 /** Strict GraphQL transport rejects partial errors and pins the account token for each request. */
@@ -467,8 +469,8 @@ object UserLists {
     private val client = UserListsClient({ currentAccount() }, ::graphql)
     private fun currentAccount() = Session.login?.takeIf { Session.token != null }?.let { StarListAccount(it, Session.generation) }
     private suspend fun graphql(account: StarListAccount, query: String, vars: JsonObject): JsonObject {
-        check(currentAccount()?.let { it.generation == account.generation && it.login.equals(account.login, true) } == true) { "账号已切换或退出" }
-        val token = Session.token ?: error("请先登录 GitHub")
+        check(currentAccount()?.let { it.generation == account.generation && it.login.equals(account.login, true) } == true) { tr("账号已切换或退出") }
+        val token = Session.token ?: error(tr("请先登录 GitHub"))
         val body = buildJsonObject { put("query", query); put("variables", vars) }
         val request = Request.Builder().url(Api.url("/graphql"))
             .header("Authorization", "Bearer $token")
@@ -476,16 +478,16 @@ object UserLists {
             .cacheControl(CacheControl.Builder().noCache().build())
             .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
         currentCoroutineContext().ensureActive()
-        check(Session.token == token && currentAccount()?.let { it.generation == account.generation && it.login.equals(account.login, true) } == true) { "账号已切换或退出" }
+        check(Session.token == token && currentAccount()?.let { it.generation == account.generation && it.login.equals(account.login, true) } == true) { tr("账号已切换或退出") }
         val raw = withContext(Dispatchers.IO) {
             currentCoroutineContext().ensureActive()
-            check(Session.token == token && currentAccount()?.let { it.generation == account.generation && it.login.equals(account.login, true) } == true) { "账号已切换或退出" }
+            check(Session.token == token && currentAccount()?.let { it.generation == account.generation && it.login.equals(account.login, true) } == true) { tr("账号已切换或退出") }
             // Only queries may be retried: a failed mutation response can follow a committed write.
             var attempt = 0
             var body: String? = null
             while (body == null) {
                 currentCoroutineContext().ensureActive()
-                check(Session.token == token && currentAccount()?.let { it.generation == account.generation && it.login.equals(account.login, true) } == true) { "账号已切换或退出" }
+                check(Session.token == token && currentAccount()?.let { it.generation == account.generation && it.login.equals(account.login, true) } == true) { tr("账号已切换或退出") }
                 http.routed().newCall(request).await().use { response ->
                     val bytes = ByteArrayOutputStream()
                     response.body.byteStream().use { input ->
@@ -493,14 +495,14 @@ object UserLists {
                         while (true) {
                             val n = input.read(buffer)
                             if (n < 0) break
-                            require(bytes.size() + n <= 4 * 1024 * 1024) { "GitHub 列表响应超过读取上限" }
+                            require(bytes.size() + n <= 4 * 1024 * 1024) { tr("GitHub 列表响应超过读取上限") }
                             bytes.write(buffer, 0, n)
                         }
                     }
                     val text = bytes.toByteArray().toString(Charsets.UTF_8)
                     if (query.startsWith("query ") && response.code in 500..599 && attempt < 1) {
                         attempt++
-                        AppLog.warn("lists", "GitHub 列表请求返回 ${response.code}，正在重试")
+                        AppLog.warn("lists", trf("GitHub 列表请求返回 {0}，正在重试", response.code))
                         delay(800)
                     } else {
                         body = Api.ensureOk(Resp(response.code, text, response.headers)).body
@@ -509,14 +511,14 @@ object UserLists {
             }
             body
         }
-        check(currentAccount()?.let { it.generation == account.generation && it.login.equals(account.login, true) } == true) { "账号已切换或退出" }
-        return strictGraphqlData(json.parseToJsonElement(raw) as? JsonObject ?: error("GitHub 列表响应无法解析"))
+        check(currentAccount()?.let { it.generation == account.generation && it.login.equals(account.login, true) } == true) { tr("账号已切换或退出") }
+        return strictGraphqlData(json.parseToJsonElement(raw) as? JsonObject ?: error(tr("GitHub 列表响应无法解析")))
     }
     internal fun strictGraphqlData(root: JsonObject): JsonObject {
         val errors = root["errors"] as? JsonArray
         if (!errors.isNullOrEmpty()) {
             val message = (errors.firstOrNull() as? JsonObject)?.stringOrEmpty("message")?.take(240)
-            throw ApiException(400, DeviceAuth.insufficientScopes(message) ?: message?.takeIf { it.isNotBlank() } ?: "GitHub 列表请求未完成，请刷新后确认状态")
+            throw ApiException(400, DeviceAuth.insufficientScopes(message) ?: message?.takeIf { it.isNotBlank() } ?: tr("GitHub 列表请求未完成，请刷新后确认状态"))
         }
         return root.requiredObject("data")
     }
@@ -542,7 +544,7 @@ object UserLists {
         changes.update { it + 1 }
     }
     suspend fun addRepositories(account: StarListAccount, listId: String, repos: List<Repo>) {
-        require(repos.size <= UserListsClient.MAX_BATCH_ADD) { "一次最多添加 ${UserListsClient.MAX_BATCH_ADD} 个仓库" }
+        require(repos.size <= UserListsClient.MAX_BATCH_ADD) { trf("一次最多添加 {0} 个仓库", UserListsClient.MAX_BATCH_ADD) }
         var completed = 0
         try {
             for (repo in repos.distinctBy { it.id }) {
@@ -552,16 +554,16 @@ object UserLists {
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            val reason = failure.networkHint() ?: failure.message ?: "请求失败"
-            throw IllegalStateException("已完成 $completed 个仓库；$reason。请刷新后查看，重试会保留已有分类。", failure)
+            val reason = failure.networkHint() ?: failure.message ?: tr("请求失败")
+            throw IllegalStateException(trf("已完成 {0} 个仓库；{1}。请刷新后查看，重试会保留已有分类。", completed, reason), failure)
         }
     }
 }
 
 private fun kotlinx.serialization.json.JsonObjectBuilder.putCursor(cursor: String?) { put("after", cursor?.let(::JsonPrimitive) ?: JsonNull) }
-private fun JsonObject.requiredObject(name: String) = this[name] as? JsonObject ?: error("GitHub 列表字段 $name 不完整，请刷新")
-private fun JsonObject.requiredArray(name: String) = this[name] as? JsonArray ?: error("GitHub 列表字段 $name 不完整，请刷新")
-private fun JsonObject.requiredString(name: String) = (this[name] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: error("GitHub 列表字段 $name 不完整，请刷新")
+private fun JsonObject.requiredObject(name: String) = this[name] as? JsonObject ?: error(trf("GitHub 列表字段 {0} 不完整，请刷新", name))
+private fun JsonObject.requiredArray(name: String) = this[name] as? JsonArray ?: error(trf("GitHub 列表字段 {0} 不完整，请刷新", name))
+private fun JsonObject.requiredString(name: String) = (this[name] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: error(trf("GitHub 列表字段 {0} 不完整，请刷新", name))
 private fun JsonObject.stringOrEmpty(name: String) = (this[name] as? JsonPrimitive)?.contentOrNull.orEmpty()
-private fun JsonObject.requiredBoolean(name: String) = (this[name] as? JsonPrimitive)?.booleanOrNull ?: error("GitHub 列表字段 $name 不完整，请刷新")
-private fun JsonObject.requiredInt(name: String) = (this[name] as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 } ?: error("GitHub 列表字段 $name 不完整，请刷新")
+private fun JsonObject.requiredBoolean(name: String) = (this[name] as? JsonPrimitive)?.booleanOrNull ?: error(trf("GitHub 列表字段 {0} 不完整，请刷新", name))
+private fun JsonObject.requiredInt(name: String) = (this[name] as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 } ?: error(trf("GitHub 列表字段 {0} 不完整，请刷新", name))

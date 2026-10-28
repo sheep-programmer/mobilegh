@@ -65,6 +65,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** 小组件点按后打开应用的意图：切到指定 Tab，可选再打开一个 GitHub 链接。 */
 object WidgetIntents {
@@ -94,7 +96,7 @@ object Widgets {
             runCatching {
                 if (kind != WidgetStore.Kind.Inbox) ContributionWidget().updateAll(app)
                 if (kind != WidgetStore.Kind.Contributions) InboxWidget().updateAll(app)
-            }.onFailure { AppLog.warn("widget", "小组件刷新失败", it) }
+            }.onFailure { AppLog.warn("widget", tr("小组件刷新失败"), it) }
         }
     }
 }
@@ -134,7 +136,7 @@ private suspend fun <T> load(tag: String, block: suspend () -> T?): Load<T> = tr
 } catch (e: kotlinx.coroutines.CancellationException) {
     throw e
 } catch (e: Exception) {
-    AppLog.warn("widget", "$tag 小组件加载失败", e)
+    AppLog.warn("widget", trf("{0} 小组件加载失败", tag), e)
     Load.Failed
 }
 
@@ -178,9 +180,9 @@ class ContributionWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val v0 = Widgets.version.value
-        val first = load("贡献图") { WidgetStore.loadContributions() }
+        val first = load(tr("贡献图")) { WidgetStore.loadContributions() }
         provideContent {
-            val state = rememberLoad(first, v0) { load("贡献图") { WidgetStore.loadContributions() } }
+            val state = rememberLoad(first, v0) { load(tr("贡献图")) { WidgetStore.loadContributions() } }
             val masks = remember(state) { (state as? Load.Ready)?.value?.let(::heatMasks) }
             ContributionContent(context, state, masks)
         }
@@ -197,22 +199,22 @@ private fun ContributionContent(ctx: Context, state: Load<ContribSnapshot>, mask
         Column(GlanceModifier.fillMaxSize()) {
             when (state) {
                 Load.SignedOut -> {
-                    Header(R.drawable.oc_mark_github, "贡献", null)
-                    Message("请先登录 MobileGH")
+                    Header(R.drawable.oc_mark_github, tr("贡献"), null)
+                    Message(tr("请先登录 MobileGH"))
                 }
                 Load.Failed -> {
-                    Header(R.drawable.oc_mark_github, "贡献", null)
-                    Message("暂时无法加载，点按打开 MobileGH")
+                    Header(R.drawable.oc_mark_github, tr("贡献"), null)
+                    Message(tr("暂时无法加载，点按打开 MobileGH"))
                 }
                 is Load.Ready -> {
                     val s = state.value
-                    Header(R.drawable.oc_mark_github, "${fmtCount(s.total)} 次贡献", "近 ${WidgetStore.WEEKS} 周 · @${s.login}")
+                    Header(R.drawable.oc_mark_github, trf("{0} 次贡献", fmtCount(s.total)), trf("近 {0} 周 · @{1}", WidgetStore.WEEKS, s.login))
                     Spacer(GlanceModifier.height(8.dp))
                     // 每个等级一张遮罩图，按 Primer 颜色着色后叠放；颜色来自资源，随系统深浅色切换。
                     Box(GlanceModifier.fillMaxWidth().defaultWeight(), contentAlignment = Alignment.Center) {
                         masks?.forEachIndexed { level, bmp ->
                             Image(
-                                ImageProvider(bmp), if (level == 0) "最近 ${WidgetStore.WEEKS} 周贡献热力图" else null,
+                                ImageProvider(bmp), if (level == 0) trf("最近 {0} 周贡献热力图", WidgetStore.WEEKS) else null,
                                 GlanceModifier.fillMaxSize(), contentScale = ContentScale.Fit,
                                 colorFilter = ColorFilter.tint(widgetColor(Heat[level])),
                             )
@@ -256,9 +258,9 @@ class InboxWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val v0 = Widgets.version.value
-        val first = load("收件箱") { WidgetStore.loadInbox() }
+        val first = load(tr("收件箱")) { WidgetStore.loadInbox() }
         provideContent {
-            InboxContent(context, rememberLoad(first, v0) { load("收件箱") { WidgetStore.loadInbox() } })
+            InboxContent(context, rememberLoad(first, v0) { load(tr("收件箱")) { WidgetStore.loadInbox() } })
         }
     }
 }
@@ -273,21 +275,21 @@ private fun InboxContent(ctx: Context, state: Load<InboxSnapshot>) {
         Column(GlanceModifier.fillMaxSize()) {
             when (state) {
                 Load.SignedOut -> {
-                    Header(R.drawable.oc_bell, "通知", null)
-                    Message("请先登录 MobileGH")
+                    Header(R.drawable.oc_bell, tr("通知"), null)
+                    Message(tr("请先登录 MobileGH"))
                 }
                 Load.Failed -> {
-                    Header(R.drawable.oc_bell, "通知", null)
-                    Message("暂时无法加载，点按打开 MobileGH")
+                    Header(R.drawable.oc_bell, tr("通知"), null)
+                    Message(tr("暂时无法加载，点按打开 MobileGH"))
                 }
                 is Load.Ready -> {
                     val s = state.value
                     val count = if (s.more) "${s.unread}+" else "${s.unread}"
-                    Header(R.drawable.oc_bell, "通知", if (s.unread > 0) "$count 条未读" else null, Accent)
+                    Header(R.drawable.oc_bell, tr("通知"), if (s.unread > 0) trf("{0} 条未读", count) else null, Accent)
                     if (WidgetStore.hideInboxDetails) {
-                        Message(if (s.unread == 0) "没有未读通知" else "已隐藏通知详情，点按打开应用")
+                        Message(if (s.unread == 0) tr("没有未读通知") else tr("已隐藏通知详情，点按打开应用"))
                     } else if (s.items.isEmpty()) {
-                        Message("没有未读通知")
+                        Message(tr("没有未读通知"))
                     } else {
                         // 标题区约 24dp，每条约 36dp：按实际高度决定显示几条
                         val rows = ((LocalSize.current.height.value - 24 - 24) / 36).toInt().coerceIn(1, WidgetStore.INBOX_ITEMS)

@@ -79,6 +79,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** 全局图片查看器状态：任何页面调用 [open] 即可全屏查看，宿主组件 [ImageViewerHost] 放在 AppRoot */
 object ImageViewer {
@@ -148,10 +150,10 @@ private fun ImageViewerContent(url: String, title: String) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                AppLog.warn("image", "加载图片失败", e)
+                AppLog.warn("image", tr("加载图片失败"), e)
                 null
             } catch (e: OutOfMemoryError) {
-                AppLog.warn("image", "图片过大，无法显示", e)
+                AppLog.warn("image", tr("图片过大，无法显示"), e)
                 null
             }
             value = ImageLoadState(image, complete = true)
@@ -167,7 +169,7 @@ private fun ImageViewerContent(url: String, title: String) {
         scope.launch {
             try {
                 val where = withContext(Dispatchers.IO) { saveImage(ctx, request.bytes, request.mime, request.name) }
-                ctx.toast(where?.let { "已保存到 $it" } ?: "保存失败")
+                ctx.toast(where?.let { trf("已保存到 {0}", it) } ?: tr("保存失败"))
             } finally {
                 busy = false
             }
@@ -179,7 +181,7 @@ private fun ImageViewerContent(url: String, title: String) {
         if (granted && request != null) save(request)
         else {
             busy = false
-            if (request != null) ctx.toast("保存到相册需要存储权限，请在系统设置中允许后重试")
+            if (request != null) ctx.toast(tr("保存到相册需要存储权限，请在系统设置中允许后重试"))
         }
     }
 
@@ -187,9 +189,9 @@ private fun ImageViewerContent(url: String, title: String) {
         when {
             image == null && !failed -> CircularProgressIndicator(Modifier.align(Alignment.Center).size(36.dp), color = Color.White)
             failed -> Column(Modifier.align(Alignment.Center).padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("图片加载失败", color = Color.White, fontSize = 16.sp)
+                Text(tr("图片加载失败"), color = Color.White, fontSize = 16.sp)
                 Spacer(Modifier.height(16.dp))
-                GhButton("重试", icon = R.drawable.oc_sync) { reload++ }
+                GhButton(tr("重试"), icon = R.drawable.oc_sync) { reload++ }
             }
             image?.bitmap != null -> ZoomableBitmap(image.bitmap) { showBars = !showBars }
             image?.html != null -> WebImage(image.html, onFailure = { renderFailed = true; showBars = true }) { showBars = !showBars }
@@ -207,8 +209,8 @@ private fun ImageViewerContent(url: String, title: String) {
                 )
                 MoreMenu(
                     listOf(
-                        MenuAction("在浏览器打开") { ctx.openBrowser(url) },
-                        MenuAction("复制图片链接") { ctx.copy(url, "链接已复制") },
+                        MenuAction(tr("在浏览器打开")) { ctx.openBrowser(url) },
+                        MenuAction(tr("复制图片链接")) { ctx.copy(url, tr("链接已复制")) },
                     ),
                     tint = Color.White,
                 )
@@ -219,7 +221,7 @@ private fun ImageViewerContent(url: String, title: String) {
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    GhButton("保存到相册", Modifier.weight(1f), primary = true, icon = R.drawable.oc_download, enabled = !busy) {
+                    GhButton(tr("保存到相册"), Modifier.weight(1f), primary = true, icon = R.drawable.oc_download, enabled = !busy) {
                         val request = ImageSaveRequest(data.bytes, mime, saveName(url, title, mime))
                         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
                             ContextCompat.checkSelfPermission(ctx, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
@@ -231,12 +233,12 @@ private fun ImageViewerContent(url: String, title: String) {
                             } catch (e: Exception) {
                                 pendingSave = null
                                 busy = false
-                                AppLog.warn("image", "无法申请存储权限", e)
-                                ctx.toast("无法申请存储权限")
+                                AppLog.warn("image", tr("无法申请存储权限"), e)
+                                ctx.toast(tr("无法申请存储权限"))
                             }
                         } else save(request)
                     }
-                    GhButton("分享", Modifier.weight(1f), icon = R.drawable.oc_share_android, enabled = !busy) {
+                    GhButton(tr("分享"), Modifier.weight(1f), icon = R.drawable.oc_share_android, enabled = !busy) {
                         busy = true
                         scope.launch {
                             try {
@@ -244,8 +246,8 @@ private fun ImageViewerContent(url: String, title: String) {
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Exception) {
-                                AppLog.warn("image", "分享图片失败", e)
-                                ctx.toast("分享失败")
+                                AppLog.warn("image", tr("分享图片失败"), e)
+                                ctx.toast(tr("分享失败"))
                             } finally {
                                 busy = false
                             }
@@ -337,7 +339,7 @@ private fun WebImage(html: String, onFailure: () -> Unit, onTap: () -> Unit) {
                 } catch (e: Exception) {
                     view.release()
                     if (webRef[0] === view) webRef[0] = null
-                    AppLog.warn("image", "图片 WebView 生命周期调用失败", e)
+                    AppLog.warn("image", tr("图片 WebView 生命周期调用失败"), e)
                     failure()
                 }
             }
@@ -375,7 +377,7 @@ private fun WebImage(html: String, onFailure: () -> Unit, onTap: () -> Unit) {
                                 // 已退出的渲染器不能复用；只清理此回调给出的实例。
                                 (view as? ViewerWebView)?.release()
                                 if (webRef[0] === view) webRef[0] = null
-                                AppLog.warn("image", "图片渲染进程退出：didCrash=" + detail.didCrash())
+                                AppLog.warn("image", tr("图片渲染进程退出：didCrash=") + detail.didCrash())
                                 failure()
                                 return true
                             }
@@ -388,7 +390,7 @@ private fun WebImage(html: String, onFailure: () -> Unit, onTap: () -> Unit) {
                 } catch (e: Exception) {
                     webRef[0]?.release()
                     webRef[0] = null
-                    AppLog.warn("image", "无法创建图片 WebView", e)
+                    AppLog.warn("image", tr("无法创建图片 WebView"), e)
                     // factory 正在构建 AndroidView，下一次主线程消息再切换到错误界面。
                     post { failure() }
                 }
@@ -452,30 +454,30 @@ private fun saveImage(ctx: Context, bytes: ByteArray, mime: String?, name: Strin
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
         val resolver = ctx.contentResolver
-        val uri = resolver.insert(collection, values) ?: error("无法创建文件")
+        val uri = resolver.insert(collection, values) ?: error(tr("无法创建文件"))
         var published = false
         try {
-            resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("无法写入文件")
+            resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error(tr("无法写入文件"))
             values.clear()
             values.put(MediaStore.MediaColumns.IS_PENDING, 0)
-            check(resolver.update(uri, values, null, null) > 0) { "无法发布图片" }
+            check(resolver.update(uri, values, null, null) > 0) { tr("无法发布图片") }
             published = true
             dir
         } finally {
             if (!published) runCatching { resolver.delete(uri, null, null) }
-                .onFailure { AppLog.warn("image", "无法清理保存失败的图片", it) }
+                .onFailure { AppLog.warn("image", tr("无法清理保存失败的图片"), it) }
         }
     } else {
         check(ContextCompat.checkSelfPermission(ctx, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
-            "没有写入相册的权限"
+            tr("没有写入相册的权限")
         }
         @Suppress("DEPRECATION")
         val dir = File(Environment.getExternalStoragePublicDirectory(
             if (type == "image/svg+xml") Environment.DIRECTORY_DOWNLOADS else Environment.DIRECTORY_PICTURES,
         ), "MobileGH")
-        check((dir.exists() || dir.mkdirs()) && dir.isDirectory) { "保存目录不可用" }
+        check((dir.exists() || dir.mkdirs()) && dir.isDirectory) { tr("保存目录不可用") }
         val f = File(dir, name)
-        check(f.createNewFile()) { "文件已存在" }
+        check(f.createNewFile()) { tr("文件已存在") }
         var saved = false
         try {
             f.outputStream().use { it.write(bytes) }
@@ -483,20 +485,20 @@ private fun saveImage(ctx: Context, bytes: ByteArray, mime: String?, name: Strin
             saved = true
             dir.absolutePath
         } finally {
-            if (!saved && !f.delete() && f.exists()) AppLog.warn("image", "无法清理保存失败的文件")
+            if (!saved && !f.delete() && f.exists()) AppLog.warn("image", tr("无法清理保存失败的文件"))
         }
     }
 } catch (e: Exception) {
-    AppLog.warn("image", "保存图片失败：" + name, e)
+    AppLog.warn("image", tr("保存图片失败：") + name, e)
     null
 }
 
 private suspend fun shareImage(ctx: Context, bytes: ByteArray, mime: String?, name: String) = withContext(Dispatchers.IO) {
     val dir = File(ctx.cacheDir, "shared")
-    check((dir.exists() || dir.mkdirs()) && dir.isDirectory) { "分享目录不可用" }
+    check((dir.exists() || dir.mkdirs()) && dir.isDirectory) { tr("分享目录不可用") }
     // 独立文件供接收应用异步读取，后一次分享不能删除前一次的文件。
     val f = File(dir, name)
-    check(f.createNewFile()) { "分享文件已存在" }
+    check(f.createNewFile()) { tr("分享文件已存在") }
     var launched = false
     try {
         f.outputStream().use { it.write(bytes) }
@@ -507,12 +509,12 @@ private suspend fun shareImage(ctx: Context, bytes: ByteArray, mime: String?, na
                 .putExtra(Intent.EXTRA_STREAM, uri)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 .apply { clipData = ClipData.newRawUri("image", uri) }
-            ctx.startActivity(Intent.createChooser(send, "分享图片").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            ctx.startActivity(Intent.createChooser(send, tr("分享图片")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             launched = true
         }
     } catch (e: Exception) {
         // Intent 已发出后，即使查看器协程被取消，也要保留接收应用正在读取的文件。
-        if (!launched && !f.delete() && f.exists()) AppLog.warn("image", "无法清理分享失败的文件")
+        if (!launched && !f.delete() && f.exists()) AppLog.warn("image", tr("无法清理分享失败的文件"))
         throw e
     }
 }

@@ -5,6 +5,7 @@ import java.net.URLDecoder
 import java.util.Locale
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
+import com.mobilegh.i18n.tr
 
 /**
  * 生成基于时间的一次性密码（TOTP，RFC 6238）——GitHub「Authenticator app」两步验证用的就是这套。
@@ -18,14 +19,14 @@ object Totp {
         val s = input.trim()
         val secret = if (s.startsWith("otpauth://", ignoreCase = true)) {
             val uri = URI(s)
-            require(uri.host.equals("totp", true)) { "仅支持 TOTP 链接" }
+            require(uri.host.equals("totp", true)) { tr("仅支持 TOTP 链接") }
             val params = uri.rawQuery.orEmpty().split('&').associate {
                 val parts = it.split('=', limit = 2)
                 parts[0] to URLDecoder.decode(parts.getOrElse(1) { "" }, "UTF-8")
             }
-            require(params["algorithm"].orEmpty().ifBlank { "SHA1" }.equals("SHA1", true)) { "GitHub 使用 SHA1 验证码" }
-            require(params["digits"].orEmpty().ifBlank { "6" } == "6") { "GitHub 使用 6 位验证码" }
-            require(params["period"].orEmpty().ifBlank { "30" } == "30") { "GitHub 使用 30 秒验证码" }
+            require(params["algorithm"].orEmpty().ifBlank { "SHA1" }.equals("SHA1", true)) { tr("GitHub 使用 SHA1 验证码") }
+            require(params["digits"].orEmpty().ifBlank { "6" } == "6") { tr("GitHub 使用 6 位验证码") }
+            require(params["period"].orEmpty().ifBlank { "30" } == "30") { tr("GitHub 使用 30 秒验证码") }
             params["secret"].orEmpty()
         } else {
             s

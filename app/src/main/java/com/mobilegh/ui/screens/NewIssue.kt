@@ -57,6 +57,8 @@ import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.rememberDraft
 import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** 新建 Issue 时选中的元数据；milestone 的 key 是里程碑编号 */
 private data class NewIssueMeta(
@@ -107,10 +109,10 @@ fun NewIssueScreen(owner: String, name: String) {
 
     val chooser = picked == null && set?.hasChooser == true
     Page(
-        if (chooser) "选择 Issue 模板" else "新建 Issue",
+        if (chooser) tr("选择 Issue 模板") else tr("新建 Issue"),
         subtitle = "$owner/$name",
         actions = {
-            if (!chooser && set?.hasChooser == true) MoreMenu(listOf(MenuAction("更换模板") { lastPicked = picked; picked = null }))
+            if (!chooser && set?.hasChooser == true) MoreMenu(listOf(MenuAction(tr("更换模板")) { lastPicked = picked; picked = null }))
         },
     ) { pad ->
         when {
@@ -131,13 +133,13 @@ fun NewIssueScreen(owner: String, name: String) {
                     Row(Modifier.padding(horizontal = 16.dp).padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Oc(R.drawable.oc_file, Gh.c.fgMuted, 14.dp)
                         Spacer(Modifier.width(6.dp))
-                        Text("模板：${template.name}", fontSize = 13.sp, color = Gh.c.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(trf("模板：{0}", template.name), fontSize = 13.sp, color = Gh.c.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
-                GhField(title, { title = it }, "标题", Modifier.padding(horizontal = 16.dp))
+                GhField(title, { title = it }, tr("标题"), Modifier.padding(horizontal = 16.dp))
                 Spacer(Modifier.height(12.dp))
                 MarkdownEditor(
-                    body, { body = it }, placeholder = "描述（支持 Markdown）", contextRepo = "$owner/$name", minLines = 8,
+                    body, { body = it }, placeholder = tr("描述（支持 Markdown）"), contextRepo = "$owner/$name", minLines = 8,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
                 DraftBinding(draft, DraftValue(title, body.text))
@@ -149,15 +151,15 @@ fun NewIssueScreen(owner: String, name: String) {
                 ) { editing = it }
                 Text(
                     when (canSetMeta) {
-                        false -> "你没有该仓库的写入权限：GitHub 会静默忽略标签、指派人和里程碑，只创建标题和正文。"
-                        true -> "标签、指派人和里程碑会在创建时一并设置。"
-                        null -> "只有对仓库有写入权限时，标签、指派人和里程碑才会生效；否则 GitHub 会静默忽略。"
+                        false -> tr("你没有该仓库的写入权限：GitHub 会静默忽略标签、指派人和里程碑，只创建标题和正文。")
+                        true -> tr("标签、指派人和里程碑会在创建时一并设置。")
+                        null -> tr("只有对仓库有写入权限时，标签、指派人和里程碑才会生效；否则 GitHub 会静默忽略。")
                     },
                     Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                     fontSize = 12.sp, lineHeight = 16.sp, color = if (canSetMeta == false) Gh.c.attention else Gh.c.fgMuted,
                 )
                 Spacer(Modifier.height(12.dp))
-                GhButton("提交", Modifier.padding(horizontal = 16.dp).fillMaxWidth(), primary = true, enabled = title.isNotBlank() && !busy) {
+                GhButton(tr("提交"), Modifier.padding(horizontal = 16.dp).fillMaxWidth(), primary = true, enabled = title.isNotBlank() && !busy) {
                     busy = true
                     val submitted = DraftValue(title, body.text)
                     val m = meta
@@ -178,18 +180,18 @@ fun NewIssueScreen(owner: String, name: String) {
     }
 
     when (val k = editing) {
-        "labels" -> MetaPicker(k, owner, name, "标签", meta.labels.map { it.key }, { editing = null }) { meta = meta.copy(labels = it) }
-        "assignees" -> MetaPicker(k, owner, name, "指派人", meta.assignees.map { it.key }, { editing = null }) { meta = meta.copy(assignees = it) }
-        "milestone" -> MetaPicker(k, owner, name, "里程碑", listOfNotNull(meta.milestone?.key), { editing = null }, single = true, noneLabel = "无里程碑") {
+        "labels" -> MetaPicker(k, owner, name, tr("标签"), meta.labels.map { it.key }, { editing = null }) { meta = meta.copy(labels = it) }
+        "assignees" -> MetaPicker(k, owner, name, tr("指派人"), meta.assignees.map { it.key }, { editing = null }) { meta = meta.copy(assignees = it) }
+        "milestone" -> MetaPicker(k, owner, name, tr("里程碑"), listOfNotNull(meta.milestone?.key), { editing = null }, single = true, noneLabel = tr("无里程碑")) {
             meta = meta.copy(milestone = it.firstOrNull())
         }
         else -> {}
     }
     confirmTemplate?.let { t ->
-        GhDialog("替换当前内容？", { confirmTemplate = null }, confirm = "替换", danger = true, onConfirm = {
+        GhDialog(tr("替换当前内容？"), { confirmTemplate = null }, confirm = tr("替换"), danger = true, onConfirm = {
             apply(t.takeIf { it.file != BLANK })
             confirmTemplate = null
-        }) { Text("使用「${t.name.ifEmpty { "空白 Issue" }}」会覆盖已填写的标题、正文和元数据。", fontSize = 14.sp, color = Gh.c.fg) }
+        }) { Text(trf("使用「{0}」会覆盖已填写的标题、正文和元数据。", t.name.ifEmpty { tr("空白 Issue") }), fontSize = 14.sp, color = Gh.c.fg) }
     }
 }
 
@@ -208,24 +210,24 @@ private fun TemplateChooser(set: IssueTemplateSet, modifier: Modifier, onPick: (
                 }
                 if (set.config.blankIssuesEnabled) {
                     if (set.templates.isNotEmpty()) HDivider()
-                    ChooserRow(R.drawable.oc_note, "空白 Issue", "不使用模板，从空白开始") { onPick(null) }
+                    ChooserRow(R.drawable.oc_note, tr("空白 Issue"), tr("不使用模板，从空白开始")) { onPick(null) }
                 }
             }
         }
         if (set.templates.any { it.form }) {
             Text(
-                "表单模板会转换为 Markdown 结构，提交前请按小标题填写。",
+                tr("表单模板会转换为 Markdown 结构，提交前请按小标题填写。"),
                 Modifier.padding(horizontal = 16.dp, vertical = 6.dp), fontSize = 12.sp, lineHeight = 16.sp, color = g.fgMuted,
             )
         }
         if (!set.config.blankIssuesEnabled) {
             Text(
-                "该仓库已关闭空白 Issue，请选择一个模板。",
+                tr("该仓库已关闭空白 Issue，请选择一个模板。"),
                 Modifier.padding(horizontal = 16.dp, vertical = 6.dp), fontSize = 12.sp, lineHeight = 16.sp, color = g.fgMuted,
             )
         }
         if (set.config.contactLinks.isNotEmpty()) {
-            SectionTitle("其他途径")
+            SectionTitle(tr("其他途径"))
             MenuGroup {
                 set.config.contactLinks.forEachIndexed { i, l ->
                     if (i > 0) HDivider()
@@ -235,7 +237,7 @@ private fun TemplateChooser(set: IssueTemplateSet, modifier: Modifier, onPick: (
         }
         if (set.templates.isEmpty() && !set.config.blankIssuesEnabled) {
             Text(
-                "该仓库没有可在应用内使用的模板，请通过上面的链接或网页提交。",
+                tr("该仓库没有可在应用内使用的模板，请通过上面的链接或网页提交。"),
                 Modifier.padding(horizontal = 16.dp, vertical = 12.dp), fontSize = 13.sp, color = g.fgMuted,
             )
         }

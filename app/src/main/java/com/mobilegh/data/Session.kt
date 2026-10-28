@@ -19,6 +19,7 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import com.mobilegh.i18n.tr
 
 @Serializable
 data class Account(val login: String, val avatarUrl: String = "", val tk: String = "", val refreshTk: String = "", val expiresAt: Long = 0, val clientId: String = "", val scopes: String = "")
@@ -77,6 +78,10 @@ object Session {
         private set
     fun profileChanged() { Api.clearCache(); profileRevision++ }
     var themeMode by mutableIntStateOf(0) // 0 跟随系统 1 浅色 2 深色
+
+    /** 代码对比：true 为左右分栏（左旧右新），false 为单栏统一视图 */
+    var diffSplit by mutableStateOf(true)
+        private set
     var codeWrap by mutableStateOf(false)
     var rateRemaining by mutableStateOf<String?>(null)
     val accounts = mutableStateListOf<Account>()
@@ -97,6 +102,7 @@ object Session {
         }
         themeMode = prefs.getInt("theme", 0)
         codeWrap = prefs.getBoolean("wrap", false)
+        diffSplit = prefs.getBoolean("diff_split", true)
         accounts.clear()
         prefs.getString("accounts", null)?.let {
             runCatching { accounts.addAll(Api.plain.decodeFromString(ListSerializer(Account.serializer()), it)) }
@@ -182,8 +188,8 @@ object Session {
 
     /** 存 / 删该账号的 TOTP 密钥；密钥同样经 Keystore 加密 */
     fun setTotpSecret(login: String, secret: String?) {
-        require(login.matches(Regex("[A-Za-z0-9][A-Za-z0-9-]{0,38}"))) { "GitHub 用户名格式无效" }
-        require(secret.isNullOrBlank() || Totp.isValid(secret)) { "验证器密钥无效" }
+        require(login.matches(Regex("[A-Za-z0-9][A-Za-z0-9-]{0,38}"))) { tr("GitHub 用户名格式无效") }
+        require(secret.isNullOrBlank() || Totp.isValid(secret)) { tr("验证器密钥无效") }
         val e = prefs.edit()
         if (secret.isNullOrBlank()) e.remove(totpKey(login)) else e.putString(totpKey(login), Crypto.encrypt(Totp.normalize(secret)))
         e.apply()
@@ -229,6 +235,11 @@ object Session {
     fun setTheme(mode: Int) {
         themeMode = mode
         prefs.edit().putInt("theme", mode).apply()
+    }
+
+    fun chooseDiffSplit(split: Boolean) {
+        diffSplit = split
+        prefs.edit().putBoolean("diff_split", split).apply()
     }
 
     fun toggleWrap() {

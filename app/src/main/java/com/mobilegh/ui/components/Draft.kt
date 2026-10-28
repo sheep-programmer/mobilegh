@@ -6,6 +6,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.sp
 import com.mobilegh.data.*
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
 
 @Composable
 fun rememberDraft(contextKey: String): DraftController {
@@ -18,5 +19,5 @@ fun rememberDraft(contextKey: String): DraftController {
 fun DraftBinding(controller: DraftController, value: DraftValue) {
     SideEffect { controller.update(value) }
     DisposableEffect(controller) { onDispose { controller.flush() } }
-    Text(controller.error ?: "草稿自动保存在本机", color = if (controller.error != null) Gh.c.danger else Gh.c.fgMuted, fontSize = 11.sp)
+    Text(controller.error ?: tr("草稿自动保存在本机"), color = if (controller.error != null) Gh.c.danger else Gh.c.fgMuted, fontSize = 11.sp)
 }

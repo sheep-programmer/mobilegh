@@ -15,6 +15,8 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.util.Locale
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** Nullable counts preserve the distinction between a missing metric and a reported zero. */
 @Serializable
@@ -44,9 +46,10 @@ data class ContributionSnapshot(
     val loadedAt: Instant = Instant.now(),
 )
 
-enum class ContributionRange(val label: String, val days: Long? = null) {
+enum class ContributionRange(private val labelZh: String, val days: Long? = null) {
     All("全部提交"), Year("最近一年", 365), HalfYear("最近半年", 182),
-    NinetyDays("最近 90 天", 90), ThirtyDays("最近 30 天", 30), Custom("自定义"),
+    NinetyDays("最近 90 天", 90), ThirtyDays("最近 30 天", 30), Custom("自定义");
+    val label: String get() = tr(labelZh)
 }
 
 /** Dates are inclusive in the UI. All calculations use UTC, matching GitHub's weekly buckets. */
@@ -62,12 +65,12 @@ fun validateContributionDates(start: String, end: String, today: LocalDate): Con
         return try { LocalDate.parse(value.trim(), DateTimeFormatter.ISO_LOCAL_DATE) }
         catch (_: DateTimeParseException) { null }
     }
-    val first = parse(start) ?: return ContributionDateValidation(error = "开始日期无效，请使用 YYYY-MM-DD")
-    val last = parse(end) ?: return ContributionDateValidation(error = "结束日期无效，请使用 YYYY-MM-DD")
+    val first = parse(start) ?: return ContributionDateValidation(error = tr("开始日期无效，请使用 YYYY-MM-DD"))
+    val last = parse(end) ?: return ContributionDateValidation(error = tr("结束日期无效，请使用 YYYY-MM-DD"))
     return when {
-        first.isBefore(LocalDate.of(1970, 1, 1)) -> ContributionDateValidation(error = "开始日期不能早于 1970-01-01")
-        first.isAfter(last) -> ContributionDateValidation(error = "开始日期不能晚于结束日期")
-        last.isAfter(today) -> ContributionDateValidation(error = "结束日期不能晚于今天（UTC）")
+        first.isBefore(LocalDate.of(1970, 1, 1)) -> ContributionDateValidation(error = tr("开始日期不能早于 1970-01-01"))
+        first.isAfter(last) -> ContributionDateValidation(error = tr("开始日期不能晚于结束日期"))
+        last.isAfter(today) -> ContributionDateValidation(error = tr("结束日期不能晚于今天（UTC）"))
         else -> ContributionDateValidation(ContributionDates(first, last))
     }
 }
@@ -229,9 +232,9 @@ object ContributionStats {
         val response = request("/repos/$owner/$name/contributors?anon=1&per_page=3&page=1", force)
         if (response.code == 204) return ContributionSnapshot(source = ContributionSource.ContributorList, status = ContributionStatus.Empty)
         if (response.code == 202) return ContributionSnapshot(source = ContributionSource.ContributorList,
-            status = ContributionStatus.Pending, message = "GitHub 正在生成贡献者列表，请稍后重试")
+            status = ContributionStatus.Pending, message = tr("GitHub 正在生成贡献者列表，请稍后重试"))
         Api.ensureOk(response)
-        if (response.code != 200) throw ApiException(response.code, "贡献者列表尚未就绪 (${response.code})")
+        if (response.code != 200) throw ApiException(response.code, trf("贡献者列表尚未就绪 ({0})", response.code))
         val records = decodeContributors(response.body).take(3)
         return ContributionSnapshot(records, ContributionSource.ContributorList,
             if (records.isEmpty()) ContributionStatus.Empty else ContributionStatus.Ready)
@@ -246,7 +249,7 @@ object ContributionStats {
     ): ContributionSnapshot {
         val base = "/repos/$owner/$name"
         var status = ContributionStatus.Pending
-        var message = "GitHub 仍在生成周统计，请稍后重试"
+        var message = tr("GitHub 仍在生成周统计，请稍后重试")
         try {
             for (attempt in 0 until 4) {
                 val response = request("$base/stats/contributors", force || attempt > 0)
@@ -262,7 +265,7 @@ object ContributionStats {
                     }
                     else -> {
                         Api.ensureOk(response)
-                        throw ApiException(response.code, "周统计返回了未支持的响应 (${response.code})")
+                        throw ApiException(response.code, trf("周统计返回了未支持的响应 ({0})", response.code))
                     }
                 }
             }
@@ -272,8 +275,8 @@ object ContributionStats {
             // Do not spend more quota or repeat authentication failures on a second endpoint.
             if (error is ApiException && error.code in listOf(401, 403, 429, -1)) throw error
             status = if (error is ApiException && error.code == 202) ContributionStatus.Pending else ContributionStatus.Unavailable
-            message = if (status == ContributionStatus.Pending) "GitHub 仍在生成周统计，请稍后重试"
-                else "周统计暂不可用：${error.message?.take(180) ?: "请求失败"}"
+            message = if (status == ContributionStatus.Pending) tr("GitHub 仍在生成周统计，请稍后重试")
+                else trf("周统计暂不可用：{0}", error.message?.take(180) ?: tr("请求失败"))
         }
         val records = mutableListOf<ContributionRecord>()
         var truncated = false
@@ -282,7 +285,7 @@ object ContributionStats {
                 val response = request("$base/contributors?anon=1&per_page=100&page=$page", force)
                 if (response.code == 204) break
                 Api.ensureOk(response)
-                if (response.code != 200) throw ApiException(response.code, "贡献者列表尚未就绪 (${response.code})")
+                if (response.code != 200) throw ApiException(response.code, trf("贡献者列表尚未就绪 ({0})", response.code))
                 val pageRecords = decodeContributors(response.body)
                 records += pageRecords
                 val link = response.headers["Link"]
@@ -295,16 +298,16 @@ object ContributionStats {
         } catch (error: Exception) {
             if (records.isEmpty() && status != ContributionStatus.Pending) throw error
             truncated = records.isNotEmpty()
-            message += "；贡献者列表未完整加载：${error.message?.take(120) ?: "请求失败"}"
+            message += trf("；贡献者列表未完整加载：{0}", error.message?.take(120) ?: tr("请求失败"))
         }
         return ContributionSnapshot(records, ContributionSource.ContributorList, status, message, truncated)
     }
 
     private fun decodeContributors(body: String): List<ContributionRecord> {
         val array = Api.json.parseToJsonElement(body) as? JsonArray
-            ?: throw IllegalStateException("贡献者列表数据格式无效")
+            ?: throw IllegalStateException(tr("贡献者列表数据格式无效"))
         return array.map { element ->
-            val item = element as? JsonObject ?: throw IllegalStateException("贡献者数据格式无效")
+            val item = element as? JsonObject ?: throw IllegalStateException(tr("贡献者数据格式无效"))
             val user = Api.json.decodeFromJsonElement(User.serializer(), JsonObject(item.filterKeys { it != "contributions" }))
             ContributionRecord(user, item["contributions"]?.jsonPrimitive?.longOrNull.validCount())
         }

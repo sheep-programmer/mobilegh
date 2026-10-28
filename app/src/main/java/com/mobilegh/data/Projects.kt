@@ -9,6 +9,8 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.put
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 // ======================= 模型 =======================
 
@@ -162,7 +164,7 @@ fun boardGroupField(fields: List<ProjectField>, view: ProjectView?): ProjectFiel
     val fromView = view?.let { v -> (v.verticalGroupByFieldIds + v.groupByFieldIds).firstNotNullOfOrNull { id -> single.firstOrNull { it.id == id } } }
     return fromView
         ?: single.firstOrNull { it.name.equals("Status", ignoreCase = true) }
-        ?: single.firstOrNull { it.name == "状态" }
+        ?: single.firstOrNull { it.name == tr("状态") }
         ?: single.firstOrNull()
 }
 
@@ -213,12 +215,12 @@ fun applyProjectEdits(loaded: List<ProjectItem>, edits: Map<String, ProjectItem?
 enum class ProjectErrorKind { Scope, Forbidden, NotFound, Other }
 
 object ProjectErrors {
-    const val READ_SCOPE_MESSAGE = "当前授权缺少 read:project 权限，无法读取 GitHub Projects。" +
-        "请重新授权登录；如使用 Token 登录，请为 Token 勾选 project（或 read:project）权限。"
-    const val WRITE_SCOPE_MESSAGE = "当前授权缺少 project 写入权限，无法修改项目。" +
-        "请重新授权登录；如使用 Token 登录，请为 Token 勾选 project 权限。"
-    const val FORBIDDEN_PREFIX = "无权访问此项目："
-    const val NOT_FOUND_MESSAGE = "未找到项目，或当前账号没有访问权限"
+    val READ_SCOPE_MESSAGE: String get() = tr("当前授权缺少 read:project 权限，无法读取 GitHub Projects。") +
+        tr("请重新授权登录；如使用 Token 登录，请为 Token 勾选 project（或 read:project）权限。")
+    val WRITE_SCOPE_MESSAGE: String get() = tr("当前授权缺少 project 写入权限，无法修改项目。") +
+        tr("请重新授权登录；如使用 Token 登录，请为 Token 勾选 project 权限。")
+    val FORBIDDEN_PREFIX: String get() = tr("无权访问此项目：")
+    val NOT_FOUND_MESSAGE: String get() = tr("未找到项目，或当前账号没有访问权限")
 
     /** 原始 GraphQL 错误：type 优先，message 兜底 */
     fun classify(type: String?, message: String?): ProjectErrorKind {
@@ -284,7 +286,7 @@ open class ProjectsClient(
             ProjectOwnerKind.Repo -> Triple(REPO_PROJECTS, mapOf("owner" to login, "name" to name), "repository")
         }
         val r = read(query, vars + ("after" to after))
-        val owner = r.data.obj(ownerKey) ?: throw r.failure(if (kind == ProjectOwnerKind.Repo) "未找到仓库，或当前账号没有访问权限" else "未找到该账号，或当前账号没有访问权限")
+        val owner = r.data.obj(ownerKey) ?: throw r.failure(if (kind == ProjectOwnerKind.Repo) tr("未找到仓库，或当前账号没有访问权限") else tr("未找到该账号，或当前账号没有访问权限"))
         val conn = owner.obj("projectsV2") ?: throw r.failure(ProjectErrors.NOT_FOUND_MESSAGE)
         return connection(conn, after, ::parseSummary)
     }
@@ -318,24 +320,24 @@ open class ProjectsClient(
         }
         val r = write(if (optionId == null) CLEAR_MUTATION else UPDATE_MUTATION, mapOf("input" to input))
         val key = if (optionId == null) "clearProjectV2ItemFieldValue" else "updateProjectV2ItemFieldValue"
-        r.data.obj(key)?.obj("projectV2Item")?.str("id") ?: throw r.failure("GitHub 未确认字段已修改；请刷新检查")
+        r.data.obj(key)?.obj("projectV2Item")?.str("id") ?: throw r.failure(tr("GitHub 未确认字段已修改；请刷新检查"))
     }
 
     suspend fun delete(projectId: String, itemId: String) {
         val input = buildJsonObject { put("projectId", projectId); put("itemId", itemId) }
         val r = write(DELETE_MUTATION, mapOf("input" to input))
-        r.data.obj("deleteProjectV2Item")?.str("deletedItemId") ?: throw r.failure("GitHub 未确认条目已移除；请刷新检查")
+        r.data.obj("deleteProjectV2Item")?.str("deletedItemId") ?: throw r.failure(tr("GitHub 未确认条目已移除；请刷新检查"))
     }
 
     suspend fun addDraft(projectId: String, title: String, body: String): ProjectItem {
-        require(title.isNotBlank()) { "请填写标题" }
+        require(title.isNotBlank()) { tr("请填写标题") }
         val input = buildJsonObject {
             put("projectId", projectId)
             put("title", title.trim())
             if (body.isNotBlank()) put("body", body)
         }
         val r = write(ADD_DRAFT_MUTATION, mapOf("input" to input))
-        val node = r.data.obj("addProjectV2DraftIssue")?.obj("projectItem") ?: throw r.failure("GitHub 未确认草稿已添加；请刷新检查")
+        val node = r.data.obj("addProjectV2DraftIssue")?.obj("projectItem") ?: throw r.failure(tr("GitHub 未确认草稿已添加；请刷新检查"))
         return parseItem(node)
     }
 
@@ -346,7 +348,7 @@ open class ProjectsClient(
             val e = errors.firstOrNull() ?: return ApiException(404, fallback)
             val msg = e.str("message")
             return when (ProjectErrors.classify(e.str("type"), msg)) {
-                ProjectErrorKind.Forbidden -> ApiException(403, ProjectErrors.FORBIDDEN_PREFIX + (msg ?: "权限不足"))
+                ProjectErrorKind.Forbidden -> ApiException(403, ProjectErrors.FORBIDDEN_PREFIX + (msg ?: tr("权限不足")))
                 ProjectErrorKind.NotFound -> ApiException(404, fallback)
                 else -> ApiException(400, msg ?: fallback)
             }
@@ -364,7 +366,7 @@ open class ProjectsClient(
         }
         val data = root["data"] as? JsonObject
         val result = Result(data, errors)
-        if (data == null) throw result.failure("GraphQL 错误")
+        if (data == null) throw result.failure(tr("GraphQL 错误"))
         return result
     }
 
@@ -407,7 +409,7 @@ open class ProjectsClient(
         return ProjectItem(
             id = n.need("id"), type = if (content == null) ProjectItemType.Redacted else type,
             archived = n.bool("isArchived") ?: false,
-            title = content?.str("title") ?: "无权访问的条目",
+            title = content?.str("title") ?: tr("无权访问的条目"),
             number = content?.int("number"), url = content?.str("url"),
             repository = content?.obj("repository")?.str("nameWithOwner"),
             state = content?.str(if (pr) "prState" else "issueState"), stateReason = content?.str("stateReason"),
@@ -443,14 +445,14 @@ open class ProjectsClient(
         val info = node.obj("pageInfo") ?: malformed("pageInfo")
         val next = info.str("endCursor")
         val hasNext = info.bool("hasNextPage") ?: false
-        if (hasNext && (next.isNullOrBlank() || next == after)) throw ApiException(502, "GitHub 返回的分页游标无效，请刷新重试")
+        if (hasNext && (next.isNullOrBlank() || next == after)) throw ApiException(502, tr("GitHub 返回的分页游标无效，请刷新重试"))
         val items = nodes.mapNotNull { if (it is JsonObject) parse(it) else null }
         return DiscussionPage(items, next, hasNext, node.int("totalCount") ?: items.size)
     }
 
     private fun JsonElement.bool(key: String) = ((this as? JsonObject)?.get(key) as? JsonPrimitive)?.takeIf { it !is JsonNull }?.booleanOrNull
     private fun JsonObject.need(key: String) = str(key) ?: malformed(key)
-    private fun malformed(key: String): Nothing = throw ApiException(502, "GitHub 项目数据不完整：$key")
+    private fun malformed(key: String): Nothing = throw ApiException(502, trf("GitHub 项目数据不完整：{0}", key))
 
     companion object {
         const val LIST_PAGE = 20

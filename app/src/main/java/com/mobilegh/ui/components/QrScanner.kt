@@ -51,6 +51,7 @@ import com.mobilegh.R
 import com.mobilegh.ui.theme.Gh
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import com.mobilegh.i18n.tr
 
 /** 扫码结果：otpauth:// 链接或纯密钥文本 */
 class QrResult(val text: String) {
@@ -106,7 +107,7 @@ fun QrScannerScreen(onScanned: (QrResult) -> Unit, onBack: () -> Unit) {
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
     LaunchedEffect(Unit) { if (!granted) permission.launch(Manifest.permission.CAMERA) }
     if (!granted) {
-        Page("扫码导入", onBack = onBack) { pad ->
+        Page(tr("扫码导入"), onBack = onBack) { pad ->
             Column(
                 Modifier.padding(pad).fillMaxSize().padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -114,11 +115,11 @@ fun QrScannerScreen(onScanned: (QrResult) -> Unit, onBack: () -> Unit) {
             ) {
                 Oc(R.drawable.oc_x_circle, g.fgMuted, 40.dp)
                 Spacer(Modifier.height(16.dp))
-                Text("需要相机权限才能扫码", color = g.fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(tr("需要相机权限才能扫码"), color = g.fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(8.dp))
-                Text("也可以返回后手动粘贴密钥或 otpauth 链接。", color = g.fgMuted, fontSize = 14.sp)
+                Text(tr("也可以返回后手动粘贴密钥或 otpauth 链接。"), color = g.fgMuted, fontSize = 14.sp)
                 Spacer(Modifier.height(24.dp))
-                GhButton("授予相机权限", primary = true) { permission.launch(Manifest.permission.CAMERA) }
+                GhButton(tr("授予相机权限"), primary = true) { permission.launch(Manifest.permission.CAMERA) }
             }
         }
         return
@@ -127,7 +128,7 @@ fun QrScannerScreen(onScanned: (QrResult) -> Unit, onBack: () -> Unit) {
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val executor = remember { Executors.newSingleThreadExecutor() }
     DisposableEffect(Unit) { onDispose { executor.shutdown() } }
-    Page("扫码导入", onBack = onBack) { pad ->
+    Page(tr("扫码导入"), onBack = onBack) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
@@ -168,10 +169,10 @@ fun QrScannerScreen(onScanned: (QrResult) -> Unit, onBack: () -> Unit) {
                 ) {
                     Oc(R.drawable.oc_scan, Color.White, 16.dp)
                     Spacer(Modifier.width(8.dp))
-                    Text("对准 GitHub 显示的二维码即可自动导入", color = Color.White, fontSize = 13.sp)
+                    Text(tr("对准 GitHub 显示的二维码即可自动导入"), color = Color.White, fontSize = 13.sp)
                 }
                 Spacer(Modifier.height(12.dp))
-                GhButton("手动粘贴密钥") { onBack() }
+                GhButton(tr("手动粘贴密钥")) { onBack() }
                 Spacer(Modifier.height(16.dp))
             }
         }

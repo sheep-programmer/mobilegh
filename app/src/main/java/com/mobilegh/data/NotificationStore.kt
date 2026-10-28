@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import kotlinx.serialization.Serializable
 import java.util.concurrent.ConcurrentHashMap
+import com.mobilegh.i18n.tr
 
 @Serializable
 data class LocalNotifications(
@@ -23,7 +24,7 @@ object NotificationStore {
     fun read(login: String): LocalNotifications = cache.getOrPut(login.lowercase()) {
         prefs?.getString(login.lowercase(), null)?.let { encrypted ->
             runCatching { Api.plain.decodeFromString(LocalNotifications.serializer(), Crypto.decrypt(encrypted)) }
-                .onFailure { AppLog.warn("notifications", "本机通知状态读取失败") }.getOrNull()
+                .onFailure { AppLog.warn("notifications", tr("本机通知状态读取失败")) }.getOrNull()
         } ?: LocalNotifications()
     }
 
@@ -32,7 +33,7 @@ object NotificationStore {
         val key = login.lowercase()
         if (cache[key] == value) return
         val encrypted = Crypto.encrypt(Api.plain.encodeToString(LocalNotifications.serializer(), value))
-        check(prefs?.edit()?.putString(key, encrypted)?.commit() == true) { "无法保存本机通知状态" }
+        check(prefs?.edit()?.putString(key, encrypted)?.commit() == true) { tr("无法保存本机通知状态") }
         cache[key] = value
         WidgetStore.invalidateInbox(login)
     }

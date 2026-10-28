@@ -20,6 +20,8 @@ import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.RepoItem
 import com.mobilegh.ui.components.relTime
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** 用户仓库与组织仓库：一个排序下拉 + 一份分页列表 */
 @Composable
@@ -34,7 +36,7 @@ internal fun RepoFeedScreen(kind: RepoKind, login: String, name: String) {
         Column(Modifier.padding(pad)) {
             Row(Modifier.padding(12.dp)) { Dropdown(SORTS[sort].second, SORTS.map { it.second }, { sort = it }) }
             HDivider()
-            PagedList(pager, empty = "没有可见的仓库", emptyIcon = R.drawable.oc_repo) { RepoItem(it) }
+            PagedList(pager, empty = tr("没有可见的仓库"), emptyIcon = R.drawable.oc_repo) { RepoItem(it) }
         }
     }
 }
@@ -47,14 +49,14 @@ internal fun ForkListScreen(login: String, name: String) {
         Column(Modifier.padding(pad)) {
             PagedList(
                 pager,
-                empty = "还没有人 Fork 这个仓库",
+                empty = tr("还没有人 Fork 这个仓库"),
                 emptyIcon = R.drawable.oc_repo,
-            ) { RepoItem(it, extra = "创建于 ${relTime(it.createdAt)}") }
+            ) { RepoItem(it, extra = relTime(it.createdAt).takeIf { t -> t.isNotEmpty() }?.let { t -> trf("创建于 {0}", t) }) }
         }
     }
 }
 
-private fun repoFeedTitle(kind: RepoKind) = if (kind == RepoKind.Org) "组织仓库" else "仓库"
+private fun repoFeedTitle(kind: RepoKind) = if (kind == RepoKind.Org) tr("组织仓库") else tr("仓库")
 
 /** 页头副标题：Fork 页要看得出是「谁的哪个仓库」 */
 internal fun repoPageSubtitle(login: String, name: String) = if (name.isNotEmpty()) "$login/$name" else login

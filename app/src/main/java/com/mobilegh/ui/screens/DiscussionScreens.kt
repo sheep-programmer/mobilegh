@@ -91,6 +91,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trc
+import com.mobilegh.i18n.trf
 
 /** One retained pager per connection; filter changes replace its window and cancel old requests. */
 internal class DiscussionCursorPager<T>(
@@ -204,7 +207,7 @@ fun DiscussionsScreen(
     Page("Discussions", subtitle = "$owner/$name") { padding ->
         LoadBox(repository, Modifier.padding(padding)) { repo ->
             if (!repo.enabled) {
-                EmptyState("此仓库未启用 Discussions", R.drawable.oc_comment_discussion)
+                EmptyState(tr("此仓库未启用 Discussions"), R.drawable.oc_comment_discussion)
             } else {
                 val categories = retain("discussions:categories") { entry ->
                     DiscussionCursorPager<DiscussionCategory>(entry.scope, DiscussionsClient.MAX_CATEGORIES) { it.id }
@@ -225,21 +228,21 @@ fun DiscussionsScreen(
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Dropdown(
-                                    categories.items.find { it.id == categoryId }?.name ?: "全部分类",
-                                    listOf("全部分类") + categories.items.map { it.name },
+                                    categories.items.find { it.id == categoryId }?.name ?: tr("全部分类"),
+                                    listOf(tr("全部分类")) + categories.items.map { it.name },
                                     { index -> categoryId = categories.items.getOrNull(index - 1)?.id },
                                     Modifier.weight(1f),
                                 )
                                 Spacer(Modifier.width(8.dp))
-                                GhButton("新讨论", enabled = allowed && categories.items.isNotEmpty()) { composing = true }
+                                GhButton(tr("新讨论"), enabled = allowed && categories.items.isNotEmpty()) { composing = true }
                             }
-                            CursorFooter(categories, "加载更多分类", "分类")
-                            GhField(query, { query = it }, "搜索已加载讨论")
-                            Text("搜索标题、作者、分类和编号 · 已加载 ${discussions.items.size}/${discussions.totalCount}", color = g.fgMuted, fontSize = 12.sp)
-                            if (!allowed) Text(if (repo.archived) "仓库已归档，仅可阅读" else "当前账号仅可阅读讨论", color = g.fgMuted, fontSize = 12.sp)
+                            CursorFooter(categories, tr("加载更多分类"), tr("分类"))
+                            GhField(query, { query = it }, tr("搜索已加载讨论"))
+                            Text(trf("搜索标题、作者、分类和编号 · 已加载 {0}/{1}", discussions.items.size, discussions.totalCount), color = g.fgMuted, fontSize = 12.sp)
+                            if (!allowed) Text(if (repo.archived) tr("仓库已归档，仅可阅读") else tr("当前账号仅可阅读讨论"), color = g.fgMuted, fontSize = 12.sp)
                         }
-                        Chips(listOf("全部", "未解答", "已解答"), answeredFilter) { answeredFilter = it }
-                        GhButton("刷新", Modifier.padding(horizontal = 12.dp), enabled = !discussions.loading) {
+                        Chips(listOf(tr("全部"), tr("未解答"), tr("已解答")), answeredFilter) { answeredFilter = it }
+                        GhButton(tr("刷新"), Modifier.padding(horizontal = 12.dp), enabled = !discussions.loading) {
                             repository.refresh()
                             categories.refresh()
                             discussions.refresh()
@@ -252,22 +255,22 @@ fun DiscussionsScreen(
                         }.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(discussion.title, color = g.fg, fontWeight = FontWeight.SemiBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
                             DiscussionStats(discussion, "#${discussion.number} · ${discussion.category.name}")
-                            Text("${discussion.author?.login ?: "ghost"} · ${relTime(discussion.updatedAt)}${if (discussion.answered) " · 已解答" else ""}${if (discussion.closed) " · 已关闭" else ""}${if (discussion.locked) " · 已锁定" else ""}", color = g.fgMuted, fontSize = 12.sp)
+                            Text("${discussion.author?.login ?: "ghost"} · ${relTime(discussion.updatedAt)}${if (discussion.answered) tr(" · 已解答") else ""}${if (discussion.closed) tr(" · 已关闭") else ""}${if (discussion.locked) tr(" · 已锁定") else ""}", color = g.fgMuted, fontSize = 12.sp)
                         }
                         HDivider()
                     }
                     if (shown.isEmpty() && discussions.loaded && discussions.error == null && !discussions.loading) {
-                        if (query.isNotBlank()) emptyItem(listState, "已加载讨论中没有匹配项", R.drawable.oc_search, "清除搜索") { query = "" }
-                        else if (allowed && categories.items.isNotEmpty()) emptyItem(listState, "此筛选下没有已加载的讨论", R.drawable.oc_comment_discussion, "发起新讨论") { composing = true }
-                        else emptyItem(listState, "此筛选下没有已加载的讨论", R.drawable.oc_comment_discussion)
+                        if (query.isNotBlank()) emptyItem(listState, tr("已加载讨论中没有匹配项"), R.drawable.oc_search, tr("清除搜索")) { query = "" }
+                        else if (allowed && categories.items.isNotEmpty()) emptyItem(listState, tr("此筛选下没有已加载的讨论"), R.drawable.oc_comment_discussion, tr("发起新讨论")) { composing = true }
+                        else emptyItem(listState, tr("此筛选下没有已加载的讨论"), R.drawable.oc_comment_discussion)
                     }
-                    item { CursorFooter(discussions, "加载更多讨论", "讨论", Modifier.padding(12.dp)) }
+                    item { CursorFooter(discussions, tr("加载更多讨论"), tr("讨论"), Modifier.padding(12.dp)) }
                     item { Spacer(Modifier.height(24.dp)) }
                 }
                 if (composing) {
                     DiscussionComposeDialog(
                         draftKey = "new-discussion:${owner.lowercase()}/${name.lowercase()}",
-                        title = "新讨论", categories = categories.items, initialCategory = categoryId,
+                        title = tr("新讨论"), categories = categories.items, initialCategory = categoryId,
                         enabled = allowed, onDismiss = { composing = false },
                         contextRepo = "$owner/$name",
                         onSubmit = { category, title, body ->
@@ -355,20 +358,20 @@ fun DiscussionDetailScreen(
         busy = true
         entry.write<Boolean>({ busy = false; ctx.toast(it) }, {
             busy = false
-            ctx.toast(if (on) "已采纳为答案" else "已取消采纳")
+            ctx.toast(if (on) tr("已采纳为答案") else tr("已取消采纳"))
             reload()
             nav.refreshDiscussionList(owner, name)
         }) { Discussions.markAnswer(comment.id, on) }
     }
 
-    Page("讨论 #$number", subtitle = "$owner/$name", actions = {
+    Page(trf("讨论 #{0}", number), subtitle = "$owner/$name", actions = {
         MoreMenu(buildList {
             val d = t?.discussion
-            if (d != null && d.viewerCanUpdate) add(MenuAction("编辑讨论") { editingDiscussion = true })
-            add(MenuAction("刷新") { reload() })
-            add(MenuAction("复制链接") { ctx.copy(url) })
-            add(MenuAction("在浏览器打开") { ctx.openBrowser(url) })
-            if (d != null && d.viewerCanDelete) add(MenuAction("删除讨论", danger = true) { deletingDiscussion = true })
+            if (d != null && d.viewerCanUpdate) add(MenuAction(tr("编辑讨论")) { editingDiscussion = true })
+            add(MenuAction(tr("刷新")) { reload() })
+            add(MenuAction(tr("复制链接")) { ctx.copy(url) })
+            add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser(url) })
+            if (d != null && d.viewerCanDelete) add(MenuAction(tr("删除讨论"), danger = true) { deletingDiscussion = true })
         })
     }) { padding ->
         LoadBox(thread, Modifier.padding(padding)) { data ->
@@ -387,14 +390,14 @@ fun DiscussionDetailScreen(
             }
 
             fun menuFor(comment: DiscussionComment, topLevel: Boolean): List<MenuAction> = buildList {
-                if (topLevel && allowed) add(MenuAction("回复") { compose(comment) })
+                if (topLevel && allowed) add(MenuAction(tr("回复")) { compose(comment) })
                 if (topLevel && answerable && !comment.isAnswer && comment.viewerCanMarkAsAnswer) {
-                    add(MenuAction("采纳为答案") { markAnswer(comment, true) })
+                    add(MenuAction(tr("采纳为答案")) { markAnswer(comment, true) })
                 }
-                if (comment.isAnswer && comment.viewerCanUnmarkAsAnswer) add(MenuAction("取消采纳答案") { markAnswer(comment, false) })
-                if (comment.viewerCanUpdate && comment.body != null) add(MenuAction("编辑") { editingComment = comment })
-                add(MenuAction("复制链接") { ctx.copy(comment.url) })
-                if (comment.viewerCanDelete) add(MenuAction("删除", danger = true) { deletingComment = comment })
+                if (comment.isAnswer && comment.viewerCanUnmarkAsAnswer) add(MenuAction(tr("取消采纳答案")) { markAnswer(comment, false) })
+                if (comment.viewerCanUpdate && comment.body != null) add(MenuAction(tr("编辑")) { editingComment = comment })
+                add(MenuAction(tr("复制链接")) { ctx.copy(comment.url) })
+                if (comment.viewerCanDelete) add(MenuAction(tr("删除"), danger = true) { deletingComment = comment })
             }
 
             @Composable
@@ -403,8 +406,8 @@ fun DiscussionDetailScreen(
                 TimelineCard(
                     comment.author?.asUser(), comment.createdAt,
                     when {
-                        answer -> "已采纳答案"
-                        comment.author != null && comment.author.login == discussion.author?.login -> "作者"
+                        answer -> tr("已采纳答案")
+                        comment.author != null && comment.author.login == discussion.author?.login -> tr("作者")
                         else -> null
                     },
                     if (comment.isMinimized) null else comment.bodyHtml, comment.url,
@@ -412,7 +415,7 @@ fun DiscussionDetailScreen(
                     modifier = modifier,
                     borderColor = if (answer) g.success else g.border,
                     badgeColor = if (answer) g.success else g.fgMuted,
-                    emptyText = if (comment.isMinimized) "此评论已被折叠" else "没有提供内容。",
+                    emptyText = if (comment.isMinimized) tr("此评论已被折叠") else tr("没有提供内容。"),
                 ) {
                     Upvote(comment.id, comment.upvoteCount, comment.viewerHasUpvoted, comment.viewerCanUpvote)
                 }
@@ -430,22 +433,22 @@ fun DiscussionDetailScreen(
                     TimelineCard(
                         discussion.author?.asUser(), discussion.createdAt, null, discussion.bodyHtml, discussion.url,
                         menu = buildList {
-                            if (allowed) add(MenuAction("回复讨论") { compose() })
-                            if (discussion.viewerCanUpdate) add(MenuAction("编辑") { editingDiscussion = true })
-                            add(MenuAction("复制链接") { ctx.copy(url) })
-                            if (discussion.viewerCanDelete) add(MenuAction("删除讨论", danger = true) { deletingDiscussion = true })
+                            if (allowed) add(MenuAction(tr("回复讨论")) { compose() })
+                            if (discussion.viewerCanUpdate) add(MenuAction(tr("编辑")) { editingDiscussion = true })
+                            add(MenuAction(tr("复制链接")) { ctx.copy(url) })
+                            if (discussion.viewerCanDelete) add(MenuAction(tr("删除讨论"), danger = true) { deletingDiscussion = true })
                         },
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Upvote(discussion.id, discussion.upvoteCount, discussion.viewerHasUpvoted, discussion.viewerCanUpvote)
-                            if (allowed) ActionPill(R.drawable.oc_comment, "回复") { compose() }
+                            if (allowed) ActionPill(R.drawable.oc_comment, tr("回复")) { compose() }
                         }
                     }
                     if (!allowed) Text(when {
-                        data.repository.archived -> "仓库已归档，仅可阅读"
-                        discussion.locked -> "讨论已锁定"
-                        discussion.closed -> "讨论已关闭"
-                        else -> "当前账号仅可阅读讨论"
+                        data.repository.archived -> tr("仓库已归档，仅可阅读")
+                        discussion.locked -> tr("讨论已锁定")
+                        discussion.closed -> tr("讨论已关闭")
+                        else -> tr("当前账号仅可阅读讨论")
                     }, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = g.fgMuted, fontSize = 12.sp)
                 }
                 val answer = data.answer
@@ -454,13 +457,13 @@ fun DiscussionDetailScreen(
                         Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                             Oc(R.drawable.oc_check_circle_fill, g.success, 16.dp)
                             Spacer(Modifier.width(6.dp))
-                            Text("${answer.author?.login ?: "ghost"} 的回答已被采纳", color = g.success, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(trf("{0} 的回答已被采纳", answer.author?.login ?: "ghost"), color = g.success, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                     item(key = "answer:${answer.id}") { Comment(answer, topLevel = false) }
                 }
                 item(key = "comments-title") {
-                    SectionTitle("评论 ${comments.totalCount.takeIf { it > 0 } ?: discussion.commentCount}")
+                    SectionTitle(trf("评论 {0}", comments.totalCount.takeIf { it > 0 } ?: discussion.commentCount))
                 }
                 comments.items.forEach { comment ->
                     item(key = comment.id) { Comment(comment, topLevel = true) }
@@ -475,8 +478,8 @@ fun DiscussionDetailScreen(
                             when {
                                 full && replies.loading -> Loading(Modifier.fillMaxWidth().height(40.dp))
                                 full && replies.error != null -> InlineError(replies.error!!) { replies.retry() }
-                                full && replies.limited -> Text("已达到回复加载上限，更多回复可在 GitHub 查看。", color = g.fgMuted, fontSize = 12.sp)
-                                more -> TextLink("查看更多回复（共 ${comment.replyCount} 条）") {
+                                full && replies.limited -> Text(tr("已达到回复加载上限，更多回复可在 GitHub 查看。"), color = g.fgMuted, fontSize = 12.sp)
+                                more -> TextLink(trf("查看更多回复（共 {0} 条）", comment.replyCount)) {
                                     if (full) replies.loadMore()
                                     else {
                                         expanded = comment.id
@@ -484,7 +487,7 @@ fun DiscussionDetailScreen(
                                         if (comment.replies != null) replies.loadMore()
                                     }
                                 }
-                                else -> TextLink("收起回复", Gh.c.fgMuted) {
+                                else -> TextLink(tr("收起回复"), Gh.c.fgMuted) {
                                     replies.stop()
                                     expanded = null
                                 }
@@ -495,18 +498,18 @@ fun DiscussionDetailScreen(
                 if (comments.loaded && comments.items.isEmpty() && comments.error == null) {
                     item(key = "empty") {
                         Text(
-                            if (allowed) "还没有评论，点按上方「回复」参与讨论" else "还没有评论",
+                            if (allowed) tr("还没有评论，点按上方「回复」参与讨论") else tr("还没有评论"),
                             Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = g.fgMuted, fontSize = 13.sp,
                         )
                     }
                 }
-                item(key = "footer") { CursorFooter(comments, "加载更多评论", "评论", Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) }
+                item(key = "footer") { CursorFooter(comments, tr("加载更多评论"), trc("评论", "noun"), Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) }
                 item { Spacer(Modifier.height(24.dp)) }
             }
             if (composing) {
                 DiscussionComposeDialog(
                     draftKey = "discussion:${owner.lowercase()}/${name.lowercase()}:$number:${replyTo?.id ?: "root"}",
-                    title = replyTo?.author?.login?.let { "回复 @$it" } ?: "回复讨论",
+                    title = replyTo?.author?.login?.let { trf("回复 @{0}", it) } ?: tr("回复讨论"),
                     enabled = allowed, contextRepo = "$owner/$name", onDismiss = { composing = false },
                     onSubmit = { _, _, body ->
                         entry.guarded {
@@ -523,57 +526,57 @@ fun DiscussionDetailScreen(
 
     val d = t?.discussion
     if (editingDiscussion && d != null) {
-        EditDialog("编辑讨论", d.title, d.body.orEmpty(), "$owner/$name", onDismiss = { editingDiscussion = false }, busy = busy) { title, body ->
+        EditDialog(tr("编辑讨论"), d.title, d.body.orEmpty(), "$owner/$name", onDismiss = { editingDiscussion = false }, busy = busy) { title, body ->
             busy = true
             entry.write<Unit>({ busy = false; ctx.toast(it) }, {
                 busy = false
                 editingDiscussion = false
-                ctx.toast("已保存")
+                ctx.toast(tr("已保存"))
                 reload()
                 nav.refreshDiscussionList(owner, name)
             }) { Discussions.update(d.id, title, body) }
         }
     }
     editingComment?.let { c ->
-        EditDialog("编辑评论", null, c.body.orEmpty(), "$owner/$name", onDismiss = { editingComment = null }, busy = busy) { _, body ->
+        EditDialog(tr("编辑评论"), null, c.body.orEmpty(), "$owner/$name", onDismiss = { editingComment = null }, busy = busy) { _, body ->
             busy = true
             entry.write<Unit>({ busy = false; ctx.toast(it) }, {
                 busy = false
                 editingComment = null
-                ctx.toast("已保存")
+                ctx.toast(tr("已保存"))
                 reload()
             }) { Discussions.updateComment(c.id, body) }
         }
     }
     deletingComment?.let { c ->
         GhDialog(
-            "删除评论", { if (!busy) deletingComment = null }, confirm = if (busy) "删除中…" else "删除", danger = true, confirmEnabled = !busy,
+            tr("删除评论"), { if (!busy) deletingComment = null }, confirm = if (busy) tr("删除中…") else tr("删除"), danger = true, confirmEnabled = !busy,
             onConfirm = {
                 busy = true
                 entry.write<Unit>({ busy = false; deletingComment = null; ctx.toast(it) }, {
                     busy = false
                     deletingComment = null
-                    ctx.toast("已删除")
+                    ctx.toast(tr("已删除"))
                     reload()
                     nav.refreshDiscussionList(owner, name)
                 }) { Discussions.deleteComment(c.id) }
             },
-        ) { Text(if (c.replyCount > 0) "评论及其 ${c.replyCount} 条回复将被删除，无法恢复。" else "删除后无法恢复。", color = g.fg) }
+        ) { Text(if (c.replyCount > 0) trf("评论及其 {0} 条回复将被删除，无法恢复。", c.replyCount) else tr("删除后无法恢复。"), color = g.fg) }
     }
     if (deletingDiscussion && d != null) {
         GhDialog(
-            "删除讨论", { if (!busy) deletingDiscussion = false }, confirm = if (busy) "删除中…" else "删除", danger = true, confirmEnabled = !busy,
+            tr("删除讨论"), { if (!busy) deletingDiscussion = false }, confirm = if (busy) tr("删除中…") else tr("删除"), danger = true, confirmEnabled = !busy,
             onConfirm = {
                 busy = true
                 entry.write<Unit>({ busy = false; deletingDiscussion = false; ctx.toast(it) }, {
                     busy = false
                     deletingDiscussion = false
-                    ctx.toast("讨论已删除")
+                    ctx.toast(tr("讨论已删除"))
                     nav.refreshDiscussionList(owner, name)
                     nav.pop()
                 }) { Discussions.delete(d.id) }
             },
-        ) { Text("「${d.title}」及其全部评论将被永久删除，无法恢复。", color = g.fg) }
+        ) { Text(trf("「{0}」及其全部评论将被永久删除，无法恢复。", d.title), color = g.fg) }
     }
 }
 
@@ -587,7 +590,7 @@ private fun UpvotePill(count: Int, on: Boolean, enabled: Boolean, onClick: () ->
         Modifier.clip(shape)
             .background(if (on) g.accentSubtle else g.canvas, shape)
             .border(1.dp, if (on) g.accent.copy(alpha = 0.6f) else g.border, shape)
-            .clickable(enabled, role = androidx.compose.ui.semantics.Role.Switch, onClickLabel = if (on) "取消点赞" else "点赞", onClick = onClick)
+            .clickable(enabled, role = androidx.compose.ui.semantics.Role.Switch, onClickLabel = if (on) tr("取消点赞") else tr("点赞"), onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -620,7 +623,7 @@ private fun <T> CursorFooter(pager: DiscussionCursorPager<T>, more: String, noun
         when {
             pager.loading -> Loading(Modifier.fillMaxWidth().height(48.dp))
             pager.error != null -> InlineError(pager.error!!) { pager.retry() }
-            pager.limited -> Text("已达到本页${noun}加载上限；刷新可从头加载，更多内容可在 GitHub 查看。", color = g.fgMuted, fontSize = 12.sp)
+            pager.limited -> Text(trf("已达到本页{0}加载上限；刷新可从头加载，更多内容可在 GitHub 查看。", noun), color = g.fgMuted, fontSize = 12.sp)
             pager.hasMore -> GhButton(more) { pager.loadMore() }
         }
     }
@@ -647,7 +650,7 @@ private fun DiscussionComposeDialog(
     val valid = enabled && !sending && body.text.isNotBlank() &&
         (categories == null || (subject.isNotBlank() && categories.any { it.id == category }))
     GhDialog(
-        title, onDismiss = { if (!sending) onDismiss() }, confirm = if (sending) "发表中…" else "发表",
+        title, onDismiss = { if (!sending) onDismiss() }, confirm = if (sending) tr("发表中…") else tr("发表"),
         confirmEnabled = valid, onConfirm = {
             if (valid) {
                 sending = true
@@ -674,21 +677,21 @@ private fun DiscussionComposeDialog(
     ) {
         Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (categories != null) {
-                Dropdown(categories.find { it.id == category }?.name ?: "选择分类", categories.map { it.name }, {
+                Dropdown(categories.find { it.id == category }?.name ?: tr("选择分类"), categories.map { it.name }, {
                     if (!sending) category = categories[it].id
                 })
                 categories.find { it.id == category }?.let { c ->
-                    if (c.isAnswerable) Text("问答分类：可以把有帮助的回复采纳为答案", color = Gh.c.fgMuted, fontSize = 12.sp)
+                    if (c.isAnswerable) Text(tr("问答分类：可以把有帮助的回复采纳为答案"), color = Gh.c.fgMuted, fontSize = 12.sp)
                 }
-                GhField(subject, { if (!sending) subject = it }, "标题")
+                GhField(subject, { if (!sending) subject = it }, tr("标题"))
             }
             MarkdownEditor(
                 body, { if (!sending) body = it },
-                placeholder = if (categories != null) "正文（支持 Markdown）" else "回复内容（支持 Markdown）",
+                placeholder = if (categories != null) tr("正文（支持 Markdown）") else tr("回复内容（支持 Markdown）"),
                 contextRepo = contextRepo, minLines = 6,
             )
             DraftBinding(draft, DraftValue(subject, body.text, category))
-            if (!enabled) Text("当前无法发表，请检查账号权限或刷新讨论。", color = Gh.c.fgMuted, fontSize = 12.sp)
+            if (!enabled) Text(tr("当前无法发表，请检查账号权限或刷新讨论。"), color = Gh.c.fgMuted, fontSize = 12.sp)
             error?.let { Text(it, color = Gh.c.danger, fontSize = 13.sp) }
         }
     }
@@ -702,6 +705,6 @@ private fun DiscussionStats(discussion: Discussion, lead: String) {
         Text(lead, color = g.fgMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
         com.mobilegh.ui.components.IconText(R.drawable.oc_comment, discussion.commentCount.toString())
         com.mobilegh.ui.components.IconText(R.drawable.oc_arrow_up, discussion.upvoteCount.toString())
-        if (discussion.answered) com.mobilegh.ui.components.IconText(R.drawable.oc_check_circle, "已解答", g.success)
+        if (discussion.answered) com.mobilegh.ui.components.IconText(R.drawable.oc_check_circle, tr("已解答"), g.success)
     }
 }

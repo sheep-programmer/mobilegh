@@ -72,6 +72,8 @@ import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.delay
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** 保存的搜索图标 key → Octicon */
 @DrawableRes
@@ -127,9 +129,9 @@ fun IssueFilterBar(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Str
             }
         }
         GhField(
-            input, { input = it }, "搜索 $noun",
+            input, { input = it }, trf("搜索 {0}", noun),
             Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
-            placeholder = "标题、正文或评论中的关键词",
+            placeholder = tr("标题、正文或评论中的关键词"),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { onChange(query.copy(text = input.trim())) }),
             trailing = if (input.isNotEmpty()) ({ OcButton(R.drawable.oc_x, { input = ""; onChange(query.copy(text = "")) }, g.fgMuted) }) else null,
@@ -139,20 +141,20 @@ fun IssueFilterBar(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Str
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Dropdown("排序：${query.sort.label}", IssueSort.entries.map { it.label }, { onChange(query.copy(sort = IssueSort.entries[it])) }, active = query.sort != IssueSort.Newest)
+            Dropdown(trf("排序：{0}", query.sort.label), IssueSort.entries.map { it.label }, { onChange(query.copy(sort = IssueSort.entries[it])) }, active = query.sort != IssueSort.Newest)
             if (owner != null && name != null) {
-                DropdownButton(query.author?.let { "作者：$it" } ?: "作者", active = query.author != null) { dialog = FilterDialog.Author }
-                DropdownButton(query.assignee?.let { "指派人：$it" } ?: "指派人", active = query.assignee != null) { dialog = FilterDialog.Assignee }
-                DropdownButton(if (query.labels.isEmpty()) "标签" else "标签 · ${query.labels.size}", active = query.labels.isNotEmpty()) { dialog = FilterDialog.Labels }
-                DropdownButton(query.milestone?.let { "里程碑：$it" } ?: "里程碑", active = query.milestone != null) { dialog = FilterDialog.Milestone }
+                DropdownButton(query.author?.let { trf("作者：{0}", it) } ?: tr("作者"), active = query.author != null) { dialog = FilterDialog.Author }
+                DropdownButton(query.assignee?.let { trf("指派人：{0}", it) } ?: tr("指派人"), active = query.assignee != null) { dialog = FilterDialog.Assignee }
+                DropdownButton(if (query.labels.isEmpty()) tr("标签") else trf("标签 · {0}", query.labels.size), active = query.labels.isNotEmpty()) { dialog = FilterDialog.Labels }
+                DropdownButton(query.milestone?.let { trf("里程碑：{0}", it) } ?: tr("里程碑"), active = query.milestone != null) { dialog = FilterDialog.Milestone }
             }
             if (query.pulls) {
                 val reviews = listOf<ReviewFilter?>(null) + ReviewFilter.entries
-                Dropdown(query.review?.label ?: "评审状态", reviews.map { it?.label ?: "不限" }, { onChange(query.copy(review = reviews[it])) }, active = query.review != null)
+                Dropdown(query.review?.label ?: tr("评审状态"), reviews.map { it?.label ?: tr("不限") }, { onChange(query.copy(review = reviews[it])) }, active = query.review != null)
                 val drafts = listOf(null, true, false)
                 Dropdown(
-                    when (query.draft) { true -> "仅草稿"; false -> "排除草稿"; null -> "草稿" },
-                    listOf("不限", "仅草稿", "排除草稿"), { onChange(query.copy(draft = drafts[it])) }, active = query.draft != null,
+                    when (query.draft) { true -> tr("仅草稿"); false -> tr("排除草稿"); null -> tr("草稿") },
+                    listOf(tr("不限"), tr("仅草稿"), tr("排除草稿")), { onChange(query.copy(draft = drafts[it])) }, active = query.draft != null,
                 )
             }
         }
@@ -162,19 +164,19 @@ fun IssueFilterBar(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Str
 
     if (owner != null && name != null) when (dialog) {
         FilterDialog.Author -> MetaPicker(
-            "assignees", owner, name, "按作者筛选", listOfNotNull(query.author), { dialog = null },
-            single = true, noneLabel = "不限", freeText = true,
+            "assignees", owner, name, tr("按作者筛选"), listOfNotNull(query.author), { dialog = null },
+            single = true, noneLabel = tr("不限"), freeText = true,
         ) { onChange(query.copy(author = it.firstOrNull()?.key)) }
         FilterDialog.Assignee -> MetaPicker(
-            "assignees", owner, name, "按指派人筛选", listOfNotNull(query.assignee), { dialog = null },
-            single = true, noneLabel = "不限", freeText = true,
+            "assignees", owner, name, tr("按指派人筛选"), listOfNotNull(query.assignee), { dialog = null },
+            single = true, noneLabel = tr("不限"), freeText = true,
         ) { onChange(query.copy(assignee = it.firstOrNull()?.key)) }
-        FilterDialog.Labels -> MetaPicker("labels", owner, name, "按标签筛选", query.labels, { dialog = null }, single = false) {
+        FilterDialog.Labels -> MetaPicker("labels", owner, name, tr("按标签筛选"), query.labels, { dialog = null }, single = false) {
             onChange(query.copy(labels = it.map { o -> o.key }.take(IssueQuery.MAX_LABELS)))
         }
         FilterDialog.Milestone -> MetaPicker(
-            "milestone", owner, name, "按里程碑筛选", listOfNotNull(query.milestone), { dialog = null },
-            single = true, noneLabel = "不限", milestoneByTitle = true,
+            "milestone", owner, name, tr("按里程碑筛选"), listOfNotNull(query.milestone), { dialog = null },
+            single = true, noneLabel = tr("不限"), milestoneByTitle = true,
         ) { onChange(query.copy(milestone = it.firstOrNull()?.key)) }
         null -> {}
     }
@@ -198,7 +200,7 @@ private fun ActiveFilters(query: IssueQuery, onChange: (IssueQuery) -> Unit) {
                 Modifier.clip(RoundedCornerShape(50)).background(g.accentSubtle)
                     .border(1.dp, g.accent.copy(alpha = 0.6f), RoundedCornerShape(50))
                     .clickable(role = Role.Button) { onChange(query.without(f)) }
-                    .semantics(mergeDescendants = true) { contentDescription = "移除筛选：${f.text}" }
+                    .semantics(mergeDescendants = true) { contentDescription = trf("移除筛选：{0}", f.text) }
                     .padding(start = 10.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -207,7 +209,7 @@ private fun ActiveFilters(query: IssueQuery, onChange: (IssueQuery) -> Unit) {
                 Oc(R.drawable.oc_x, g.accent, 12.dp)
             }
         }
-        TextLink("清除筛选") { onChange(query.cleared()) }
+        TextLink(tr("清除筛选")) { onChange(query.cleared()) }
     }
 }
 
@@ -222,18 +224,18 @@ fun IssueResults(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Strin
     val noun = if (q.pulls) "Pull Request" else "Issue"
     val filtered = q.hasFilters
     val empty = when {
-        filtered -> "没有符合筛选条件的 $noun"
-        q.involves == Involvement.Created -> "没有你创建的 $noun"
-        q.involves == Involvement.Assigned -> "没有指派给你的 $noun"
-        q.involves == Involvement.Mentioned -> "没有提及你的 $noun"
-        q.involves == Involvement.ReviewRequested -> "没有请求你评审的 $noun"
-        q.state == IssueStateFilter.Open -> "没有开放的 $noun"
-        q.state == IssueStateFilter.Closed -> "没有已关闭的 $noun"
-        else -> "没有 $noun"
+        filtered -> trf("没有符合筛选条件的 {0}", noun)
+        q.involves == Involvement.Created -> trf("没有你创建的 {0}", noun)
+        q.involves == Involvement.Assigned -> trf("没有指派给你的 {0}", noun)
+        q.involves == Involvement.Mentioned -> trf("没有提及你的 {0}", noun)
+        q.involves == Involvement.ReviewRequested -> trf("没有请求你评审的 {0}", noun)
+        q.state == IssueStateFilter.Open -> trf("没有开放的 {0}", noun)
+        q.state == IssueStateFilter.Closed -> trf("没有已关闭的 {0}", noun)
+        else -> trf("没有 {0}", noun)
     }
     val emptyIcon = if (filtered) R.drawable.oc_filter else if (q.pulls) R.drawable.oc_git_pull_request else R.drawable.oc_issue_opened
     val clear: (() -> Unit)? = if (filtered) ({ onChange(query.cleared()) }) else null
-    val emptyAction = if (filtered) "清除筛选" else "刷新"
+    val emptyAction = if (filtered) tr("清除筛选") else tr("刷新")
     val openIssue: (Issue) -> Unit = { issue ->
         val repo = issue.repositoryUrl?.substringAfter("/repos/")?.takeIf { it.contains('/') } ?: "$owner/$name"
         nav.push(Screen.IssueDetail(repo.substringBefore('/'), repo.substringAfter('/'), issue.number, issue.pullRequest != null))
@@ -277,13 +279,13 @@ fun SaveSearchDialog(query: IssueQuery, defaultName: String, onDismiss: () -> Un
     var name by remember { mutableStateOf(defaultName.take(HomeLayout.MAX_NAME)) }
     var icon by remember { mutableStateOf(if (query.pulls) "pr" else "issue") }
     val valid = name.isNotBlank() && name.trim().length <= HomeLayout.MAX_NAME
-    GhDialog("保存到首页", onDismiss, confirm = "保存", confirmEnabled = valid, onConfirm = {
-        runCatching { HomePrefs.addSearch(name, icon, query) ?: error("请先登录") }
-            .onSuccess { ctx.toast("已添加到首页「我的工作」"); onDismiss() }
-            .onFailure { ctx.toast(it.message ?: "保存失败") }
+    GhDialog(tr("保存到首页"), onDismiss, confirm = tr("保存"), confirmEnabled = valid, onConfirm = {
+        runCatching { HomePrefs.addSearch(name, icon, query) ?: error(tr("请先登录")) }
+            .onSuccess { ctx.toast(tr("已添加到首页「我的工作」")); onDismiss() }
+            .onFailure { ctx.toast(it.message ?: tr("保存失败")) }
     }) {
         Column {
-            GhField(name, { name = it.take(HomeLayout.MAX_NAME + 8) }, "名称")
+            GhField(name, { name = it.take(HomeLayout.MAX_NAME + 8) }, tr("名称"))
             Spacer(Modifier.height(4.dp))
             Text(query.normalized().summary(), fontSize = 12.sp, color = g.fgMuted, maxLines = 3)
             Spacer(Modifier.height(12.dp))
@@ -298,7 +300,7 @@ fun SaveSearchDialog(query: IssueQuery, defaultName: String, onDismiss: () -> Un
 fun SavedSearchIconPicker(icon: String, onPick: (String) -> Unit) {
     val g = Gh.c
     Column {
-        Text("图标", fontSize = 13.sp, color = g.fgMuted)
+        Text(tr("图标"), fontSize = 13.sp, color = g.fgMuted)
         Spacer(Modifier.height(6.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             SAVED_SEARCH_ICONS.forEach { k ->

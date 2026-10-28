@@ -1,9 +1,13 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -61,11 +65,14 @@ import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
-import com.mobilegh.ui.components.Pill
+import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.RepoItem
 import com.mobilegh.ui.components.Segmented
 import com.mobilegh.ui.components.TextLink
+import com.mobilegh.ui.components.relTime
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /**
  * 「已 Star」页：上面两个页签（全部 Star / 列表），两个页签各管各的状态。
@@ -92,11 +99,18 @@ internal fun StarredRepoPage(login: String, name: String) {
     val revision by UserLists.changes.collectAsState()
     LaunchedEffect(revision) { if (lists?.data != null) lists.refresh() }
     val subtitle = if (name.isNotEmpty()) "$login/$name" else login
-    Page(starredTitle(listsTab, selectedList, lists?.data), subtitle = subtitle) { pad ->
+    val inDetail = listsTab && selectedList != null
+    // 在某个列表里时，返回键先回到列表目录，而不是直接退出已 Star 页
+    androidx.activity.compose.BackHandler(enabled = inDetail) { selectedList = null }
+    Page(
+        starredTitle(listsTab, selectedList, lists?.data), subtitle = subtitle,
+        onBack = if (inDetail) ({ selectedList = null }) else null,
+    ) { pad ->
         Column(Modifier.padding(pad)) {
-            if (signedIn) {
+            // 进入某个列表后不再显示「全部 Star / 列表」页签，只有标题栏的返回，界面更干净
+            if (signedIn && !inDetail) {
                 Segmented(
-                    listOf("全部 Star", "列表"), tab,
+                    listOf(tr("全部 Star"), tr("列表")), tab,
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 ) { index ->
                     tab = index
@@ -113,9 +127,9 @@ internal fun StarredRepoPage(login: String, name: String) {
 
 /** 标题：列表页签里显示当前列表名，其余情况就是「已 Star」 */
 private fun starredTitle(listsTab: Boolean, selectedList: String?, lists: List<GitHubStarList>?): String {
-    if (!listsTab) return "已 Star"
-    val id = selectedList ?: return "列表"
-    return lists?.firstOrNull { it.id == id }?.name ?: "列表"
+    if (!listsTab) return tr("已 Star")
+    val id = selectedList ?: return tr("列表")
+    return lists?.firstOrNull { it.id == id }?.name ?: tr("列表")
 }
 
 // ---------------- 全部 Star ----------------
@@ -150,7 +164,7 @@ private fun StarFeedTab(login: String, isMe: Boolean) {
         pager,
         empty = starFeedEmpty(login, isMe, query),
         emptyIcon = R.drawable.oc_star,
-        filteredEmpty = "已加载的 Star 中没有匹配的仓库",
+        filteredEmpty = tr("已加载的 Star 中没有匹配的仓库"),
         autoLoad = autoPageStarFeed(query, searching),
         // 服务端搜索已经筛过一遍，只有本地回退路径才需要再过滤
         itemFilter = { searching || starMatches(it, query) },
@@ -161,9 +175,9 @@ internal fun autoPageStarFeed(query: String, searching: Boolean): Boolean = quer
 
 @Composable
 private fun starFeedEmpty(login: String, isMe: Boolean, query: String): String = when {
-    query.isNotEmpty() -> "没有匹配的 Star"
-    isMe -> "还没有 Star 任何仓库"
-    else -> "$login 还没有 Star 任何仓库"
+    query.isNotEmpty() -> tr("没有匹配的 Star")
+    isMe -> tr("还没有 Star 任何仓库")
+    else -> trf("{0} 还没有 Star 任何仓库", login)
 }
 
 /** 搜索框 + 排序下拉 + 方向按钮 + 状态说明 */
@@ -183,7 +197,7 @@ internal fun StarSearchControls(
 ) {
     SearchBox(
         input, query, onInput, onApply, onClear,
-        "搜索 Star", "仓库名称或描述",
+        tr("搜索 Star"), tr("仓库名称或描述"),
         Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp),
     )
     Row(
@@ -193,7 +207,7 @@ internal fun StarSearchControls(
     ) {
         // 服务端搜索只认 Star 时间，这时只留方向切换，不假装能按更新时间排
         if (searching) Text(
-            "搜索结果按 Star 时间排列", Modifier.weight(1f), fontSize = 12.sp,
+            tr("搜索结果按 Star 时间排列"), Modifier.weight(1f), fontSize = 12.sp,
             color = Gh.c.fgMuted, maxLines = 2, overflow = TextOverflow.Ellipsis,
         ) else {
             Dropdown(STAR_SORTS[index].label, STAR_SORTS.map { it.label }, onPick, active = index != 0)
@@ -214,10 +228,10 @@ internal fun StarSearchControls(
  * 别让人误以为已经搜过全部 Star。[loaded] 是本地回退路径下能过滤的条目数。
  */
 private fun starStatus(query: String, searching: Boolean, truncated: Boolean, loaded: Int) = when {
-    query.isEmpty() -> if (truncated) "GitHub 只返回前一部分 Star" else ""
-    Session.token == null -> "登录后可搜索全部 Star · 当前仅过滤 $loaded 个"
-    searching -> "搜索全部 Star 中的「$query」"
-    else -> "仅过滤已加载的 $loaded 个"
+    query.isEmpty() -> if (truncated) tr("GitHub 只返回前一部分 Star") else ""
+    Session.token == null -> trf("登录后可搜索全部 Star · 当前仅过滤 {0} 个", loaded)
+    searching -> trf("搜索全部 Star 中的「{0}」", query)
+    else -> trf("仅过滤已加载的 {0} 个", loaded)
 }
 
 /**
@@ -342,14 +356,14 @@ private fun StarListDirectory(
     val browser = rememberListBrowser("star-lists:$login")
     val header: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (isMe) GhButton("新建列表", enabled = all.size < UserListsClient.MAX_LISTS) { picker = true }
-            GhButton("刷新", enabled = !lists.loading) { lists.load(true) }
+            if (isMe) GhButton(tr("新建列表"), enabled = all.size < UserListsClient.MAX_LISTS) { picker = true }
+            GhButton(tr("刷新"), enabled = !lists.loading) { lists.load(true) }
         }
         lists.error?.let { InlineError(it, Modifier.padding(horizontal = 16.dp)) { lists.load(true) } }
-        Text("列表是 Star 的分类，与 GitHub 同步。", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
+        Text(tr("列表是 Star 的分类，与 GitHub 同步。"), Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
         SearchBox(
             browser.input, browser.query, { browser.input = it }, { browser.apply() }, { browser.clear() },
-            "搜索列表", "名称或描述",
+            tr("搜索列表"), tr("名称或描述"),
             Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp),
         )
         SortBar(LIST_SORTS, browser.sort, browser.descending, { browser.pick(it) }, { browser.descending = !browser.descending })
@@ -396,16 +410,16 @@ private fun StarListRows(
         all.isEmpty() -> {
             header()
             EmptyState(
-                if (isMe) "还没有 GitHub 列表" else "$login 还没有公开的 GitHub 列表",
+                if (isMe) tr("还没有 GitHub 列表") else trf("{0} 还没有公开的 GitHub 列表", login),
                 R.drawable.oc_checklist, Modifier.fillMaxSize(),
-                if (isMe) "新建列表" else "刷新",
+                if (isMe) tr("新建列表") else tr("刷新"),
                 if (isMe) onNewList else onRetry,
             )
         }
         shown.isEmpty() -> {
             header()
             EmptyState(
-                "没有匹配的列表", R.drawable.oc_checklist, Modifier.fillMaxSize(), "清除搜索", onClearSearch,
+                tr("没有匹配的列表"), R.drawable.oc_checklist, Modifier.fillMaxSize(), tr("清除搜索"), onClearSearch,
             )
         }
         else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 6.dp)) {
@@ -415,20 +429,42 @@ private fun StarListRows(
     }
 }
 
-/** 目录里的一个列表：名称、可见性与仓库数 */
+/** 目录里的一个列表：与 GitHub 一致，名称在上，说明居中，最后一行是灰色的可见性与仓库数 */
 @Composable
-internal fun StarListRow(list: GitHubStarList, enabled: Boolean = true, onClick: () -> Unit) {
+internal fun StarListRow(list: GitHubStarList, enabled: Boolean = true, onClick: () -> Unit) =
+    StarListCard(list.name, list.description, list.count, list.isPrivate, list.lastAddedAt, enabled, onClick)
+
+/** GitHub 列表与本机列表共用的目录卡片：左侧图标徽标，中间名称 / 说明 / 元信息三行，右侧箭头 */
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+internal fun StarListCard(name: String, description: String, count: Int, isPrivate: Boolean, updatedAt: String = "", enabled: Boolean = true, onClick: () -> Unit) {
+    val g = Gh.c
     Card(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).clickable(enabled = enabled, onClick = onClick)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(list.name, Modifier.fillMaxWidth(), fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Pill(if (list.isPrivate) "私有" else "公开")
-                Pill("${list.count} 个仓库")
+        Row(Modifier.padding(start = 12.dp, end = 10.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconBadge(if (isPrivate) R.drawable.oc_lock else R.drawable.oc_checklist, if (isPrivate) g.fgMuted else g.accent, if (isPrivate) g.canvasSubtle else g.accentSubtle)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(name, Modifier.fillMaxWidth(), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (description.isNotEmpty()) Text(
+                    description, color = g.fgMuted, fontSize = 13.sp, lineHeight = 18.sp,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                )
+                // 元信息之间只留间距不放分隔点：换行时不会出现行尾 / 行首孤零零的“·”
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (isPrivate) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Oc(R.drawable.oc_lock, g.fgMuted, 12.dp)
+                            Spacer(Modifier.width(3.dp))
+                            Text(tr("私有"), fontSize = 12.sp, color = g.fgMuted)
+                        }
+                    }
+                    Text(trf("{0} 个仓库", count), fontSize = 12.sp, color = g.fgMuted)
+                    val updated = relTime(updatedAt)
+                    if (updated.isNotEmpty()) Text(trf("更新于 {0}", updated), fontSize = 12.sp, color = g.fgMuted)
+                }
             }
-            if (list.description.isNotEmpty()) Text(
-                list.description, color = Gh.c.fgMuted, fontSize = 13.sp,
-                maxLines = 2, overflow = TextOverflow.Ellipsis,
-            )
+            Spacer(Modifier.width(8.dp))
+            Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
         }
     }
 }
@@ -438,11 +474,14 @@ internal fun StarListRow(list: GitHubStarList, enabled: Boolean = true, onClick:
 internal fun RemovableRepoItem(repo: Repo, enabled: Boolean, onRemove: (() -> Unit)?) {
     Column(Modifier.fillMaxWidth()) {
         RepoItem(repo)
-        if (onRemove != null) TextButton(
-            onClick = onRemove,
-            Modifier.align(Alignment.End).padding(end = 8.dp, bottom = 4.dp),
-            enabled = enabled,
-        ) { Text("移除") }
+        // 紧凑的一行小按钮，贴在仓库信息下方右侧；仍然在仓库内容之下，大字体时也不会挤压名称
+        if (onRemove != null) Text(
+            tr("移除"),
+            Modifier.align(Alignment.End).padding(end = 12.dp, bottom = 6.dp)
+                .clip(RoundedCornerShape(6.dp)).clickable(enabled = enabled, onClick = onRemove)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            fontSize = 13.sp, fontWeight = FontWeight.Medium, color = if (enabled) Gh.c.danger else Gh.c.fgMuted,
+        )
     }
 }
 
@@ -474,35 +513,48 @@ private fun StarListDetail(
     var mutationError by remember(list?.id) { mutableStateOf<String?>(null) }
     var input by rememberSaveable(list?.id) { mutableStateOf("") }
     var query by rememberSaveable(list?.id) { mutableStateOf("") }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        TextLink("‹ 全部列表", onClick = onBack)
-        Spacer(Modifier.weight(1f))
-        Text("已加载 ${pager.items.size} / ${list?.count ?: 0} 个", fontSize = 12.sp, color = Gh.c.fgMuted)
-    }
     if (list == null) {
-        EmptyState("列表已被删除", R.drawable.oc_checklist, Modifier.fillMaxSize(), "返回", onBack)
+        EmptyState(tr("列表已被删除"), R.drawable.oc_checklist, Modifier.fillMaxSize(), tr("返回"), onBack)
         return
     }
-    SearchBox(
-        input, query, { input = it }, { query = input.trim() }, { input = ""; query = "" },
-        "搜索列表内仓库", "名称或描述",
-        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp),
-    )
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("GitHub 顺序", Modifier.weight(1f), fontSize = 13.sp, color = Gh.c.fgMuted)
+    val g = Gh.c
+    // 列表信息卡：名称、说明、可见性与数量，一眼看清自己在哪个列表里
+    Card(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Oc(if (list.isPrivate) R.drawable.oc_lock else R.drawable.oc_checklist, g.fgMuted, 16.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(list.name, Modifier.weight(1f), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            if (list.description.isNotEmpty()) Text(list.description, fontSize = 13.sp, lineHeight = 18.sp, color = g.fgMuted)
+            Text(
+                trf("{0} · {1} 个仓库 · 已加载 {2} 个", if (list.isPrivate) tr("私有") else tr("公开"), list.count, pager.items.size),
+                fontSize = 12.sp, color = g.fgMuted,
+            )
+            if (isMe) Text(tr("移除分类不会取消 Star。"), fontSize = 12.sp, color = g.fgMuted)
+        }
+    }
+    // 搜索与排序方向并成一行，不再占三行
+    Row(
+        Modifier.fillMaxWidth().padding(start = 12.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        SearchBox(
+            input, query, { input = it }, { query = input.trim() }, { input = ""; query = "" },
+            tr("搜索列表内仓库"), tr("名称或描述"), Modifier.weight(1f),
+        )
         DirectionButton(descending, onClick = onFlip)
     }
     mutationError?.let {
         Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.danger, fontSize = 12.sp)
     }
-    if (isMe) Text("移除分类不会取消 Star。", Modifier.padding(horizontal = 16.dp, vertical = 2.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
     // 倒序的每页在数据层已经倒着放好，这里不再反转，只做搜索过滤
     PagedList(
         pager,
         autoLoad = autoPageStarFeed(query, searching = false),
-        empty = "列表暂无仓库，在仓库页「加入自定义列表」中添加",
+        empty = tr("列表暂无仓库，在仓库页「加入自定义列表」中添加"),
         emptyIcon = R.drawable.oc_checklist,
-        filteredEmpty = "列表中没有匹配的仓库",
+        filteredEmpty = tr("列表中没有匹配的仓库"),
         itemFilter = { starMatches(it, query) },
     ) { repo ->
         RemovableRepoItem(

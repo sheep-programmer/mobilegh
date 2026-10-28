@@ -1,6 +1,8 @@
 package com.mobilegh.data
 
 import java.time.LocalDate
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** 搜索类型，顺序与界面 Chips 一致 */
 object SearchType {
@@ -9,7 +11,7 @@ object SearchType {
     const val ISSUE = 2
     const val PR = 3
     const val CODE = 4
-    val labels = listOf("仓库", "用户", "Issue", "PR", "代码")
+    val labels get() = listOf(tr("仓库"), tr("用户"), "Issue", "PR", tr("代码"))
 }
 
 /** 常见语言（筛选菜单用；仍可直接在关键词里写 language:xxx） */
@@ -95,26 +97,26 @@ data class SearchFilters(
                 if (minStars > 0) add("stars" to "Star ≥ $minStars")
                 if (minForks > 0) add("forks" to "Fork ≥ $minForks")
                 name(topic)?.let { add("topic" to "topic:$it") }
-                if (archived == 1) add("archived" to "仅归档")
-                if (archived == 2) add("archived" to "排除归档")
+                if (archived == 1) add("archived" to tr("仅归档"))
+                if (archived == 2) add("archived" to tr("排除归档"))
             }
             SearchType.USER -> buildList {
-                if (userType == 1) add("userType" to "用户")
-                if (userType == 2) add("userType" to "组织")
+                if (userType == 1) add("userType" to tr("用户"))
+                if (userType == 2) add("userType" to tr("组织"))
                 value(location)?.let { add("location" to it) }
                 value(userLanguage)?.let { add("userLanguage" to it) }
-                if (minFollowers > 0) add("followers" to "关注者 ≥ $minFollowers")
+                if (minFollowers > 0) add("followers" to trf("关注者 ≥ {0}", minFollowers))
             }
             SearchType.ISSUE, SearchType.PR -> buildList {
-                if (state == 1) add("state" to "开放")
-                if (state == 2) add("state" to "已关闭")
+                if (state == 1) add("state" to tr("开放"))
+                if (state == 2) add("state" to tr("已关闭"))
                 name(issueRepo)?.let { add("repo" to it) }
                 name(issueOwner)?.let { add("issueOwner" to it) }
-                name(author)?.let { add("author" to "作者 $it") }
-                labels.split(',').mapNotNull { value(it) }.forEach { add("label:$it" to "标签 $it") }
+                name(author)?.let { add("author" to trf("作者 {0}", it)) }
+                labels.split(',').mapNotNull { value(it) }.forEach { add("label:$it" to trf("标签 {0}", it)) }
                 value(issueLanguage)?.let { add("issueLanguage" to it) }
-                if (minComments > 0) add("comments" to "评论 ≥ $minComments")
-                if (updatedDays > 0) add("updated" to "近 $updatedDays 天更新")
+                if (minComments > 0) add("comments" to trf("评论 ≥ {0}", minComments))
+                if (updatedDays > 0) add("updated" to trf("近 {0} 天更新", updatedDays))
             }
             else -> buildList {
                 name(codeRepo)?.let { add("repo" to it) }

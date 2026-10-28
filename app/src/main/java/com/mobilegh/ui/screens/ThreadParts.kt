@@ -77,6 +77,8 @@ import com.mobilegh.ui.components.relTime
 import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.launch
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 val REACTIONS = listOf(
     "+1" to "👍", "-1" to "👎", "laugh" to "😄", "hooray" to "🎉",
@@ -118,7 +120,7 @@ fun ReactionBar(initial: Reactions?, modifier: Modifier = Modifier, onToggle: su
             } catch (e: Throwable) {
                 counts[key] = before
                 mine[key] = was
-                ctx.toast(e.message ?: "操作失败")
+                ctx.toast(e.message ?: tr("操作失败"))
             } finally {
                 pending.remove(key)
             }
@@ -150,8 +152,11 @@ fun ReactionBar(initial: Reactions?, modifier: Modifier = Modifier, onToggle: su
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Oc(R.drawable.oc_plus, g.fgMuted, 14.dp)
-                    Spacer(Modifier.width(4.dp))
-                    Text("回应", fontSize = 13.sp, color = g.fgMuted)
+                    // 已经有回应时只留一个 + 按钮（与 GitHub 一致），没有时才带文字提示
+                    if (REACTIONS.none { (k, _) -> (counts[k] ?: 0) > 0 }) {
+                        Spacer(Modifier.width(4.dp))
+                        Text(tr("回应"), fontSize = 13.sp, color = g.fgMuted)
+                    }
                 }
             }
         }
@@ -184,7 +189,7 @@ fun TimelineCard(
     modifier: Modifier = Modifier,
     borderColor: androidx.compose.ui.graphics.Color = Gh.c.border,
     badgeColor: androidx.compose.ui.graphics.Color = Gh.c.fgMuted,
-    emptyText: String = "没有提供描述。",
+    emptyText: String = tr("没有提供描述。"),
     footer: (@Composable () -> Unit)? = null,
 ) {
     val g = Gh.c
@@ -259,8 +264,8 @@ fun MetaRows(
             }
         }
         if (reviewers != null) {
-            row(R.drawable.oc_code_review, "审查者", "reviewers") {
-                if (reviewers.isEmpty()) Text("无", fontSize = 13.sp, color = g.fgMuted)
+            row(R.drawable.oc_code_review, tr("审查者"), "reviewers") {
+                if (reviewers.isEmpty()) Text(tr("无"), fontSize = 13.sp, color = g.fgMuted)
                 else Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     reviewers.forEach { (u, state) ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -269,11 +274,11 @@ fun MetaRows(
                             Text(u.login, Modifier.weight(1f, false), fontSize = 13.sp, color = g.fg, maxLines = 1)
                             Spacer(Modifier.width(6.dp))
                             val (icon, color, label) = when (state) {
-                                "APPROVED" -> Triple(R.drawable.oc_check, g.success, "已批准")
-                                "CHANGES_REQUESTED" -> Triple(R.drawable.oc_file_diff, g.danger, "请求修改")
-                                "COMMENTED" -> Triple(R.drawable.oc_comment, g.fgMuted, "已评论")
-                                "DISMISSED" -> Triple(R.drawable.oc_circle_slash, g.fgMuted, "已驳回")
-                                else -> Triple(R.drawable.oc_dot_fill, g.attention, "等待审查")
+                                "APPROVED" -> Triple(R.drawable.oc_check, g.success, tr("已批准"))
+                                "CHANGES_REQUESTED" -> Triple(R.drawable.oc_file_diff, g.danger, tr("请求修改"))
+                                "COMMENTED" -> Triple(R.drawable.oc_comment, g.fgMuted, tr("已评论"))
+                                "DISMISSED" -> Triple(R.drawable.oc_circle_slash, g.fgMuted, tr("已驳回"))
+                                else -> Triple(R.drawable.oc_dot_fill, g.attention, tr("等待审查"))
                             }
                             Oc(icon, color, 12.dp)
                             Spacer(Modifier.width(3.dp))
@@ -284,16 +289,16 @@ fun MetaRows(
             }
             HDivider()
         }
-        row(R.drawable.oc_tag, "标签", "labels") {
-            if (labels.isEmpty()) Text("无", fontSize = 13.sp, color = g.fgMuted)
+        row(R.drawable.oc_tag, tr("标签"), "labels") {
+            if (labels.isEmpty()) Text(tr("无"), fontSize = 13.sp, color = g.fgMuted)
             else FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 labels.forEach { (n, c) -> LabelChip(n, c) }
             }
         }
         HDivider()
-        row(R.drawable.oc_person, "指派人", "assignees") {
+        row(R.drawable.oc_person, tr("指派人"), "assignees") {
             Column {
-                if (assignees.isEmpty()) Text("无", fontSize = 13.sp, color = g.fgMuted)
+                if (assignees.isEmpty()) Text(tr("无"), fontSize = 13.sp, color = g.fgMuted)
                 else FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     assignees.forEach { (login, avatar) ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -311,13 +316,13 @@ fun MetaRows(
                     ) {
                         Oc(R.drawable.oc_copilot, if (copilot.busy) g.fgMuted else g.accent, 16.dp)
                         Spacer(Modifier.width(6.dp))
-                        Text(if (copilot.busy) "正在指派…" else "指派给 Copilot", fontSize = 13.sp, color = if (copilot.busy) g.fgMuted else g.accent, fontWeight = FontWeight.Medium)
+                        Text(if (copilot.busy) tr("正在指派…") else tr("指派给 Copilot"), fontSize = 13.sp, color = if (copilot.busy) g.fgMuted else g.accent, fontWeight = FontWeight.Medium)
                     }
                 }
             }
         }
-        row(R.drawable.oc_milestone, "里程碑", "milestone") {
-            Text(milestone ?: "无", fontSize = 13.sp, color = if (milestone == null) g.fgMuted else g.fg)
+        row(R.drawable.oc_milestone, tr("里程碑"), "milestone") {
+            Text(milestone ?: tr("无"), fontSize = 13.sp, color = if (milestone == null) g.fgMuted else g.fg)
         }
     }
 }
@@ -354,7 +359,7 @@ private fun rememberMetaOptions(kind: String, owner: String, name: String, miles
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Throwable) {
-            loadError = e.message ?: "加载失败"
+            loadError = e.message ?: tr("加载失败")
             null
         }
     }
@@ -380,7 +385,7 @@ private fun MetaOptionList(
             CircularProgressIndicator(Modifier.size(24.dp), color = g.fgMuted, strokeWidth = 2.dp)
         }
         state.options.isEmpty() -> Text(
-            when (kind) { "labels" -> "这个仓库还没有标签"; "assignees" -> "没有可指派的人"; "reviewers" -> "没有可请求审查的协作者"; else -> "没有进行中的里程碑" },
+            when (kind) { "labels" -> tr("这个仓库还没有标签"); "assignees" -> tr("没有可指派的人"); "reviewers" -> tr("没有可请求审查的协作者"); else -> tr("没有进行中的里程碑") },
             color = g.fgMuted, fontSize = 14.sp,
         )
         else -> Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
@@ -403,7 +408,7 @@ private fun MetaOptionList(
                     if (o.color != null) LabelChip(o.label, o.color) else Text(o.label, color = g.fg, fontSize = 14.sp)
                 }
             }
-            if (opts.isEmpty()) Text("没有匹配的选项", Modifier.padding(vertical = 8.dp), color = g.fgMuted, fontSize = 14.sp)
+            if (opts.isEmpty()) Text(tr("没有匹配的选项"), Modifier.padding(vertical = 8.dp), color = g.fgMuted, fontSize = 14.sp)
         }
     }
 }
@@ -416,7 +421,7 @@ fun MetaDialog(kind: String, owner: String, name: String, number: Int, issue: Is
     val ctx = rememberCtx()
     val scope = rememberCoroutineScope()
     val single = kind == "milestone"
-    val title = when (kind) { "labels" -> "编辑标签"; "assignees" -> "编辑指派人"; "reviewers" -> "请求审查"; else -> "选择里程碑" }
+    val title = when (kind) { "labels" -> tr("编辑标签"); "assignees" -> tr("编辑指派人"); "reviewers" -> tr("请求审查"); else -> tr("选择里程碑") }
     val initialReviewers = remember { mutableStateListOf<String>().apply { addAll(pull?.requestedReviewers.orEmpty().map { it.login }) } }
     val state = rememberMetaOptions(kind, owner, name, exclude = pull?.user?.login)
     val selected = remember {
@@ -431,7 +436,7 @@ fun MetaDialog(kind: String, owner: String, name: String, number: Int, issue: Is
     }
     var saving by remember { mutableStateOf(false) }
 
-    GhDialog(title, { if (!saving) onDismiss() }, confirm = if (saving) "保存中…" else "保存", confirmEnabled = !saving && state.options != null, onConfirm = {
+    GhDialog(title, { if (!saving) onDismiss() }, confirm = if (saving) tr("保存中…") else tr("保存"), confirmEnabled = !saving && state.options != null, onConfirm = {
         if (saving) return@GhDialog
         saving = true
         val submitted = selected.toList()
@@ -448,19 +453,19 @@ fun MetaDialog(kind: String, owner: String, name: String, number: Int, issue: Is
                     )
                     else -> GitHub.setMilestone(owner, name, number, submitted.firstOrNull()?.toIntOrNull())
                 }
-                ctx.toast("已保存")
+                ctx.toast(tr("已保存"))
                 if (kind != "reviewers") onSaved()
                 onDismiss()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                ctx.toast(e.message ?: "保存失败（可能没有权限）")
+                ctx.toast(e.message ?: tr("保存失败（可能没有权限）"))
             } finally {
                 saving = false
             }
         }
     }) {
-        MetaOptionList(kind, state, selected, single, "无里程碑", enabled = !saving)
+        MetaOptionList(kind, state, selected, single, tr("无里程碑"), enabled = !saving)
     }
 }
 
@@ -477,7 +482,7 @@ fun MetaPicker(
     initial: List<String>,
     onDismiss: () -> Unit,
     single: Boolean = kind == "milestone",
-    noneLabel: String = "无",
+    noneLabel: String = tr("无"),
     freeText: Boolean = false,
     milestoneByTitle: Boolean = false,
     onPick: (List<MetaOpt>) -> Unit,
@@ -486,7 +491,7 @@ fun MetaPicker(
     val state = rememberMetaOptions(kind, owner, name, milestoneByTitle)
     val selected = remember { mutableStateListOf<String>().also { it.addAll(initial) } }
     var text by remember { mutableStateOf("") }
-    GhDialog(title, onDismiss, confirm = "确定", confirmEnabled = state.options != null || (freeText && text.isNotBlank()), onConfirm = {
+    GhDialog(title, onDismiss, confirm = tr("确定"), confirmEnabled = state.options != null || (freeText && text.isNotBlank()), onConfirm = {
         val opts = state.options.orEmpty()
         val typed = text.trim().removePrefix("@")
         val keys = if (freeText && single && typed.isNotEmpty() && selected.none { k -> opts.any { it.key == k } }) listOf(typed) else selected.toList()
@@ -498,12 +503,12 @@ fun MetaPicker(
             if (freeText || long) {
                 GhField(
                     text, { text = it; if (freeText && single && it.isNotBlank()) selected.clear() },
-                    if (freeText) "用户名" else "筛选",
-                    placeholder = if (freeText) "输入用户名或从下方选择" else null,
+                    if (freeText) tr("用户名") else tr("筛选"),
+                    placeholder = if (freeText) tr("输入用户名或从下方选择") else null,
                 )
                 Spacer(Modifier.height(8.dp))
             }
-            if (state.error != null && freeText) Text("候选列表读取失败，仍可直接输入用户名", color = g.fgMuted, fontSize = 12.sp)
+            if (state.error != null && freeText) Text(tr("候选列表读取失败，仍可直接输入用户名"), color = g.fgMuted, fontSize = 12.sp)
             else MetaOptionList(kind, state, selected, single, noneLabel, text.removePrefix("@"))
         }
     }
@@ -523,13 +528,13 @@ fun EditDialog(
     var title by remember { mutableStateOf(initialTitle.orEmpty()) }
     var body by remember { mutableStateOf(TextFieldValue(initialBody)) }
     GhDialog(
-        heading, { if (!busy) onDismiss() }, confirm = if (busy) "保存中…" else "保存",
+        heading, { if (!busy) onDismiss() }, confirm = if (busy) tr("保存中…") else tr("保存"),
         confirmEnabled = !busy && body.text.isNotBlank() && (initialTitle == null || title.isNotBlank()),
         onConfirm = { onSave(title.trim(), body.text) },
     ) {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             if (initialTitle != null) {
-                GhField(title, { if (!busy) title = it }, "标题")
+                GhField(title, { if (!busy) title = it }, tr("标题"))
             }
             MarkdownEditor(body, { if (!busy) body = it }, contextRepo = contextRepo, minLines = 6, modifier = Modifier.padding(top = if (initialTitle != null) 8.dp else 0.dp))
         }
@@ -549,7 +554,7 @@ fun CommentComposerBar(
     contextRepo: String?,
     sending: Boolean,
     draft: DraftController,
-    placeholder: String = "发表评论（支持 Markdown）",
+    placeholder: String = tr("发表评论（支持 Markdown）"),
     onSend: () -> Unit,
 ) {
     val g = Gh.c
@@ -607,7 +612,7 @@ internal fun settledReactionCount(before: Int, wasMine: Boolean, isMine: Boolean
 /** Quoting must never replace a comment that the user has already composed. */
 internal fun appendQuotedReply(current: String, login: String?, text: String?): String {
     val quote = text.orEmpty().trim().lines().joinToString("\n") { "> $it" }
-    val heading = login?.let { "@$it 写道：\n\n" }.orEmpty()
+    val heading = login?.let { trf("@{0} 写道：\n\n", it) }.orEmpty()
     val prefix = if (current.isEmpty()) "" else current + if (current.endsWith("\n\n")) "" else "\n\n"
     return "$prefix$heading$quote\n\n"
 }

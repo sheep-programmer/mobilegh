@@ -29,6 +29,8 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 class ApiException(val code: Int, override val message: String) : Exception(message)
 
@@ -99,7 +101,7 @@ object Api {
                     authenticatedReq.header("Authorization") == "Bearer $token" &&
                     (req.url.host in AUTH_HOSTS || req.url.host == apiHost)
                 ) {
-                    AppLog.warn("auth", "GitHub 返回 401：" + req.url.encodedPath)
+                    AppLog.warn("auth", tr("GitHub 返回 401：") + req.url.encodedPath)
                     Session.authExpired = true
                 }
                 resp.header("x-ratelimit-remaining")?.let { rem ->
@@ -153,8 +155,8 @@ object Api {
         val response = try {
             http.routed().newCall(rb.build()).await()
         } catch (e: IOException) {
-            AppLog.warn("network", "请求连接失败：" + path.take(180), e)
-            throw ApiException(-1, e.networkHint() ?: "网络连接失败，请稍后重试")
+            AppLog.warn("network", tr("请求连接失败：") + path.take(180), e)
+            throw ApiException(-1, e.networkHint() ?: tr("网络连接失败，请稍后重试"))
         }
         try {
             return withContext(Dispatchers.IO) {
@@ -174,14 +176,14 @@ object Api {
     }
 
     private fun friendly(code: Int, msg: String?): String = when {
-        code == 401 -> "认证失败：Token 无效或已过期"
-        code == 403 && msg?.contains("rate limit", true) == true -> "API 调用次数已达上限，请稍后再试"
-        code == 403 && msg?.contains("SAML", true) == true -> "该组织启用了 SAML SSO，请在 GitHub 网页上为 Token 授权 SSO"
-        code == 404 -> "未找到内容（可能不存在或 Token 没有权限）"
+        code == 401 -> tr("认证失败：Token 无效或已过期")
+        code == 403 && msg?.contains("rate limit", true) == true -> tr("API 调用次数已达上限，请稍后再试")
+        code == 403 && msg?.contains("SAML", true) == true -> tr("该组织启用了 SAML SSO，请在 GitHub 网页上为 Token 授权 SSO")
+        code == 404 -> tr("未找到内容（可能不存在或 Token 没有权限）")
         code == 409 && msg != null -> msg
-        code == 422 -> "请求无效：${msg ?: ""}"
+        code == 422 -> trf("请求无效：{0}", msg ?: "")
         msg != null -> "$msg ($code)"
-        else -> "请求失败 ($code)"
+        else -> trf("请求失败 ({0})", code)
     }
 
     suspend inline fun <reified T> get(path: String, force: Boolean = false, accept: String? = null): T {
@@ -217,7 +219,7 @@ object Api {
         val errors = root["errors"] as? JsonArray
         if ((data == null || data is JsonNull) && errors != null) {
             val msg = errors.firstOrNull()?.jsonObject?.get("message")?.jsonPrimitive?.content
-            throw ApiException(400, DeviceAuth.insufficientScopes(msg) ?: msg ?: "GraphQL 错误")
+            throw ApiException(400, DeviceAuth.insufficientScopes(msg) ?: msg ?: tr("GraphQL 错误"))
         }
         return data!!.jsonObject
     }
@@ -247,11 +249,11 @@ object Api {
 
 /** 把底层网络异常换成中文提示，不向界面暴露 IP、端口等原始信息；非网络异常返回 null */
 fun Throwable.networkHint(): String? = when (this) {
-    is java.net.UnknownHostException -> "无法解析 GitHub 地址，请检查网络或 DNS 设置"
-    is java.io.InterruptedIOException -> "连接 GitHub 超时，请检查网络或代理后重试"
-    is java.net.SocketException -> "无法连接 GitHub，请检查网络或代理后重试"
-    is javax.net.ssl.SSLException -> "安全连接失败，请检查系统时间或代理证书"
-    is java.net.ProtocolException, is java.io.EOFException -> "网络连接中断，请稍后重试"
+    is java.net.UnknownHostException -> tr("无法解析 GitHub 地址，请检查网络或 DNS 设置")
+    is java.io.InterruptedIOException -> tr("连接 GitHub 超时，请检查网络或代理后重试")
+    is java.net.SocketException -> tr("无法连接 GitHub，请检查网络或代理后重试")
+    is javax.net.ssl.SSLException -> tr("安全连接失败，请检查系统时间或代理证书")
+    is java.net.ProtocolException, is java.io.EOFException -> tr("网络连接中断，请稍后重试")
     else -> null
 }
 

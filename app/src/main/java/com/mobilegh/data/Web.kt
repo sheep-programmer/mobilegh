@@ -9,6 +9,8 @@ import okhttp3.Request
 import java.io.ByteArrayOutputStream
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 data class Achievement(
     val name: String,
@@ -47,7 +49,7 @@ object Web {
     }
 
     private suspend fun html(login: String, stars: Boolean): String = withContext(Dispatchers.IO) {
-        require(LOGIN.matches(login)) { "无效的 GitHub 用户名" }
+        require(LOGIN.matches(login)) { tr("无效的 GitHub 用户名") }
         val url = github.newBuilder().addPathSegment(login).apply {
             if (stars) addQueryParameter("tab", "stars")
         }.build()
@@ -57,23 +59,23 @@ object Web {
             .header("Accept-Language", "en-US,en;q=0.9")
             .build()
         client.routed().newCall(request).await().use { response ->
-            if (!response.isSuccessful) throw ApiException(response.code, "公开网页加载失败 (${response.code})")
+            if (!response.isSuccessful) throw ApiException(response.code, trf("公开网页加载失败 ({0})", response.code))
             val finalUrl = response.request.url
             if (finalUrl.host != "github.com" || finalUrl.pathSegments.firstOrNull() in setOf("login", "session", "sessions")) {
-                throw ApiException(403, "此内容需要 GitHub 网页登录；这里只读取公开内容")
+                throw ApiException(403, tr("此内容需要 GitHub 网页登录；这里只读取公开内容"))
             }
             val body = response.body
             if (body.contentType()?.subtype?.contains("html") != true) {
-                throw ApiException(502, "GitHub 返回了无法识别的网页")
+                throw ApiException(502, tr("GitHub 返回了无法识别的网页"))
             }
-            if (body.contentLength() > MAX_HTML_BYTES) throw ApiException(413, "GitHub 网页超过读取上限")
+            if (body.contentLength() > MAX_HTML_BYTES) throw ApiException(413, tr("GitHub 网页超过读取上限"))
             val bytes = ByteArrayOutputStream()
             body.byteStream().use { input ->
                 val buffer = ByteArray(8192)
                 while (true) {
                     val n = input.read(buffer)
                     if (n < 0) break
-                    if (bytes.size() + n > MAX_HTML_BYTES) throw ApiException(413, "GitHub 网页超过读取上限")
+                    if (bytes.size() + n > MAX_HTML_BYTES) throw ApiException(413, tr("GitHub 网页超过读取上限"))
                     bytes.write(buffer, 0, n)
                 }
             }

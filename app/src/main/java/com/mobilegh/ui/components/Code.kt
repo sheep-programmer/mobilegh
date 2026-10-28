@@ -1,5 +1,13 @@
 package com.mobilegh.ui.components
 
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalConfiguration
+import com.mobilegh.data.Session
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -28,9 +36,11 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.mobilegh.ui.theme.CodeStyle
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.ui.theme.GhColors
+import com.mobilegh.i18n.tr
 
 // ============ 轻量语法高亮 ============
 
@@ -272,9 +282,110 @@ fun parsePatch(patch: String): List<DiffLine> {
     }
 }
 
-/** 在 LazyColumn 中逐行渲染 diff（自动换行，适合手机） */
+/** 在 LazyColumn 中逐行渲染 diff：分栏模式左旧右新，否则单栏统一视图 */
 fun LazyListScope.diffLines(key: String, lines: List<DiffLine>, g: GhColors) {
-    itemsIndexed(lines, key = { i, _ -> "$key:$i" }) { _, d -> DiffRow(d, g, key) }
+    if (Session.diffSplit) {
+        val rows = splitRows(lines)
+        val scroll = SplitScroll.of(key)
+        itemsIndexed(rows, key = { i, _ -> "$key:$i" }) { _, r -> SplitDiffRow(r, g, key, scroll) }
+    } else {
+        itemsIndexed(lines, key = { i, _ -> "$key:$i" }) { _, d -> DiffRow(d, g, key) }
+    }
+}
+
+/** 分栏的一行：左边是旧文件的行，右边是新文件的行；[note] 非空时是横跨两栏的 hunk 头或说明行 */
+@Immutable
+class SplitRow(val left: DiffLine?, val right: DiffLine?, val note: DiffLine? = null)
+
+/**
+ * 把统一 diff 配成左右对照：上下文行两边相同；连续的删除与新增按顺序一一配对（改动的行并排显示），
+ * 多出来的一侧留空。
+ */
+fun splitRows(lines: List<DiffLine>): List<SplitRow> {
+    val out = ArrayList<SplitRow>(lines.size)
+    var i = 0
+    while (i < lines.size) {
+        val d = lines[i]
+        when (d.kind) {
+            '@', '\\' -> { out.add(SplitRow(null, null, d)); i++ }
+            '-', '+' -> {
+                val dels = ArrayList<DiffLine>()
+                val adds = ArrayList<DiffLine>()
+                while (i < lines.size && lines[i].kind == '-') dels.add(lines[i++])
+                while (i < lines.size && lines[i].kind == '+') adds.add(lines[i++])
+                for (k in 0 until maxOf(dels.size, adds.size)) out.add(SplitRow(dels.getOrNull(k), adds.getOrNull(k)))
+            }
+            else -> { out.add(SplitRow(d, d)); i++ }
+        }
+    }
+    return out
+}
+
+/**
+ * 同一文件的所有分栏行共用一个横向滚动状态：栏宽恰为半屏时没有滚动范围，
+ * 在窗口比两栏更窄（分屏、大字体）时才会出现，此时整个文件各行一起滑动、两栏始终对齐。
+ * 按文件键缓存，最多保留 64 个。
+ */
+object SplitScroll {
+    private val cache = object : LinkedHashMap<String, ScrollState>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ScrollState>?) = size > 64
+    }
+
+    @Synchronized
+    fun of(key: String): ScrollState = cache.getOrPut(key) { ScrollState(0) }
+}
+
+@Composable
+fun SplitDiffRow(r: SplitRow, g: GhColors, file: String, scroll: ScrollState, onLineClick: ((DiffLine) -> Unit)? = null) {
+    // 左右两栏各占一半屏宽，一眼同时看到旧、新两侧；长行在栏内换行，不需要左右滑动
+    val side = LocalConfiguration.current.screenWidthDp.dp / 2
+    val note = r.note
+    Box(Modifier.fillMaxWidth().horizontalScroll(scroll)) {
+        if (note != null) {
+            Text(
+                note.text,
+                Modifier.width(side * 2).background(if (note.kind == '@') g.diffHunk else g.canvasSubtle).padding(horizontal = 8.dp, vertical = 2.dp),
+                style = CodeStyle, color = g.fgMuted,
+            )
+        } else {
+            Row(Modifier.height(IntrinsicSize.Min)) {
+                SplitCell(r.left, old = true, g, file, side, onLineClick)
+                SplitCell(r.right, old = false, g, file, side, onLineClick)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SplitCell(d: DiffLine?, old: Boolean, g: GhColors, file: String, width: androidx.compose.ui.unit.Dp, onLineClick: ((DiffLine) -> Unit)?) {
+    val bg = when {
+        d == null -> g.border.copy(alpha = 0.12f)
+        d.kind == '-' -> g.diffDel
+        d.kind == '+' -> g.diffAdd
+        else -> g.canvasSubtle
+    }
+    Row(
+        Modifier.width(width).fillMaxHeight().background(bg)
+            .then(if (!old) Modifier.drawBehind { drawLine(g.border, Offset(0f, 0f), Offset(0f, size.height), 1.dp.toPx()) } else Modifier)
+            .then(if (d != null && onLineClick != null) Modifier.clickable { onLineClick(d) } else Modifier)
+            .padding(vertical = 2.dp),
+    ) {
+        if (d == null) return@Row
+        val no = if (old) d.oldNo else d.newNo
+        Text(no?.toString() ?: "", Modifier.width(30.dp).padding(end = 4.dp), style = SplitStyle, color = g.fgMuted.copy(alpha = 0.7f), textAlign = TextAlign.End)
+        val sc = syntaxColors(g)
+        val code = remember(d, file, g.dark) { highlightLines(d.text, file, sc).firstOrNull() ?: AnnotatedString(d.text) }
+        Text(code, Modifier.weight(1f).padding(end = 4.dp), style = SplitStyle, color = g.fg)
+    }
+}
+
+/** 分栏里每栏只有半屏宽，字号比整行代码小一档 */
+private val SplitStyle = CodeStyle.copy(fontSize = 11.sp, lineHeight = 16.sp)
+
+/** 统一 / 分栏 切换，选择会保存下来；各 diff 页面放在文件列表上方 */
+@Composable
+fun DiffModeToggle(modifier: Modifier = Modifier) {
+    Segmented(listOf(tr("统一"), tr("分栏")), if (Session.diffSplit) 1 else 0, modifier.width(132.dp)) { Session.chooseDiffSplit(it == 1) }
 }
 
 @Composable

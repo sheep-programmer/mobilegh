@@ -7,6 +7,8 @@ import android.provider.DocumentsContract
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.InputStream
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /**
  * 从系统文件选择器（SAF）读要上传的内容。
@@ -54,16 +56,16 @@ object UploadSource {
                 if (info == null) unreadable++ else out.add(Entry(uri.toString(), info.first, info.second))
             }
         }
-        if (unreadable > 0) notes.add("$unreadable 项读不到，已跳过")
+        if (unreadable > 0) notes.add(trf("{0} 项读不到，已跳过", unreadable))
         Group(out.limit(notes, truncated), notes.joinToString(" · ").ifBlank { null })
     }
 
     /** 递归读取用户选中的文件夹；文件夹名成为顶层目录 */
     suspend fun readFolder(ctx: Context, root: Uri): Group = withContext(Dispatchers.IO) {
         val treeId = runCatching { DocumentsContract.getTreeDocumentId(root) }.getOrNull()
-        if (treeId.isNullOrBlank()) return@withContext Group(emptyList(), "无法读取该位置")
+        if (treeId.isNullOrBlank()) return@withContext Group(emptyList(), tr("无法读取该位置"))
         val name = safeName(displayName(ctx, DocumentsContract.buildDocumentUriUsingTree(root, treeId)) ?: treeId.tail())
-            ?: return@withContext Group(emptyList(), "文件夹名称无法使用")
+            ?: return@withContext Group(emptyList(), tr("文件夹名称无法使用"))
         val out = ArrayList<Entry>()
         val notes = ArrayList<String>()
         var truncated = false
@@ -72,7 +74,7 @@ object UploadSource {
     }
 
     internal fun List<Entry>.limit(notes: MutableList<String>, truncated: Boolean = false): List<Entry> =
-        if (size > MAX_FILES || truncated) { notes.add("文件超过 $MAX_FILES 个，只保留前 $MAX_FILES 个"); take(MAX_FILES) } else this
+        if (size > MAX_FILES || truncated) { notes.add(trf("文件超过 {0} 个，只保留前 {1} 个", MAX_FILES, MAX_FILES)); take(MAX_FILES) } else this
 
     /** "primary:Documents/sub" → "sub"；没有分隔符时原样返回 */
     private fun String.tail(): String = trimEnd('/').substringAfterLast('/').substringAfterLast(':').trim()
@@ -103,7 +105,7 @@ object UploadSource {
         onTruncated: () -> Unit,
     ) {
         if (docId.isBlank()) return
-        if (depth > MAX_DEPTH) { notes.add("层级超过 $MAX_DEPTH 层，未继续深入"); return }
+        if (depth > MAX_DEPTH) { notes.add(trf("层级超过 {0} 层，未继续深入", MAX_DEPTH)); return }
         val children = runCatching { DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId) }.getOrNull() ?: return
         val rows = runCatching {
             ctx.contentResolver.query(children, CHILD_COLUMNS, null, null, null)?.use { c ->
@@ -118,12 +120,12 @@ object UploadSource {
                 }
             }
         }.getOrNull()
-        if (rows == null) { notes.add("读不到「$prefix」的内容，已跳过"); return }
+        if (rows == null) { notes.add(trf("读不到「{0}」的内容，已跳过", prefix)); return }
         for ((id, raw, info) in rows) {
             if (out.size >= MAX_FILES) { onTruncated(); return }
             val (mime, size) = info
             val name = safeName(raw)
-            if (name == null) { notes.add("跳过异常名称「$raw」"); continue }
+            if (name == null) { notes.add(trf("跳过异常名称「{0}」", raw)); continue }
             val rel = "$prefix/$name"
             if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
                 if (!shouldRecurseDirectory(name)) continue

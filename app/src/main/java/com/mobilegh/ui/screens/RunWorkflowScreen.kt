@@ -57,6 +57,8 @@ import com.mobilegh.ui.theme.CodeStyle
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** 手动运行工作流：读取工作流 YAML 的 workflow_dispatch.inputs，生成带类型的输入表单 */
 @Composable
@@ -69,7 +71,7 @@ fun RunWorkflowScreen(owner: String, name: String, workflowId: Long, path: Strin
     var picked by rememberSaveable { mutableStateOf(ref0) }
     val ref = picked ?: repo.data?.defaultBranch
     if (ref == null) {
-        Page("运行工作流", subtitle = title) { pad ->
+        Page(tr("运行工作流"), subtitle = title) { pad ->
             val err = repo.error
             if (err != null) ErrorState(err, Modifier.padding(pad).fillMaxSize()) { repo.load(true) }
             else Loading(Modifier.padding(pad).fillMaxSize())
@@ -82,7 +84,7 @@ fun RunWorkflowScreen(owner: String, name: String, workflowId: Long, path: Strin
         try {
             WorkflowDispatch.parse(GitHub.workflowFile(owner, name, path, ref))
         } catch (e: ApiException) {
-            if (e.code == 404) throw ApiException(404, "$ref 上没有工作流文件 $path")
+            if (e.code == 404) throw ApiException(404, trf("{0} 上没有工作流文件 {1}", ref, path))
             throw e
         }
     }
@@ -103,7 +105,7 @@ fun RunWorkflowScreen(owner: String, name: String, workflowId: Long, path: Strin
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    Page("运行工作流", subtitle = title) { pad ->
+    Page(tr("运行工作流"), subtitle = title) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().imePadding().verticalScroll(rememberScrollState())) {
             Row(
                 Modifier.fillMaxWidth().clickable(enabled = !busy) { picking = true }.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -111,7 +113,7 @@ fun RunWorkflowScreen(owner: String, name: String, workflowId: Long, path: Strin
             ) {
                 Oc(R.drawable.oc_git_branch, g.fgMuted)
                 Spacer(Modifier.width(10.dp))
-                Text("运行分支 / 标签", Modifier.weight(1f), fontSize = 15.sp, color = g.fg)
+                Text(tr("运行分支 / 标签"), Modifier.weight(1f), fontSize = 15.sp, color = g.fg)
                 Text(ref, fontSize = 14.sp, color = g.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.width(4.dp))
                 Oc(R.drawable.oc_chevron_down, g.fgMuted, 12.dp)
@@ -124,37 +126,37 @@ fun RunWorkflowScreen(owner: String, name: String, workflowId: Long, path: Strin
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Oc(R.drawable.oc_alert, g.attention)
                         Spacer(Modifier.width(8.dp))
-                        Text("该工作流不能手动运行", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = g.fg)
+                        Text(tr("该工作流不能手动运行"), fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = g.fg)
                     }
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "$path 在 $ref 上没有声明 workflow_dispatch 触发器。请换一个分支或标签，或在仓库里为该工作流添加 on.workflow_dispatch。",
+                        trf("{0} 在 {1} 上没有声明 workflow_dispatch 触发器。请换一个分支或标签，或在仓库里为该工作流添加 on.workflow_dispatch。", path, ref),
                         fontSize = 13.sp, lineHeight = 19.sp, color = g.fgMuted,
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(path, fontSize = 12.sp, color = g.fgMuted, style = CodeStyle)
                 }
-                s.inputs.isEmpty() -> Text("该工作流没有输入参数，直接运行即可。", Modifier.padding(16.dp), fontSize = 13.sp, color = g.fgMuted)
+                s.inputs.isEmpty() -> Text(tr("该工作流没有输入参数，直接运行即可。"), Modifier.padding(16.dp), fontSize = 13.sp, color = g.fgMuted)
                 else -> Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     s.inputs.forEach { input -> InputField(input, values, extra.data.orEmpty(), busy) { values[input.name] = it; error = null } }
                 }
             }
             Column(Modifier.padding(horizontal = 16.dp)) {
-                if (missing.isNotEmpty()) Text("请填写：${missing.joinToString("、") { it.name }}", fontSize = 12.sp, color = g.attention)
-                if (badNumber.isNotEmpty()) Text("需要填写数字：${badNumber.joinToString("、") { it.name }}", fontSize = 12.sp, color = g.danger)
+                if (missing.isNotEmpty()) Text(trf("请填写：{0}", missing.joinToString("、") { it.name }), fontSize = 12.sp, color = g.attention)
+                if (badNumber.isNotEmpty()) Text(trf("需要填写数字：{0}", badNumber.joinToString("、") { it.name }), fontSize = 12.sp, color = g.danger)
                 error?.let { InlineError(it) }
                 Spacer(Modifier.height(12.dp))
-                GhButton(if (busy) "运行中…" else "运行工作流", Modifier.fillMaxWidth(), primary = true, enabled = s?.enabled == true && missing.isEmpty() && badNumber.isEmpty() && !busy) {
+                GhButton(if (busy) tr("运行中…") else tr("运行工作流"), Modifier.fillMaxWidth(), primary = true, enabled = s?.enabled == true && missing.isEmpty() && badNumber.isEmpty() && !busy) {
                     busy = true
                     error = null
                     entry.scope.launch {
                         try {
                             val inputs = s!!.inputs.associate { it.name to (values[it.name] ?: "") }
-                            AppLog.info("actions", "手动触发工作流：" + title + " @ " + ref)
+                            AppLog.info("actions", tr("手动触发工作流：") + title + " @ " + ref)
                             GitHub.dispatch(owner, name, workflowId, ref, inputs)
                             RepoWrite.changed(owner, name, RepoWrite.ACTIONS)
                             busy = false
-                            ctx.toast("已触发 ${title}")
+                            ctx.toast(trf("已触发 {0}", title))
                             nav.pop()
                         } catch (e: CancellationException) {
                             throw e
@@ -189,11 +191,11 @@ private fun InputField(
             Text(typeZh(input.type), fontSize = 11.sp, color = g.fgMuted)
             if (input.required) {
                 Spacer(Modifier.width(4.dp))
-                Text("必填", fontSize = 11.sp, color = g.attention)
+                Text(tr("必填"), fontSize = 11.sp, color = g.attention)
             }
             if (input.options.isNotEmpty() && input.type != "choice") {
                 Spacer(Modifier.width(6.dp))
-                Text("可选值：${input.options.joinToString(", ")}", fontSize = 11.sp, color = g.fgMuted)
+                Text(trf("可选值：{0}", input.options.joinToString(", ")), fontSize = 11.sp, color = g.fgMuted)
             }
         }
         input.description?.let {
@@ -201,20 +203,20 @@ private fun InputField(
         }
         Spacer(Modifier.height(6.dp))
         if (input.type == "boolean") {
-            SwitchRow(if (v.equals("true", true)) "是（true）" else "否（false）", null, v.equals("true", true), enabled = !busy) { set(if (it) "true" else "false") }
+            SwitchRow(if (v.equals("true", true)) tr("是（true）") else tr("否（false）"), null, v.equals("true", true), enabled = !busy) { set(if (it) "true" else "false") }
         } else Box(inset) { when (input.type) {
             "choice" -> if (input.options.isEmpty()) {
                 GhField(v, set, input.name)
             } else {
-                Dropdown(v.ifEmpty { "请选择" }, input.options, { set(input.options[it]) })
+                Dropdown(v.ifEmpty { tr("请选择") }, input.options, { set(input.options[it]) })
             }
             "environment" -> if (environments.isEmpty()) {
-                GhField(v, set, "环境名称", placeholder = "例如 production")
+                GhField(v, set, tr("环境名称"), placeholder = tr("例如 production"))
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Dropdown(v.ifEmpty { "请选择环境" }, environments, { set(environments[it]) })
+                    Dropdown(v.ifEmpty { tr("请选择环境") }, environments, { set(environments[it]) })
                     Spacer(Modifier.width(10.dp))
-                    GhField(v, set, "或直接输入", Modifier.weight(1f))
+                    GhField(v, set, tr("或直接输入"), Modifier.weight(1f))
                 }
             }
             "number" -> GhField(
@@ -229,9 +231,9 @@ private fun InputField(
 }
 
 private fun typeZh(t: String) = when (t) {
-    "boolean" -> "布尔"
-    "choice" -> "选项"
-    "number" -> "数字"
-    "environment" -> "环境"
-    else -> "文本"
+    "boolean" -> tr("布尔")
+    "choice" -> tr("选项")
+    "number" -> tr("数字")
+    "environment" -> tr("环境")
+    else -> tr("文本")
 }

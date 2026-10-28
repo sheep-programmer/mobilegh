@@ -40,6 +40,8 @@ import com.mobilegh.data.ContribCalendar
 import com.mobilegh.data.ContribDay
 import com.mobilegh.ui.theme.Gh
 import java.time.LocalDate
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 fun levelOf(d: ContribDay): Int = when (d.contributionLevel) {
     "FIRST_QUARTILE" -> 1
@@ -85,7 +87,7 @@ fun Heatmap(cal: ContribCalendar, modifier: Modifier = Modifier) {
                 val t = top.toPx()
                 val r = CornerRadius(2.dp.toPx())
                 // 星期标签（周日在第一行，与 GitHub 一致）
-                listOf(1 to "一", 3 to "三", 5 to "五").forEach { (row, s) ->
+                listOf(1 to tr("一"), 3 to tr("三"), 5 to tr("五")).forEach { (row, s) ->
                     drawText(measurer, s, Offset(0f, t + row * (c + gp) - 1.dp.toPx()), labelStyle)
                 }
                 var lastMonth = -1
@@ -95,7 +97,7 @@ fun Heatmap(cal: ContribCalendar, modifier: Modifier = Modifier) {
                     val month = runCatching { LocalDate.parse(first.date).monthValue }.getOrDefault(-1)
                     if (month != lastMonth) {
                         if (wi - lastLabelCol >= 3 && wi < weeks.size - 1) {
-                            drawText(measurer, "${month}月", Offset(l + wi * (c + gp), 0f), labelStyle)
+                            drawText(measurer, trf("{0}月", month), Offset(l + wi * (c + gp), 0f), labelStyle)
                             lastLabelCol = wi
                         }
                         lastMonth = month
@@ -114,17 +116,17 @@ fun Heatmap(cal: ContribCalendar, modifier: Modifier = Modifier) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             val s = selected
             Text(
-                if (s != null) "${s.date}：${if (s.contributionCount == 0) "无贡献" else "${s.contributionCount} 次贡献"}" else "点按方块查看当天贡献",
+                if (s != null) "${s.date}：${if (s.contributionCount == 0) tr("无贡献") else trf("{0} 次贡献", s.contributionCount)}" else tr("点按方块查看当天贡献"),
                 fontSize = 12.sp, color = if (s != null) g.fg else g.fgMuted, fontWeight = if (s != null) FontWeight.Medium else null,
                 modifier = Modifier.weight(1f),
             )
-            Text("少", fontSize = 11.sp, color = g.fgMuted)
+            Text(tr("少"), fontSize = 11.sp, color = g.fgMuted)
             Spacer(Modifier.width(4.dp))
             g.heat.forEach {
                 Box(Modifier.padding(horizontal = 1.5.dp).size(10.dp).background(it, RoundedCornerShape(2.dp)))
             }
             Spacer(Modifier.width(4.dp))
-            Text("多", fontSize = 11.sp, color = g.fgMuted)
+            Text(tr("多"), fontSize = 11.sp, color = g.fgMuted)
         }
     }
 }

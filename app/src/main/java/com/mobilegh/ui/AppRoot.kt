@@ -56,6 +56,7 @@ import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.screens.*
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
 
 object Badges {
     var unread by androidx.compose.runtime.mutableIntStateOf(0)
@@ -123,30 +124,30 @@ private fun Main(nav: Navigator) {
     // Token 被 GitHub 判定失效（账号登录的授权过期等）：引导重新登录
     if (Session.authExpired && nav.stack.lastOrNull()?.screen !in listOf(Screen.Login, Screen.Reauthorize)) {
         GhDialog(
-            "GitHub 授权已失效",
+            tr("GitHub 授权已失效"),
             onDismiss = { Session.authExpired = false },
-            confirm = "重新登录",
+            confirm = tr("重新登录"),
             onConfirm = {
                 Session.authExpired = false
                 nav.push(Screen.Reauthorize)
             },
-        ) { Text("授权可能已过期或被撤销。请重新登录，新的账号授权默认长期有效。", fontSize = 14.sp) }
+        ) { Text(tr("授权可能已过期或被撤销。请重新登录，新的账号授权默认长期有效。"), fontSize = 14.sp) }
     }
 
     // 登录时按 X-OAuth-Scopes 比对应用所需权限，缺权限一次性告知（参考 gh auth refresh 的提示思路）
     if (Session.scopeNoticeVisible && nav.stack.lastOrNull()?.screen !in listOf(Screen.Login, Screen.Reauthorize)) {
         val missing = Session.missingScopes
         GhDialog(
-            "授权权限不完整",
+            tr("授权权限不完整"),
             onDismiss = { Session.dismissScopeNotice() },
-            confirm = "重新登录补齐",
+            confirm = tr("重新登录补齐"),
             onConfirm = {
                 Session.dismissScopeNotice()
                 nav.push(Screen.Reauthorize)
             },
         ) {
             Column {
-                Text("当前授权缺少以下权限，对应功能将无法使用：", fontSize = 14.sp)
+                Text(tr("当前授权缺少以下权限，对应功能将无法使用："), fontSize = 14.sp)
                 missing.forEach {
                     Text("• ${it}：${com.mobilegh.data.DeviceAuth.scopeFeature(it)}", Modifier.padding(top = 6.dp), fontSize = 13.sp, color = Gh.c.fgMuted)
                 }

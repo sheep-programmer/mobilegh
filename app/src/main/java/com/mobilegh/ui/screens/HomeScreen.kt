@@ -51,6 +51,7 @@ import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
 
 @Composable
 fun HomeScreen() {
@@ -93,7 +94,7 @@ fun HomeScreen() {
     com.mobilegh.nav.OnTabReselect(Tab.Home) { state.animateScrollToItem(0) }
 
     Page(
-        "首页", back = false, contentWindowInsets = WindowInsets(0),
+        tr("首页"), back = false, contentWindowInsets = WindowInsets(0),
         actions = {
             OcButton(R.drawable.oc_plus, { nav.push(Screen.CreateRepo) })
             OcButton(R.drawable.oc_gear, { nav.push(Screen.Settings) })
@@ -101,24 +102,24 @@ fun HomeScreen() {
     ) { pad ->
         PagedList(
             feed, Modifier.padding(pad).fillMaxSize(), state,
-            empty = "关注一些开发者或 star 一些仓库后，这里会显示动态",
-            emptyIcon = R.drawable.oc_pulse, emptyAction = "去探索", onEmptyAction = { nav.select(Tab.Explore) },
+            empty = tr("关注一些开发者或 star 一些仓库后，这里会显示动态"),
+            emptyIcon = R.drawable.oc_pulse, emptyAction = tr("去探索"), onEmptyAction = { nav.select(Tab.Explore) },
             onRefresh = { me.refresh(); invites.refresh(); contrib.refresh(); lists.refresh(); badges.refresh() },
             itemFilter = { cat == EventCat.All || eventCat(it) == cat },
             itemKey = { it.id },
             header = {
                 item { HomeProfile(login, me.data, Session.avatar) { nav.select(Tab.Me) } }
                 invites.data?.takeIf { it > 0 }?.let { n -> item { HomeInviteBanner(n) { nav.push(Screen.Invitations) } } }
-                item { SectionTitle("我的工作") { TextLink("编辑") { nav.push(Screen.HomeCustomize) } } }
+                item { SectionTitle(tr("我的工作")) { TextLink(tr("编辑")) { nav.push(Screen.HomeCustomize) } } }
                 item {
                     if (shortcuts.isEmpty()) {
-                        Text("所有快捷入口都已隐藏，点「编辑」可重新显示", Modifier.padding(horizontal = 16.dp), fontSize = 13.sp, color = g.fgMuted)
+                        Text(tr("所有快捷入口都已隐藏，点「编辑」可重新显示"), Modifier.padding(horizontal = 16.dp), fontSize = 13.sp, color = g.fgMuted)
                     } else {
                         HomeShortcuts(shortcuts)
                     }
                 }
                 if (layout.favorites.isNotEmpty()) {
-                    item { SectionTitle("收藏仓库") { TextLink("编辑") { nav.push(Screen.HomeCustomize) } } }
+                    item { SectionTitle(tr("收藏仓库")) { TextLink(tr("编辑")) { nav.push(Screen.HomeCustomize) } } }
                     item {
                         MenuGroup {
                             layout.favorites.forEachIndexed { i, f ->
@@ -132,7 +133,7 @@ fun HomeScreen() {
                         }
                     }
                 }
-                item { SectionTitle("收藏列表") { TextLink("全部") { nav.push(Screen.StarLists(login)) } } }
+                item { SectionTitle(tr("收藏列表")) { TextLink(tr("全部")) { nav.push(Screen.StarLists(login)) } } }
                 item {
                     // 首页和列表页共用搜索/排序状态，两处看到的顺序一致
                     val listBrowser = rememberSharedListBrowser("home-lists:$login")
@@ -140,7 +141,7 @@ fun HomeScreen() {
                         SearchBox(
                             listBrowser.input, listBrowser.query, { listBrowser.input = it },
                             { listBrowser.apply() }, { listBrowser.clear() },
-                            "搜索收藏列表", "名称或描述",
+                            tr("搜索收藏列表"), tr("名称或描述"),
                             Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                         )
                         SortBar(
@@ -155,7 +156,7 @@ fun HomeScreen() {
                         )
                     }
                 }
-                item { SectionTitle("贡献") { TextLink("详情") { nav.select(Tab.Me) } } }
+                item { SectionTitle(tr("贡献")) { TextLink(tr("详情")) { nav.select(Tab.Me) } } }
                 item {
                     Card(Modifier.padding(horizontal = 16.dp)) {
                         Column {
@@ -165,7 +166,7 @@ fun HomeScreen() {
                         }
                     }
                 }
-                item { SectionTitle("动态") }
+                item { SectionTitle(tr("动态")) }
                 item {
                     Chips(EventCat.entries.map { it.label }, EventCat.entries.indexOf(cat)) { cat = EventCat.entries[it] }
                 }
@@ -182,11 +183,11 @@ fun MyIssuesScreen(pulls: Boolean, preset: IssueQuery? = null) {
     var saving by remember { mutableStateOf(false) }
     val q = query.value
     Page(
-        if (pulls) "我的 Pull Requests" else "我的 Issues",
+        if (pulls) tr("我的 Pull Requests") else tr("我的 Issues"),
         actions = {
             MoreMenu(buildList {
-                add(MenuAction("保存到首页…") { saving = true })
-                if (q.hasFilters) add(MenuAction("清除筛选") { query.value = q.cleared() })
+                add(MenuAction(tr("保存到首页…")) { saving = true })
+                if (q.hasFilters) add(MenuAction(tr("清除筛选")) { query.value = q.cleared() })
             })
         },
     ) { pad ->

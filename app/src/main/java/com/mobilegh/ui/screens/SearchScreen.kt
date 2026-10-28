@@ -67,7 +67,9 @@ import com.mobilegh.nav.rememberPager
 import com.mobilegh.ui.components.ActiveFilterChips
 import com.mobilegh.ui.components.ChoicePicker
 import com.mobilegh.ui.components.Dropdown
+import com.mobilegh.ui.components.FilterCard
 import com.mobilegh.ui.components.FilterEntry
+import com.mobilegh.ui.components.FilterSheet
 import com.mobilegh.ui.components.DropdownButton
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
@@ -82,6 +84,9 @@ import com.mobilegh.ui.components.RepoItem
 import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.UserItem
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trc
+import com.mobilegh.i18n.trf
 
 /**
  * 独立的搜索大页面：类型切换、关键词、组合筛选、结果都在同一页。
@@ -122,7 +127,7 @@ fun SearchScreen(initialType: Int = SearchType.REPO, initialQuery: String = "") 
     val ready = SearchQuery.hasCriteria(type, submitted, filters)
     val listState = rememberLazyListState()
 
-    Page("搜索", back = true) { pad ->
+    Page(tr("搜索"), back = true) { pad ->
         Column(Modifier.padding(pad).consumeWindowInsets(pad).imePadding().fillMaxSize()) {
             SearchBar(
                 input = input,
@@ -183,10 +188,10 @@ fun SearchScreen(initialType: Int = SearchType.REPO, initialQuery: String = "") 
 }
 
 private fun placeholder(type: Int): String = when (type) {
-    SearchType.REPO -> "关键词，如 android compose"
-    SearchType.USER -> "用户名或昵称"
-    SearchType.ISSUE, SearchType.PR -> "标题、正文或评论中的关键词（可留空只用筛选）"
-    else -> "代码内容，如 fun main"
+    SearchType.REPO -> tr("关键词，如 android compose")
+    SearchType.USER -> tr("用户名或昵称")
+    SearchType.ISSUE, SearchType.PR -> tr("标题、正文或评论中的关键词（可留空只用筛选）")
+    else -> tr("代码内容，如 fun main")
 }
 
 /** 顶部单行搜索栏：输入框和筛选入口同一行，不再各占一行 */
@@ -206,7 +211,7 @@ private fun SearchBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         GhField(
-            input, onInput, "搜索 ${SearchType.labels[type]}",
+            input, onInput, trf("搜索 {0}", SearchType.labels[type]),
             Modifier.weight(1f),
             placeholder = placeholder(type),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -215,9 +220,9 @@ private fun SearchBar(
             trailing = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (input.isNotEmpty()) {
-                        OcButton(R.drawable.oc_x, onClearInput, g.fgMuted, description = "清空关键词")
+                        OcButton(R.drawable.oc_x, onClearInput, g.fgMuted, description = tr("清空关键词"))
                     }
-                    OcButton(R.drawable.oc_arrow_right, { onSubmit() }, g.accent, description = "搜索")
+                    OcButton(R.drawable.oc_arrow_right, { onSubmit() }, g.accent, description = tr("搜索"))
                 }
             },
         )
@@ -273,11 +278,11 @@ private fun HintPane(type: Int, onHistory: (SearchHistoryEntry) -> Unit, onExamp
     ) {
         Oc(R.drawable.oc_search, g.fgMuted, 32.dp)
         Spacer(Modifier.height(12.dp))
-        Text("输入关键词后点搜索", color = g.fgMuted)
+        Text(tr("输入关键词后点搜索"), color = g.fgMuted)
         Spacer(Modifier.height(6.dp))
         Text(
-            if (type == SearchType.CODE) "代码搜索必须有关键词，筛选条件只用来收窄范围"
-            else "也可以用「筛选」组合条件",
+            if (type == SearchType.CODE) tr("代码搜索必须有关键词，筛选条件只用来收窄范围")
+            else tr("也可以用「筛选」组合条件"),
             color = g.fgMuted, fontSize = 13.sp, textAlign = TextAlign.Center,
         )
         Spacer(Modifier.height(20.dp))
@@ -308,12 +313,12 @@ private fun FlowExamples(examples: List<String>, onPick: (String) -> Unit) {
 private fun RepoResults(query: String, state: LazyListState) {
     val g = Gh.c
     var sort by rememberSaveable(query) { mutableIntStateOf(0) }
-    val sorts = listOf(null to "最佳匹配", "stars" to "最多 Star", "updated" to "最近更新", "forks" to "最多 Fork")
+    val sorts = listOf(null to tr("最佳匹配"), "stars" to tr("最多 Star"), "updated" to tr("最近更新"), "forks" to tr("最多 Fork"))
     val pager = rememberPager("search-repo:$query:$sort") { p, _ -> GitHub.searchRepos(query, sorts[sort].first, p).items }
-    PagedList(pager, state = state, empty = "没有找到匹配的仓库", emptyIcon = R.drawable.oc_repo, header = {
+    PagedList(pager, state = state, empty = tr("没有找到匹配的仓库"), emptyIcon = R.drawable.oc_repo, header = {
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("仓库", Modifier.weight(1f), fontSize = 13.sp, color = g.fgMuted)
+                Text(tr("仓库"), Modifier.weight(1f), fontSize = 13.sp, color = g.fgMuted)
                 Dropdown(sorts[sort].second, sorts.map { it.second }, { sort = it }, active = sort != 0)
             }
             HDivider()
@@ -324,7 +329,7 @@ private fun RepoResults(query: String, state: LazyListState) {
 @Composable
 private fun UserResults(query: String, state: LazyListState) {
     val pager = rememberPager("search-user:$query") { p, _ -> GitHub.searchUsers(query, p).items }
-    PagedList(pager, state = state, empty = "没有找到匹配的用户", emptyIcon = R.drawable.oc_people) { UserItem(it) }
+    PagedList(pager, state = state, empty = tr("没有找到匹配的用户"), emptyIcon = R.drawable.oc_people) { UserItem(it) }
 }
 
 @Composable
@@ -341,17 +346,17 @@ private fun CodeResults(query: String, state: LazyListState) {
     PagedList(
         pager, state = state,
         itemKey = { "${it.repository.fullName}:${it.path}" },
-        empty = "没有找到匹配的代码。代码搜索需要仓库有代码索引，可尝试加上 repo: 或 language: 缩小范围",
+        empty = tr("没有找到匹配的代码。代码搜索需要仓库有代码索引，可尝试加上 repo: 或 language: 缩小范围"),
         emptyIcon = R.drawable.oc_code,
         header = {
             item {
                 Text(
-                    "搜索默认分支中的代码" + if (total > 0) " · $total 个结果" else "",
+                    tr("搜索默认分支中的代码") + if (total > 0) trf(" · {0} 个结果", total) else "",
                     Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = Gh.c.fgMuted, fontSize = 12.sp,
                 )
                 if (total > 0 && (incomplete || total > 1000)) {
                     Text(
-                        "GitHub 只返回部分结果，请用 repo:、path: 或 language: 缩小范围",
+                        tr("GitHub 只返回部分结果，请用 repo:、path: 或 language: 缩小范围"),
                         Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.attention, fontSize = 12.sp,
                     )
                 }
@@ -378,7 +383,7 @@ private fun IssueResults(query: String, pulls: Boolean, state: LazyListState) {
     val pager = rememberPager("search-${if (pulls) "pr" else "issue"}:$query") { p, _ ->
         GitHub.searchIssues(query, p, if (pulls) "updated" else "created", "desc").items
     }
-    PagedList(pager, state = state, itemKey = { it.id }, empty = "没有找到匹配的${if (pulls) " PR" else " Issue"}",
+    PagedList(pager, state = state, itemKey = { it.id }, empty = trf("没有找到匹配的{0}", if (pulls) " PR" else " Issue"),
         emptyIcon = if (pulls) R.drawable.oc_git_pull_request else R.drawable.oc_issue_opened) { issue ->
         val repo = issue.repositoryUrl?.substringAfter("/repos/") ?: ""
         IssueItem(issue, repoName = repo) {
@@ -396,105 +401,75 @@ private fun IssueResults(query: String, pulls: Boolean, state: LazyListState) {
 internal fun SearchFilterDialog(type: Int, initial: SearchFilters, onApply: (SearchFilters) -> Unit, onDismiss: () -> Unit) {
     val g = Gh.c
     var f by rememberSaveable(type, stateSaver = SearchFiltersSaver) { mutableStateOf(initial) }
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = g.canvas,
-        scrimColor = Color.Black.copy(alpha = 0.4f),
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    FilterSheet(
+        trf("筛选 · {0}", SearchType.labels[type]), tr("条件之间为「并且」，应用后立即收窄结果"), tr("关闭筛选"), onDismiss,
+        footer = {
+            GhButton(tr("重置"), Modifier.weight(1f), enabled = f.hasActive(type)) { f = f.cleared(type) }
+            GhButton(tr("取消"), Modifier.weight(1f)) { onDismiss() }
+            GhButton(trc("应用", "action") + if (f.activeCount(type) > 0) " · ${f.activeCount(type)}" else "", Modifier.weight(1.3f), primary = true) {
+                onApply(f)
+            }
+        },
     ) {
-        Column(Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
-            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("筛选 · ${SearchType.labels[type]}", color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                    Text("条件之间为「并且」，应用后立即收窄结果", color = g.fgMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+        FilterGroup(tr("范围")) {
+            when (type) {
+                SearchType.REPO -> FilterField(tr("归属用户或组织"), f.repoOwner, { f = f.copy(repoOwner = it) }, tr("如 JetBrains"))
+                SearchType.USER -> ChoicePicker(tr("账号类型"), listOf(tr("不限"), tr("用户"), tr("组织")), f.userType) { f = f.copy(userType = it) }
+                SearchType.CODE -> {
+                    FilterField(tr("仓库"), f.codeRepo, { f = f.copy(codeRepo = it) }, tr("owner/name，可留空搜索全站"))
+                    FilterField(tr("归属用户或组织"), f.codeOwner, { f = f.copy(codeOwner = it) }, tr("未填写仓库时生效"))
                 }
-                OcButton(R.drawable.oc_x, onDismiss, description = "关闭筛选")
-            }
-            HDivider(Modifier.padding(top = 8.dp))
-            // 滚动区用 weight 而不是估算的固定高度：弹层高度被键盘或矮屏压缩时，
-            // 「应用」按钮仍然在屏幕内，只有中间内容滚动
-            Column(
-                Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
-                    .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                FilterGroup("范围") {
-                    when (type) {
-                        SearchType.REPO -> FilterField("归属用户或组织", f.repoOwner, { f = f.copy(repoOwner = it) }, "如 JetBrains")
-                        SearchType.USER -> ChoicePicker("账号类型", listOf("不限", "用户", "组织"), f.userType) { f = f.copy(userType = it) }
-                        SearchType.CODE -> {
-                            FilterField("仓库", f.codeRepo, { f = f.copy(codeRepo = it) }, "owner/name，可留空搜索全站")
-                            FilterField("归属用户或组织", f.codeOwner, { f = f.copy(codeOwner = it) }, "未填写仓库时生效")
-                        }
-                        else -> {
-                            FilterField("仓库", f.issueRepo, { f = f.copy(issueRepo = it) }, "owner/name")
-                            FilterField("归属用户或组织", f.issueOwner, { f = f.copy(issueOwner = it) }, "未填写仓库时生效")
-                        }
-                    }
-                }
-                FilterGroup("属性") {
-                    when (type) {
-                        SearchType.REPO -> {
-                            LanguagePicker(f.repoLanguage) { f = f.copy(repoLanguage = it) }
-                            FilterField("Topic", f.topic, { f = f.copy(topic = it) }, "单个 topic，如 android")
-                            ChoicePicker("归档状态", listOf("不限", "仅归档", "排除归档"), f.archived) { f = f.copy(archived = it) }
-                        }
-                        SearchType.USER -> {
-                            FilterField("所在地", f.location, { f = f.copy(location = it) }, "如 China / Tokyo")
-                            LanguagePicker(f.userLanguage) { f = f.copy(userLanguage = it) }
-                        }
-                        SearchType.CODE -> {
-                            LanguagePicker(f.codeLanguage) { f = f.copy(codeLanguage = it) }
-                            FilterField("路径", f.path, { f = f.copy(path = it) }, "如 src/main")
-                            FilterField("文件名", f.filename, { f = f.copy(filename = it) }, "如 build.gradle")
-                        }
-                        else -> {
-                            ChoicePicker("状态", listOf("不限", "开放", "已关闭"), f.state) { f = f.copy(state = it) }
-                            FilterField("作者", f.author, { f = f.copy(author = it) }, "GitHub 用户名")
-                            FilterField("标签", f.labels, { f = f.copy(labels = it) }, "多个用英文逗号分隔")
-                            LanguagePicker(f.issueLanguage) { f = f.copy(issueLanguage = it) }
-                        }
-                    }
-                }
-                // 代码搜索没有数量/时间条件，空分组会画出空标题，直接省略
-                if (type != SearchType.CODE) FilterGroup("数量与时间") {
-                    when (type) {
-                        SearchType.REPO -> {
-                            NumberPicker("最少 Star", f.minStars, listOf(0, 10, 100, 500, 1000, 5000, 10000)) { f = f.copy(minStars = it) }
-                            NumberPicker("最少 Fork", f.minForks, listOf(0, 10, 50, 100, 500, 1000)) { f = f.copy(minForks = it) }
-                        }
-                        SearchType.USER -> NumberPicker("最少关注者", f.minFollowers, listOf(0, 10, 50, 100, 1000)) { f = f.copy(minFollowers = it) }
-                        else -> {
-                            NumberPicker("最少评论", f.minComments, listOf(0, 5, 10, 20, 50)) { f = f.copy(minComments = it) }
-                            NumberPicker("更新时间", f.updatedDays, listOf(0, 7, 30, 90, 365), unit = "天内") { f = f.copy(updatedDays = it) }
-                        }
-                    }
+                else -> {
+                    FilterField(tr("仓库"), f.issueRepo, { f = f.copy(issueRepo = it) }, "owner/name")
+                    FilterField(tr("归属用户或组织"), f.issueOwner, { f = f.copy(issueOwner = it) }, tr("未填写仓库时生效"))
                 }
             }
-            HDivider()
-            // 三个按钮等宽排布，窄屏和大字体下也不会错落换行
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                GhButton("重置", Modifier.weight(1f), enabled = f.hasActive(type)) { f = f.cleared(type) }
-                GhButton("取消", Modifier.weight(1f)) { onDismiss() }
-                GhButton("应用" + if (f.activeCount(type) > 0) " · ${f.activeCount(type)}" else "", Modifier.weight(1.3f), primary = true) {
-                    onApply(f)
+        }
+        FilterGroup(tr("属性")) {
+            when (type) {
+                SearchType.REPO -> {
+                    LanguagePicker(f.repoLanguage) { f = f.copy(repoLanguage = it) }
+                    FilterField("Topic", f.topic, { f = f.copy(topic = it) }, tr("单个 topic，如 android"))
+                    ChoicePicker(tr("归档状态"), listOf(tr("不限"), tr("仅归档"), tr("排除归档")), f.archived) { f = f.copy(archived = it) }
+                }
+                SearchType.USER -> {
+                    FilterField(tr("所在地"), f.location, { f = f.copy(location = it) }, tr("如 China / Tokyo"))
+                    LanguagePicker(f.userLanguage) { f = f.copy(userLanguage = it) }
+                }
+                SearchType.CODE -> {
+                    LanguagePicker(f.codeLanguage) { f = f.copy(codeLanguage = it) }
+                    FilterField(tr("路径"), f.path, { f = f.copy(path = it) }, tr("如 src/main"))
+                    FilterField(tr("文件名"), f.filename, { f = f.copy(filename = it) }, tr("如 build.gradle"))
+                }
+                else -> {
+                    ChoicePicker(tr("状态"), listOf(tr("不限"), tr("开放"), tr("已关闭")), f.state) { f = f.copy(state = it) }
+                    FilterField(tr("作者"), f.author, { f = f.copy(author = it) }, tr("GitHub 用户名"))
+                    FilterField(tr("标签"), f.labels, { f = f.copy(labels = it) }, tr("多个用英文逗号分隔"))
+                    LanguagePicker(f.issueLanguage) { f = f.copy(issueLanguage = it) }
+                }
+            }
+        }
+        // 代码搜索没有数量/时间条件，空分组会画出空标题，直接省略
+        if (type != SearchType.CODE) FilterGroup(tr("数量与时间")) {
+            when (type) {
+                SearchType.REPO -> {
+                    NumberPicker(tr("最少 Star"), f.minStars, listOf(0, 10, 100, 500, 1000, 5000, 10000)) { f = f.copy(minStars = it) }
+                    NumberPicker(tr("最少 Fork"), f.minForks, listOf(0, 10, 50, 100, 500, 1000)) { f = f.copy(minForks = it) }
+                }
+                SearchType.USER -> NumberPicker(tr("最少关注者"), f.minFollowers, listOf(0, 10, 50, 100, 1000)) { f = f.copy(minFollowers = it) }
+                else -> {
+                    NumberPicker(tr("最少评论"), f.minComments, listOf(0, 5, 10, 20, 50)) { f = f.copy(minComments = it) }
+                    NumberPicker(tr("更新时间"), f.updatedDays, listOf(0, 7, 30, 90, 365), unit = tr("天内")) { f = f.copy(updatedDays = it) }
                 }
             }
         }
     }
 }
 
-/** 筛选分区：标题 + 控件。不再套一层卡片，避免和输入框自身的边框叠成双层 */
+/** 筛选分区：灰色小标题 + 白色分组卡片 */
 @Composable
 private fun FilterGroup(title: String, content: @Composable () -> Unit) {
-    val g = Gh.c
-    Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-        Text(title, color = g.fgMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) { content() }
-    }
+    FilterCard(title) { content() }
 }
 
 @Composable
@@ -516,15 +491,15 @@ private fun PickerRow(label: String, value: String, options: List<String>, onSel
 private fun LanguagePicker(value: String, onSelect: (String) -> Unit) {
     // 语言候选太多，用下拉而不是平铺 chips；用 language:xxx 输入了列表外的语言时也如实显示
     val custom = value.isNotBlank() && value !in SEARCH_LANGUAGES
-    val options = listOf("不限") + (if (custom) listOf(value) else emptyList()) + SEARCH_LANGUAGES
-    PickerRow("语言", if (value.isBlank()) "不限" else value, options, { onSelect(if (it == 0) "" else options[it]) }, value.isNotBlank())
+    val options = listOf(tr("不限")) + (if (custom) listOf(value) else emptyList()) + SEARCH_LANGUAGES
+    PickerRow(tr("语言"), if (value.isBlank()) tr("不限") else value, options, { onSelect(if (it == 0) "" else options[it]) }, value.isNotBlank())
 }
 
 /** 数量阈值用下拉，避免七八个胶囊平铺把弹层撑得又长又密 */
 @Composable
-private fun NumberPicker(label: String, value: Int, options: List<Int>, unit: String = "以上", onSelect: (Int) -> Unit) {
-    val texts = options.map { if (it == 0) "不限" else "$it $unit" }
-    PickerRow(label, texts[options.indexOf(value).coerceAtLeast(0)], listOf("不限") + texts.drop(1), { onSelect(if (it == 0) 0 else options[it]) }, value > 0)
+private fun NumberPicker(label: String, value: Int, options: List<Int>, unit: String = tr("以上"), onSelect: (Int) -> Unit) {
+    val texts = options.map { if (it == 0) tr("不限") else "$it $unit" }
+    PickerRow(label, texts[options.indexOf(value).coerceAtLeast(0)], listOf(tr("不限")) + texts.drop(1), { onSelect(if (it == 0) 0 else options[it]) }, value > 0)
 }
 
 private val SearchFiltersSaver = androidx.compose.runtime.saveable.listSaver<SearchFilters, Any>(

@@ -26,6 +26,7 @@ import com.mobilegh.widget.Widgets
 import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.AppRoot
 import com.mobilegh.ui.theme.MobileGhTheme
+import com.mobilegh.i18n.tr
 
 class NavVm(private val state: SavedStateHandle) : ViewModel() {
     var pendingUrl by mutableStateOf(state.get<String>("pendingUrl"))
@@ -149,6 +150,6 @@ class MainActivity : FragmentActivity() {
         }
         val link = IncomingLinks.fromIntent(intent)
         if (link != null) vm.receive(link.url)
-        else if (intent?.action == Intent.ACTION_SEND) toast("分享内容中没有可打开的 GitHub 链接")
+        else if (intent?.action == Intent.ACTION_SEND) toast(tr("分享内容中没有可打开的 GitHub 链接"))
     }
 }

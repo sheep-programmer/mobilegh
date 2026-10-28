@@ -7,6 +7,8 @@ import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 data class DeviceAuthorization(val deviceCode: String, val userCode: String, val verificationUri: String, val expiresIn: Int, val interval: Int)
 
@@ -33,14 +35,14 @@ object DeviceAuth {
 
     /** 缺少某权限时受影响的功能，提示用户为什么要补授权 */
     fun scopeFeature(scope: String): String = when (scope) {
-        "repo" -> "私有仓库、Issues/PR 读写"
-        "read:org" -> "组织与团队信息"
-        "notifications" -> "通知已读与订阅"
-        "user" -> "关注、列表与资料"
+        "repo" -> tr("私有仓库、Issues/PR 读写")
+        "read:org" -> tr("组织与团队信息")
+        "notifications" -> tr("通知已读与订阅")
+        "user" -> tr("关注、列表与资料")
         "gist" -> "Gist"
-        "workflow" -> "手动触发工作流"
-        "project" -> "Projects 看板读写"
-        "delete_repo" -> "删除仓库"
+        "workflow" -> tr("手动触发工作流")
+        "project" -> tr("Projects 看板读写")
+        "delete_repo" -> tr("删除仓库")
         else -> scope
     }
 
@@ -53,9 +55,9 @@ object DeviceAuth {
         if (raw == null || !raw.contains("required scopes", true) && !raw.contains("INSUFFICIENT_SCOPES", true)) return null
         val scope = Regex("""following scopes: \['"?([A-Za-z_:]+)"?'?\]""").find(raw)?.groupValues?.getOrNull(1)
         return buildString {
-            append("当前登录授权权限不足")
-            if (scope != null) append("：缺少 $scope（${scopeFeature(scope)}）")
-            append("。请到「设置 → 重新登录，获取新授权」补齐权限后再试")
+            append(tr("当前登录授权权限不足"))
+            if (scope != null) append(trf("：缺少 {0}（{1}）", scope, scopeFeature(scope)))
+            append(tr("。请到「设置 → 重新登录，获取新授权」补齐权限后再试"))
         }
     }
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
@@ -66,13 +68,13 @@ object DeviceAuth {
     }
 
     internal fun decodeAuthorization(r: JsonObject): DeviceAuthorization {
-        val uri = r.str("verification_uri") ?: error("GitHub 未返回授权地址")
-        require(uri == "https://github.com/login/device") { "GitHub 返回了未知的授权地址" }
+        val uri = r.str("verification_uri") ?: error(tr("GitHub 未返回授权地址"))
+        require(uri == "https://github.com/login/device") { tr("GitHub 返回了未知的授权地址") }
         val expires = r.str("expires_in")?.toIntOrNull()?.takeIf { it > 0 }
-            ?: error("GitHub 未返回有效的授权期限")
+            ?: error(tr("GitHub 未返回有效的授权期限"))
         return DeviceAuthorization(
-            r.str("device_code") ?: error(r.str("error_description") ?: "无法获取设备码"),
-            r.str("user_code") ?: error("无法获取授权码"), uri,
+            r.str("device_code") ?: error(r.str("error_description") ?: tr("无法获取设备码")),
+            r.str("user_code") ?: error(tr("无法获取授权码")), uri,
             expires.coerceAtMost(1800),
             r.str("interval")?.toIntOrNull()?.coerceAtLeast(5) ?: 5,
         )
@@ -96,11 +98,11 @@ object DeviceAuth {
         return when (r.str("error")) {
             "authorization_pending" -> DevicePoll.Pending
             "slow_down" -> DevicePoll.SlowDown(r.str("interval")?.toIntOrNull())
-            "access_denied" -> DevicePoll.Failed("已取消授权")
-            "expired_token" -> DevicePoll.Failed("授权码已过期，请重新开始")
-            "incorrect_client_credentials" -> DevicePoll.Failed("OAuth 应用配置无效，请使用 Token 登录")
-            "device_flow_disabled" -> DevicePoll.Failed("OAuth 应用尚未启用设备授权")
-            else -> DevicePoll.Failed(r.str("error_description") ?: "GitHub 授权失败")
+            "access_denied" -> DevicePoll.Failed(tr("已取消授权"))
+            "expired_token" -> DevicePoll.Failed(tr("授权码已过期，请重新开始"))
+            "incorrect_client_credentials" -> DevicePoll.Failed(tr("OAuth 应用配置无效，请使用 Token 登录"))
+            "device_flow_disabled" -> DevicePoll.Failed(tr("OAuth 应用尚未启用设备授权"))
+            else -> DevicePoll.Failed(r.str("error_description") ?: tr("GitHub 授权失败"))
         }
     }
 
@@ -110,9 +112,9 @@ object DeviceAuth {
             .header("Accept", "application/json").header("User-Agent", "MobileGH").build()
         return withContext(Dispatchers.IO) {
             client.routed().newCall(request).await().use { r ->
-                if (!r.isSuccessful) throw ApiException(r.code, "授权请求失败 (${r.code})")
+                if (!r.isSuccessful) throw ApiException(r.code, trf("授权请求失败 ({0})", r.code))
                 val payload = Api.plain.parseToJsonElement(r.body.string()) as? JsonObject
-                    ?: error("GitHub 未返回有效的授权信息")
+                    ?: error(tr("GitHub 未返回有效的授权信息"))
                 payload
             }
         }

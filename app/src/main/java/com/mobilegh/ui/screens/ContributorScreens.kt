@@ -37,6 +37,9 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -64,6 +67,8 @@ import com.mobilegh.data.validateContributionDates
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.rememberLoader
+import com.mobilegh.ui.components.ChartBubbleSpace
+import com.mobilegh.ui.components.drawValueBubble
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Chips
@@ -77,6 +82,8 @@ import java.text.NumberFormat
 import java.time.Instant
 import java.time.ZoneOffset
 import java.util.Locale
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 @Composable
 fun ContributorsScreen(owner: String, name: String) {
@@ -102,10 +109,10 @@ fun ContributorsScreen(owner: String, name: String) {
         snapshot?.let { aggregateContributions(it, range, dates.dates, today.atStartOfDay(ZoneOffset.UTC).toInstant()) }
     }
 
-    Page("贡献者", subtitle = "$owner/$name", actions = {
+    Page(tr("贡献者"), subtitle = "$owner/$name", actions = {
         IconButton(
             onClick = { loader.refresh() }, enabled = !loader.loading,
-            modifier = Modifier.semantics { contentDescription = "刷新贡献统计" },
+            modifier = Modifier.semantics { contentDescription = tr("刷新贡献统计") },
         ) { Oc(R.drawable.oc_sync, g.fgMuted, 20.dp) }
     }) { pad ->
         when {
@@ -115,8 +122,8 @@ fun ContributorsScreen(owner: String, name: String) {
                 verticalArrangement = Arrangement.Center,
             ) {
                 Loading(Modifier.size(48.dp))
-                Text("正在加载贡献统计…", color = g.fgMuted, fontSize = 13.sp)
-                Text("GitHub 首次计算可能需要一些时间", Modifier.padding(16.dp), color = g.fgMuted, fontSize = 12.sp)
+                Text(tr("正在加载贡献统计…"), color = g.fgMuted, fontSize = 13.sp)
+                Text(tr("GitHub 首次计算可能需要一些时间"), Modifier.padding(16.dp), color = g.fgMuted, fontSize = 12.sp)
             }
             else -> PullToRefreshBox(
                 isRefreshing = loader.refreshing, onRefresh = { loader.refresh() },
@@ -131,19 +138,19 @@ fun ContributorsScreen(owner: String, name: String) {
                         }
                         if (!weeklyAvailable) {
                             Text(
-                                "GitHub 仅返回了累计提交数，按时间筛选暂不可用；可稍后刷新重试周统计。",
+                                tr("GitHub 仅返回了累计提交数，按时间筛选暂不可用；可稍后刷新重试周统计。"),
                                 Modifier.padding(horizontal = 16.dp), color = g.fgMuted, fontSize = 11.sp,
                             )
                         }
                         if (range == ContributionRange.Custom) {
                             Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedTextField(
-                                    startDate, { startDate = it }, label = { Text("开始日期（UTC）") },
+                                    startDate, { startDate = it }, label = { Text(tr("开始日期（UTC）")) },
                                     placeholder = { Text("YYYY-MM-DD") }, singleLine = true,
                                     isError = dates.error != null, modifier = Modifier.fillMaxWidth(),
                                 )
                                 OutlinedTextField(
-                                    endDate, { endDate = it }, label = { Text("结束日期（UTC，含当天）") },
+                                    endDate, { endDate = it }, label = { Text(tr("结束日期（UTC，含当天）")) },
                                     placeholder = { Text("YYYY-MM-DD") }, singleLine = true,
                                     isError = dates.error != null, modifier = Modifier.fillMaxWidth(),
                                 )
@@ -154,9 +161,9 @@ fun ContributorsScreen(owner: String, name: String) {
                     if (stale || current?.message != null || snapshot.truncated) item {
                         ContributionNotice(
                             buildList {
-                                if (stale) add("显示上次加载的统计。${loader.error ?: current?.message.orEmpty()}")
+                                if (stale) add(trf("显示上次加载的统计。{0}", loader.error ?: current?.message.orEmpty()))
                                 else current?.message?.let { add(it) }
-                                if (snapshot.truncated) add("仅汇总已加载的贡献者；占比以此列表为分母")
+                                if (snapshot.truncated) add(tr("仅汇总已加载的贡献者；占比以此列表为分母"))
                             }.joinToString("\n"), loader.loading,
                         ) { loader.refresh() }
                     }
@@ -165,32 +172,32 @@ fun ContributorsScreen(owner: String, name: String) {
                         snapshot.records.isEmpty() -> item {
                             ContributionEmpty(
                                 when (snapshot.status) {
-                                    ContributionStatus.Pending -> "周统计仍在生成"
-                                    ContributionStatus.Empty -> "GitHub 未返回贡献统计"
-                                    else -> "暂无可用的贡献者数据"
+                                    ContributionStatus.Pending -> tr("周统计仍在生成")
+                                    ContributionStatus.Empty -> tr("GitHub 未返回贡献统计")
+                                    else -> tr("暂无可用的贡献者数据")
                                 },
-                                if (snapshot.status == ContributionStatus.Empty) "仓库可能为空，或统计尚无数据。可稍后刷新。"
-                                else "稍后刷新可重新请求统计。", loader.loading,
+                                if (snapshot.status == ContributionStatus.Empty) tr("仓库可能为空，或统计尚无数据。可稍后刷新。")
+                                else tr("稍后刷新可重新请求统计。"), loader.loading,
                             ) { loader.refresh() }
                         }
                         range == ContributionRange.Custom && dates.error != null -> item {
-                            ContributionEmpty("请修正日期范围", "日期需要有效，且结束日期不能晚于今天（UTC）。")
+                            ContributionEmpty(tr("请修正日期范围"), tr("日期需要有效，且结束日期不能晚于今天（UTC）。"))
                         }
                         summary.rangeUnavailable -> item {
                             ContributionEmpty(
-                                "该日期范围没有可用的周数据",
+                                tr("该日期范围没有可用的周数据"),
                                 if (snapshot.source == ContributionSource.ContributorList)
-                                    "当前仅有累计提交数；请选择「全部提交」，或稍后重试周统计。"
-                                else "请选择已返回的日期范围。累计提交数可在「全部提交」查看。",
+                                    tr("当前仅有累计提交数；请选择「全部提交」，或稍后重试周统计。")
+                                else tr("请选择已返回的日期范围。累计提交数可在「全部提交」查看。"),
                             )
                         }
                         summary.contributors.isEmpty() -> item {
-                            ContributionEmpty("该范围内没有贡献", "所选整周没有记录到提交或行数变化。")
+                            ContributionEmpty(tr("该范围内没有贡献"), tr("所选整周没有记录到提交或行数变化。"))
                         }
                         else -> {
                             item {
                                 Text(
-                                    "${if (range == ContributionRange.All) "累计提交排名" else "所选整周提交排名"} · ${summary.contributors.size} 位贡献者",
+                                    trf("{0} · {1} 位贡献者", if (range == ContributionRange.All) tr("累计提交排名") else tr("所选整周提交排名"), summary.contributors.size),
                                     Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                                     color = g.fgMuted, fontSize = 12.sp,
                                 )
@@ -213,8 +220,8 @@ fun ContributorsScreen(owner: String, name: String) {
                     item {
                         Text(
                             if (snapshot.source == ContributionSource.Statistics)
-                                "统计基于默认分支，排除合并提交与空提交。占比按返回的贡献者提交数计算；未关联账号的贡献可能不在统计中。GitHub 缓存可能延迟更新。"
-                            else "备用贡献者列表来自 GitHub 的缓存，可能延迟数小时。它仅提供累计提交数，不提供日期、周趋势或增删行数。",
+                                tr("统计基于默认分支，排除合并提交与空提交。占比按返回的贡献者提交数计算；未关联账号的贡献可能不在统计中。GitHub 缓存可能延迟更新。")
+                            else tr("备用贡献者列表来自 GitHub 的缓存，可能延迟数小时。它仅提供累计提交数，不提供日期、周趋势或增删行数。"),
                             Modifier.padding(16.dp), color = g.fgMuted, fontSize = 11.sp,
                         )
                         Spacer(Modifier.height(16.dp))
@@ -231,7 +238,7 @@ private fun ContributionNotice(message: String, loading: Boolean, retry: () -> U
     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(8.dp))
         .background(g.attentionSubtle).padding(12.dp)) {
         Text(message, color = g.fg, fontSize = 12.sp)
-        TextButton(onClick = retry, enabled = !loading) { Text(if (loading) "正在重试…" else "重新获取统计") }
+        TextButton(onClick = retry, enabled = !loading) { Text(if (loading) tr("正在重试…") else tr("重新获取统计")) }
     }
 }
 
@@ -241,35 +248,35 @@ private fun ContributionOverview(summary: ContributionSummary, range: Contributi
     Card(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(range.label, color = g.fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            summary.requestedDates?.let { MutedText("请求日期：${dateLabel(it)}（UTC）") }
-            summary.availableDates?.let { MutedText("返回周数据：${dateLabel(it)}（UTC）") }
+            summary.requestedDates?.let { MutedText(trf("请求日期：{0}（UTC）", dateLabel(it))) }
+            summary.availableDates?.let { MutedText(trf("返回周数据：{0}（UTC）", dateLabel(it))) }
             if (range == ContributionRange.All) {
-                MutedText("提交数使用 GitHub 的累计总数。周趋势与行数仅覆盖返回的周数据。")
+                MutedText(tr("提交数使用 GitHub 的累计总数。周趋势与行数仅覆盖返回的周数据。"))
             } else if (!summary.rangeUnavailable) {
-                summary.includedDates?.let { MutedText("计入整周：${dateLabel(it)}（UTC）") }
+                summary.includedDates?.let { MutedText(trf("计入整周：{0}（UTC）", dateLabel(it))) }
                 if (summary.includedDates != null && summary.includedDates == summary.availableDates) {
-                    MutedText("所选范围已覆盖 GitHub 返回的全部周数据，各时间范围的数值会相同。", g.attention)
+                    MutedText(tr("所选范围已覆盖 GitHub 返回的全部周数据，各时间范围的数值会相同。"), g.attention)
                 }
-                if (summary.boundaryWeeksIncluded) MutedText("包含与日期范围重叠的完整周，边界提交无法精确到天。", g.attention)
-                if (summary.partialCoverage) MutedText("所选日期未被返回数据完整覆盖，仅汇总可用整周。", g.attention)
+                if (summary.boundaryWeeksIncluded) MutedText(tr("包含与日期范围重叠的完整周，边界提交无法精确到天。"), g.attention)
+                if (summary.partialCoverage) MutedText(tr("所选日期未被返回数据完整覆盖，仅汇总可用整周。"), g.attention)
             }
             HDivider()
-            val linesLabel = if (range == ContributionRange.All && !summary.linesCoverAllCommits) "返回周数据" else "所选统计"
+            val linesLabel = if (range == ContributionRange.All && !summary.linesCoverAllCommits) tr("返回周数据") else tr("所选统计")
             ContributionMetricGrid(listOf(
-                ContributionMetric("贡献者", if (summary.rangeUnavailable ||
+                ContributionMetric(tr("贡献者"), if (summary.rangeUnavailable ||
                     (snapshot.records.isEmpty() && snapshot.status != ContributionStatus.Empty)) null else summary.contributors.size.toLong(), g.fg),
-                ContributionMetric(if (range == ContributionRange.All) "累计提交" else "整周提交", summary.commits, g.accent),
-                ContributionMetric("新增行 · $linesLabel", summary.additions, g.success, "+"),
-                ContributionMetric("删除行 · $linesLabel", summary.deletions, g.danger, "−"),
+                ContributionMetric(if (range == ContributionRange.All) tr("累计提交") else tr("整周提交"), summary.commits, g.accent),
+                ContributionMetric(trf("新增行 · {0}", linesLabel), summary.additions, g.success, "+"),
+                ContributionMetric(trf("删除行 · {0}", linesLabel), summary.deletions, g.danger, "−"),
             ))
             if (summary.additions == null || summary.deletions == null) {
-                MutedText("— 表示数据不可用。大仓库可能不提供增删行数；未返回的指标不会显示为零。")
+                MutedText(tr("— 表示数据不可用。大仓库可能不提供增删行数；未返回的指标不会显示为零。"))
             }
             if (snapshot.source == ContributionSource.Statistics && summary.weekly.isNotEmpty() && !summary.rangeUnavailable) {
                 HDivider()
                 WeeklyContributionGraph(summary.weekly, height = 90.dp)
             } else {
-                MutedText("周趋势暂无可用数据")
+                MutedText(tr("周趋势暂无可用数据"))
             }
         }
     }
@@ -312,7 +319,7 @@ private fun ContributorDetailCard(
     val g = Gh.c
     val nav = LocalNav.current
     val login = contributor.author?.login.orEmpty()
-    val displayName = login.ifBlank { contributor.author?.name?.takeIf { it.isNotBlank() } ?: "未关联账号的贡献者" }
+    val displayName = login.ifBlank { contributor.author?.name?.takeIf { it.isNotBlank() } ?: tr("未关联账号的贡献者") }
     Card(Modifier.padding(horizontal = 16.dp, vertical = 5.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(
@@ -331,17 +338,17 @@ private fun ContributorDetailCard(
                 Column(Modifier.weight(1f)) {
                     Text(displayName, color = g.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                         maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("#$rank${if (login.isNotBlank()) " · 查看个人主页" else " · 未关联 GitHub 账号"}", color = g.fgMuted, fontSize = 11.sp)
+                    Text("#$rank${if (login.isNotBlank()) tr(" · 查看个人主页") else tr(" · 未关联 GitHub 账号")}", color = g.fgMuted, fontSize = 11.sp)
                 }
             }
             ContributionMetricGrid(listOf(
-                ContributionMetric(if (range == ContributionRange.All) "累计提交" else "整周提交", contributor.commits, g.fg),
-                ContributionMetric("活跃周 · 返回数据", contributor.activeWeeks?.toLong(), g.accent),
-                ContributionMetric("新增行 · 返回周数据", contributor.additions, g.success, "+"),
-                ContributionMetric("删除行 · 返回周数据", contributor.deletions, g.danger, "−"),
+                ContributionMetric(if (range == ContributionRange.All) tr("累计提交") else tr("整周提交"), contributor.commits, g.fg),
+                ContributionMetric(tr("活跃周 · 返回数据"), contributor.activeWeeks?.toLong(), g.accent),
+                ContributionMetric(tr("新增行 · 返回周数据"), contributor.additions, g.success, "+"),
+                ContributionMetric(tr("删除行 · 返回周数据"), contributor.deletions, g.danger, "−"),
             ))
             val share = contributor.share
-            MutedText("${if (truncated) "已加载列表提交占比" else "返回贡献者提交占比"}：${share?.let { String.format(Locale.getDefault(), "%.1f%%", it * 100) } ?: "—"}")
+            MutedText("${if (truncated) tr("已加载列表提交占比") else tr("返回贡献者提交占比")}：${share?.let { String.format(Locale.getDefault(), "%.1f%%", it * 100) } ?: "—"}")
             Box(Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)).background(g.borderMuted)) {
                 if (share != null && share > 0) Box(Modifier.fillMaxWidth(share.toFloat().coerceIn(0f, 1f))
                     .height(5.dp).background(g.success))
@@ -349,13 +356,13 @@ private fun ContributorDetailCard(
             if (contributor.weekly.isNotEmpty()) {
                 WeeklyContributionGraph(contributor.weekly, height = 42.dp)
                 if (contributor.firstActiveWeek != null) {
-                    MutedText("已知首次活跃周：${contributor.firstActiveWeek}")
-                    MutedText("已知最近活跃周：${contributor.lastActiveWeek}")
-                } else MutedText(if (contributor.activeWeeks == null) "活跃周数据不完整" else "返回周数据中暂无活跃提交")
+                    MutedText(trf("已知首次活跃周：{0}", contributor.firstActiveWeek))
+                    MutedText(trf("已知最近活跃周：{0}", contributor.lastActiveWeek))
+                } else MutedText(if (contributor.activeWeeks == null) tr("活跃周数据不完整") else tr("返回周数据中暂无活跃提交"))
                 if (range == ContributionRange.All && !contributor.linesCoverAllCommits) {
-                    MutedText("周趋势及增删行数不代表全部提交历史。")
+                    MutedText(tr("周趋势及增删行数不代表全部提交历史。"))
                 }
-            } else MutedText("GitHub 未提供该贡献者的周趋势或增删行数。")
+            } else MutedText(tr("GitHub 未提供该贡献者的周趋势或增删行数。"))
             if (onViewCommits != null) {
                 HDivider()
                 Row(
@@ -365,7 +372,7 @@ private fun ContributorDetailCard(
                 ) {
                     Oc(R.drawable.oc_git_commit, g.accent, 16.dp)
                     Spacer(Modifier.size(8.dp))
-                    Text("查看逐笔提交", Modifier.weight(1f), color = g.accent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text(tr("查看逐笔提交"), Modifier.weight(1f), color = g.accent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
                 }
             }
@@ -378,18 +385,18 @@ internal fun WeeklyContributionGraph(points: List<ContributionPoint>, height: Dp
     val g = Gh.c
     val visible = remember(points) { points.takeLast(52) }
     if (visible.isEmpty()) {
-        MutedText("周趋势暂无可用数据")
+        MutedText(tr("周趋势暂无可用数据"))
         return
     }
     if (visible.size == 1) {
         val point = visible.single()
-        MutedText("${point.start}（周起始，UTC） · ${point.commits?.let { "${contributionCount(it)} 次提交" } ?: "数据缺失"}")
+        MutedText(trf("{0}（周起始，UTC） · {1}", point.start, point.commits?.let { trf("{0} 次提交", contributionCount(it)) } ?: tr("数据缺失")))
         return
     }
     val peak = visible.mapNotNull { it.commits }.maxOrNull()
     val peakLabel = peak?.let { contributionCount(it) } ?: "—"
     val missing = visible.count { it.commits == null }
-    val description = "${visible.first().start} 至 ${visible.last().start} 的每周提交，已知最高 $peakLabel 次，$missing 周数据缺失"
+    val description = trf("{0} 至 {1} 的每周提交，已知最高 {2} 次，{3} 周数据缺失", visible.first().start, visible.last().start, peakLabel, missing)
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     // 保留稀疏数据的数字；先测量，才能给大字体和长数字留足空间。
@@ -399,15 +406,31 @@ internal fun WeeklyContributionGraph(points: List<ContributionPoint>, height: Dp
         } }
     }
     val labelHeight = with(density) { (labels.filterNotNull().maxOfOrNull { it.size.height } ?: 0).toDp() }
-    var showData by remember(visible) { mutableStateOf(false) }
+    // 选中的周：点按或左右拖动图表、或用前后按钮切换；明细只显示这一周，不再展开一长串文字
+    var selected by remember(visible) { mutableIntStateOf(visible.lastIndex) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        MutedText("每周提交${if (points.size > 52) " · 最近 52 个返回周" else " · ${visible.size} 周"} · 已知最高 $peakLabel")
-        Canvas(Modifier.fillMaxWidth().height(height + labelHeight + 4.dp).semantics { contentDescription = description }) {
+        MutedText(trf("每周提交{0} · 已知最高 {1}", if (points.size > 52) tr(" · 最近 52 个返回周") else trf(" · {0} 周", visible.size), peakLabel))
+        Canvas(
+            Modifier.fillMaxWidth().height(height + labelHeight + 4.dp + ChartBubbleSpace).semantics { contentDescription = description }
+                .pointerInput(visible) {
+                    detectTapGestures { o -> selected = (o.x / (size.width.toFloat() / visible.size)).toInt().coerceIn(0, visible.lastIndex) }
+                }
+                .pointerInput(visible) {
+                    detectHorizontalDragGestures { change, _ ->
+                        selected = (change.position.x / (size.width.toFloat() / visible.size)).toInt().coerceIn(0, visible.lastIndex)
+                    }
+                },
+        ) {
             val slot = size.width / visible.size
             val barWidth = minOf((slot - 2.dp.toPx()).coerceAtLeast(0f), 24.dp.toPx())
             val chartHeight = height.toPx()
             val showLabels = visible.size <= 8 && labels.filterNotNull().all { it.size.width + 4.dp.toPx() <= slot }
             drawLine(g.borderMuted, Offset(0f, size.height), Offset(size.width, size.height))
+            drawRoundRect(g.accentSubtle, Offset(selected * slot, 0f), Size(slot, size.height), CornerRadius(3.dp.toPx()))
+            val selectedPoint = visible[selected]
+            val selectedBar = selectedPoint.commits?.takeIf { it > 0 }?.let {
+                (chartHeight * (it.toDouble() / (peak ?: 1L).coerceAtLeast(1L))).toFloat().coerceIn(minOf(2.dp.toPx(), chartHeight), chartHeight)
+            } ?: 0f
             visible.forEachIndexed { index, point ->
                 val count = point.commits
                 if (count == null) {
@@ -416,7 +439,7 @@ internal fun WeeklyContributionGraph(points: List<ContributionPoint>, height: Dp
                 } else {
                     val barHeight = if (count > 0) (chartHeight * (count.toDouble() / (peak ?: 1L).coerceAtLeast(1L))).toFloat()
                         .coerceIn(minOf(2.dp.toPx(), chartHeight), chartHeight) else 0f
-                    if (count > 0 && barWidth > 0) drawRoundRect(g.accent,
+                    if (count > 0 && barWidth > 0) drawRoundRect(if (index == selected) g.accent else g.accent.copy(alpha = 0.55f),
                         Offset(index * slot + (slot - barWidth) / 2, size.height - barHeight),
                         Size(barWidth, barHeight), CornerRadius(1.dp.toPx()))
                     if (showLabels) labels[index]?.let { layout ->
@@ -425,13 +448,34 @@ internal fun WeeklyContributionGraph(points: List<ContributionPoint>, height: Dp
                     }
                 }
             }
+            drawValueBubble(
+                measurer,
+                listOf(selectedPoint.commits?.let { trf("{0} 次提交", contributionCount(it)) } ?: tr("数据缺失"), trf("{0} 起的一周", selectedPoint.start)),
+                (selected + 0.5f) * slot, size.height - selectedBar, g.fg, g.canvas,
+            )
         }
-        MutedText("${visible.first().start} — ${visible.last().start}（周起始，UTC）")
-        if (missing > 0) MutedText("灰色竖线表示缺失周数据；零提交周留空。")
-        TextButton(onClick = { showData = !showData }) { Text(if (showData) "收起每周数据" else "查看每周数据") }
-        if (showData) visible.forEach { point ->
-            MutedText("${point.start} · ${point.commits?.let { "${contributionCount(it)} 次提交" } ?: "数据缺失"}")
+        val point = visible[selected]
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(g.canvasSubtle).padding(horizontal = 4.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton({ selected = (selected - 1).coerceAtLeast(0) }, enabled = selected > 0) {
+                Oc(R.drawable.oc_arrow_left, if (selected > 0) g.fg else g.borderMuted, 16.dp)
+            }
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    point.commits?.let { trf("{0} 次提交", contributionCount(it)) } ?: tr("数据缺失"),
+                    color = g.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                )
+                MutedText(trf("{0} 起的一周（UTC）", point.start))
+            }
+            IconButton({ selected = (selected + 1).coerceAtMost(visible.lastIndex) }, enabled = selected < visible.lastIndex) {
+                Oc(R.drawable.oc_arrow_right, if (selected < visible.lastIndex) g.fg else g.borderMuted, 16.dp)
+            }
         }
+        val recent = visible.takeLast(12).mapNotNull { it.commits }
+        MutedText(trf("点按或左右拖动图表查看某一周 · 最近 {0} 周共 {1} 次 · {2} 至 {3}", visible.takeLast(12).size, contributionCount(recent.sum()), visible.first().start, visible.last().start))
+        if (missing > 0) MutedText(tr("灰色竖线表示缺失周数据；零提交周留空。"))
     }
 }
 
@@ -442,7 +486,7 @@ private fun ContributionEmpty(title: String, detail: String, loading: Boolean = 
         Oc(R.drawable.oc_people, Gh.c.fgMuted, 28.dp)
         Text(title, color = Gh.c.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
         Text(detail, color = Gh.c.fgMuted, fontSize = 13.sp)
-        if (retry != null) TextButton(onClick = retry, enabled = !loading) { Text(if (loading) "正在加载…" else "重试") }
+        if (retry != null) TextButton(onClick = retry, enabled = !loading) { Text(if (loading) tr("正在加载…") else tr("重试")) }
     }
 }
 
@@ -463,25 +507,25 @@ fun ContributorPreview(owner: String, name: String) {
     val snapshot = loader.data
     Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Keep title and action on separate lines so large fonts never squeeze the link out.
-        Text("贡献者", color = g.fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Text(tr("贡献者"), color = g.fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
         TextButton(onClick = { nav.push(Screen.Contributors(owner, name)) }) {
-            Text("详细统计", color = g.accent)
+            Text(tr("详细统计"), color = g.accent)
             Spacer(Modifier.size(6.dp))
             Oc(R.drawable.oc_chevron_right, g.accent, 12.dp)
         }
         when {
             snapshot == null && loader.error == null -> Row(verticalAlignment = Alignment.CenterVertically) {
                 Loading(Modifier.size(32.dp))
-                Text("正在加载贡献者…", color = g.fgMuted, fontSize = 12.sp)
+                Text(tr("正在加载贡献者…"), color = g.fgMuted, fontSize = 12.sp)
             }
             snapshot == null -> {
-                Text(loader.error ?: "贡献者暂不可用", color = g.fgMuted, fontSize = 12.sp)
-                TextButton(onClick = { loader.load(true) }, enabled = !loader.loading) { Text("重试") }
+                Text(loader.error ?: tr("贡献者暂不可用"), color = g.fgMuted, fontSize = 12.sp)
+                TextButton(onClick = { loader.load(true) }, enabled = !loader.loading) { Text(tr("重试")) }
             }
             snapshot.records.isEmpty() -> {
-                MutedText(snapshot.message ?: "GitHub 未返回贡献者数据")
+                MutedText(snapshot.message ?: tr("GitHub 未返回贡献者数据"))
                 if (snapshot.status == ContributionStatus.Pending) {
-                    TextButton(onClick = { loader.load(true) }, enabled = !loader.loading) { Text("重试") }
+                    TextButton(onClick = { loader.load(true) }, enabled = !loader.loading) { Text(tr("重试")) }
                 }
             }
             else -> {
@@ -495,17 +539,17 @@ fun ContributorPreview(owner: String, name: String) {
                                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 if (!user?.avatarUrl.isNullOrBlank()) Avatar(user!!.avatarUrl, 28.dp, square = user.type == "Organization")
                                 else Oc(R.drawable.oc_people, g.fgMuted, 28.dp)
-                                Text(login.ifBlank { user?.name?.takeIf { it.isNotBlank() } ?: "未关联账号的贡献者" },
+                                Text(login.ifBlank { user?.name?.takeIf { it.isNotBlank() } ?: tr("未关联账号的贡献者") },
                                     Modifier.weight(1f), color = g.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text("#${index + 1}", color = g.fgMuted, fontSize = 11.sp)
                             }
-                            Text("${record.total?.let { contributionCount(it) } ?: "—"} 次累计提交", color = g.accent,
+                            Text(trf("{0} 次累计提交", record.total?.let { contributionCount(it) } ?: "—"), color = g.accent,
                                 fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         }
                     }
                 }
-                MutedText("提交最多的 ${snapshot.records.size.coerceAtMost(3)} 位贡献者 · GitHub 返回的累计提交数，缓存可能延迟。")
+                MutedText(trf("提交最多的 {0} 位贡献者 · GitHub 返回的累计提交数，缓存可能延迟。", snapshot.records.size.coerceAtMost(3)))
             }
         }
     }

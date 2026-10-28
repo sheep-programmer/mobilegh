@@ -8,6 +8,7 @@ import okhttp3.Request
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import com.mobilegh.i18n.tr
 
 /**
  * 统一的图片下载：README 里的图片、头像、文件预览、图片查看器和「保存图片」都走这里。
@@ -105,7 +106,7 @@ object ImageFetch {
                 cache.put(key, r)
             } else {
                 failed.put(key, SystemClock.elapsedRealtime())
-                AppLog.warn("image", "图片加载失败：" + target.substringBefore('?').take(200))
+                AppLog.warn("image", tr("图片加载失败：") + target.substringBefore('?').take(200))
             }
             return r
         } finally {

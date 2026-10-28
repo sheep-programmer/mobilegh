@@ -1,0 +1,2315 @@
+## 中文 → English。键是源码里的中文原文，换行/制表符/反斜杠写成 \n \t \\；{0} 是占位符，译文必须保留。
+## 新增文案后运行 tools/i18n_extract.py --check 查看缺少译文的条目。
+分享内容中没有可打开的 GitHub 链接	No openable GitHub link found in the shared content
+参与及 @我	Participating and @mentions
+接收参与的讨论和提及你的通知	Receive notifications for discussions you take part in and mentions of you
+关注全部	Watching all
+接收这个仓库的所有活动通知	Receive notifications for all activity in this repository
+忽略	Ignore
+屏蔽这个仓库的通知	Mute notifications for this repository
+{0} 的内容过长或格式无效	{0} is too long or invalid
+网站地址过长	The website address is too long
+请输入有效的 http 或 https 网站地址	Enter a valid http or https website address
+Twitter 用户名格式无效	Invalid Twitter username
+账号已切换，请重新打开资料编辑	The account changed, please reopen profile editing
+账号已切换，当前页面不再显示旧账号的结果	The account changed, this page no longer shows results of the previous account
+GitHub 返回 401：	GitHub returned 401: 
+请求连接失败：	Request failed to connect: 
+网络连接失败，请稍后重试	Network connection failed, please try again later
+认证失败：Token 无效或已过期	Authentication failed: the token is invalid or expired
+API 调用次数已达上限，请稍后再试	API rate limit reached, please try again later
+该组织启用了 SAML SSO，请在 GitHub 网页上为 Token 授权 SSO	This organization enforces SAML SSO, authorize the token for SSO on GitHub
+未找到内容（可能不存在或 Token 没有权限）	Not found (it may not exist, or the token lacks permission)
+请求无效：{0}	Invalid request: {0}
+请求失败 ({0})	Request failed ({0})
+GraphQL 错误	GraphQL error
+无法解析 GitHub 地址，请检查网络或 DNS 设置	Cannot resolve the GitHub address, check your network or DNS settings
+连接 GitHub 超时，请检查网络或代理后重试	Connecting to GitHub timed out, check the network or proxy and try again
+无法连接 GitHub，请检查网络或代理后重试	Cannot connect to GitHub, check the network or proxy and try again
+安全连接失败，请检查系统时间或代理证书	Secure connection failed, check the system time or proxy certificate
+网络连接中断，请稍后重试	Network connection interrupted, please try again later
+立即	Immediately
+1 分钟	1 minute
+5 分钟	5 minutes
+15 分钟	15 minutes
+MobileGH 启动	MobileGH started
+未捕获异常：	Uncaught exception: 
+MobileGH 日志导出	MobileGH log export
+生成时间：	Generated at: 
+日志数：	Log entries: 
+跟随系统	Follow system
+请输入代理主机名或 IP，不要填写网址、路径或账号	Enter a proxy host name or IP, not a URL, path or account
+端口应为 1–65535	Port must be 1–65535
+代理地址无效	Invalid proxy address
+跟随系统代理 / VPN	Follow system proxy / VPN
+无法保存网络设置	Cannot save network settings
+传输线路已切换：{0}	Transport route switched: {0}
+GitHub 登录	GitHub sign-in
+Google 推送注册	Google push registration
+Google 设备凭证	Google device credentials
+已连通（HTTP {0}）	Reachable (HTTP {0})
+连接失败，请检查代理地址及端口	Connection failed, check the proxy address and port
+无效的仓库地址	Invalid repository address
+请输入要搜索的代码	Enter the code to search for
+提交信息不完整	Incomplete commit information
+提交未返回有效的文件树	The commit did not return a valid file tree
+无法读取该文件的提交归因，请检查路径、分支和仓库权限	Cannot read blame for this file, check the path, branch and repository permission
+归因结果没有有效的提交版本	The blame result has no valid commit
+该文件没有可用的逐行归因	No line-by-line blame is available for this file
+归因提交缺失	Blame commit is missing
+归因行号或提交无效	Invalid blame line number or commit
+未知作者	Unknown author
+归因行号发生重叠	Blame line numbers overlap
+无效的文件路径	Invalid file path
+该文件无法预览完整源码，仍可查看每段的作者和提交	The full source of this file cannot be previewed, but authors and commits of each section are still available
+二进制文件不展示源码	Binary files do not show source
+源码预览显示前 5,000 行，可打开文件查看完整内容	The preview shows the first 5,000 lines, open the file to see everything
+源码预览暂不可用，提交归因已加载：{0}	Source preview is unavailable, blame loaded: {0}
+请选择两个版本	Choose two versions
+全部提交	All commits
+最近一年	Last year
+最近半年	Last six months
+最近 90 天	Last 90 days
+最近 30 天	Last 30 days
+自定义	Custom
+开始日期无效，请使用 YYYY-MM-DD	Invalid start date, use YYYY-MM-DD
+结束日期无效，请使用 YYYY-MM-DD	Invalid end date, use YYYY-MM-DD
+开始日期不能早于 1970-01-01	The start date cannot be earlier than 1970-01-01
+开始日期不能晚于结束日期	The start date cannot be later than the end date
+结束日期不能晚于今天（UTC）	The end date cannot be later than today (UTC)
+GitHub 正在生成贡献者列表，请稍后重试	GitHub is generating the contributor list, please try again later
+贡献者列表尚未就绪 ({0})	The contributor list is not ready yet ({0})
+GitHub 仍在生成周统计，请稍后重试	GitHub is still generating weekly statistics, please try again later
+周统计返回了未支持的响应 ({0})	Weekly statistics returned an unsupported response ({0})
+请求失败	Request failed
+周统计暂不可用：{0}	Weekly statistics are unavailable: {0}
+；贡献者列表未完整加载：{0}	; the contributor list was not fully loaded: {0}
+贡献者列表数据格式无效	Invalid contributor list data format
+贡献者数据格式无效	Invalid contributor data format
+仓库不存在或没有权限	The repository does not exist or you have no permission
+Issue 不存在	The issue does not exist
+指派失败：可能没有此仓库的写入权限	Assignment failed: you may not have write access to this repository
+私有仓库、Issues/PR 读写	Private repositories, Issues/PR read and write
+组织与团队信息	Organization and team information
+通知已读与订阅	Notification read state and subscriptions
+关注、列表与资料	Follows, lists and profile
+手动触发工作流	Run workflows manually
+Projects 看板读写	Projects board read and write
+删除仓库	Delete repositories
+当前登录授权权限不足	The current sign-in grant lacks permissions
+：缺少 {0}（{1}）	: missing {0} ({1})
+。请到「设置 → 重新登录，获取新授权」补齐权限后再试	. Go to "Settings → Sign in again for a new grant" to add the permissions, then retry
+GitHub 未返回授权地址	GitHub did not return an authorization address
+GitHub 返回了未知的授权地址	GitHub returned an unknown authorization address
+GitHub 未返回有效的授权期限	GitHub did not return a valid authorization period
+无法获取设备码	Cannot get the device code
+无法获取授权码	Cannot get the authorization code
+已取消授权	Authorization canceled
+授权码已过期，请重新开始	The authorization code expired, please start again
+OAuth 应用配置无效，请使用 Token 登录	The OAuth app is misconfigured, use token sign-in
+OAuth 应用尚未启用设备授权	The OAuth app has not enabled device authorization
+GitHub 授权失败	GitHub authorization failed
+授权请求失败 ({0})	Authorization request failed ({0})
+GitHub 未返回有效的授权信息	GitHub did not return valid authorization information
+未找到讨论，或当前账号没有访问权限	Discussion not found, or the current account has no access
+未找到评论，或当前账号没有访问权限	Comment not found, or the current account has no access
+当前无法发表讨论	Cannot post a discussion right now
+请选择分类	Choose a category
+请填写标题和正文	Enter a title and body
+GitHub 未确认讨论发表成功；请刷新检查后再提交	GitHub did not confirm the discussion was posted; refresh and check before submitting again
+当前无法回复此讨论	Cannot reply to this discussion right now
+请填写回复内容	Enter reply content
+GitHub 未确认回复发表成功；请刷新检查后再提交	GitHub did not confirm the reply was posted; refresh and check before submitting again
+GitHub 未确认点赞结果，请刷新后查看	GitHub did not confirm the upvote, refresh to check
+GitHub 未确认采纳结果，请刷新后查看	GitHub did not confirm the accepted answer, refresh to check
+GitHub 未确认保存成功，请刷新后查看	GitHub did not confirm the save, refresh to check
+GitHub 未确认删除成功，请刷新后查看	GitHub did not confirm the deletion, refresh to check
+请填写评论内容	Enter comment content
+未找到仓库，或当前账号没有访问权限	Repository not found, or the current account has no access
+GitHub 返回的分页游标无效，请刷新重试	GitHub returned an invalid pagination cursor, refresh and try again
+GitHub 讨论数据不完整：{0}	GitHub discussion data is incomplete: {0}
+下载准备被中断，请重试	Download preparation was interrupted, please try again
+开始下载：	Download started: 
+无法开始下载：	Cannot start the download: 
+无法开始下载	Cannot start the download
+请先登录 GitHub 后下载	Sign in to GitHub before downloading
+直连 GitHub	Direct GitHub
+ 使用节点：	 using node: 
+（第 {0}/{1} 个候选）	 (candidate {0}/{1})
+；地址主机：	; host: 
+下载目录不可用	The download folder is unavailable
+MobileGH 下载	MobileGH downloads
+ 节点 	 node 
+ 失败	 failed
+，改用 	, switching to 
+ 重试	 retry
+节点 	Node 
+ 不通，正在改用 	 is unreachable, switching to 
+ 所有下载节点都失败了	 All download nodes failed
+GitHub 下载地址必须使用 HTTPS	GitHub download addresses must use HTTPS
+下载跳转缺少地址	The download redirect has no address
+下载跳转必须使用 HTTPS	Download redirects must use HTTPS
+GitHub 授权失效，请重新登录	GitHub authorization expired, please sign in again
+没有下载权限，或资源已经删除	No download permission, or the asset was deleted
+无法下载资源（HTTP 	Cannot download the asset (HTTP 
+下载地址跳转过多	Too many download redirects
+等待网络连接	Waiting for network
+网络中断，正在重试	Network interrupted, retrying
+下载记录或文件已被移除，请重试	The download record or file was removed, please try again
+所有下载节点都不通，请检查网络后重试	All download nodes are unreachable, check the network and try again
+节点没有响应	The node did not respond
+打开文件：	Open file: 
+无可用 URI	No usable URI
+文件已被移动或删除，请重新下载	The file was moved or deleted, please download it again
+已请求系统打开：	Asked the system to open: 
+没有应用可以打开 	No app can open 
+没有可以打开此文件的应用，文件已保存在「下载」文件夹	No app can open this file, it is saved in the Downloads folder
+请先在系统设置中允许本应用安装应用	Allow this app to install apps in system settings first
+请开启「允许安装未知应用」，然后回来再次点击更新	Turn on "Install unknown apps", then come back and tap update again
+没有可用的文件管理器，文件保存在「下载」文件夹	No file manager is available, the file is in the Downloads folder
+本地文件已删除	The local file was deleted
+清空下载记录 {0} 条	Cleared {0} download records
+，同时删除 {0} 个本地文件	, and deleted {0} local files
+，保留已下载文件	, kept the downloaded files
+：暂停（	: paused (
+原因未知	unknown reason
+存储空间不足，请清理后重试	Not enough storage space, free some up and try again
+同名文件已存在，请重试	A file with the same name already exists, please try again
+存储设备不可用	The storage device is unavailable
+无法写入文件，请检查下载目录	Cannot write the file, check the download folder
+下载失败，请检查网络后重试（	Download failed, check the network and try again (
+草稿超过读取上限	The draft exceeds the read limit
+草稿太长，无法保存在本机	The draft is too long to save locally
+草稿读取失败，原数据已保留：{0}	Failed to read the draft, the original data is kept: {0}
+草稿保存失败：{0}	Failed to save the draft: {0}
+已提交，但草稿清理失败：{0}	Submitted, but cleaning up the draft failed: {0}
+至少要保留一个文件	Keep at least one file
+文件名不能为空	The file name cannot be empty
+文件名不能包含 /	The file name cannot contain /
+文件「{0}」的内容不能为空	The content of file "{0}" cannot be empty
+文件名不能重复	File names must be unique
+文件名「{0}」与被改名或删除的文件冲突，请先保存一次再改	The file name "{0}" conflicts with a renamed or deleted file, save once before renaming
+组织仓库读取失败：{0} ({1})	Failed to read organization repositories: {0} ({1})
+GitHub 没有返回该提交的文件树，请稍后重试	GitHub did not return the file tree of this commit, please try again later
+文件树	file tree
+提交	Submit
+GitHub 没有返回新的{0}，请先打开提交列表确认写入结果，再决定是否重试	GitHub did not return a new {0}, open the commit list to confirm the result before deciding whether to retry
+GitHub 只向仓库所有者公开 {0} 用户列表	GitHub only exposes the {0} user list to the repository owner
+审查会话状态读取失败：{0}	Failed to read the review session state: {0}
+操作失败（可能没有权限）	Operation failed (you may not have permission)
+Issue 模板读取失败：{0}	Failed to read the issue templates: {0}
+GitHub 正在计算贡献者统计，请稍后刷新	GitHub is computing contributor statistics, refresh later
+用户不存在	The user does not exist
+未找到可打开的 GitHub Mobile，请先安装并登录官方 App	GitHub Mobile was not found, install and sign in to the official app first
+已打开 GitHub Mobile；等待用户在官方 App 完成验证	Opened GitHub Mobile, waiting for you to finish verification in the official app
+GitHub Mobile 的入口不可用，请更新或重新启用官方 App	The GitHub Mobile entry is unavailable, update or re-enable the official app
+系统阻止打开 GitHub Mobile，请检查官方 App 是否已启用	The system blocked opening GitHub Mobile, check that the official app is enabled
+文件超过 {0} MB，超出 Git LFS 的单文件上限	The file exceeds {0} MB, beyond the Git LFS single-file limit
+Git LFS 服务端没有返回「{0}」的上传信息，请重试	The Git LFS server did not return upload info for "{0}", please try again
+Git LFS 服务端回包无法解析，请重试	The Git LFS server response could not be parsed, please try again
+文件在上传期间变大了，请重新选择	The file grew during upload, please select it again
+文件在上传期间被改动，请重新选择	The file changed during upload, please select it again
+上传「{0}」到 Git LFS 失败（HTTP {1}）{2}	Uploading "{0}" to Git LFS failed (HTTP {1}){2}
+Git LFS 没有确认「{0}」已收到（HTTP {1}）{2}	Git LFS did not confirm that "{0}" was received (HTTP {1}){2}
+Git LFS 传输中断，请检查网络后重试	The Git LFS transfer was interrupted, check the network and try again
+Git LFS 认证失败，请重新登录后再试	Git LFS authentication failed, sign in again and retry
+没有权限使用这个仓库的 Git LFS：需要对仓库有写权限，且仓库没有禁用 LFS	No permission to use Git LFS for this repository: you need write access and LFS must not be disabled
+Git LFS 请求失败（HTTP {0}）{1}	Git LFS request failed (HTTP {0}){1}
+Git LFS 存储或流量额度不足，无法上传「{0}」。GitHub 免费账号每月 1 GiB，可在 GitHub 购买额度或清理旧的 LFS 数据	Git LFS storage or bandwidth quota is insufficient, cannot upload "{0}". Free GitHub accounts get 1 GiB per month; buy more quota on GitHub or clean up old LFS data
+Git LFS 拒绝了「{0}」：{1}	Git LFS rejected "{0}": {1}
+不是 pack 数据	Not pack data
+只支持 pack v2，收到 v{0}	Only pack v2 is supported, received v{0}
+pack 对象数异常：{0}	Abnormal pack object count: {0}
+pack 里有未知对象类型 {0}	Unknown object type {0} in the pack
+pack 校验和不符	Pack checksum mismatch
+pack 解压失败	Pack decompression failed
+pack 里的对象解压不完整	An object in the pack was not fully decompressed
+空对象的 zlib 流没走完	The zlib stream of an empty object did not finish
+不支持的 Git 对象类型 {0}	Unsupported Git object type {0}
+文件在打包期间变大了，请重新选择	The file grew while packing, please select it again
+文件在打包期间被改动，请重新选择	The file changed while packing, please select it again
+服务端回包没能解析，请重试一次	The server response could not be parsed, please try once more
+服务端拒绝（HTTP {0}）	Rejected by the server (HTTP {0})
+请先登录 GitHub	Sign in to GitHub first
+读取分支列表失败（HTTP {0}）	Failed to read the branch list (HTTP {0})
+读取分支列表失败，请检查网络后重试	Failed to read the branch list, check the network and try again
+上传失败：连接中断，请重试	Upload failed: connection interrupted, please try again
+路径冲突：{0} 同时是文件和目录	Path conflict: {0} is both a file and a directory
+sha 长度不对：{0}	Wrong sha length: {0}
+打不开该文件，可能已被移动、删除，或应用失去了访问权限	Cannot open this file, it may have been moved or deleted, or the app lost access
+超过 Git LFS 的 {0} GB 单文件上限，无法上传	Exceeds the Git LFS single-file limit of {0} GB, cannot be uploaded
+文件在读取期间发生了变化，请重新选择	The file changed while being read, please select it again
+文件超过 {0} MB，超出 GitHub 的单文件上限，仓库会直接拒绝这个提交（大文件请用 Git LFS）	The file exceeds {0} MB, beyond GitHub's single-file limit; the repository would reject this commit (use Git LFS for large files)
+无法完整读取基准目录，为避免改变现有文件权限，请稍后重试	Cannot read the base directory completely; to avoid changing existing file permissions, please try again later
+账号已切换，上传已停止；请在新账号下重新选择并上传	The account changed and the upload stopped; select the files again under the new account and upload
+{0} 个文件 · 	{0} files · 
+ · {0} 项不上传	 · {0} excluded
+网络	network
+连接	connection
+中断	interrupted
+内容已经生成提交 {0}，但分支更新结果未确认；请先查看分支和提交历史再重试。	The content became commit {0}, but the branch update was not confirmed; check the branch and commit history before retrying.
+内容已经生成提交 {0}，但分支没有更新。	The content became commit {0}, but the branch was not updated.
+这个分支在你上传期间有了新提交。重新上传一次即可，会基于最新内容。	The branch received new commits during your upload. Upload again, it will be based on the latest content.
+GitHub 拒收了这次传输。常见原因是单个文件超过 {0} MB 的仓库硬上限；超大的文件请用 Git LFS。	GitHub rejected this transfer. A common cause is a single file above the repository hard limit of {0} MB; use Git LFS for very large files.
+打包数据没被接受（可能是选中的文件在上传期间被改了）。重新选一次再上传。	The packed data was not accepted (a selected file may have changed during upload). Select again and retry.
+该分支受保护。请在仓库设置里允许你的角色推送，或改为新建分支后发起拉取请求。	This branch is protected. Allow your role to push in the repository settings, or create a new branch and open a pull request.
+该组织启用了 SAML SSO，请先在网页上为本应用授权 SSO。	This organization enforces SAML SSO, authorize this app for SSO on the web first.
+你对这个仓库或分支没有推送权限。	You do not have push permission for this repository or branch.
+路径冲突：仓库里同名的位置已经是文件或目录。换个路径再传。	Path conflict: the same location in the repository is already a file or directory. Use another path.
+请检查网络后重试	Check the network and try again
+上传未完成。{0}{1}	Upload not completed. {0}{1}
+请先选择要上传的文件	Select files to upload first
+分支名无效，请重新选择分支后再上传	Invalid branch name, pick a branch again before uploading
+找不到 {0}，请重新选择分支后再上传	Cannot find {0}, pick a branch again before uploading
+读取仓库当前内容	Reading the repository's current content
+所选文件与 {0} 上的内容完全一致，没有需要提交的改动	The selected files are identical to the content on {0}, there is nothing to commit
+请重试	Please try again
+无法读取仓库里现有的 .gitattributes，为避免覆盖已有规则，已停止上传：{0}	Cannot read the existing .gitattributes in the repository; upload stopped to avoid overwriting existing rules: {0}
+仓库状态变了（现在没有可借用的分支），请重新打开本页再上传	The repository state changed (no branch available now), reopen this page and upload again
+（第 {0}/{1} 批）	 (batch {0}/{1})
+打包上传{0}	Packing and uploading{0}
+文件	Files
+上传 {0}（{1}/{2}）{3}	Uploading {0} ({1}/{2}){3}
+整理文件 {0}/{1}	Organizing files {0}/{1}
+GitHub 说文件对象还不存在（上传可能没完成），请重新上传一次	GitHub says the file object does not exist yet (the upload may not have finished), please upload again
+生成提交	Creating the commit
+创建分支 {0}	Creating branch {0}
+推送到 {0}	Pushing to {0}
+上传到 Git LFS：{0}	Uploading to Git LFS: {0}
+读取 {0} 失败：	Failed to read {0}: 
+无法读取该文件	Cannot read this file
+分支 {0} 没有建出来	Branch {0} was not created
+没有需要上传的文件	No files to upload
+无效的仓库名	Invalid repository name
+首页最多收藏 {0} 个仓库	At most {0} repositories can be pinned to Home
+名称需为 1–{0} 个字符	The name must be 1–{0} characters
+最多保存 {0} 个搜索	At most {0} searches are kept
+图片加载失败：	Image failed to load: 
+开放	Open
+已关闭	Closed
+全部	All
+最新	Newest
+最早	Oldest
+最多评论	Most comments
+最近更新	Recently updated
+需要评审	Review required
+已批准	Approved
+请求修改	Changes requested
+创建的	Created by me
+指派给我	Assigned to me
+提及我	Mentions me
+评审请求	Review requests
+作者	Author
+指派人	Assignee
+标签	Label
+里程碑	Milestone
+评审	Review
+草稿	Draft
+搜索	Search
+作者：{0}	Author: {0}
+指派人：{0}	Assignee: {0}
+标签：{0}	Label: {0}
+里程碑：{0}	Milestone: {0}
+评审：{0}	Review: {0}
+仅草稿	Drafts only
+排除草稿	Exclude drafts
+<!-- 可选：	<!-- Optional: 
+GitHub 返回了空的验证请求	GitHub returned an empty verification request
+请输入浏览器显示的数字	Enter the number shown in the browser
+设备配置文件过大	The device profile is too large
+设备配置版本不支持	The device profile version is not supported
+设备配置的账号无效	The account in the device profile is invalid
+设备配置缺少 {0}	The device profile is missing {0}
+推送密钥无效	Invalid push key
+请授权当前账号 @{0}	Authorize the current account @{0}
+GitHub 未接受验证设备注册	GitHub did not accept the verification device registration
+无法保存验证设备	Cannot save the verification device
+无法保存推送连接	Cannot save the push connection
+设备账号已更换，请重新读取请求	The device account changed, read the request again
+请先导入数字批准设备	Import a number-approval device first
+配置令牌与设备账号不一致	The configuration token does not match the device account
+请先在脚本中注册数字批准设备	Register a number-approval device in the script first
+设备密钥必须是 P-256	The device key must be P-256
+设备证书与私钥不匹配	The device certificate does not match the private key
+此设备已有不同的批准密钥	This device already has a different approval key
+无法保存设备配置	Cannot save the device profile
+GitHub 未接受验证请求接收配置	GitHub did not accept the verification request receiver configuration
+验证账号不一致	Verification account mismatch
+批准设备已失效，请重新注册并导入	The approval device is no longer valid, register and import it again
+请求已过期或被替换，请在浏览器重新发起验证	The request expired or was replaced, start verification again in the browser
+GitHub 未返回批准结果	GitHub did not return an approval result
+设备密钥不可用，请重新导入	The device key is unavailable, import it again
+GitHub 验证请求失败 ({0})	GitHub verification request failed ({0})
+数字不匹配，请重新发起验证并输入新数字	Numbers do not match, start verification again and enter the new number
+此授权令牌不支持数字批准，请导入脚本导出的设备配置	This authorization token does not support number approval, import the device profile exported by the script
+GitHub 未接受验证请求	GitHub did not accept the verification request
+系统暂未允许后台验证检测，请打开 App 后重试	The system has not allowed background verification checks, open the app and try again
+验证请求已结束，请在浏览器重新发起	The verification request ended, start it again in the browser
+收到 GitHub 验证请求 {0}	Received GitHub verification request {0}
+无法读取验证请求	Cannot read the verification request
+GitHub 验证请求 {0} 已批准	GitHub verification request {0} approved
+批准失败	Approval failed
+GitHub 两步验证	GitHub two-factor authentication
+应用不在前台时，提醒有一条 GitHub 数字确认请求	Reminds you of a GitHub number-confirmation request when the app is in the background
+GitHub 验证请求	GitHub verification request
+@{0} · 点击输入浏览器显示的数字	@{0} · tap to enter the number shown in the browser
+授权回调地址无效	Invalid authorization callback address
+授权回调参数无效	Invalid authorization callback parameters
+授权提供方不匹配	Authorization provider mismatch
+授权请求不匹配，请重新开始	Authorization request mismatch, please start again
+GitHub 授权已取消	GitHub authorization canceled
+GitHub 未返回授权码	GitHub did not return an authorization code
+正在等待 GitHub 授权	Waiting for GitHub authorization
+无法保存授权请求	Cannot save the authorization request
+授权请求已结束，请重新开始	The authorization request ended, please start again
+授权请求已过期	The authorization request expired
+账号已切换，请重新授权	The account changed, please authorize again
+开始完成 GitHub 授权	Starting to complete GitHub authorization
+开始自动注册本机验证设备	Starting automatic registration of this verification device
+无法更新授权请求	Cannot update the authorization request
+数字审批已自动启用	Number approval was enabled automatically
+Google 推送服务	Google push service
+数字审批自动启用失败：{0}，{1}	Automatically enabling number approval failed: {0}, {1}
+数字审批启用失败	Enabling number approval failed
+无法完成 GitHub 授权 ({0})	Cannot complete GitHub authorization ({0})
+GitHub 未完成授权，请重新开始	GitHub did not complete authorization, please start again
+兑换授权码连接失败，第 {0} 次：{1}	Exchanging the authorization code failed to connect, attempt {0}: {1}
+连接 GitHub 较慢，正在重试（{0}/{1}）	Connecting to GitHub is slow, retrying ({0}/{1})
+推送数据被截断	The push data was truncated
+推送整数溢出	Push integer overflow
+推送数据格式无效	Invalid push data format
+推送数据长度无效	Invalid push data length
+推送连接没有返回数据	The push connection returned no data
+推送数据类型无效	Invalid push data type
+认证推送格式无效	Invalid authenticated push format
+认证推送校验失败	Authenticated push verification failed
+推送协议版本不支持	The push protocol version is not supported
+认证推送登录失败	Authenticated push login failed
+认证推送登录被拒绝	Authenticated push login was rejected
+认证推送连接已超时	The authenticated push connection timed out
+认证推送连接已关闭	The authenticated push connection was closed
+认证推送连接已断开	The authenticated push connection was dropped
+注册响应被截断	The registration response was truncated
+注册响应格式无效	Invalid registration response format
+无法注册验证接收设备	Cannot register the verification receiving device
+无法创建验证接收会话	Cannot create the verification receiving session
+验证接收设备注册失败，请稍后重试	Registering the verification receiving device failed, please try again later
+验证接收设备注册失败	Registering the verification receiving device failed
+无法刷新认证推送连接	Cannot refresh the authenticated push connection
+验证设备注册连接失败 ({0})	The verification device registration connection failed ({0})
+验证设备注册响应过大	The verification device registration response is too large
+不支持的源码压缩包格式	Unsupported source archive format
+本机通知状态读取失败	Failed to read the local notification state
+无法保存本机通知状态	Cannot save the local notification state
+OAuth 刷新未成功，需要重新授权	OAuth refresh did not succeed, authorization is required again
+OAuth 刷新请求未完成	The OAuth refresh request did not complete
+{0}：GitHub 提示需要检查 SSO 授权	{0}: GitHub says SSO authorization needs to be checked
+{0}：已读取 2,000 条，列表可能不完整	{0}: 2,000 items read, the list may be incomplete
+读取失败	Read failed
+组织列表	Organization list
+组织成员身份	Organization membership
+可访问仓库	Accessible repositories
+当前授权未包含 read:org；组织成员身份可能不完整	The current grant does not include read:org; organization membership may be incomplete
+组织名称格式无效	Invalid organization name format
+成员身份	Membership
+仓库列表	Repository list
+需要为当前授权完成组织 SSO	Organization SSO must be completed for the current grant
+GitHub 拒绝访问，请检查应用批准、Token 策略、权限或 API 配额	GitHub denied access, check app approval, token policy, permissions or API quota
+当前授权无法确认此组织或成员身份（不存在、非成员或不可见）	The current grant cannot confirm this organization or membership (it does not exist, you are not a member, or it is not visible)
+已加入	Joined
+状态：{0}	Status: {0}
+可读取仓库；这不代表拥有组织内所有仓库权限	Repositories can be read; this does not mean you have permission on every repository in the organization
+接口成功，但没有返回仓库；访问范围可能受限	The call succeeded but returned no repositories; access may be limited
+请求失败（{0}）	Request failed ({0})
+状态	Status
+当前授权缺少 read:project 权限，无法读取 GitHub Projects。	The current grant lacks the read:project permission, so GitHub Projects cannot be read.
+请重新授权登录；如使用 Token 登录，请为 Token 勾选 project（或 read:project）权限。	Sign in again; if you use a token, tick the project (or read:project) permission for it.
+当前授权缺少 project 写入权限，无法修改项目。	The current grant lacks project write permission, so the project cannot be changed.
+请重新授权登录；如使用 Token 登录，请为 Token 勾选 project 权限。	Sign in again; if you use a token, tick the project permission for it.
+无权访问此项目：	No access to this project: 
+未找到项目，或当前账号没有访问权限	Project not found, or the current account has no access
+未找到该账号，或当前账号没有访问权限	Account not found, or the current account has no access
+GitHub 未确认字段已修改；请刷新检查	GitHub did not confirm the field change; refresh to check
+GitHub 未确认条目已移除；请刷新检查	GitHub did not confirm the item removal; refresh to check
+请填写标题	Enter a title
+GitHub 未确认草稿已添加；请刷新检查	GitHub did not confirm the draft was added; refresh to check
+权限不足	Insufficient permission
+无权访问的条目	Inaccessible item
+GitHub 项目数据不完整：{0}	GitHub project data is incomplete: {0}
+仓库	Repositories
+用户	Users
+代码	Code
+仅归档	Archived only
+排除归档	Exclude archived
+组织	Organizations
+关注者 ≥ {0}	Followers ≥ {0}
+作者 {0}	Author {0}
+标签 {0}	Label {0}
+评论 ≥ {0}	Comments ≥ {0}
+近 {0} 天更新	Updated in the last {0} days
+GitHub 用户名格式无效	Invalid GitHub username format
+验证器密钥无效	Invalid authenticator secret
+账号已切换或退出，请重新打开 Star 页	The account changed or signed out, reopen the Stars page
+无效的 GitHub 用户名	Invalid GitHub username
+无效的排序方向	Invalid sort direction
+GitHub 没有返回当前账号	GitHub did not return the current account
+Star 列表返回了其他账号的数据	The Star list returned data of another account
+GitHub 没有返回 {0}	GitHub did not return {0}
+GitHub 没有返回 Star 列表	GitHub did not return the Star lists
+Star 列表字段 owner 不完整，请刷新	The owner field of the Star list is incomplete, refresh
+Star 列表字段 {0} 不完整，请刷新	The {0} field of the Star list is incomplete, refresh
+按 Star 时间排序需要先登录 GitHub	Sorting by Star time requires signing in to GitHub first
+每个账号最多创建 {0} 个本机列表	At most {0} local lists can be created per account
+列表已被删除，请返回重试	The list was deleted, go back and try again
+每个本机列表最多保存 {0} 个仓库	Each local list holds at most {0} repositories
+列表已被删除，请重新选择	The list was deleted, choose again
+「{0}」最多保存 {1} 个仓库	"{0}" holds at most {1} repositories
+本机列表数据超过存储上限	The local list data exceeds the storage limit
+本机列表保存失败，请重试	Saving the local list failed, please try again
+本机列表数据超过读取上限	The local list data exceeds the read limit
+本机列表数据无法读取；原数据已保留	The local list data cannot be read; the original data is kept
+账号已切换或退出，请重新打开本机列表	The account changed or signed out, reopen the local lists
+列表名称需为 1–{0} 个字符	The list name must be 1–{0} characters
+列表描述最多 {0} 个字符	The list description can have at most {0} characters
+已存在同名本机列表	A local list with the same name already exists
+无效的仓库信息	Invalid repository information
+每个账号最多保存 {0} 个本机列表、{1} 条仓库记录	Each account keeps at most {0} local lists and {1} repository records
+本机列表数据重复	Duplicate local list data
+无效的本机列表数据	Invalid local list data
+本机列表仓库数据超过上限或重复	The local list repository data exceeds the limit or is duplicated
+当前账号无法在服务端搜索 Star	The current account cannot search Stars on the server
+搜索关键词最多 {0} 个字符	The search keyword can have at most {0} characters
+GitHub 没有返回这个用户	GitHub did not return this user
+搜索全部 Star 需要先登录 GitHub	Searching all Stars requires signing in to GitHub first
+仅支持 TOTP 链接	Only TOTP links are supported
+GitHub 使用 SHA1 验证码	GitHub uses SHA1 codes
+GitHub 使用 6 位验证码	GitHub uses 6-digit codes
+GitHub 使用 30 秒验证码	GitHub uses 30-second codes
+检查更新：远端 {0} / 当前 {1} / 架构 {2}	Check for updates: remote {0} / current {1} / ABI {2}
+检查更新失败	Checking for updates failed
+{0} 项读不到，已跳过	{0} items could not be read and were skipped
+无法读取该位置	Cannot read this location
+文件夹名称无法使用	The folder name cannot be used
+文件超过 {0} 个，只保留前 {1} 个	More than {0} files, only the first {1} are kept
+层级超过 {0} 层，未继续深入	Deeper than {0} levels, not descending further
+读不到「{0}」的内容，已跳过	Cannot read the contents of "{0}", skipped
+跳过异常名称「{0}」	Skipped the unusual name "{0}"
+账号已切换或退出，请重新打开 GitHub 列表	The account changed or signed out, reopen the GitHub lists
+GitHub 列表返回了其他账号的数据	The GitHub lists returned data of another account
+GitHub 列表超过 {0} 个读取上限，请在网页中查看	GitHub lists exceed the read limit of {0}, view them on the web
+GitHub 列表分页重复或超过上限，请刷新	GitHub list pagination repeated or exceeded the limit, refresh
+GitHub 列表分页游标重复，请刷新	GitHub list pagination cursor repeated, refresh
+GitHub 列表读取不完整，请刷新	GitHub list reading is incomplete, refresh
+GitHub 列表已变化，请刷新	The GitHub list changed, refresh
+只能管理本人 GitHub 列表	You can only manage your own GitHub lists
+GitHub 返回了其他列表	GitHub returned a different list
+GitHub 未确认列表删除，请刷新后查看	GitHub did not confirm the list deletion, refresh to check
+GitHub 列表归属节点不完整；分类未更改	The GitHub list membership node is incomplete; categories were not changed
+GitHub 列表重复，请刷新	Duplicate GitHub list, refresh
+GitHub 列表读取超过 {0} 个上限，请刷新	GitHub lists read exceeds the limit of {0}, refresh
+GitHub 列表已变化；未更改任何分类	The GitHub list changed; no categories were changed
+GitHub 仓库分页重复；未更改任何分类	GitHub repository pagination repeated; no categories were changed
+GitHub 列表仓库读取不完整；未更改任何分类	GitHub list repository reading is incomplete; no categories were changed
+GitHub 列表已变化；未更改任何分类，请刷新	The GitHub list changed; no categories were changed, refresh
+请先 Star 此仓库，再加入 GitHub 列表	Star this repository first, then add it to a GitHub list
+GitHub 列表超过 {0} 个，请在网页中管理	More than {0} GitHub lists, manage them on the web
+GitHub 返回了其他账号的列表	GitHub returned the lists of another account
+GitHub 未确认分类更新，请刷新后查看	GitHub did not confirm the category update, refresh to check
+GitHub 分类确认节点不完整，请刷新后查看	The GitHub category confirmation node is incomplete, refresh to check
+GitHub 分类结果与选择不一致，请刷新后查看	The GitHub category result does not match your selection, refresh to check
+列表已被删除或读取不完整，请重新选择	The list was deleted or is incompletely read, choose again
+GitHub 分页结果不完整，请刷新	GitHub pagination result is incomplete, refresh
+GitHub 分页超过读取上限	GitHub pagination exceeded the read limit
+GitHub 列表节点不可读取；分类未更改	The GitHub list node cannot be read; categories were not changed
+分类读取超过上限（{0} 个列表、{1} 条记录、{2} 页）；为保留其他分类，未更改任何列表。请在 GitHub 网页中管理。	Category reading exceeded the limit ({0} lists, {1} records, {2} pages); to keep other categories, no lists were changed. Manage them on GitHub's website.
+账号已切换或退出	The account changed or signed out
+GitHub 列表响应超过读取上限	The GitHub list response exceeds the read limit
+GitHub 列表请求返回 {0}，正在重试	GitHub list request returned {0}, retrying
+GitHub 列表响应无法解析	The GitHub list response cannot be parsed
+GitHub 列表请求未完成，请刷新后确认状态	The GitHub list request did not complete, refresh to confirm the state
+一次最多添加 {0} 个仓库	At most {0} repositories can be added at once
+已完成 {0} 个仓库；{1}。请刷新后查看，重试会保留已有分类。	{0} repositories completed; {1}. Refresh to check, retrying keeps existing categories.
+GitHub 列表字段 {0} 不完整，请刷新	The {0} field of the GitHub list is incomplete, refresh
+公开网页加载失败 ({0})	Public web page failed to load ({0})
+此内容需要 GitHub 网页登录；这里只读取公开内容	This content needs a GitHub web sign-in; only public content is read here
+GitHub 返回了无法识别的网页	GitHub returned a page that cannot be recognized
+GitHub 网页超过读取上限	The GitHub web page exceeds the read limit
+数据解析失败：{0}	Data parsing failed: {0}
+Pager 缺少数据源	Pager has no data source
+账号已切换，请重新打开页面	The account changed, reopen the page
+账号已切换，旧账号的操作结果不再更新当前页面	The account changed, results of the previous account no longer update this page
+首页	Home
+通知	Notifications
+探索	Explore
+我的	Me
+认证推送连接已就绪	Authenticated push connection is ready
+认证推送已重连（此前失败 	Authenticated push reconnected (failed 
+ 次）	 times before)
+收到认证推送 {0}	Received authenticated push {0}
+认证推送连接中断，正在重连（第 	Authenticated push connection lost, reconnecting (attempt 
+ 次）；请求检测继续运行	 ); request checks keep running
+GitHub 授权已失效	GitHub authorization is no longer valid
+重新登录	Sign in again
+授权可能已过期或被撤销。请重新登录，新的账号授权默认长期有效。	The authorization may have expired or been revoked. Sign in again; new account authorizations are long-lived by default.
+授权权限不完整	Incomplete authorization permissions
+重新登录补齐	Sign in again to add them
+当前授权缺少以下权限，对应功能将无法使用：	The current grant lacks the following permissions, so these features are unavailable:
+验证失败（{0}）	Verification failed ({0})
+无法发起验证：{0}	Cannot start verification: {0}
+设备未设置锁屏密码，应用锁已关闭	No device lock is set, app lock turned off
+解锁 MobileGH	Unlock MobileGH
+验证身份后继续使用	Verify your identity to continue
+MobileGH 已锁定	MobileGH is locked
+使用指纹、面容或锁屏密码解锁	Unlock with fingerprint, face or screen lock
+解锁	Unlock
+总数	Total
+独立	Unique
+点按或长按图表查看每天的数值	Tap or long-press the chart to see daily values
+点按或长按柱子查看数值	Tap or long-press a bar to see its value
+剪贴板有 {0}，可快速打开	The clipboard has {0}, open it quickly
+打开	Open
+统一	Unified
+分栏	Split
+返回	Back
+更多操作	More actions
+关闭	Close
+添加	Add
+设置	Settings
+刷新	Refresh
+复制	Copy
+帮助	Help
+操作	Action
+重试	Retry
+暂无内容	Nothing here yet
+没有匹配的内容	No matching content
+加载失败，点击重试	Failed to load, tap to retry
+加载更多	Load more
+开启	Open
+不计划	Not planned
+已合并	Merged
+刚刚	just now
+{0} 分钟前	{0} min ago
+{0} 小时前	{0} h ago
+{0} 天前	{0} d ago
+{0} 个月前	{0} mo ago
+{0} 年前	{0} y ago
+{0}秒	{0}s
+{0}分{1}秒	{0}m {1}s
+{0}时{1}分	{0}h {1}m
+已复制	Copied
+分享	Share
+没有可用的浏览器，请先安装或启用浏览器	No browser available, install or enable one first
+选择浏览器	Choose a browser
+无法打开浏览器：{0}	Cannot open the browser: {0}
+确定	OK
+取消	Cancel
+下载完成	Download complete
+下载失败	Download failed
+已取消下载	Download canceled
+下载文件	Download file
+保存到 MobileGH 的下载目录	Save to MobileGH's download folder
+保存到手机「下载」文件夹	Save to the phone's Downloads folder
+安装更新	Install update
+打开文件	Open file
+后台下载	Download in background
+重新下载	Download again
+取消下载	Cancel download
+下载记录	Download history
+清空	Clear
+还没有下载记录	No download history yet
+打开所在文件夹	Open containing folder
+删除本地文件	Delete local file
+本地文件不存在或无法删除	The local file does not exist or cannot be deleted
+从记录中移除	Remove from history
+清空下载记录	Clear download history
+是否同时删除已下载到手机的文件？删除后无法恢复。正在下载的任务会取消。	Also delete the downloaded files on the phone? This cannot be undone. Tasks in progress will be canceled.
+已清空 {0} 条记录，删除 {1} 个文件	Cleared {0} records and deleted {1} files
+同时删除文件	Delete files too
+已清空 {0} 条记录，文件保留在「下载」文件夹	Cleared {0} records, files remain in the Downloads folder
+仅清空记录	Clear records only
+下载中 · 	Downloading · 
+已下载 	Downloaded 
+等待文件大小…	Waiting for file size…
+准备中	Preparing
+连接中	Connecting
+等待网络	Waiting for network
+已取消	Canceled
+失败	Failed
+下载中	Downloading
+文件信息	File info
+文件名已复制	File name copied
+复制文件名	Copy file name
+链接已复制	Link copied
+复制链接	Copy link
+正在下载中…	Downloading…
+已下载过，文件在手机「下载」文件夹	Already downloaded, the file is in the phone's Downloads folder
+查看进度	View progress
+下载	Download
+草稿自动保存在本机	Drafts are saved automatically on this device
+筛选，已选 {0} 项	Filters, {0} selected
+筛选	Filter
+移除筛选条件 {0}	Remove filter {0}
+全部清除	Clear all
+一	Mon
+三	Wed
+五	Fri
+{0}月	{0}
+无贡献	No contributions
+{0} 次贡献	{0} contributions
+点按方块查看当天贡献	Tap a square to see that day's contributions
+少	Less
+多	More
+HTML 高度异常：	Abnormal HTML height: 
+px，已限制	px, capped
+网页渲染进程退出：didCrash=	Web render process exited: didCrash=
+加载图片失败	Failed to load image
+图片过大，无法显示	The image is too large to display
+已保存到 {0}	Saved to {0}
+保存失败	Save failed
+保存到相册需要存储权限，请在系统设置中允许后重试	Saving to the gallery needs storage permission, allow it in system settings and retry
+图片加载失败	Image failed to load
+在浏览器打开	Open in browser
+复制图片链接	Copy image link
+保存到相册	Save to gallery
+无法申请存储权限	Cannot request storage permission
+分享图片失败	Sharing the image failed
+分享失败	Sharing failed
+图片 WebView 生命周期调用失败	Image WebView lifecycle call failed
+图片渲染进程退出：didCrash=	Image render process exited: didCrash=
+无法创建图片 WebView	Cannot create the image WebView
+无法创建文件	Cannot create the file
+无法写入文件	Cannot write the file
+无法发布图片	Cannot publish the image
+无法清理保存失败的图片	Cannot clean up the image that failed to save
+没有写入相册的权限	No permission to write to the gallery
+保存目录不可用	The save folder is unavailable
+文件已存在	The file already exists
+无法清理保存失败的文件	Cannot clean up the file that failed to save
+保存图片失败：	Saving the image failed: 
+分享目录不可用	The share folder is unavailable
+分享文件已存在	The shared file already exists
+分享图片	Share image
+无法清理分享失败的文件	Cannot clean up the file that failed to share
+归档	Archived
+模板	Template
+Fork 自 {0}	Forked from {0}
+更新于 	Updated 
+{0} 开启于 {1}	{0} opened {1}
+#{0} · {1} 开启于 {2}	#{0} · {1} opened {2}
+发布	Release
+其他	Other
+star 了	starred
+fork 了	forked
+创建了仓库	created a repository
+分支	Branches
+创建了{0} {1} 于	created {0} {1} in
+删除了{0} {1} 于	deleted {0} {1} in
+ {0} 个提交	 {0} commits
+推送{0}到 {1} @	pushed{0} to {1} @
+{0}了 Issue #{1} 于	{0} issue #{1} in
+评论了 #{0} 于	commented on #{0} in
+合并	merged
+{0}了 PR #{1} 于	{0} PR #{1} in
+审查了 PR #{0} 于	reviewed PR #{0} in
+评论了 PR #{0} 于	commented on PR #{0} in
+发布了 {0} 于	released {0} in
+公开了	made public
+添加了协作者 {0} 到	added collaborator {0} to
+编辑了 Wiki	edited the Wiki
+评论了提交于	commented on a commit in
+发起了讨论于	started a discussion in
+赞助了	sponsored
+动态	Activity
+重新开启	reopened
+编辑	Edit
+指派	Assign
+标记	labeled
+更新	Update
+请求审查	requested review
+预览	Preview
+没有可预览的内容	Nothing to preview
+<p>预览失败：{0}</p>	<p>Preview failed: {0}</p>
+渲染中…	Rendering…
+支持 Markdown	Markdown supported
+GitHub 数字审批	GitHub number approval
+登录 GitHub 后自动启用。收到验证请求时，直接输入浏览器显示的数字。	Enabled automatically after you sign in to GitHub. When a verification request arrives, enter the number shown in the browser.
+当前登录方式未注册本机验证设备，验证请求不会弹窗。授权一次即可启用。	This sign-in method has no registered verification device, so verification requests will not pop up. Authorize once to enable it.
+正在启用…	Enabling…
+登录并启用	Sign in and enable
+授权启用	Authorize and enable
+取消授权	Cancel authorization
+自动检测 2FA 请求	Detect 2FA requests automatically
+收到请求自动弹窗（应用在后台时才发通知）	Pops up when a request arrives (notifies only when the app is in the background)
+数字审批已关闭	Number approval is off
+验证已批准，返回浏览器继续登录。	Verification approved, return to the browser to continue signing in.
+有一条验证请求等待确认	A verification request is waiting for confirmation
+已开启，正在自动检测验证请求	On, detecting verification requests automatically
+正在连接 GitHub…	Connecting to GitHub…
+输入数字并批准	Enter the number and approve
+重新授权	Authorize again
+正在批准…	Approving…
+确认并批准	Confirm and approve
+{0} · 请求 {1}	{0} · request {1}
+浏览器显示的数字	Number shown in the browser
+请确认这是你发起的验证。	Make sure you started this verification.
+GitHub 验证已批准	GitHub verification approved
+启用 GitHub 数字审批	Enable GitHub number approval
+无法开始授权	Cannot start authorization
+当前登录方式没有注册本机验证设备，GitHub 两步验证请求不会弹窗。授权一次后自动启用，之后可在设置 → 两步验证中管理。	This sign-in method has no registered verification device, so GitHub two-factor requests will not pop up. Authorize once to enable it automatically, then manage it in Settings → Two-factor authentication.
+登录验证	Sign-in verification
+敏感操作验证	Sensitive action verification
+密码重置验证	Password reset verification
+设备验证	Device verification
+身份验证	Identity verification
+已关闭，验证请求不会弹窗	Off, verification requests will not pop up
+@{0} · 有一条验证请求等待确认	@{0} · a verification request is waiting for confirmation
+@{0} · 正在检测，收到请求后自动弹窗	@{0} · detecting, pops up when a request arrives
+@{0} · 正在连接 GitHub…	@{0} · connecting to GitHub…
+连接失败，重新授权可恢复检测	Connection failed, authorize again to resume detection
+系统通知	System notifications
+已允许，应用在后台时提醒验证请求	Allowed, you are reminded of verification requests when the app is in the background
+开启后可在后台收到验证提醒	Turn on to receive verification reminders in the background
+请在系统设置中开启 mobilegh 通知	Turn on mobilegh notifications in system settings
+允许后台运行	Allow background activity
+保持息屏时的验证提醒	Keep verification reminders while the screen is off
+请在系统设置中允许 mobilegh 后台运行	Allow mobilegh to run in the background in system settings
+授权一次后，验证请求会自动弹窗并通知	After authorizing once, verification requests pop up and notify automatically
+数字审批未启用	Number approval is not enabled
+数字审批	Number approval
+正在注册本机验证设备…	Registering this verification device…
+启用中…	Enabling…
+网络连接	Network connection
+保存中…	Saving…
+保存	Save
+网络设置已保存，请重试登录或刷新页面	Network settings saved, retry signing in or refresh the page
+公开内容加速不能加速登录。这里配置 App 请求使用的代理，GitHub 地址与 HTTPS 校验保持不变。	Public-content acceleration cannot speed up sign-in. Configure here the proxy the app uses for requests; GitHub addresses and HTTPS checks stay unchanged.
+代理主机	Proxy host
+127.0.0.1 或局域网 IP	127.0.0.1 or a LAN IP
+代理端口	Proxy port
+填写你信任的代理软件显示的地址和端口。127.0.0.1 指本手机；电脑代理需填写电脑局域网 IP，并允许局域网连接。暂不支持需要账号密码的代理。	Enter the address and port shown by the proxy app you trust. 127.0.0.1 means this phone; for a computer proxy, enter the computer's LAN IP and allow LAN connections. Proxies that need a username and password are not supported yet.
+使用 VPN 时，请在代理软件的分应用规则里包含 MobileGH 和登录浏览器。App 无法替你修改其他软件的规则。	When using a VPN, include MobileGH and your sign-in browser in the proxy app's per-app rules. This app cannot change other apps' rules for you.
+检查中…	Checking…
+检查连接	Check connection
+连接检查失败	Connection check failed
+系统网络设置	System network settings
+无法打开系统网络设置	Cannot open system network settings
+检查连接只访问官方站点，不发送 Token；连通不代表授权成功。此设置不影响外部浏览器、系统下载器和推送长连接，它们仍需系统代理 / VPN。	The check only visits official sites and sends no token; reachability does not mean authorization will succeed. This setting does not affect the external browser, the system download manager or the push long connection, which still need the system proxy / VPN.
+连接代理	Connection proxy
+GitHub Mobile 批准	GitHub Mobile approval
+已安装	Installed
+无法打开	Cannot open
+未安装	Not installed
+官方 App 需登录同一账号。	The official app must be signed in to the same account.
+浏览器提示两位数字时，在同账号的官方 App 中手动批准。	When the browser shows a two-digit number, approve it manually in the official app on the same account.
+打开 GitHub Mobile	Open GitHub Mobile
+重试打开	Retry opening
+安装 GitHub Mobile	Install GitHub Mobile
+手动批准后，回到浏览器完成授权。	After approving manually, return to the browser to finish authorization.
+继续浏览器授权	Continue browser authorization
+手动批准后，回到浏览器继续。	After approving manually, return to the browser to continue.
+扫码导入	Scan to import
+需要相机权限才能扫码	Camera permission is required to scan
+也可以返回后手动粘贴密钥或 otpauth 链接。	You can also go back and paste the secret or an otpauth link manually.
+授予相机权限	Grant camera permission
+对准 GitHub 显示的二维码即可自动导入	Point at the QR code shown by GitHub to import automatically
+手动粘贴密钥	Paste the secret manually
+私有	Private
+公开	Public
+仓库订阅	Repository subscription
+账号已切换，请重新打开订阅设置	The account changed, reopen subscription settings
+账号已切换，旧账号的订阅结果不再更新当前页面	The account changed, the previous account's subscription result no longer updates this page
+编辑个人资料	Edit profile
+显示名称	Display name
+个人简介（最多 160 字符）	Bio (up to 160 characters)
+公司 / 组织	Company / organization
+所在地	Location
+网站	Website
+Twitter 用户名	Twitter username
+公开邮箱	Public email
+接受工作机会	Open to work
+保存资料	Save profile
+成就	Achievements
+公开主页	Public profile
+成就暂时无法读取 · 点击重试	Achievements cannot be read right now · tap to retry
+公开主页未显示成就，隐藏的成就无法读取。	The public profile shows no achievements; hidden achievements cannot be read.
+铜级	Bronze
+银级	Silver
+金级	Gold
+我的成就	My achievements
+公开主页的徽章、等级和倍数	Badges, tiers and multipliers from your public profile
+公开主页尚未显示成就；隐藏的徽章无法读取	The public profile shows no achievements yet; hidden badges cannot be read
+在 GitHub 查看	View on GitHub
+Star 列表	Star lists
+{0} · 本机列表	{0} · local list
+编辑列表	Edit list
+删除列表	Delete list
+本机	Local
+按账号保存在当前设备，不会同步到 GitHub。	Saved on this device per account, not synced to GitHub.
+新建本机列表	New local list
+最多 {0} 个列表，每个 {1} 个仓库，总计 {2} 条记录。	At most {0} lists, {1} repositories each, {2} records in total.
+暂无本机列表，创建一个来整理 Stars。	No local lists yet, create one to organize your Stars.
+{0} 个仓库	{0} repositories
+搜索此列表	Search this list
+列表为空，添加已 Star 的仓库。	The list is empty, add starred repositories.
+添加仓库	Add repositories
+没有匹配的仓库	No matching repositories
+清除搜索	Clear search
+私有仓库	Private repository
+移除	Remove
+移除仓库或删除本机列表不会取消 GitHub Star。	Removing a repository or deleting a local list does not remove the GitHub Star.
+删除本机列表？	Delete this local list?
+删除	Delete
+删除「{0}」及其本机分类记录。仓库的 GitHub Star 会保留。	Delete "{0}" and its local category records. The GitHub Stars of its repositories are kept.
+编辑本机列表	Edit local list
+名称	Name
+描述（可选）	Description (optional)
+仅保存在当前设备，不会同步到 GitHub。	Saved only on this device, not synced to GitHub.
+账号已切换，请重新打开列表	The account changed, reopen the list
+添加已 Star 的仓库	Add starred repositories
+添加 ({0})	Add ({0})
+搜索已加载的 Stars	Search loaded Stars
+已加载 {0} 个 · 可再添加 {1} 个。搜索较早的 Stars 时请继续加载。	{0} loaded · {1} more can be added. Keep loading to search older Stars.
+已在列表中	Already in the list
+暂无已 Star 的仓库	No starred repositories yet
+未找到匹配；可加载更多 Stars。	No match found; load more Stars.
+加载更多 Stars	Load more Stars
+重试加载	Retry loading
+已达到 {0} 个候选仓库的读取上限。	Reached the read limit of {0} candidate repositories.
+GitHub 仓库分页重复，请刷新	GitHub repository pagination repeated, refresh
+GitHub 列表仓库读取不完整，请刷新	GitHub list repository reading is incomplete, refresh
+已保存到 GitHub，但刷新失败：{0}	Saved to GitHub, but refreshing failed: {0}
+ · 只读	 · read-only
+ · 已同步	 · synced
+重新加载	Reload
+新建 GitHub 列表	New GitHub list
+列表与 GitHub 同步；公开列表可被其他人查看。	Lists sync with GitHub; public lists can be viewed by others.
+查看公开的 GitHub 列表。	View public GitHub lists.
+搜索列表	Search lists
+名称或描述	Name or description
+暂无 GitHub 列表，创建一个来整理 Stars。	No GitHub lists yet, create one to organize your Stars.
+{0} 还没有公开的 GitHub 列表	{0} has no public GitHub lists yet
+没有匹配的列表	No matching lists
+{0} · 已加载 {1} / {2}	{0} · loaded {1} / {2}
+搜索列表内仓库	Search repositories in this list
+GitHub 顺序	GitHub order
+没有匹配的已加载仓库	No matching loaded repositories
+列表暂无仓库，添加已 Star 的仓库。	The list is empty, add starred repositories.
+列表暂无仓库	No repositories in this list
+已达 {0} 个仓库的显示上限，请在网页中继续查看。	Reached the display limit of {0} repositories, continue on the web.
+移除分类不会取消 Star。	Removing a category does not remove the Star.
+删除 GitHub 列表？	Delete this GitHub list?
+从 GitHub 删除「{0}」。仓库的 Star 会保留。	Delete "{0}" from GitHub. The Stars of its repositories are kept.
+编辑 GitHub 列表	Edit GitHub list
+保存到 GitHub	Save to GitHub
+私有列表（仅自己可见）	Private list (visible only to you)
+列表将保存在 GitHub，设为私有。	The list is saved on GitHub and set to private.
+公开列表会显示在你的 GitHub Stars 页面。	Public lists appear on your GitHub Stars page.
+推送	Push
+手动	Manual
+定时	Scheduled
+运行工作流	Run workflow
+运行此工作流	Run this workflow
+查看工作流文件	View workflow file
+全部工作流	All workflows
+（已停用）	 (disabled)
+没有运行记录	No runs
+选择要运行的工作流	Choose a workflow to run
+加载中…	Loading…
+该仓库没有可手动运行的工作流	This repository has no workflows that can be run manually
+只有声明了 workflow_dispatch 触发器的工作流可以手动运行，下一步会读取工作流文件中的输入参数。	Only workflows that declare a workflow_dispatch trigger can be run manually; the next step reads the input parameters from the workflow file.
+运行详情	Run details
+复制提交 SHA	Copy commit SHA
+{0} · {1} 触发 · {2} · 耗时 {3}	{0} · triggered by {1} · {2} · took {3}
+第 {0} 次尝试	Attempt {0}
+重新运行	Re-run
+重新运行 Run #	Re-run Run #
+已重新运行	Re-run started
+重跑失败任务	Re-run failed jobs
+重跑失败任务 Run #	Re-run failed jobs of Run #
+已重跑失败任务	Failed jobs re-run
+取消运行	Cancel run
+取消 Run #	Cancel Run #
+已请求取消	Cancel requested
+日志	Logs
+GitHub 尚未返回步骤明细，打开日志查看终端输出。	GitHub has not returned step details yet, open the log to see the terminal output.
+打开终端日志	Open terminal log
+产物 Artifacts	Artifacts
+ · 已过期	 · expired
+运行中	In progress
+排队中	Queued
+等待中	Waiting
+成功	Success
+已跳过	Skipped
+超时	Timed out
+作业日志	Job log
+隐藏时间戳	Hide timestamps
+显示时间戳	Show timestamps
+关闭自动换行	Turn off word wrap
+自动换行	Word wrap
+复制全部日志	Copy entire log
+没有错误或警告	No errors or warnings
+日志为空	The log is empty
+两步验证	Two-factor authentication
+验证器验证码	Authenticator codes
+选择 GitHub 的「验证器应用」，复制这里的六位码完成验证。	Choose "Authenticator app" on GitHub, then copy the six-digit code from here to verify.
+添加 GitHub 验证器	Add a GitHub authenticator
+扫码导入 GitHub 两步验证设置页的二维码，或手动粘贴密钥 / otpauth 链接。	Scan the QR code on GitHub's two-factor setup page, or paste the secret / otpauth link manually.
+手动添加	Add manually
+移除密钥	Remove secret
+密钥无法解密	The secret cannot be decrypted
+{0}s 后刷新	Refreshes in {0}s
+复制验证码	Copy code
+验证码已复制	Code copied
+打开 GitHub 两步验证设置	Open GitHub two-factor settings
+移除验证器	Remove authenticator
+只移除本机 {0} 的密钥，不会关闭 GitHub 两步验证。请确保你还保留恢复方式。	This only removes the secret of {0} from this device and does not turn off GitHub two-factor authentication. Make sure you still have a recovery method.
+添加验证器	Add authenticator
+GitHub 用户名	GitHub username
+密钥或 otpauth 链接	Secret or otpauth link
+密钥格式无效，仅支持 GitHub 的 SHA1 / 6 位 / 30 秒 TOTP。	Invalid secret format; only GitHub's SHA1 / 6-digit / 30-second TOTP is supported.
+自检：输入 GitHub 网页当前要求的六位码，确认两端一致。	Self-check: enter the six-digit code GitHub's web page asks for now to confirm both sides match.
+六位验证码	Six-digit code
+两端一致，密钥有效。	Both sides match, the secret is valid.
+验证码不一致：请确认密钥来自当前账号，且手机时间已自动同步。	The code does not match: make sure the secret comes from the current account and the phone time is synced automatically.
+保存后在 GitHub 输入生成的码完成启用。密钥通过 Android Keystore 加密。	After saving, enter the generated code on GitHub to finish enabling. The secret is encrypted with the Android Keystore.
+仓库代码搜索	Repository code search
+搜索代码内容	Search code content
+函数名、类名或文字，支持 language: 与 path:	Function name, class name or text, supports language: and path:
+输入关键词搜索该仓库的默认分支	Enter keywords to search this repository's default branch
+没有找到匹配的代码	No matching code found
+搜索默认分支中的代码 · {0} 个结果	Searching code on the default branch · {0} results
+GitHub 返回了部分结果，请添加仓库、路径或语言条件缩小范围	GitHub returned partial results, add repository, path or language conditions to narrow down
+查找文件	Find files
+默认分支	Default branch
+输入文件名或路径	Enter a file name or path
+如 README 或 src Main	e.g. README or src Main
+{0} 个匹配路径 · {1}	{0} matching paths · {1}
+仓库很大，GitHub 只返回了部分路径；未找到时可继续按目录浏览	The repository is large and GitHub returned only some paths; if you cannot find it, keep browsing by directory
+显示前 {0} 项，请继续输入以缩小范围	Showing the first {0} items, keep typing to narrow down
+没有匹配的文件或目录	No matching files or directories
+清除输入	Clear input
+逐行归因	Blame
+定位行号（留空查看全部）	Go to line (leave empty to see all)
+该文件没有可用的行归因	No blame is available for this file
+行号不在该文件中	The line number is not in this file
+{0} · {1}–{2} 行	{0} · lines {1}–{2}
+提交历史	Commit history
+不限	Any
+{0} 至 {1} · 按提交时间精确筛选（UTC）	{0} to {1} · filtered precisely by commit time (UTC)
+{0} 提交于 {1}	{0} committed {1}
+提交 {0}	Commit {0}
+复制 SHA	Copy SHA
+浏览此版本的文件	Browse files at this version
+{0} 于 {1} 提交	{0} committed on {1}
+由 {0} 合入 · {1}	Merged by {0} · {1}
+父提交  {0}	Parent commit  {0}
+{0} 个文件变更 	{0} files changed 
+文件已重命名（无内容变化）	File renamed (no content change)
+二进制文件或变更过大，无法显示 diff	Binary file or the change is too large, diff cannot be shown
+新增	Added
+重命名	Renamed
+修改	Modified
+重命名自 {0}	Renamed from {0}
+已查看	Viewed
+比较版本	Compare versions
+GitHub 比较接口最多返回 300 个文件，此列表可能不完整。	GitHub's compare API returns at most 300 files, this list may be incomplete.
+两个版本没有可显示的文件差异	No file differences to show between the two versions
+两个版本之间没有提交	No commits between the two versions
+基准（旧）	Base (old)
+交换基准与目标	Swap base and target
+目标（新）	Target (new)
+左边是旧版本，右边是新版本	Old version on the left, new version on the right
+输入提交 SHA	Enter a commit SHA
+选择{0}	Choose {0}
+两个版本内容相同	The two versions are identical
+目标领先 {0} 个提交，可以直接合入基准	The target is {0} commits ahead and can be merged into the base directly
+目标落后基准 {0} 个提交	The target is {0} commits behind the base
+已分叉：目标领先 {0} 个、落后 {1} 个提交	Diverged: the target is {0} ahead and {1} behind
+领先 {0} · 落后 {1}	Ahead {0} · behind {1}
+行变化	Lines changed
+文件 {0}	Files {0}
+输入版本	Enter versions
+比较	Compare
+基准版本（旧）	Base version (old)
+分支、标签或提交 SHA	Branch, tag or commit SHA
+目标版本（新）	Target version (new)
+贡献者	Contributors
+刷新贡献统计	Refresh contribution statistics
+正在加载贡献统计…	Loading contribution statistics…
+GitHub 首次计算可能需要一些时间	GitHub may need some time the first time it computes this
+GitHub 仅返回了累计提交数，按时间筛选暂不可用；可稍后刷新重试周统计。	GitHub only returned cumulative commit counts, filtering by time is unavailable; refresh later to retry weekly statistics.
+开始日期（UTC）	Start date (UTC)
+结束日期（UTC，含当天）	End date (UTC, inclusive)
+显示上次加载的统计。{0}	Showing the previously loaded statistics. {0}
+仅汇总已加载的贡献者；占比以此列表为分母	Only loaded contributors are summed; shares use this list as the denominator
+周统计仍在生成	Weekly statistics are still being generated
+GitHub 未返回贡献统计	GitHub returned no contribution statistics
+暂无可用的贡献者数据	No contributor data available
+仓库可能为空，或统计尚无数据。可稍后刷新。	The repository may be empty or has no statistics yet. Refresh later.
+稍后刷新可重新请求统计。	Refresh later to request the statistics again.
+请修正日期范围	Fix the date range
+日期需要有效，且结束日期不能晚于今天（UTC）。	Dates must be valid, and the end date cannot be later than today (UTC).
+该日期范围没有可用的周数据	No weekly data in this date range
+当前仅有累计提交数；请选择「全部提交」，或稍后重试周统计。	Only cumulative commit counts are available now; choose "All commits" or retry weekly statistics later.
+请选择已返回的日期范围。累计提交数可在「全部提交」查看。	Choose a date range that was returned. Cumulative counts are under "All commits".
+该范围内没有贡献	No contributions in this range
+所选整周没有记录到提交或行数变化。	No commits or line changes were recorded in the selected whole weeks.
+累计提交排名	Ranking by cumulative commits
+所选整周提交排名	Ranking by commits in the selected whole weeks
+{0} · {1} 位贡献者	{0} · {1} contributors
+统计基于默认分支，排除合并提交与空提交。占比按返回的贡献者提交数计算；未关联账号的贡献可能不在统计中。GitHub 缓存可能延迟更新。	Statistics are based on the default branch and exclude merge commits and empty commits. Shares are computed from the returned contributors' commit counts; contributions not linked to an account may be missing. GitHub's cache may delay updates.
+备用贡献者列表来自 GitHub 的缓存，可能延迟数小时。它仅提供累计提交数，不提供日期、周趋势或增删行数。	The fallback contributor list comes from GitHub's cache and can lag by hours. It only provides cumulative commit counts, not dates, weekly trends or line counts.
+正在重试…	Retrying…
+重新获取统计	Fetch statistics again
+请求日期：{0}（UTC）	Requested dates: {0} (UTC)
+返回周数据：{0}（UTC）	Returned weekly data: {0} (UTC)
+提交数使用 GitHub 的累计总数。周趋势与行数仅覆盖返回的周数据。	Commit counts use GitHub's cumulative totals. Weekly trends and line counts cover only the returned weeks.
+计入整周：{0}（UTC）	Whole weeks counted: {0} (UTC)
+所选范围已覆盖 GitHub 返回的全部周数据，各时间范围的数值会相同。	The selected range covers all weekly data GitHub returned, so values are identical across ranges.
+包含与日期范围重叠的完整周，边界提交无法精确到天。	Includes whole weeks that overlap the date range; boundary commits cannot be resolved to the day.
+所选日期未被返回数据完整覆盖，仅汇总可用整周。	The selected dates are not fully covered by the returned data, only available whole weeks are summed.
+返回周数据	Returned weekly data
+所选统计	Selected statistics
+累计提交	Cumulative commits
+整周提交	Commits in whole weeks
+新增行 · {0}	Lines added · {0}
+删除行 · {0}	Lines deleted · {0}
+— 表示数据不可用。大仓库可能不提供增删行数；未返回的指标不会显示为零。	— means the data is unavailable. Large repositories may not provide line counts; metrics that were not returned are not shown as zero.
+周趋势暂无可用数据	No weekly trend data available
+未关联账号的贡献者	Contributor without a linked account
+ · 查看个人主页	 · view profile
+ · 未关联 GitHub 账号	 · not linked to a GitHub account
+活跃周 · 返回数据	Active weeks · returned data
+新增行 · 返回周数据	Lines added · returned weekly data
+删除行 · 返回周数据	Lines deleted · returned weekly data
+已加载列表提交占比	Share of commits in the loaded list
+返回贡献者提交占比	Share of commits among returned contributors
+已知首次活跃周：{0}	First known active week: {0}
+已知最近活跃周：{0}	Latest known active week: {0}
+活跃周数据不完整	Active week data is incomplete
+返回周数据中暂无活跃提交	No active commits in the returned weekly data
+周趋势及增删行数不代表全部提交历史。	Weekly trends and line counts do not represent the entire commit history.
+GitHub 未提供该贡献者的周趋势或增删行数。	GitHub did not provide weekly trends or line counts for this contributor.
+查看逐笔提交	View individual commits
+{0} 次提交	{0} commits
+数据缺失	Data missing
+{0}（周起始，UTC） · {1}	{0} (week start, UTC) · {1}
+{0} 至 {1} 的每周提交，已知最高 {2} 次，{3} 周数据缺失	Weekly commits from {0} to {1}, known peak {2}, {3} weeks of data missing
+ · 最近 52 个返回周	 · last 52 returned weeks
+ · {0} 周	 · {0} weeks
+每周提交{0} · 已知最高 {1}	Commits per week{0} · known peak {1}
+{0} 起的一周	Week of {0}
+{0} 起的一周（UTC）	Week of {0} (UTC)
+点按或左右拖动图表查看某一周 · 最近 {0} 周共 {1} 次 · {2} 至 {3}	Tap or drag the chart to see a week · last {0} weeks total {1} · {2} to {3}
+灰色竖线表示缺失周数据；零提交周留空。	Gray vertical lines mark weeks with missing data; zero-commit weeks are left empty.
+正在加载…	Loading…
+详细统计	Detailed statistics
+正在加载贡献者…	Loading contributors…
+贡献者暂不可用	Contributors are unavailable
+GitHub 未返回贡献者数据	GitHub returned no contributor data
+{0} 次累计提交	{0} commits in total
+提交最多的 {0} 位贡献者 · GitHub 返回的累计提交数，缓存可能延迟。	Top {0} contributors by commits · cumulative commit counts returned by GitHub, the cache may lag.
+此仓库未启用 Discussions	Discussions are not enabled for this repository
+全部分类	All categories
+新讨论	New discussion
+加载更多分类	Load more categories
+分类	Categories
+搜索已加载讨论	Search loaded discussions
+搜索标题、作者、分类和编号 · 已加载 {0}/{1}	Search title, author, category and number · loaded {0}/{1}
+仓库已归档，仅可阅读	The repository is archived, read-only
+当前账号仅可阅读讨论	The current account can only read discussions
+未解答	Unanswered
+已解答	Answered
+ · 已解答	 · answered
+ · 已关闭	 · closed
+ · 已锁定	 · locked
+已加载讨论中没有匹配项	No matches in the loaded discussions
+此筛选下没有已加载的讨论	No loaded discussions under this filter
+发起新讨论	Start a new discussion
+加载更多讨论	Load more discussions
+讨论	Discussions
+已采纳为答案	Marked as the answer
+已取消采纳	Answer unmarked
+讨论 #{0}	Discussion #{0}
+编辑讨论	Edit discussion
+删除讨论	Delete discussion
+回复	Reply
+采纳为答案	Mark as answer
+取消采纳答案	Unmark answer
+已采纳答案	Accepted answer
+此评论已被折叠	This comment is collapsed
+没有提供内容。	No content provided.
+回复讨论	Reply to the discussion
+讨论已锁定	The discussion is locked
+讨论已关闭	The discussion is closed
+{0} 的回答已被采纳	{0}'s answer was accepted
+评论 {0}	Comment {0}
+已达到回复加载上限，更多回复可在 GitHub 查看。	The reply loading limit was reached; more replies can be viewed on GitHub.
+查看更多回复（共 {0} 条）	View more replies ({0} in total)
+收起回复	Collapse replies
+还没有评论，点按上方「回复」参与讨论	No comments yet, tap "Reply" above to join the discussion
+还没有评论	No comments yet
+加载更多评论	Load more comments
+评论	Comments
+回复 @{0}	Reply to @{0}
+已保存	Saved
+编辑评论	Edit comment
+删除评论	Delete comment
+删除中…	Deleting…
+已删除	Deleted
+评论及其 {0} 条回复将被删除，无法恢复。	The comment and its {0} replies will be deleted and cannot be recovered.
+删除后无法恢复。	It cannot be recovered after deletion.
+讨论已删除	Discussion deleted
+「{0}」及其全部评论将被永久删除，无法恢复。	"{0}" and all its comments will be permanently deleted and cannot be recovered.
+取消点赞	Remove upvote
+点赞	Upvote
+已达到本页{0}加载上限；刷新可从头加载，更多内容可在 GitHub 查看。	The {0} loading limit of this page was reached; refresh to load from the start, more can be viewed on GitHub.
+发表中…	Posting…
+发表	Post
+选择分类	Choose a category
+问答分类：可以把有帮助的回复采纳为答案	Q&A category: helpful replies can be marked as the answer
+标题	Title
+正文（支持 Markdown）	Body (Markdown supported)
+回复内容（支持 Markdown）	Reply content (Markdown supported)
+当前无法发表，请检查账号权限或刷新讨论。	Cannot post right now, check the account permission or refresh the discussion.
+本周	This week
+本月	This month
+今天	Today
+新晋热门仓库	Trending repositories
+创建于 {0}	Created {0}
+搜索 GitHub	Search GitHub
+搜索仓库、用户、Issue、PR 或代码	Search repositories, users, issues, PRs or code
+仓库已归档，只读	The repository is archived, read-only
+没有推送权限	No push permission
+归档仓库不能提交任何更改。	An archived repository cannot accept any changes.
+你的账号对该仓库没有写入权限，无法直接提交。GitHub 网页上的做法是先 Fork 该仓库，在 Fork 中提交后再发起拉取请求；本应用不会代为 Fork，请在网页上完成。	Your account has no write permission for this repository, so you cannot commit directly. On GitHub's website you first fork the repository, commit in the fork, then open a pull request; this app does not fork for you, please do it on the web.
+在浏览器中编辑	Edit in browser
+只能编辑普通文件	Only regular files can be edited
+文件超过 1MB，无法在手机上编辑	The file is over 1MB and cannot be edited on the phone
+无法读取该文件的内容	Cannot read the content of this file
+该文件不是 UTF-8 文本，无法编辑	The file is not UTF-8 text and cannot be edited
+新建文件	New file
+编辑 {0}	Edit {0}
+{0} 行 · 第 {1} 行 · {2}	{0} lines · line {1} · {2}
+ · 已修改	 · modified
+文件较大，草稿不会保存在本机	The file is large, the draft will not be saved on this device
+提交更改	Commit changes
+当前查看的是标签或提交 {0}，不能直接提交，只能新建分支后提交。	You are viewing a tag or commit {0}, so you cannot commit directly; you can only create a new branch and commit there.
+这是一个空仓库：第一个文件会直接提交到 {0}，不能再选“新建分支”（没有提交可以指向新分支）。	This is an empty repository: the first file is committed directly to {0}, and "New branch" cannot be chosen (there is no commit for a new branch to point to).
+文件路径	File path
+例如 docs/notes.md	e.g. docs/notes.md
+路径无效：不能包含空的目录名、. 或 ..	Invalid path: it cannot contain empty directory names, . or ..
+已恢复上次未提交的草稿	Restored the last uncommitted draft
+放弃草稿	Discard draft
+已提交到 {0}	Committed to {0}
+目标分支上已经有同名文件。请修改文件路径，或打开该文件后再编辑。	A file with the same name already exists on the target branch. Change the file path, or open that file and edit it.
+文件已被修改	The file was modified
+你的修改已复制到剪贴板	Your changes were copied to the clipboard
+在你编辑期间，GitHub 上的这个文件已有新的提交，直接提交会覆盖他人的修改。重新加载会读取最新版本；你当前的内容会先复制到剪贴板，方便对照后重新修改。	This file has new commits on GitHub since you started editing, and committing directly would overwrite someone else's changes. Reloading reads the latest version; your current content is copied to the clipboard first so you can compare and redo your edits.
+放弃修改？	Discard changes?
+离开	Leave
+修改尚未提交。文件较大，草稿没有保存在本机，离开后改动将丢失。	Changes are not committed. The file is large, no draft was saved on this device, and the changes will be lost when you leave.
+修改尚未提交，草稿已保存在本机，下次编辑该文件时会自动恢复。	Changes are not committed. The draft is saved on this device and is restored automatically next time you edit this file.
+提交结果需确认，分支 {0} 已保留。请先查看该分支的文件和提交记录，再决定是否重试。\n{1}	The commit result needs confirmation, branch {0} is kept. Check that branch's files and commit history before deciding whether to retry.\n{1}
+分支 {0} 已存在，请换一个名称	Branch {0} already exists, use another name
+提交失败：	Commit failed: 
+提交新文件	Commit new file
+提交中…	Committing…
+提交信息	Commit message
+扩展描述（可选）	Extended description (optional)
+直接提交到 {0}	Commit directly to {0}
+空仓库的第一个提交会直接建在 {0} 上	The first commit of an empty repository is created directly on {0}
+{0} 不是分支，无法直接提交	{0} is not a branch, cannot commit directly
+该分支受保护，提交可能被拒绝	This branch is protected, the commit may be rejected
+新建分支并提交	Create a new branch and commit
+从 {0} 创建新分支	Create a new branch from {0}
+新分支名称	New branch name
+分支名称无效	Invalid branch name
+已存在同名分支	A branch with the same name already exists
+提交后创建拉取请求	Open a pull request after committing
+合并到 {0}	Merge into {0}
+删除文件	Delete file
+删除并提交	Delete and commit
+已删除 {0}	Deleted {0}
+文件已被他人修改，请返回刷新后重试	The file was modified by someone else, go back, refresh and retry
+删除失败：	Delete failed: 
+仓库已归档，不能删除文件。	The repository is archived, files cannot be deleted.
+你没有该仓库的推送权限。GitHub 会要求先 Fork 再提交，本应用暂不支持。	You have no push permission for this repository. GitHub requires forking first and then committing; this app does not support that yet.
+当前查看的是标签或提交，请先切换到分支再删除。	You are viewing a tag or commit, switch to a branch before deleting.
+将直接提交到 {0}。删除后可以在提交历史中找回。	This will commit directly to {0}. You can recover the file from commit history after deletion.
+该分支受保护，提交可能被拒绝。	This branch is protected, the commit may be rejected.
+创建拉取请求	Create pull request
+点击目标分支可以更换	Tap the target branch to change it
+描述（支持 Markdown）	Description (Markdown supported)
+创建为草稿	Create as draft
+草稿 PR 需要标记为可审查后才能合并	A draft PR must be marked ready for review before it can be merged
+创建中…	Creating…
+已创建 #{0}	Created #{0}
+{0} 与 {1} 之间没有差异，无法创建拉取请求	There is no difference between {0} and {1}, a pull request cannot be created
+{0} 已经有一个打开的拉取请求	{0} already has an open pull request
+{0} 个文件{1}	{0} files{1}
+没有读到可上传的文件	No files that can be uploaded were read
+读取所选文件失败：	Failed to read the selected files: 
+读取文件夹失败：	Failed to read the folder: 
+{0} 个文件已提交到 {1}（{2}）	{0} files committed to {1} ({2})
+；另有 {0} 个与仓库内容相同，没有重复写入	; {0} more are identical to the repository content and were not written again
+。仓库里没选中的文件都没有动。	. Files you did not select in the repository were not touched.
+已取消上传。	Upload canceled.
+提交 {0} 已经生成，但分支更新结果未确认，请先查看分支和提交历史。	Commit {0} was created, but the branch update was not confirmed; check the branch and commit history first.
+GitHub 上还没有产生提交。	No commit has been created on GitHub yet.
+上传文件（夹）	Upload files / folders
+清空已选	Clear selection
+不上传的项在列表里标了原因	Reasons for files that are not uploaded are shown in the list
+{0} 项路径重复或无效，已去掉	{0} items with duplicate or invalid paths were removed
+上传中…	Uploading…
+上传并提交	Upload and commit
+这是一个空仓库：上传会把选中的内容直接建成 {0} 的第一个提交。	This is an empty repository: the upload makes the selected content the first commit of {0}.
+选择文件	Choose files
+这台设备没有可用的文件选择器	This device has no file picker available
+选择文件夹	Choose a folder
+这台设备没有可用的目录选择器	This device has no folder picker available
+正在统计选中的文件…	Counting the selected files…
+文件可以多选（数量不限），也可以选文件夹：文件夹按名字在仓库里建目录并递归带上里面的内容。	You can select any number of files, or a folder: a folder creates a directory by its name in the repository and brings its contents recursively.
+单个文件最大 {0} MB（GitHub 仓库的硬上限，超过的项不会进入提交）；	Each file can be at most {0} MB (GitHub's hard repository limit, larger items are not committed);
+一次最多带 {0} 个文件。	At most {0} files at a time.
+走的是和 git push 相同的传输，一次上传只产生一个提交，仓库里没选中的文件不受影响。	It uses the same transport as git push: one upload produces one commit, and files you did not select are untouched.
+例如 Add logo.png	e.g. Add logo.png
+空仓库：这会成为它的第一个提交	Empty repository: this becomes its first commit
+{0} 不是分支，不能直接提交	{0} is not a branch, cannot commit directly
+该分支受保护，推送可能被 GitHub 拒绝	This branch is protected, GitHub may reject the push
+先把文件写完，最后才把分支移动过去（相当于 push）	Write all files first, and move the branch only at the end (like a push)
+新建分支并推送	Create a new branch and push
+从 {0} 创建	Created from {0}
+留空则使用 {0}	Leave empty to use {0}
+推送后创建拉取请求	Open a pull request after pushing
+还没有选择文件	No files selected yet
+已选 {0} 项	{0} selected
+（{0} 项不上传）	 ({0} not uploaded)
+其中 {0} 个文件超过 100 MB，会先上传到 Git LFS，再在仓库里提交指针文件并自动更新 .gitattributes。	{0} files are over 100 MB and will be uploaded to Git LFS first, then pointer files are committed to the repository and .gitattributes is updated automatically.
+GitHub 免费账号的 LFS 额度是 1 GiB 存储和每月 1 GiB 流量，超出需要购买额度。	A free GitHub account has 1 GiB of LFS storage and 1 GiB of bandwidth per month; going over requires buying more quota.
+清空已选文件？	Clear the selected files?
+只清空本机这份清单，GitHub 上的文件不受影响。	This only clears the list on this device, files on GitHub are not affected.
+上传正在进行	An upload is in progress
+离开上传页？	Leave the upload page?
+取消上传并离开	Cancel the upload and leave
+离开并丢弃	Leave and discard
+取消后已经写到 GitHub 的文件对象不会清理，但不会产生半个提交：分支只有在全部成功后才会移动。	After canceling, file objects already written to GitHub are not cleaned up, but no half-finished commit is produced: the branch moves only after everything succeeds.
+上传还没开始。离开会丢掉已选的 {0} 项（GitHub 上什么都没有改动）。	The upload has not started. Leaving discards the {0} selected items (nothing on GitHub changes).
+想继续上传就点「取消」，清单会留在本页。	Tap "Cancel" to keep uploading, the list stays on this page.
+上传完成	Upload complete
+查看提交	View commit
+{0}/{1} 个文件 · {2} / {3}	{0}/{1} files · {2} / {3}
+{0}/{1} 个文件	{0}/{1} files
+准备中…	Preparing…
+超过 100 MB，将通过 Git LFS 上传（仓库里保存指针文件）	Over 100 MB, will be uploaded via Git LFS (a pointer file is stored in the repository)
+复制路径	Copy path
+查找仓库文件	Find repository files
+空目录	Empty directory
+编辑文件	Edit file
+复制全部内容	Copy all content
+查看渲染	View rendered
+查看源码	View source
+文件历史	File history
+逐行归因（Blame）	Blame
+分享链接	Share link
+{0} 行 · {1}	{0} lines · {1}
+过大，仅显示前 400KB	Too large, only the first 400KB is shown
+二进制文件，无法预览	Binary file, cannot be previewed
+下载到本机	Download to device
+分支与标签	Branches and tags
+默认	Default
+受保护	Protected
+浏览代码	Browse code
+从此分支新建分支	New branch from this branch
+与 {0} 比较	Compare with {0}
+发起拉取请求	Open a pull request
+复制分支名	Copy branch name
+删除分支	Delete branch
+没有标签	No tags
+从此标签新建分支	New branch from this tag
+复制标签名	Copy tag name
+已创建分支 {0}	Created branch {0}
+已删除分支 {0}	Deleted branch {0}
+新建分支	New branch
+创建	Create
+分支 {0} 已存在	Branch {0} already exists
+分支名称	Branch name
+例如 feature/login	e.g. feature/login
+分支名称无效：不能包含空格、..、~ ^ : ? * [ 等字符	Invalid branch name: it cannot contain spaces, .., ~ ^ : ? * [ and similar characters
+来源（分支、标签或提交 SHA）	Source (branch, tag or commit SHA)
+新分支将指向来源当前所在的提交	The new branch will point to the commit the source is currently at
+确定删除分支 {0} 吗？	Delete branch {0}?
+最新提交 {0}。只存在于该分支上的提交在删除后只能通过 SHA 找回；以该分支发起的拉取请求会被关闭。	Latest commit {0}. Commits that exist only on this branch can be recovered by SHA only after deletion; pull requests opened from this branch will be closed.
+该分支受保护，GitHub 可能拒绝删除。	This branch is protected, GitHub may refuse to delete it.
+已加星标	Starred
+还没有加星标的 Gist	No starred gists yet
+没有 Gist	No gists
+新建 Gist	New gist
+私密	Secret
+{0} 个文件 · {1} 条评论 · 更新于 {2}	{0} files · {1} comments · updated {2}
+已取消星标	Unstarred
+Fork 到我的 Gist	Fork to my gists
+已 Fork	Forked
+删除 Gist	Delete gist
+评论已发布	Comment posted
+创建于 {0} · {1} · {2} 个文件	Created {0} · {1} · {2} files
+还没有评论，在下方发表第一条评论	No comments yet, post the first one below
+复制内容	Copy content
+评论较多，在浏览器查看全部	There are many comments, view them all in the browser
+将永久删除这个 Gist 及其全部文件、评论和修订历史，无法恢复。	This permanently deletes the gist with all its files, comments and revision history, and cannot be undone.
+放弃	Discard
+尚未创建的 Gist 内容不会保存。	Gist content that has not been created will not be saved.
+未保存的修改将会丢失。	Unsaved changes will be lost.
+编辑 Gist	Edit gist
+这个 Gist 是做什么的	What this gist is for
+可见性	Visibility
+私密（Secret）	Secret
+不会出现在搜索和你的主页中，但拿到链接的人都能查看	Will not appear in search or on your profile, but anyone with the link can view it
+所有人都能看到，会出现在搜索和你的主页中	Everyone can see it, and it appears in search and on your profile
+{0} Gist · 可见性需在 GitHub 网页上修改	{0} gist · visibility can only be changed on the GitHub website
+将删除：	Will delete: 
+添加文件	Add file
+保存修改	Save changes
+创建公开 Gist	Create public gist
+创建私密 Gist	Create secret gist
+Gist 已创建	Gist created
+没有修改	No changes
+文件名（含扩展名）	File name (with extension)
+例如 hello.py	e.g. hello.py
+文件过大，内容未完整返回，只能改名或删除；修改内容请在 GitHub 网页上进行。	The file is too large and its content was not fully returned, so it can only be renamed or deleted; edit its content on the GitHub website.
+文件内容	File content
+原文件名：{0}	Original file name: {0}
+搜索历史	Search history
+查看全部	View all
+展开其余 {0} 条	Show the other {0}
+收起	Collapse
+移除搜索历史：{0}	Remove search history: {0}
+清空搜索历史	Clear search history
+还没有搜索记录	No search history yet
+这个类型还没有搜索记录	No search history for this type yet
+最近浏览	Recently viewed
+清空最近浏览	Clear recently viewed
+搜索最近浏览的仓库	Search recently viewed repositories
+清空最近浏览搜索	Clear recently viewed search
+仅保存在本机，按账号区分	Saved only on this device, separated per account
+还没有浏览过仓库	No repositories viewed yet
+移除最近浏览：{0}	Remove from recently viewed: {0}
+自定义首页	Customize Home
+仅保存在本机	Saved only on this device
+新建保存的搜索	New saved search
+恢复默认入口	Restore default shortcuts
+已恢复默认入口	Default shortcuts restored
+我的工作	My work
+用开关显示或隐藏入口，用箭头调整顺序。	Use the switches to show or hide shortcuts and the arrows to reorder them.
+保存的搜索 · 	Saved search · 
+已删除「{0}」	Deleted "{0}"
+隐藏	Hide
+显示	Show
+在 Issue / PR 列表设置好筛选后，也可以从右上角菜单选择「保存到首页…」。	After setting filters on an Issue / PR list, you can also choose "Save to Home…" from the top-right menu.
+收藏仓库	Pinned repositories
+在仓库页右上角菜单选择「加入首页收藏」，常用仓库就会出现在首页。	Choose "Pin to Home" in the top-right menu of a repository page and frequently used repositories appear on Home.
+也可以在首页长按收藏的仓库来调整。	You can also long-press a pinned repository on Home to adjust it.
+上移{0}	Move {0} up
+下移{0}	Move {0} down
+请先登录	Sign in first
+已添加到首页「我的工作」	Added to "My work" on Home
+仓库（可选）	Repository (optional)
+格式应为 owner/name	It should look like owner/name
+不填仓库时，搜索与你相关的内容	Leave the repository empty to search content related to you
+关键词（可选）	Keywords (optional)
+支持 label:bug 等搜索限定词	Search qualifiers such as label:bug are supported
+@{0} · {1} 仓库 · {2} 关注者	@{0} · {1} repositories · {2} followers
+已 Star	Starred
+列表	Lists
+打开仓库	Open repository
+调整收藏	Adjust pinned
+上移	Move up
+下移	Move down
+移出首页收藏	Remove from Home pins
+打开{0}	Open {0}
+你有 {0} 个待处理邀请	You have {0} pending invitations
+列表暂时无法读取	Lists cannot be read right now
+换个关键词试试	Try another keyword
+打开列表 {0}	Open list {0}
+新建列表	New list
+管理列表	Manage lists
+整理喜欢的仓库	Organize repositories you like
+{0} 个列表	{0} lists
+打开收藏列表	Open starred lists
+打开我的成就	Open my achievements
+暂无公开徽章	No public badges yet
+暂时无法读取	Cannot be read right now
+{0} 个徽章	{0} badges
+关注一些开发者或 star 一些仓库后，这里会显示动态	Activity shows up here after you follow some developers or star some repositories
+去探索	Explore
+所有快捷入口都已隐藏，点「编辑」可重新显示	All shortcuts are hidden, tap "Edit" to show them again
+收藏列表	Starred lists
+搜索收藏列表	Search starred lists
+贡献	Contributions
+详情	Details
+我的 Pull Requests	My pull requests
+我的 Issues	My issues
+保存到首页…	Save to Home…
+清除筛选	Clear filters
+搜索 {0}	Search {0}
+标题、正文或评论中的关键词	Keywords in the title, body or comments
+排序：{0}	Sort: {0}
+标签 · {0}	Label · {0}
+评审状态	Review status
+按作者筛选	Filter by author
+按指派人筛选	Filter by assignee
+按标签筛选	Filter by label
+按里程碑筛选	Filter by milestone
+移除筛选：{0}	Remove filter: {0}
+没有符合筛选条件的 {0}	No {0} match the filters
+没有你创建的 {0}	No {0} created by you
+没有指派给你的 {0}	No {0} assigned to you
+没有提及你的 {0}	No {0} mention you
+没有请求你评审的 {0}	No {0} request your review
+没有开放的 {0}	No open {0}
+没有已关闭的 {0}	No closed {0}
+没有 {0}	No {0}
+保存到首页	Save to Home
+图标	Icon
+已转为草稿	Converted to draft
+已标记为可评审	Marked as ready for review
+标记为可评审	Mark ready for review
+合并 Pull Request…	Merge pull request…
+提交审查…	Submit review…
+请求审查…	Request review…
+转为草稿	Convert to draft
+关闭 Pull Request	Close pull request
+查看文件变更	View file changes
+关闭（已完成）	Close (completed)
+关闭（不计划）	Close (not planned)
+已引用到评论框	Quoted into the comment box
+引用回复	Quote reply
+编辑正文	Edit body
+批准了这些更改	approved these changes
+的审查已被驳回	's review was dismissed
+审查了代码	reviewed the code
+编辑{0}	Edit {0}
+编辑标题	Edit title
+标题已更新	Title updated
+指派给 Copilot	Assign to Copilot
+已指派给 Copilot，它会创建分支并提交 Pull Request	Assigned to Copilot, it will create a branch and open a pull request
+Copilot 已是指派人	Copilot is already assigned
+Copilot 编程助手会根据此 Issue 的内容开始工作，完成后提交 Pull Request 并请你审查。每次任务会消耗 Copilot 高级请求额度。	The Copilot coding agent starts working from this issue's content, then opens a pull request and asks you to review it. Each task uses Copilot premium request quota.
+无法指派给 Copilot	Cannot assign to Copilot
+查看文档	View documentation
+此仓库未启用 Copilot 编程助手，或你的账号暂无使用权限。需要 Copilot Pro、Pro+、Business 或 Enterprise 订阅；组织仓库还需管理员在策略中启用 Copilot 编程助手。	The Copilot coding agent is not enabled for this repository, or your account has no access. A Copilot Pro, Pro+, Business or Enterprise subscription is required; for organization repositories an admin must also enable the Copilot coding agent in policies.
+已合并，并删除分支 {0}	Merged, and deleted branch {0}
+已合并，但删除分支失败：{0}	Merged, but deleting the branch failed: {0}
+审查已提交	Review submitted
+编辑标题和正文	Edit title and body
+{0} 开启于 {1} · {2} 条评论	{0} opened {1} · {2} comments
+{0} 个提交：{1} → {2}	{0} commits: {1} → {2}
+{0} 个文件  	{0} files  
+{0}/{1} 个文件已查看	{0}/{1} files viewed
+可以合并	Ready to merge
+存在冲突，需要解决后才能合并	There are conflicts that must be resolved before merging
+被分支保护规则阻止（需要审查或检查通过）	Blocked by branch protection rules (reviews or passing checks required)
+落后于目标分支	Behind the target branch
+有检查未通过	Some checks failed
+草稿状态	Draft
+正在检查合并状态…	Checking merge status…
+已由 {0} 于 {1} 合并	Merged by {0} on {1}
+这是一个草稿 PR，标记为可评审后才能合并，并会通知审查者。	This is a draft PR; it must be marked ready for review before merging, and reviewers will be notified.
+文件变更	Files changed
+浏览分支	Browse branch
+所有者	Owner
+成员	Member
+协作者	Collaborator
+首次贡献	First-time contributor
+合并 #{0}	Merge #{0}
+合并中…	Merging…
+确认合并	Confirm merge
+创建合并提交	Create a merge commit
+压缩合并（Squash）	Squash and merge
+变基合并（Rebase）	Rebase and merge
+提交标题	Commit title
+提交说明（可选）	Commit message (optional)
+变基合并会把每个提交依次应用到目标分支，不生成合并提交。	Rebase and merge applies each commit to the target branch in turn without creating a merge commit.
+合并后删除分支	Delete the branch after merging
+注意：存在冲突，合并可能会失败	Note: there are conflicts, the merge may fail
+提交审查	Submit review
+审查意见	Review comment
+批准	Approve
+仅评论	Comment only
+连接中断，正在等待重试，授权有效期不变	Connection interrupted, waiting to retry; the authorization period is unchanged
+正在连接 GitHub 确认账号，{0} 秒后重试	Connecting to GitHub to confirm the account, retrying in {0}s
+Token 无效或已过期	The token is invalid or expired
+验证失败 ({0})	Verification failed ({0})
+账号已切换，请重新登录	The account changed, please sign in again
+OAuth 登录成功	OAuth sign-in succeeded
+Token 登录成功	Token sign-in succeeded
+验证码 {0} 已复制，请在浏览器粘贴	Code {0} copied, paste it in the browser
+浏览器未能打开，请手动访问 {0}	The browser could not be opened, visit {0} manually
+更多：检查更新、网络、日志	More: check updates, network, logs
+连接 GitHub	Connect to GitHub
+重新授权 GitHub 账号	Reauthorize GitHub account
+添加 GitHub 账号	Add a GitHub account
+欢迎使用 mobilegh	Welcome to mobilegh
+代码、协作与动态，随时掌握	Code, collaboration and activity, all within reach
+Token 登录	Token sign-in
+GitHub 授权	GitHub authorization
+粘贴你的 Token	Paste your token
+隐藏 Token	Hide token
+显示 Token	Show token
+正在登录…	Signing in…
+登录	Sign in
+生成 Token	Generate token
+使用 GitHub 账号	Use a GitHub account
+登录后自动启用数字审批，验证请求会弹窗并通知你。	Number approval is enabled automatically after sign-in; verification requests pop up and notify you.
+继续	Continue
+正在自动启用数字审批…	Enabling number approval automatically…
+使用设备授权码登录	Sign in with a device code
+正在确认账号	Confirming the account
+浏览器授权码	Browser authorization code
+{0}:{1} 后过期	Expires in {0}:{1}
+此码填写在浏览器；验证数字可在下方输入并批准。	Enter this code in the browser; the verification number can be entered below to approve.
+复制并打开 GitHub	Copy and open GitHub
+仅复制验证码	Copy code only
+GitHub 已授权，正在连接账号	GitHub authorized, connecting the account
+等待 GitHub 授权	Waiting for GitHub authorization
+使用验证器验证码	Use an authenticator code
+凭据仅加密保存在本机	Credentials are stored encrypted on this device only
+登录帮助	Sign-in help
+知道了	Got it
+Token：查看组织需 read:org，私有仓库需 repo。有效期由 GitHub 设置决定。	Token: reading organizations needs read:org, private repositories need repo. The validity period is set on GitHub.
+OAuth：使用系统浏览器登录，支持 GitHub 提供的验证器、通行密钥等两步验证方式。	OAuth: sign in with the system browser; two-factor methods provided by GitHub such as authenticators and passkeys are supported.
+数字审批：GitHub 登录后自动注册本机，收到请求时在弹窗输入浏览器显示的数字。	Number approval: after you sign in with GitHub this device is registered automatically, and when a request arrives you enter the number shown in the browser in a pop-up.
+组织仓库仍受应用批准、Token 策略和 SSO 限制，可在设置的组织访问诊断中检查。	Organization repositories are still subject to app approval, token policy and SSO; check them under Organization access diagnostics in Settings.
+更多	More
+应用	App
+检查更新	Check for updates
+发现新版本	New version available
+详细日志	Detailed logs
+导出	Export
+两步验证与数字批准	Two-factor and number approval
+认证	Auth
+审批启用	Approval setup
+审批推送	Approval push
+网页渲染	Web rendering
+崩溃	Crash
+日志与诊断	Logs and diagnostics
+ 条	 items
+导出当前筛选	Export current filter
+导出全部日志	Export all logs
+清除全部日志	Clear all logs
+筛选日志	Filter logs
+搜索错误、请求路径或文件名	Search errors, request paths or file names
+暂无日志	No logs
+没有匹配的日志	No matching logs
+清除日志	Clear logs
+清除	Clear
+会删除本机保存的所有 MobileGH 诊断日志，无法恢复。	All MobileGH diagnostic logs saved on this device will be deleted and cannot be recovered.
+线程：	Thread: 
+组织访问诊断	Organization access diagnostics
+请先在系统设置中设置锁屏密码或录入指纹、面容	Set a screen lock or enroll a fingerprint or face in system settings first
+开启应用锁	Turn on app lock
+关闭应用锁	Turn off app lock
+验证身份以更改设置	Verify your identity to change the setting
+应用锁已开启	App lock turned on
+应用锁已关闭	App lock turned off
+应用锁	App lock
+启动时需要验证	Require verification at launch
+使用指纹、面容或锁屏密码保护 MobileGH	Protect MobileGH with fingerprint, face or screen lock
+离开后重新锁定	Lock again after leaving
+每次回到应用都需要验证	Verification is required every time you return to the app
+离开超过 {0} 后需要验证	Verification is required after leaving for more than {0}
+外观与语言	Appearance and language
+安全与隐私	Security and privacy
+网络与加速	Network and acceleration
+Token 与 API 配额	Token and API quota
+存储与诊断	Storage and diagnostics
+关于与更新	About and updates
+桌面小组件	Home screen widgets
+隐藏通知详情	Hide notification details
+桌面仅显示未读数量，不显示仓库名称和标题；应用锁不保护桌面内容	The widget shows only the unread count, not repository names or titles; app lock does not protect widget content
+存储	Storage
+清除缓存	Clear cache
+缓存已清除	Cache cleared
+有新版 v{0}	New version v{0}
+MobileGH 源码	MobileGH source code
+GitHub 账号设置	GitHub account settings
+管理 GitHub Token	Manage GitHub tokens
+已授权的 OAuth 应用	Authorized OAuth apps
+GitHub 通知设置	GitHub notification settings
+退出登录	Sign out
+退出	Sign out
+将从本机移除 {0} 的 Token。	The token of {0} will be removed from this device.
+添加自定义加速节点	Add a custom acceleration node
+已添加，正在测速	Added, running a speed test
+地址必须以 https:// 开头	The address must start with https://
+填写 gh-proxy 类型的前缀代理地址，节点会以「前缀 + GitHub 原始链接」的方式访问。	Enter a gh-proxy style prefix proxy address; the node is used as "prefix + original GitHub link".
+名称（可选）	Name (optional)
+前缀地址，如 https://ghfast.top/	Prefix address, e.g. https://ghfast.top/
+API 反向代理（高级）	API reverse proxy (advanced)
+已恢复官方 API	Restored the official API
+已启用 API 代理	API proxy enabled
+所有 API 请求（包括你的 Token）都会经过该地址。只填写你自己部署的代理（如 Cloudflare Worker 反代 api.github.com），切勿使用来路不明的公共代理。留空则使用官方 api.github.com。	All API requests (including your token) go through this address. Only enter a proxy you deployed yourself (such as a Cloudflare Worker proxying api.github.com), never an unknown public proxy. Leave it empty to use the official api.github.com.
+代理地址	Proxy address
+账号	Accounts
+当前	Current
+切换	Switch
+添加账号	Add account
+ 条日志	 log entries
+有新版	Update available
+退出当前账号	Sign out of the current account
+浅色	Light
+深色	Dark
+简体中文	简体中文
+自动加速	Automatic acceleration
+手动选择	Manual selection
+主题	Theme
+界面语言	Language
+默认简体中文。切换后立即生效；「跟随系统」在系统语言为中文时显示中文，其余显示英文。	Simplified Chinese by default. A change takes effect immediately; "Follow system" shows Chinese when the system language is Chinese and English otherwise.
+阅读	Reading
+代码自动换行	Word wrap in code
+查看源码和日志时自动折行	Wrap long lines when viewing source and logs
+登录时长	Sign-in duration
+授权有效期	Authorization validity
+由 GitHub 决定	Decided by GitHub
+OAuth 授权的有效期取决于 GitHub 服务端设置。旧授权不会自动延长。\n	The validity of an OAuth authorization depends on GitHub's server-side settings. Existing authorizations are not extended automatically.\n
+Token 登录的有效期由你在 GitHub 设置的到期日决定；授权被撤销时仍需重新登录。	The validity of token sign-in is decided by the expiry date you set on GitHub; you must sign in again when the authorization is revoked.
+重新登录，获取新授权	Sign in again for a new authorization
+检查 OAuth 过期设置	Check OAuth expiration settings
+仅 OAuth 应用所有者可修改。Opt-in 表示固定过期已关闭；若显示 Opt-out，点击它并完成身份验证即可关闭。	Only the OAuth app owner can change this. Opt-in means fixed expiration is off; if it shows Opt-out, tap it and verify your identity to turn it off.
+Token 权限（scopes）	Token scopes
+Fine-grained Token（无 scope 列表）	Fine-grained token (no scope list)
+未知	Unknown
+缺少 {0} 项权限，以下功能不可用：	{0} permissions are missing, so these features are unavailable:
+重新登录补齐权限	Sign in again to add the missing permissions
+{0}  剩余 {1}/{2}	{0}  remaining {1}/{2}
+重置时间：{0}	Resets at: {0}
+本应用利用 ETag 条件请求缓存数据，未变化的内容不消耗配额。	This app caches data with ETag conditional requests; unchanged content does not use quota.
+网络加速	Network acceleration
+立即测速	Test speed now
+加速模式	Acceleration mode
+自动：源码/图片 {0} · 下载 {1}	Auto: source/images {0} · downloads {1}
+手动：源码/图片 {0} · 下载 {1}	Manual: source/images {0} · downloads {1}
+已关闭，全部直连 GitHub	Off, everything connects directly to GitHub
+自动（推荐）	Automatic (recommended)
+官方地址	Official address
+CDN · 图片/文件（分支内容可能有缓存）	CDN · images/files (branch content may be cached)
+自定义代理 · 文件/下载/克隆	Custom proxy · files/downloads/clone
+代理 · 文件/下载/克隆	Proxy · files/downloads/clone
+加速仅用于公开内容：README 图片、源码原文、Release 下载与克隆地址。Token 不会发送给加速节点；私有仓库始终直连。点按节点可手动指定。	Acceleration only serves public content: README images, raw source, release downloads and clone addresses. Your token is never sent to acceleration nodes; private repositories always connect directly. Tap a node to choose it manually.
+添加自定义节点	Add a custom node
+官方	Official
+已启用	Enabled
+选择 Issue 模板	Choose an issue template
+新建 Issue	New issue
+更换模板	Change template
+模板：{0}	Template: {0}
+你没有该仓库的写入权限：GitHub 会静默忽略标签、指派人和里程碑，只创建标题和正文。	You have no write permission for this repository: GitHub silently ignores labels, assignees and milestones and only creates the title and body.
+标签、指派人和里程碑会在创建时一并设置。	Labels, assignees and milestones are set when the issue is created.
+只有对仓库有写入权限时，标签、指派人和里程碑才会生效；否则 GitHub 会静默忽略。	Labels, assignees and milestones only take effect with write permission on the repository; otherwise GitHub silently ignores them.
+无里程碑	No milestone
+替换当前内容？	Replace the current content?
+替换	Replace
+空白 Issue	Blank issue
+使用「{0}」会覆盖已填写的标题、正文和元数据。	Using "{0}" overwrites the title, body and metadata you have filled in.
+不使用模板，从空白开始	Don't use a template, start blank
+表单模板会转换为 Markdown 结构，提交前请按小标题填写。	Form templates are converted to a Markdown structure; fill them in by heading before submitting.
+该仓库已关闭空白 Issue，请选择一个模板。	This repository has disabled blank issues, choose a template.
+其他途径	Other ways
+该仓库没有可在应用内使用的模板，请通过上面的链接或网页提交。	This repository has no templates usable in the app, use the link above or submit on the web.
+全部原因	All reasons
+被指派	Assigned
+被提及	Mentioned
+团队提及	Team mentioned
+状态变化	State changed
+CI 活动	CI activity
+安全告警	Security alert
+订阅	Subscribed
+手动订阅	Manually subscribed
+邀请	Invitation
+等待批准	Pending approval
+仓库邀请	Repository invitation
+完成	Done
+标为已读	Mark as read
+正在{0}：{1}/{2}	Processing "{0}": {1}/{2}
+标为未读	Mark as unread
+取消订阅此线程	Unsubscribe from this thread
+忽略此线程	Ignore this thread
+已完成 · 待同步	Done · pending sync
+已完成 · {0}	Done · {0}
+撤销	Undo
+已完成列表只保留在本机本次会话（GitHub 接口不提供已完成通知的查询）	The Done list is kept only on this device for this session (GitHub's API cannot list completed notifications)
+还没有已完成的通知	No completed notifications yet
+本机通知状态保存失败	Failed to save the local notification state
+已完成「{0}」	Marked "{0}" done
+完成失败：{0}	Failed to mark done: {0}
+已在本机标为未读（GitHub 不支持远程标为未读）	Marked unread on this device (GitHub does not support marking unread remotely)
+已忽略所选线程	Ignored the selected threads
+已取消订阅所选线程	Unsubscribed from the selected threads
+已{0} {1} 条	{0}: {1} items
+已{0} {1} 条，{2} 条失败：{3}	{0}: {1} items, {2} failed: {3}
+已选择 {0} 条	{0} selected
+{0} 条未读	{0} unread
+{0} 条	{0} items
+取消全选	Deselect all
+全选	Select all
+标为未读（仅本机）	Mark as unread (this device only)
+已在本机将 {0} 条标为未读	Marked {0} as unread on this device
+忽略所选线程	Ignore selected threads
+未读	Unread
+参与的	Participating
+已完成	Done
+只筛选已加载的通知：GitHub 接口不支持按原因过滤	Only loaded notifications are filtered: GitHub's API cannot filter by reason
+按仓库分组	Group by repository
+按时间排列	Sort by time
+没有未读通知，全部处理完了	No unread notifications, all caught up
+暂无通知	No notifications
+已加载的通知里没有这个原因	No loaded notifications have this reason
+没有匹配的通知	No matching notifications
+全部标为已读	Mark all as read
+已全部标为已读	All marked as read
+确定将所有通知标记为已读吗？	Mark all notifications as read?
+完成所选通知	Mark selected notifications done
+将把所选 {0} 条通知从收件箱移除（DELETE /notifications/threads/{id}）。批量完成无法逐条撤销。	The selected {0} notifications will be removed from the inbox (DELETE /notifications/threads/{id}). Bulk completion cannot be undone one by one.
+将忽略所选 {0} 个线程（PUT .../subscription {ignored:true}），之后即使被 @ 也不再收到通知。	The selected {0} threads will be ignored (PUT .../subscription {ignored:true}); you will not be notified even if you are @-mentioned.
+其他授权	Other authorization
+此类 Token 不返回 scopes；请检查资源所有者和授权仓库	This kind of token returns no scopes; check the resource owner and authorized repositories
+未读取到 scopes	Scopes not read
+权限：{0}	Permissions: {0}
+登录和两步验证只确认身份。组织应用批准、仓库权限、PAT 策略与 SSO 仍由 GitHub 控制。	Sign-in and two-factor only confirm identity. Organization app approval, repository permissions, PAT policies and SSO are still controlled by GitHub.
+核对指定组织	Check a specific organization
+组织名称	Organization name
+例如 cursimple	e.g. cursimple
+检查成员与仓库权限	Check membership and repository access
+完成 SSO 授权	Complete SSO authorization
+检查 OAuth 组织授权	Check OAuth organization authorization
+检查 Token 权限与 SSO	Check token permissions and SSO
+待处理组织邀请	Pending organization invitations
+更换授权	Change authorization
+{0} 年	{0}
+{0} {1} 次贡献	{0} {1} contributions
+当前连续·天	Current streak · days
+最长连续·天	Longest streak · days
+活跃天数	Active days
+单日最高	Best day
+贡献构成	Contribution breakdown
+提交 Commits	Commits
+拉取请求 PR	Pull requests
+代码审查 Review	Code review
+议题 Issues	Issues
+新建仓库	New repositories
+另有 {0} 次私有贡献（对你不可见）	{0} more private contributions (not visible to you)
+单日最高：{0}，{1} 次	Best day: {0}, {1} contributions
+一周中的活跃分布	Activity by day of week
+周日	Sunday
+周一	Monday
+周二	Tuesday
+周三	Wednesday
+周四	Thursday
+周五	Friday
+周六	Saturday
+ 次贡献	 contributions
+日	Sun
+二	Tue
+四	Thu
+六	Sat
+提交最多的仓库	Most committed repositories
+编辑资料	Edit profile
+贡献活动	Contribution activity
+置顶	Pinned
+项目	Projects
+公开动态	Public activity
+待处理邀请	Pending invitations
+账号信息	Account info
+套餐	Plan
+{0} 个自有 / {1} 个总计	{0} owned / {1} total
+磁盘占用	Disk usage
+已开启	On
+未开启	Off
+注册于	Joined
+ 关注者 · 	 followers · 
+ 关注中	 following
+取消关注	Unfollow
+关注	Follow
+最近推送	Recently pushed
+创建时间	Created
+没有可见的仓库	No visible repositories
+已验证	Verified
+关注者	Followers
+关注中	Following
+Star 用户	Stargazers
+Watch 用户	Watchers
+最近 90 天没有公开动态	No public activity in the last 90 days
+此仓库没有关联的项目	This repository has no linked projects
+暂无可见的项目	No visible projects
+{0} 个条目	{0} items
+更新于 {0}	Updated {0}
+{0}\n\n若组织启用了 OAuth 应用访问限制，需由组织管理员批准本应用；也可以重新授权后再试。	{0}\n\nIf the organization restricts OAuth app access, an organization admin must approve this app; you can also reauthorize and try again.
+项目 #{0}	Project #{0}
+账号已切换，请重新打开项目	The account changed, reopen the project
+账号已切换，旧账号的修改结果不再更新当前页面	The account changed, the previous account's changes no longer update this page
+当前账号无权查看此条目	The current account cannot view this item
+移动到…	Move to…
+从项目移除	Remove from project
+视图 {0}	View {0}
+看板	Board
+已加载 {0}/{1} 个条目	Loaded {0}/{1} items
+只读	Read-only
+添加草稿	Add draft
+路线图视图暂以列表显示	The roadmap view is shown as a list for now
+此视图的筛选条件「{0}」未应用，显示全部条目	The filter "{0}" of this view is not applied, all items are shown
+条目较多，仅显示前 {0} 个	There are many items, only the first {0} are shown
+项目中暂无条目	No items in this project
+移动中…	Moving…
+移动	Move
+无 {0}	No {0}
+移除中…	Removing…
+已从项目移除	Removed from the project
+草稿「{0}」将被永久删除，无法恢复。	The draft "{0}" will be permanently deleted and cannot be recovered.
+将「{0}」从项目中移除。议题或拉取请求本身不会被删除。	Remove "{0}" from the project. The issue or pull request itself is not deleted.
+添加中…	Adding…
+草稿已添加，但未能设置{0}：{1}	The draft was added, but {0} could not be set: {1}
+添加到「{0}」	Add to "{0}"
+正文（可选）	Body (optional)
+没有正文	No body
+表格	Table
+路线图	Roadmap
+全部条目	All items
+暂无条目	No items
+无权访问	No access
+{0} 的{1}评论	{0}'s {1} comment
+（已解决）	(resolved)
+（已过时）	(outdated)
+展开	Expand
+已解决	Resolved
+已过时	Outdated
+文件评论	File comment
+第 {0} 行	Line {0}
+（删除）	(deleted)
+原第 {0} 行	Original line {0}
+重新打开	Reopen
+标记为已解决	Mark as resolved
+建议的更改	Suggested changes
+应用建议	Apply suggestion
+复制建议	Copy suggestion
+建议代码已复制	Suggested code copied
+PR 信息尚未加载完成，请稍后重试	The PR information has not finished loading, please try again later
+回复评论	Reply to comment
+评论文件	Comment on file
+评论删除的第 {0} 行	Comment on deleted line {0}
+评论第 {0} 行	Comment on line {0}
+发送中…	Sending…
+发表评论	Comment
+发表评论（支持 Markdown）	Write a comment (Markdown supported)
+插入代码建议	Insert a code suggestion
+可让作者一键采纳这一行	Lets the author accept this line in one tap
+全部折叠	Collapse all
+共 {0} 条行内评论 · 点按代码行可发表评论	{0} inline comments · tap a line of code to comment
+点按代码行可发表行内评论	Tap a line of code to leave an inline comment
+部分文件在查看后又有改动，已重新计为未查看	Some files changed after you viewed them and are counted as not viewed again
+行内评论加载失败：{0}	Failed to load inline comments: {0}
+已标记为已解决	Marked as resolved
+已重新打开	Reopened
+评论已发表	Comment posted
+发表建议	Post suggestion
+建议已发表	Suggestion posted
+将以你的名义在同一位置发表这条建议，PR 作者可在 GitHub 上一键提交。	This posts the suggestion in your name at the same place, and the PR author can commit it in one tap on GitHub.
+查看文件	View file
+评论此文件	Comment on this file
+复制文件路径	Copy file path
+{0} 个讨论所在的代码已改动	The code of {0} discussions has changed
+未配置检查	No checks configured
+{0} 项检查未通过	{0} checks failed
+{0} 项检查进行中	{0} checks in progress
+全部 {0} 项检查通过	All {0} checks passed
+{0} 通过 · {1} 失败 · {2} 进行中	{0} passed · {1} failed · {2} in progress
+检查	Checks
+这个提交没有检查结果。	This commit has no check results.
+耗时 	took 
+已运行 	running for 
+已等待 	waiting for 
+该项检查没有提供详情链接	This check has no details link
+还没有发布版本	No releases yet
+新建 Release	New release
+删除 Release	Delete release
+确定删除 {0} 吗？发布说明和上传的资源文件会一并删除，且无法恢复。	Delete {0}? The release notes and uploaded assets are deleted too and cannot be recovered.
+标签 {0} 不会被删除。	The tag {0} will not be deleted.
+预发布	Pre-release
+展开说明	Show notes
+资源 ({0})	Assets ({0})
+说明	Description
+大小	Size
+{0}（{1} 字节）	{0} ({1} bytes)
+类型	Type
+下载次数	Downloads
+{0} 次	{0} times
+上传者	Uploaded by
+上传时间	Uploaded at
+更新时间	Updated at
+版本	Version
+校验值	Checksum
+{0} · {1} 次下载	{0} · {1} downloads
+内容	Content
+标签 {0} 的完整源代码（{1} 压缩包）	Full source code of tag {0} ({1} archive)
+发布时间	Published at
+下载时由 GitHub 实时打包，大小未知	GitHub packs it on the fly when downloading, size unknown
+源代码 ({0})	Source code ({0})
+编辑 Release	Edit release
+已恢复本机草稿中的标题和说明	Restored the title and notes from the local draft
+例如 v1.0.0	e.g. v1.0.0
+选择已有标签，或输入新标签名	Choose an existing tag, or enter a new tag name
+标签名不能包含空格	The tag name cannot contain spaces
+使用已有标签 {0}	Use the existing tag {0}
+发布时将从目标分支创建新标签 {0}	Publishing creates a new tag {0} from the target branch
+目标分支	Target branch
+发布说明	Release notes
+生成中…	Generating…
+自动生成说明	Generate notes automatically
+生成失败：{0}	Generation failed: {0}
+这个版本有哪些变化（支持 Markdown）	What changed in this version (Markdown supported)
+设为预发布	Set as pre-release
+标记为非正式版本，不会成为最新版本	Marks an unofficial version that will not become the latest release
+保存为草稿	Save as draft
+草稿只对有写入权限的人可见，暂不创建标签	A draft is visible only to people with write access and does not create the tag yet
+设为最新	Set as latest
+预发布和草稿不能设为最新	Pre-releases and drafts cannot be set as latest
+在仓库首页显示为最新版本	Shown as the latest release on the repository home page
+发布中…	Publishing…
+保存草稿	Save draft
+发布 Release	Publish release
+标签 {0} 已有对应的 Release	The tag {0} already has a release
+已保存草稿	Draft saved
+已发布 {0}	Published {0}
+选择标签	Choose a tag
+无匹配结果	No matching results
+洞察	Insights
+访问量（最近 14 天）	Traffic (last 14 days)
+浏览	Views
+独立访客	Unique visitors
+克隆（最近 14 天）	Clones (last 14 days)
+克隆	Clone
+独立克隆者	Unique cloners
+来源网站	Referring sites
+暂无数据	No data yet
+{0} 次 / {1} 人	{0} times / {1} people
+热门内容	Popular content
+{0} 次浏览 · {1} 位访客	{0} views · {1} visitors
+提交活跃度（最近一年）	Commit activity (last year)
+GitHub 正在计算统计数据，请稍后下拉刷新	GitHub is computing the statistics, pull down to refresh later
+共 {0} 次提交，平均每周 {1} 次	{0} commits in total, {1} per week on average
+ 次提交	 commits
+语言	Languages
+主要贡献者	Top contributors
+需要该仓库的写入权限才能查看	Write access to this repository is needed to view this
+仓库设置	Repository settings
+基本信息	Basic information
+仓库名称	Repository name
+描述	Description
+主页网址	Homepage URL
+Topics（逗号分隔）	Topics (comma separated)
+功能	Features
+已更新	Updated
+模板仓库	Template repository
+允许他人以此仓库为模板创建新仓库	Allow others to create new repositories from this one as a template
+允许 Fork	Allow forking
+仅对私有仓库/组织仓库有效	Only applies to private / organization repositories
+危险操作	Danger zone
+更改可见性	Change visibility
+当前：{0}	Current: {0}
+设为公开	Make public
+设为私有	Make private
+取消归档	Unarchive
+归档仓库	Archive repository
+归档后仓库变为只读	The repository becomes read-only after archiving
+此操作不可撤销（需要 delete_repo 权限）	This cannot be undone (needs the delete_repo permission)
+确认	Confirm
+可见性已更改	Visibility changed
+确定要把 {0} 设为{1}吗？	Make {0} {1}?
+已取消归档	Unarchived
+已归档	Archived
+取消归档后仓库将恢复可写。	After unarchiving the repository becomes writable again.
+归档后，Issues、PR、代码等都将变为只读。	After archiving, issues, PRs, code and so on become read-only.
+我了解后果，删除此仓库	I understand the consequences, delete this repository
+删除失败：Token 需要 delete_repo 权限；重新登录或新建 Token 勾选该权限后再试	Delete failed: the token needs the delete_repo permission; sign in again or create a token with that permission and retry
+这将永久删除 {0} 的代码、Issues、PR、Wiki 等全部内容。	This permanently deletes all of {0}'s code, issues, PRs, wiki and everything else.
+输入下面的仓库全名以确认（可长按选择或复制）：	Enter the full repository name below to confirm (long-press to select or copy):
+仓库全名	Full repository name
+待接受的邀请	Pending invitations
+邮箱邀请	Email invitation
+已过期	Expired
+权限：{0} · {1}	Permission: {0} · {1}
+拥有访问权限的人 ({0})	People with access ({0})
+邀请协作者	Invite a collaborator
+发送邀请	Send invitation
+邀请已发送	Invitation sent
+权限：	Permission: 
+移除协作者	Remove collaborator
+确定将 {0} 从 {1}/{2} 移除吗？	Remove {0} from {1}/{2}?
+Fork 此仓库	Fork this repository
+克隆地址…	Clone address…
+下载源码 zip	Download source zip
+分支 / 标签 {0} 的完整源代码（zip 压缩包）	Full source code of branch / tag {0} (zip archive)
+不含提交历史，也不含子模块内容	Contains no commit history or submodule content
+加入 Star 列表…	Add to Star list…
+已移出首页收藏	Removed from Home pins
+加入首页收藏	Pin to Home
+已加入首页收藏	Pinned to Home
+收藏失败	Pinning failed
+先 Star 这个仓库，再长按加入列表	Star this repository first, then long-press to add it to a list
+读取订阅…	Reading subscription…
+订阅设置	Subscription settings
+Star 状态读取失败：{0}	Failed to read the Star state: {0}
+订阅状态读取失败：{0}	Failed to read the subscription state: {0}
+搜索代码	Search code
+比较分支与提交	Compare branches and commits
+协作与管理	Collaboration and management
+该仓库没有 README	This repository has no README
+HTTPS 加速（{0}）	HTTPS acceleration ({0})
+账号已切换，旧账号的 Fork 结果不再打开	The account changed, the previous account's fork result will not be opened
+已 Fork 到 {0}，但等待创建或写入描述失败	Forked to {0}, but waiting for creation or writing the description failed
+已 Fork 到 {0}，仓库仍在创建，请稍后刷新	Forked to {0}, the repository is still being created, refresh later
+已 Fork 到 {0}	Forked to {0}
+等待创建…	Waiting for creation…
+Fork 中…	Forking…
+Fork 到我的账号	Fork to my account
+Fork 到组织	Fork to an organization
+需要对该组织有创建仓库的权限	You need permission to create repositories in that organization
+部分组织信息读取不完整：{0}	Some organization information was not fully read: {0}
+当前授权没有返回可用的组织	The current grant returned no usable organizations
+未读取到可用组织；请先检查上方读取警告	No usable organizations were read; check the read warnings above first
+请选择组织	Choose an organization
+仓库名称（可选）	Repository name (optional)
+留空沿用原名；可使用字母、数字、点、下划线和连字符。	Leave empty to keep the original name; letters, digits, dots, underscores and hyphens are allowed.
+仓库名称无效	Invalid repository name
+只复制默认分支	Copy the default branch only
+关闭后连同其余分支一起 fork；GitHub 无法只挑某几个分支	When off, the other branches are forked too; GitHub cannot fork only some branches
+默认分支：{0}	Default branch: {0}
+内部	Internal
+已禁用	Disabled
+推送于 {0}	Pushed {0}
+切换分支 / 标签	Switch branch / tag
+没有分支	No branches
+还没有人 Fork 这个仓库	Nobody has forked this repository yet
+组织仓库	Organization repositories
+协作	Collaborations
+全部可见性	All visibility
+按{0}	Sorted by {0}
+仅{0}	Only {0}
+隐藏 Fork	Hide forks
+筛选仓库	Filter repositories
+清空筛选关键词	Clear filter keywords
+排序与筛选	Sort and filter
+选择后立即生效	Applied immediately when selected
+关闭筛选	Close filters
+排序	Sort
+包含 Fork	Include forks
+读取中…	Reading…
+{0} 个组织	{0} organizations
+刷新组织列表	Refresh organization list
+全部组织	All organizations
+重置	Reset
+{0} 个组织仓库	{0} organization repositories
+权限诊断	Permission diagnostics
+当前授权未返回组织，查看权限诊断或待处理邀请	The current grant returned no organizations, check permission diagnostics or pending invitations
+没有匹配仓库；私有仓库需相应权限和 SSO 授权	No matching repositories; private repositories need the right permissions and SSO authorization
+组织动态	Organization activity
+该分类暂时没有动态	No activity in this category yet
+事件由 GitHub 提供，可能延迟；下拉刷新更新。	Events come from GitHub and may be delayed; pull down to refresh.
+只有你和你授权的人可以看到	Only you and people you authorize can see it
+添加 README	Add a README
+用 README 文件初始化仓库	Initialize the repository with a README file
+创建仓库	Create repository
+已创建 {0}	Created {0}
+我的组织	My organizations
+{0} 个可访问组织	{0} accessible organizations
+当前授权没有返回组织。请检查权限、组织策略、SSO 和邀请状态。	The current grant returned no organizations. Check permissions, organization policies, SSO and invitation status.
+重新读取组织	Reload organizations
+组织邀请	Organization invitations
+已加入 {0}	Joined {0}
+仓库协作邀请	Repository collaboration invitations
+没有待处理的仓库邀请	No pending repository invitations
+已接受，现在可以在「仓库 → 协作的」中找到它	Accepted, you can now find it under "Repositories → Collaborations"
+提示：接受邀请后，官方 App 的仓库列表仍只显示你创建的仓库，而本应用的「仓库 → 协作的」会显示它们。	Tip: after you accept an invitation, the official app's repository list still shows only repositories you created, while this app's "Repositories → Collaborations" lists them.
+{0} 邀请你以「{1}」权限协作 · {2}	{0} invites you to collaborate with "{1}" permission · {2}
+邀请已过期	The invitation expired
+接受	Accept
+拒绝	Decline
+查看	View
+管理员	Admin
+角色：{0}	Role: {0}
+加入	Join
+写入	Write
+维护	Maintain
+{0} 上没有工作流文件 {1}	There is no workflow file {1} on {0}
+运行分支 / 标签	Run on branch / tag
+该工作流不能手动运行	This workflow cannot be run manually
+{0} 在 {1} 上没有声明 workflow_dispatch 触发器。请换一个分支或标签，或在仓库里为该工作流添加 on.workflow_dispatch。	{0} declares no workflow_dispatch trigger on {1}. Choose another branch or tag, or add on.workflow_dispatch to this workflow in the repository.
+该工作流没有输入参数，直接运行即可。	This workflow has no input parameters, just run it.
+请填写：{0}	Please fill in: {0}
+需要填写数字：{0}	A number is required: {0}
+运行中…	Running…
+手动触发工作流：	Manually triggered workflow: 
+已触发 {0}	Triggered {0}
+必填	Required
+可选值：{0}	Allowed values: {0}
+是（true）	Yes (true)
+否（false）	No (false)
+请选择	Please choose
+环境名称	Environment name
+例如 production	e.g. production
+请选择环境	Choose an environment
+或直接输入	Or type directly
+布尔	Boolean
+选项	Choice
+数字	Number
+环境	Environment
+文本	Text
+关键词，如 android compose	Keywords, e.g. android compose
+用户名或昵称	Username or display name
+标题、正文或评论中的关键词（可留空只用筛选）	Keywords in the title, body or comments (may be empty to use only filters)
+代码内容，如 fun main	Code content, e.g. fun main
+清空关键词	Clear keywords
+输入关键词后点搜索	Enter keywords, then tap search
+代码搜索必须有关键词，筛选条件只用来收窄范围	Code search needs keywords; filters only narrow the scope
+也可以用「筛选」组合条件	You can also combine conditions with "Filter"
+最佳匹配	Best match
+最多 Star	Most stars
+最多 Fork	Most forks
+没有找到匹配的仓库	No matching repositories found
+没有找到匹配的用户	No matching users found
+没有找到匹配的代码。代码搜索需要仓库有代码索引，可尝试加上 repo: 或 language: 缩小范围	No matching code found. Code search needs the repository to be code-indexed; try adding repo: or language: to narrow it down
+搜索默认分支中的代码	Search code on the default branch
+ · {0} 个结果	 · {0} results
+GitHub 只返回部分结果，请用 repo:、path: 或 language: 缩小范围	GitHub returned only some results, narrow down with repo:, path: or language:
+没有找到匹配的{0}	No matching {0} found
+筛选 · {0}	Filter · {0}
+条件之间为「并且」，应用后立即收窄结果	Conditions are combined with AND, and results narrow immediately when applied
+范围	Scope
+归属用户或组织	Owner user or organization
+如 JetBrains	e.g. JetBrains
+账号类型	Account type
+owner/name，可留空搜索全站	owner/name, leave empty to search everywhere
+未填写仓库时生效	Applies when no repository is entered
+属性	Properties
+单个 topic，如 android	A single topic, e.g. android
+归档状态	Archive status
+如 China / Tokyo	e.g. China / Tokyo
+路径	Path
+如 src/main	e.g. src/main
+文件名	File name
+如 build.gradle	e.g. build.gradle
+多个用英文逗号分隔	Separate multiple values with commas
+数量与时间	Counts and time
+最少 Star	Min stars
+最少 Fork	Min forks
+最少关注者	Min followers
+最少评论	Min comments
+天内	days
+以上	or more
+仓库归属尚未确认，请返回后重试	The repository owner has not been confirmed, go back and try again
+这是你拥有的仓库，可以直接加入列表。	This is a repository you own, it can be added to a list directly.
+请先 Star 仓库再添加；仍可移除已有分类。	Star the repository first to add it; existing categories can still be removed.
+列表刷新失败：{0}	Failed to refresh lists: {0}
+列表读取失败：{0}	Failed to read lists: {0}
+列表归属读取失败：{0}	Failed to read list membership: {0}
+还没有 GitHub 列表，新建一个后即可加入。	No GitHub lists yet, create one to add repositories to it.
+{0} 个仓库 · 私有	{0} repositories · private
+管理	Manage
+改用本机列表（不同步 GitHub）	Use local lists instead (not synced to GitHub)
+加入本机列表	Add to local lists
+请先 Star 此仓库再添加；仍可移除已有的本机分类。	Star this repository first to add it; existing local categories can still be removed.
+暂无本机列表，先在管理页创建一个。	No local lists yet, create one on the manage page first.
+管理 / 新建本机列表	Manage / new local list
+Star 时间	Star time
+最后更新时间	Last updated
+仓库数	Repository count
+应用搜索	Apply search
+清空搜索	Clear search
+改为正序	Switch to ascending
+改为倒序	Switch to descending
+倒序	Descending
+正序	Ascending
+全部 Star	All Stars
+已加载的 Star 中没有匹配的仓库	No matching repositories among the loaded Stars
+没有匹配的 Star	No matching Stars
+还没有 Star 任何仓库	You have not starred any repositories yet
+{0} 还没有 Star 任何仓库	{0} has not starred any repositories yet
+搜索 Star	Search Stars
+仓库名称或描述	Repository name or description
+搜索结果按 Star 时间排列	Search results are ordered by Star time
+GitHub 只返回前一部分 Star	GitHub only returned the first part of the Stars
+登录后可搜索全部 Star · 当前仅过滤 {0} 个	Sign in to search all Stars · currently filtering only {0}
+搜索全部 Star 中的「{0}」	Searching all Stars for "{0}"
+仅过滤已加载的 {0} 个	Filtering only the {0} loaded
+列表是 Star 的分类，与 GitHub 同步。	Lists are categories of Stars and sync with GitHub.
+还没有 GitHub 列表	No GitHub lists yet
+列表已被删除	The list was deleted
+{0} · {1} 个仓库 · 已加载 {2} 个	{0} · {1} repositories · {2} loaded
+列表暂无仓库，在仓库页「加入自定义列表」中添加	The list has no repositories, add some via "Add to custom list" on a repository page
+列表中没有匹配的仓库	No matching repositories in the list
+操作失败	Operation failed
+回应	React
+没有提供描述。	No description provided.
+审查者	Reviewers
+无	None
+已评论	Commented
+已驳回	Dismissed
+等待审查	Awaiting review
+正在指派…	Assigning…
+加载失败	Failed to load
+这个仓库还没有标签	This repository has no labels yet
+没有可指派的人	No one can be assigned
+没有可请求审查的协作者	No collaborators can be asked to review
+没有进行中的里程碑	No open milestones
+没有匹配的选项	No matching options
+编辑标签	Edit labels
+编辑指派人	Edit assignees
+选择里程碑	Choose a milestone
+保存失败（可能没有权限）	Save failed (you may not have permission)
+用户名	Username
+输入用户名或从下方选择	Enter a username or choose from below
+候选列表读取失败，仍可直接输入用户名	Failed to read the candidate list, you can still type a username directly
+@{0} 写道：\n\n	@{0} wrote:\n\n
+在线更新	Online update
+当前版本 v{0} · 设备架构 {1}	Current version v{0} · device ABI {1}
+正在读取最新 Release…	Reading the latest release…
+发现新版本 v{0}	New version v{0} found
+已是最新版本	You are on the latest version
+正在下载，完成后在下载记录中安装	Downloading, install it from the download history when done
+下载更新	Download update
+重新检查	Check again
+小组件刷新失败	Widget refresh failed
+{0} 小组件加载失败	{0} widget failed to load
+贡献图	Contribution graph
+请先登录 MobileGH	Sign in to MobileGH first
+暂时无法加载，点按打开 MobileGH	Cannot load right now, tap to open MobileGH
+近 {0} 周 · @{1}	Last {0} weeks · @{1}
+最近 {0} 周贡献热力图	Contribution heatmap of the last {0} weeks
+收件箱	Inbox
+没有未读通知	No unread notifications
+已隐藏通知详情，点按打开应用	Notification details are hidden, tap to open the app
+## 带语境的条目：「中文|语境」，同一个中文词在不同位置的不同译法
+开启|event	opened
+关闭|event	closed
+编辑|event	edited
+指派|event	assigned
+标记|event	labeled
+更新|event	updated
+请求审查|event	requested review
+分支|event	branch
+标签|event	tag
+标签|git	Tags
+标签|field	Tag
+提交|count	Commits
+提交|noun	commit
+文件|noun	file
+应用|action	Apply
+评论|reason	Comment
+评论|noun	comments
+克隆|stat	Clones
+提交|cat	Commits
+发布|cat	Releases
+还没有本机列表	No local lists yet
+{0} 个本机列表	{0} local lists
+共收纳 {0} 条仓库记录	{0} repository entries in total
+用列表给 Stars 分门别类，列表会同步到 GitHub。	Organize your stars into lists; lists sync to GitHub.
+{0} 个公开 · {1} 个私有	{0} public · {1} private

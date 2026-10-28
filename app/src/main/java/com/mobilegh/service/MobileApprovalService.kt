@@ -12,6 +12,8 @@ import com.mobilegh.data.MobileApprovalPush
 import com.mobilegh.data.MobileApproval
 import com.mobilegh.data.MobileApprovalMonitor
 import kotlinx.coroutines.*
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /**
  * 验证请求的自动检测：应用在前台时只弹对话框，退到后台才发一条提醒通知。
@@ -52,16 +54,16 @@ class MobileApprovalService : Service() {
                         pushConnected = ready
                         if (ready) {
                             retry = 2000
-                            if (!loggedConnected) { AppLog.info("2fa_push", "认证推送连接已就绪"); loggedConnected = true }
+                            if (!loggedConnected) { AppLog.info("2fa_push", tr("认证推送连接已就绪")); loggedConnected = true }
                             // 反复瞬断不记流水账，只在真正断了一阵子之后报一次恢复
-                            else if (failures >= 3) AppLog.info("2fa_push", "认证推送已重连（此前失败 " + failures + " 次）")
+                            else if (failures >= 3) AppLog.info("2fa_push", tr("认证推送已重连（此前失败 ") + failures + tr(" 次）"))
                             failures = 0
                         }
                     } }, onAuthRequest = { id, persistentId -> withContext(Dispatchers.Main.immediate) {
                         if (persistentId != null && !ids.add(persistentId)) return@withContext
                         if (persistentId != null) prefs.edit().putStringSet(key, ids.takeLastIds()).apply()
                         if (MobileApprovalMonitor.state.value.device != activeDevice) return@withContext
-                        AppLog.info("2fa_push", "收到认证推送 $id")
+                        AppLog.info("2fa_push", trf("收到认证推送 {0}", id))
                         val wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "mobilegh:2fa-request")
                         wake.acquire(30_000)
                         scope.launch {
@@ -74,7 +76,7 @@ class MobileApprovalService : Service() {
                     pushConnected = false
                     failures++
                     if (failures == 1 || failures % 10 == 0) {
-                        AppLog.warn("2fa_push", "认证推送连接中断，正在重连（第 " + failures + " 次）；请求检测继续运行")
+                        AppLog.warn("2fa_push", tr("认证推送连接中断，正在重连（第 ") + failures + tr(" 次）；请求检测继续运行"))
                     }
                 }
                 delay(retry)

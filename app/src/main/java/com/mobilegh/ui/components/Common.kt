@@ -85,6 +85,8 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 // ---------------- 图标 ----------------
 
@@ -96,16 +98,16 @@ fun Oc(@DrawableRes icon: Int, tint: Color = Gh.c.fgMuted, size: Dp = 16.dp, mod
 @Composable
 fun OcButton(@DrawableRes icon: Int, onClick: () -> Unit, tint: Color = Gh.c.fg, enabled: Boolean = true, description: String? = null) {
     val label = description ?: when (icon) {
-        R.drawable.oc_arrow_left -> "返回"
-        R.drawable.oc_kebab_horizontal -> "更多操作"
-        R.drawable.oc_x -> "关闭"
-        R.drawable.oc_plus -> "添加"
-        R.drawable.oc_gear -> "设置"
-        R.drawable.oc_sync -> "刷新"
-        R.drawable.oc_copy -> "复制"
-        R.drawable.oc_light_bulb -> "帮助"
-        R.drawable.oc_search -> "搜索"
-        else -> "操作"
+        R.drawable.oc_arrow_left -> tr("返回")
+        R.drawable.oc_kebab_horizontal -> tr("更多操作")
+        R.drawable.oc_x -> tr("关闭")
+        R.drawable.oc_plus -> tr("添加")
+        R.drawable.oc_gear -> tr("设置")
+        R.drawable.oc_sync -> tr("刷新")
+        R.drawable.oc_copy -> tr("复制")
+        R.drawable.oc_light_bulb -> tr("帮助")
+        R.drawable.oc_search -> tr("搜索")
+        else -> tr("操作")
     }
     IconButton(onClick = onClick, enabled = enabled) {
         Icon(painterResource(icon), label, Modifier.size(20.dp), tint = if (enabled) tint else Gh.c.fgMuted)
@@ -182,7 +184,7 @@ fun ErrorState(
         }
         if (retry != null) {
             Spacer(Modifier.height(if (action != null && onAction != null) 8.dp else 16.dp))
-            GhButton("重试", onClick = retry)
+            GhButton(tr("重试"), onClick = retry)
         }
     }
 }
@@ -195,7 +197,7 @@ fun InlineError(msg: String, modifier: Modifier = Modifier, retry: (() -> Unit)?
         Oc(R.drawable.oc_alert, g.attention, 16.dp)
         Spacer(Modifier.width(8.dp))
         Text(msg, Modifier.weight(1f), color = g.fgMuted, fontSize = 13.sp)
-        if (retry != null) TextLink("重试", onClick = retry)
+        if (retry != null) TextLink(tr("重试"), onClick = retry)
     }
 }
 
@@ -264,9 +266,9 @@ fun <T> PagedList(
     pager: Pager<T>,
     modifier: Modifier = Modifier.fillMaxSize(),
     state: LazyListState = rememberLazyListState(),
-    empty: String = "暂无内容",
+    empty: String = tr("暂无内容"),
     @DrawableRes emptyIcon: Int = R.drawable.oc_inbox,
-    emptyAction: String = "刷新",
+    emptyAction: String = tr("刷新"),
     onEmptyAction: (() -> Unit)? = null,
     divider: Boolean = true,
     boxed: Boolean = true,
@@ -282,7 +284,7 @@ fun <T> PagedList(
     itemKey: ((T) -> Any)? = null,
     header: LazyListScope.() -> Unit = {},
     /** 已加载条目全部被 [itemFilter] 过滤掉时的提示 */
-    filteredEmpty: String = "没有匹配的内容",
+    filteredEmpty: String = tr("没有匹配的内容"),
     extraItems: List<T> = emptyList(),
     /** 非空时按该键分组（保持首次出现的顺序），每组前插入 [groupHeader]，组内单独成框 */
     groupKey: ((T) -> Any)? = null,
@@ -329,15 +331,15 @@ fun <T> PagedList(
                 when {
                     pager.error != null && pager.items.isEmpty() -> ErrorState(pager.error!!, fill) { pager.retry() }
                     pager.error != null -> Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                        TextLink("加载失败，点击重试") { pager.retry() }
+                        TextLink(tr("加载失败，点击重试")) { pager.retry() }
                     }
                     pager.loading && !pager.refreshing -> Loading(fill.padding(24.dp))
                     !autoLoad && !pager.loading && !pager.end && shown.isEmpty() -> EmptyState(
-                        filteredEmpty, emptyIcon, fill, "加载更多", { pager.loadMore() },
+                        filteredEmpty, emptyIcon, fill, tr("加载更多"), { pager.loadMore() },
                     )
                     !autoLoad && !pager.loading && !pager.end -> Box(
                         Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center,
-                    ) { TextLink("加载更多") { pager.loadMore() } }
+                    ) { TextLink(tr("加载更多")) { pager.loadMore() } }
                     pager.end && shown.isEmpty() -> EmptyState(
                         if (pager.items.isEmpty()) empty else filteredEmpty, emptyIcon, fill, emptyAction,
                         onEmptyAction ?: { pager.refresh(); onRefresh() },
@@ -483,13 +485,13 @@ fun issueState(state: String, reason: String?, isPull: Boolean, merged: Boolean,
 fun stateVisual(s: IssueState): Triple<Int, Color, String> {
     val g = Gh.c
     return when (s) {
-        IssueState.Open -> Triple(R.drawable.oc_issue_opened, g.success, "开启")
-        IssueState.Closed -> Triple(R.drawable.oc_issue_closed, g.done, "已关闭")
-        IssueState.NotPlanned -> Triple(R.drawable.oc_skip, g.fgMuted, "不计划")
-        IssueState.Merged -> Triple(R.drawable.oc_git_merge, g.done, "已合并")
-        IssueState.Draft -> Triple(R.drawable.oc_git_pull_request_draft, g.fgMuted, "草稿")
-        IssueState.PrOpen -> Triple(R.drawable.oc_git_pull_request, g.success, "开启")
-        IssueState.PrClosed -> Triple(R.drawable.oc_git_pull_request_closed, g.danger, "已关闭")
+        IssueState.Open -> Triple(R.drawable.oc_issue_opened, g.success, tr("开启"))
+        IssueState.Closed -> Triple(R.drawable.oc_issue_closed, g.done, tr("已关闭"))
+        IssueState.NotPlanned -> Triple(R.drawable.oc_skip, g.fgMuted, tr("不计划"))
+        IssueState.Merged -> Triple(R.drawable.oc_git_merge, g.done, tr("已合并"))
+        IssueState.Draft -> Triple(R.drawable.oc_git_pull_request_draft, g.fgMuted, tr("草稿"))
+        IssueState.PrOpen -> Triple(R.drawable.oc_git_pull_request, g.success, tr("开启"))
+        IssueState.PrClosed -> Triple(R.drawable.oc_git_pull_request_closed, g.danger, tr("已关闭"))
     }
 }
 
@@ -654,12 +656,12 @@ fun relTime(iso: String?): String {
     val d = Duration.between(t, Instant.now())
     val s = d.seconds
     return when {
-        s < 60 -> "刚刚"
-        s < 3600 -> "${s / 60} 分钟前"
-        s < 86400 -> "${s / 3600} 小时前"
-        s < 86400 * 30 -> "${s / 86400} 天前"
-        s < 86400 * 365 -> "${s / (86400 * 30)} 个月前"
-        else -> "${s / (86400 * 365)} 年前"
+        s < 60 -> tr("刚刚")
+        s < 3600 -> trf("{0} 分钟前", s / 60)
+        s < 86400 -> trf("{0} 小时前", s / 3600)
+        s < 86400 * 30 -> trf("{0} 天前", s / 86400)
+        s < 86400 * 365 -> trf("{0} 个月前", s / (86400 * 30))
+        else -> trf("{0} 年前", s / (86400 * 365))
     }
 }
 
@@ -674,9 +676,9 @@ fun fmtDuration(from: String?, to: String?): String {
     val b = parseInstant(to) ?: Instant.now()
     val s = Duration.between(a, b).seconds.coerceAtLeast(0)
     return when {
-        s < 60 -> "${s}秒"
-        s < 3600 -> "${s / 60}分${s % 60}秒"
-        else -> "${s / 3600}时${s % 3600 / 60}分"
+        s < 60 -> trf("{0}秒", s)
+        s < 3600 -> trf("{0}分{1}秒", s / 60, s % 60)
+        else -> trf("{0}时{1}分", s / 3600, s % 3600 / 60)
     }
 }
 
@@ -684,13 +686,13 @@ fun fmtDuration(from: String?, to: String?): String {
 
 fun Context.toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
-fun Context.copy(text: String, label: String = "已复制") {
+fun Context.copy(text: String, label: String = tr("已复制")) {
     (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("text", text))
     toast(label)
 }
 
 fun Context.share(text: String) {
-    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "分享"))
+    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), tr("分享")))
 }
 
 /** 用外部浏览器打开（绕开本应用自身的 github.com 链接拦截） */
@@ -702,12 +704,12 @@ fun Context.openBrowser(url: String) {
     val ordered = matches.sortedBy { if (it == preferred) 0 else 1 }
     val targets = ordered.map { name -> Intent(Intent.ACTION_VIEW, url.toUri()).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(name) }
     if (targets.isEmpty()) {
-        toast("没有可用的浏览器，请先安装或启用浏览器")
+        toast(tr("没有可用的浏览器，请先安装或启用浏览器"))
         return
     }
     val intent = if (targets.size == 1 || targets[0].`package` == preferred) targets[0]
-        else Intent.createChooser(targets[0], "选择浏览器").putExtra(Intent.EXTRA_INITIAL_INTENTS, targets.drop(1).toTypedArray())
-    runCatching { startActivity(intent) }.onFailure { toast("无法打开浏览器：${it.message}") }
+        else Intent.createChooser(targets[0], tr("选择浏览器")).putExtra(Intent.EXTRA_INITIAL_INTENTS, targets.drop(1).toTypedArray())
+    runCatching { startActivity(intent) }.onFailure { toast(trf("无法打开浏览器：{0}", it.message)) }
 }
 
 @Composable

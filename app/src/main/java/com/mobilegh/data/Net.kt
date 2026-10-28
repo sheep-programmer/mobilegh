@@ -25,6 +25,7 @@ import okhttp3.Request
 import java.net.URI
 import java.util.Collections
 import java.util.concurrent.TimeUnit
+import com.mobilegh.i18n.tr
 
 enum class NodeType { Direct, JsDelivr, Prefix }
 
@@ -42,24 +43,33 @@ data class DownloadTarget(val nodeId: String, val nodeName: String, val url: Str
  * 私有仓库或加速失败时自动回退为直连 GitHub。
  */
 object Net {
-    val DIRECT = CdnNode("direct", "直连 GitHub", NodeType.Direct, "")
+    val DIRECT = CdnNode("direct", tr("直连 GitHub"), NodeType.Direct, "")
     private val JSD = CdnNode("jsd", "jsDelivr", NodeType.JsDelivr, "https://cdn.jsdelivr.net")
 
+    /**
+     * 内置节点。每个都经过多轮实测（原文件、Release 下载、git clone 入口各取多次样本）后才收录；
+     * 反复出错或几乎不可用的（如 ghproxy.net：下载与克隆接近 0%）已经移除。
+     * 实际使用哪个由启动时的自动测速决定，失败的节点会被自动降级。
+     */
     val builtins = listOf(
         DIRECT,
         JSD,
         CdnNode("jsd-fastly", "jsDelivr · Fastly", NodeType.JsDelivr, "https://fastly.jsdelivr.net"),
         CdnNode("jsd-gcore", "jsDelivr · Gcore", NodeType.JsDelivr, "https://gcore.jsdelivr.net"),
         CdnNode("jsd-cf", "jsDelivr · Cloudflare", NodeType.JsDelivr, "https://testingcf.jsdelivr.net"),
+        CdnNode("jsd-mirror", "jsDelivr · jsdmirror.com", NodeType.JsDelivr, "https://cdn.jsdmirror.com"),
+        CdnNode("jsd-mirror-cn", "jsDelivr · jsdmirror.cn", NodeType.JsDelivr, "https://cdn.jsdmirror.cn"),
         CdnNode("ghfast", "ghfast.top", NodeType.Prefix, "https://ghfast.top/"),
-        CdnNode("ghproxy-net", "ghproxy.net", NodeType.Prefix, "https://ghproxy.net/"),
         CdnNode("gh-proxy", "gh-proxy.com", NodeType.Prefix, "https://gh-proxy.com/"),
         CdnNode("gh-proxy-org", "gh-proxy.org", NodeType.Prefix, "https://gh-proxy.org/"),
         CdnNode("llkk", "gh.llkk.cc", NodeType.Prefix, "https://gh.llkk.cc/"),
+        CdnNode("monlor", "gh.monlor.com", NodeType.Prefix, "https://gh.monlor.com/"),
+        CdnNode("ghm", "ghm.078465.xyz", NodeType.Prefix, "https://ghm.078465.xyz/"),
+        CdnNode("imciel", "ghproxy.imciel.com", NodeType.Prefix, "https://ghproxy.imciel.com/"),
     )
 
     /** 未测速前的默认值：取自实测延迟最低且稳定的节点 */
-    private const val DEFAULT_RAW = "jsd-gcore"
+    private const val DEFAULT_RAW = "jsd-cf"
     private const val DEFAULT_DL = "gh-proxy"
 
     private const val TEST_PATH = "github/gitignore/main/Global/macOS.gitignore"
@@ -188,7 +198,7 @@ object Net {
     /**
      * 按地址类型分别记住图片节点的表现。
      *
-     * 同一个代理对 raw 文件、头像和 camo 图片的支持完全不同：实测 ghfast、ghproxy.net 对
+     * 同一个代理对 raw 文件、头像和 camo 图片的支持完全不同：实测 ghfast 等代理对
      * `avatars.githubusercontent.com` 直接返回 403，gh-proxy 对 camo 返回 404。如果只用一个
      * 全局「最近成功节点」，头像就会反复先撞上 raw 上很快、对头像却不可用的节点，每张图都要
      * 白白等一次失败；反过来，raw 图片也不该被头像的结果带偏。
@@ -460,7 +470,7 @@ fun repoFileDownloadUrl(owner: String, name: String, ref: String, path: String, 
  * 压缩包是 GitHub 收到请求时现打包的，地址本身不能预测大小。
  */
 fun repoArchiveDownloadUrl(owner: String, name: String, ref: String, extension: String, isPrivate: Boolean): String {
-    require(extension == "zip" || extension == "tar.gz") { "不支持的源码压缩包格式" }
+    require(extension == "zip" || extension == "tar.gz") { tr("不支持的源码压缩包格式") }
     // 保留 ref 里的 / 分隔，其余保留字符必须编码，否则 # 会变成 URL 片段。
     val encodedRef = Api.encodePath(ref)
     if (isPrivate) {
@@ -496,7 +506,7 @@ fun orderDownloadTargets(
     latency: Map<String, Long>,
     failedNodes: Set<String>,
     preferredId: String,
-    direct: CdnNode = CdnNode("direct", "直连 GitHub", NodeType.Direct, ""),
+    direct: CdnNode = CdnNode("direct", tr("直连 GitHub"), NodeType.Direct, ""),
 ): List<DownloadTarget> {
     val ordered = candidates.filter { it.type == NodeType.Prefix }.sortedWith(
         compareBy<CdnNode>(

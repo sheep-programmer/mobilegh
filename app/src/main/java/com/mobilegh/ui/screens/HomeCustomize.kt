@@ -50,6 +50,8 @@ import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** 自定义首页：「我的工作」入口的显示与顺序、保存的搜索、收藏仓库。只保存在本机，按账号区分。 */
 @Composable
@@ -63,20 +65,20 @@ fun HomeCustomizeScreen() {
     val builtins = homeShortcuts({}, {}, {}, {}, {}, {}, {}, {}).associateBy { it.id }
 
     Page(
-        "自定义首页",
-        subtitle = "仅保存在本机",
+        tr("自定义首页"),
+        subtitle = tr("仅保存在本机"),
         actions = {
             MoreMenu(
                 listOf(
-                    MenuAction("新建保存的搜索") { creating = true },
-                    MenuAction("恢复默认入口") { HomePrefs.resetShortcuts(); ctx.toast("已恢复默认入口") },
+                    MenuAction(tr("新建保存的搜索")) { creating = true },
+                    MenuAction(tr("恢复默认入口")) { HomePrefs.resetShortcuts(); ctx.toast(tr("已恢复默认入口")) },
                 ),
             )
         },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState())) {
-            SectionTitle("我的工作")
-            Hint("用开关显示或隐藏入口，用箭头调整顺序。")
+            SectionTitle(tr("我的工作"))
+            Hint(tr("用开关显示或隐藏入口，用箭头调整顺序。"))
             Spacer(Modifier.height(8.dp))
             val slots = layout.slots()
             MenuGroup {
@@ -89,33 +91,33 @@ fun HomeCustomizeScreen() {
                         icon = s.icon,
                         iconTint = if (slot.visible) s.color else g.fgMuted,
                         title = s.label,
-                        desc = search?.let { "保存的搜索 · " + it.query.summary() },
+                        desc = search?.let { tr("保存的搜索 · ") + it.query.summary() },
                         canUp = i > 0,
                         canDown = i < slots.lastIndex,
                         onMove = { d -> HomePrefs.moveShortcut(i, d) },
                     ) {
                         if (search != null) OcButton(R.drawable.oc_trash, {
                             HomePrefs.removeSearch(search.id)
-                            ctx.toast("已删除「${search.name}」")
+                            ctx.toast(trf("已删除「{0}」", search.name))
                         }, g.fgMuted)
                         Switch(
                             slot.visible, { HomePrefs.setShortcutVisible(slot.id, it) },
-                            Modifier.semantics { contentDescription = (if (slot.visible) "隐藏" else "显示") + s.label },
+                            Modifier.semantics { contentDescription = (if (slot.visible) tr("隐藏") else tr("显示")) + s.label },
                             colors = SwitchDefaults.colors(checkedTrackColor = g.btnPrimary, checkedThumbColor = Color.White, uncheckedTrackColor = g.neutralMuted, uncheckedBorderColor = g.border),
                         )
                     }
                 }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                TextLink("新建保存的搜索") { creating = true }
+                TextLink(tr("新建保存的搜索")) { creating = true }
             }
-            Hint("在 Issue / PR 列表设置好筛选后，也可以从右上角菜单选择「保存到首页…」。")
+            Hint(tr("在 Issue / PR 列表设置好筛选后，也可以从右上角菜单选择「保存到首页…」。"))
 
-            SectionTitle("收藏仓库")
+            SectionTitle(tr("收藏仓库"))
             if (layout.favorites.isEmpty()) {
-                Hint("在仓库页右上角菜单选择「加入首页收藏」，常用仓库就会出现在首页。")
+                Hint(tr("在仓库页右上角菜单选择「加入首页收藏」，常用仓库就会出现在首页。"))
             } else {
-                Hint("也可以在首页长按收藏的仓库来调整。")
+                Hint(tr("也可以在首页长按收藏的仓库来调整。"))
                 Spacer(Modifier.height(8.dp))
                 MenuGroup {
                     layout.favorites.forEachIndexed { i, f ->
@@ -164,8 +166,8 @@ private fun EditRow(
             Text(title, fontSize = 14.sp, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (desc != null) Text(desc, fontSize = 12.sp, lineHeight = 16.sp, color = g.fgMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        Row(Modifier.semantics { contentDescription = "上移$title" }) { OcButton(R.drawable.oc_arrow_up, { onMove(-1) }, g.fgMuted, canUp) }
-        Row(Modifier.semantics { contentDescription = "下移$title" }) { OcButton(R.drawable.oc_arrow_down, { onMove(1) }, g.fgMuted, canDown) }
+        Row(Modifier.semantics { contentDescription = trf("上移{0}", title) }) { OcButton(R.drawable.oc_arrow_up, { onMove(-1) }, g.fgMuted, canUp) }
+        Row(Modifier.semantics { contentDescription = trf("下移{0}", title) }) { OcButton(R.drawable.oc_arrow_down, { onMove(1) }, g.fgMuted, canDown) }
         trailing()
     }
 }
@@ -197,30 +199,30 @@ private fun NewSavedSearchDialog(onDismiss: () -> Unit) {
     ).normalized()
     val valid = name.isNotBlank() && name.trim().length <= HomeLayout.MAX_NAME && repoOk
 
-    GhDialog("新建保存的搜索", onDismiss, confirm = "保存", confirmEnabled = valid, onConfirm = {
-        runCatching { HomePrefs.addSearch(name, icon, query) ?: error("请先登录") }
-            .onSuccess { ctx.toast("已添加到首页「我的工作」"); onDismiss() }
-            .onFailure { ctx.toast(it.message ?: "保存失败") }
+    GhDialog(tr("新建保存的搜索"), onDismiss, confirm = tr("保存"), confirmEnabled = valid, onConfirm = {
+        runCatching { HomePrefs.addSearch(name, icon, query) ?: error(tr("请先登录")) }
+            .onSuccess { ctx.toast(tr("已添加到首页「我的工作」")); onDismiss() }
+            .onFailure { ctx.toast(it.message ?: tr("保存失败")) }
     }) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
-            GhField(name, { name = it.take(HomeLayout.MAX_NAME + 8) }, "名称")
+            GhField(name, { name = it.take(HomeLayout.MAX_NAME + 8) }, tr("名称"))
             Spacer(Modifier.height(10.dp))
             Segmented(listOf("Issues", "Pull Requests"), if (pulls) 1 else 0) {
                 pulls = it == 1
                 if (icon == "issue" || icon == "pr") icon = if (pulls) "pr" else "issue"
             }
             Spacer(Modifier.height(10.dp))
-            GhField(repo, { repo = it }, "仓库（可选）", placeholder = "owner/name")
-            if (!repoOk) Text("格式应为 owner/name", fontSize = 12.sp, color = g.danger)
+            GhField(repo, { repo = it }, tr("仓库（可选）"), placeholder = "owner/name")
+            if (!repoOk) Text(tr("格式应为 owner/name"), fontSize = 12.sp, color = g.danger)
             if (repoText.isEmpty()) {
                 Spacer(Modifier.height(10.dp))
-                Text("不填仓库时，搜索与你相关的内容", fontSize = 12.sp, color = g.fgMuted)
+                Text(tr("不填仓库时，搜索与你相关的内容"), fontSize = 12.sp, color = g.fgMuted)
                 Spacer(Modifier.height(6.dp))
                 Segmented(kinds.map { it.label }, kinds.indexOf(involves).coerceAtLeast(0)) { involves = kinds[it] }
             }
             Spacer(Modifier.height(4.dp))
             Chips(IssueStateFilter.entries.map { it.label }, IssueStateFilter.entries.indexOf(state)) { state = IssueStateFilter.entries[it] }
-            GhField(text, { text = it }, "关键词（可选）", placeholder = "支持 label:bug 等搜索限定词")
+            GhField(text, { text = it }, tr("关键词（可选）"), placeholder = tr("支持 label:bug 等搜索限定词"))
             Spacer(Modifier.height(4.dp))
             Text(query.summary(), fontSize = 12.sp, color = g.fgMuted, maxLines = 3)
             Spacer(Modifier.height(12.dp))

@@ -14,6 +14,7 @@ import java.io.PrintWriter
 import java.io.StringWriter
 import java.time.Instant
 import java.util.UUID
+import com.mobilegh.i18n.tr
 
 @Serializable
 data class AppLogEntry(
@@ -48,10 +49,10 @@ object AppLog {
         file = File(ctx.filesDir, "logs/mobilegh.log")
         file.parentFile?.mkdirs()
         load()
-        info("app", "MobileGH 启动")
+        info("app", tr("MobileGH 启动"))
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
-            error("crash", "未捕获异常：" + (throwable.message ?: throwable.javaClass.simpleName), throwable)
+            error("crash", tr("未捕获异常：") + (throwable.message ?: throwable.javaClass.simpleName), throwable)
             previous?.uncaughtException(thread, throwable)
         }
     }
@@ -68,9 +69,9 @@ object AppLog {
     }
 
     fun export(list: List<AppLogEntry>): String = buildString {
-        appendLine("MobileGH 日志导出")
-        appendLine("生成时间：" + Instant.now())
-        appendLine("日志数：" + list.size)
+        appendLine(tr("MobileGH 日志导出"))
+        appendLine(tr("生成时间：") + Instant.now())
+        appendLine(tr("日志数：") + list.size)
         appendLine()
         list.asReversed().forEach { e ->
             append('[').append(e.time).append("] [").append(e.level).append("] [")

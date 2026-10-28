@@ -2,6 +2,7 @@ package com.mobilegh.data
 
 import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
+import com.mobilegh.i18n.trf
 
 /**
  * 本地构造 git 的 tree 与 commit 对象。
@@ -56,11 +57,11 @@ object GitTree {
             if (e.segments.isEmpty()) continue
             var node = root
             for (s in e.segments.dropLast(1)) {
-                require(!node.files.containsKey(s)) { "路径冲突：$s 同时是文件和目录" }
+                require(!node.files.containsKey(s)) { trf("路径冲突：{0} 同时是文件和目录", s) }
                 node = node.dirs.getOrPut(s) { Node() }
             }
             val leaf = e.segments.last()
-            require(!node.dirs.containsKey(leaf)) { "路径冲突：$leaf 同时是文件和目录" }
+            require(!node.dirs.containsKey(leaf)) { trf("路径冲突：{0} 同时是文件和目录", leaf) }
             node.files[leaf] = e.mode to e.sha
         }
 
@@ -118,7 +119,7 @@ object GitTree {
     private fun ByteArray.hex(): String = joinToString("") { "%02x".format(it) }
 
     private fun String.hexToBytes(): ByteArray {
-        require(length == 40) { "sha 长度不对：$this" }
+        require(length == 40) { trf("sha 长度不对：{0}", this) }
         return ByteArray(20) { substring(it * 2, it * 2 + 2).toInt(16).toByte() }
     }
 }

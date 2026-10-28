@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.GitHub
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** 在选区两侧包裹标记（**、_、` 等）；无选区时把光标放到标记中间 */
 private fun wrap(v: TextFieldValue, pre: String, post: String = pre): TextFieldValue {
@@ -107,8 +109,8 @@ fun MarkdownToolbar(
             Modifier.padding(start = 6.dp).background(g.canvasSubtle, RoundedCornerShape(7.dp)).padding(2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SegBtn(R.drawable.oc_pencil, "编辑", !preview) { onPreviewChange(false) }
-            SegBtn(R.drawable.oc_eye, "预览", preview) { onPreviewChange(true) }
+            SegBtn(R.drawable.oc_pencil, tr("编辑"), !preview) { onPreviewChange(false) }
+            SegBtn(R.drawable.oc_eye, tr("预览"), preview) { onPreviewChange(true) }
         }
     }
 }
@@ -133,20 +135,20 @@ private fun SegBtn(icon: Int, label: String, active: Boolean, onClick: () -> Uni
 fun MarkdownPreview(text: String, contextRepo: String?, modifier: Modifier = Modifier) {
     val g = Gh.c
     if (text.isBlank()) {
-        Text("没有可预览的内容", color = g.fgMuted, fontSize = 13.sp, modifier = modifier.padding(12.dp))
+        Text(tr("没有可预览的内容"), color = g.fgMuted, fontSize = 13.sp, modifier = modifier.padding(12.dp))
         return
     }
     val html by produceState<String?>(null, text, contextRepo) {
         value = null
         value = runCatching { GitHub.renderMarkdown(text, contextRepo) }
-            .getOrElse { "<p>预览失败：${it.message}</p>" }
+            .getOrElse { trf("<p>预览失败：{0}</p>", it.message) }
     }
     val h = html
     if (h == null) {
         Row(modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             CircularProgressIndicator(Modifier.size(18.dp), color = g.fgMuted, strokeWidth = 2.dp)
             Spacer(Modifier.width(8.dp))
-            Text("渲染中…", color = g.fgMuted, fontSize = 13.sp)
+            Text(tr("渲染中…"), color = g.fgMuted, fontSize = 13.sp)
         }
     } else {
         HtmlView(h, modifier.padding(vertical = 4.dp))
@@ -161,7 +163,7 @@ fun MarkdownEditor(
     value: TextFieldValue,
     onValueChange: (TextFieldValue) -> Unit,
     modifier: Modifier = Modifier,
-    placeholder: String = "支持 Markdown",
+    placeholder: String = tr("支持 Markdown"),
     contextRepo: String? = null,
     minLines: Int = 6,
 ) {

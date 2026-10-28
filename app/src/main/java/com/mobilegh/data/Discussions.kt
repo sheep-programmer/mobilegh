@@ -8,6 +8,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 data class DiscussionAuthor(val login: String, val avatarUrl: String?)
 
@@ -157,7 +159,7 @@ open class DiscussionsClient(
     suspend fun detail(owner: String, name: String, number: Int): DiscussionThread {
         require(number > 0)
         val repository = repositoryNode(graphql(DETAIL_QUERY, repoVariables(owner, name) + ("number" to number)))
-        val node = repository.obj("discussion") ?: throw ApiException(404, "未找到讨论，或当前账号没有访问权限")
+        val node = repository.obj("discussion") ?: throw ApiException(404, tr("未找到讨论，或当前账号没有访问权限"))
         return DiscussionThread(
             parseRepository(repository), parseDiscussion(node, withBody = true),
             connection(node.requiredObject("comments"), null, ::parseComment), node.obj("answer")?.let(::parseComment),
@@ -166,13 +168,13 @@ open class DiscussionsClient(
 
     suspend fun comments(owner: String, name: String, number: Int, after: String?): DiscussionPage<DiscussionComment> {
         val repository = repositoryNode(graphql(COMMENTS_QUERY, repoVariables(owner, name) + mapOf("number" to number, "after" to after)))
-        val node = repository.obj("discussion") ?: throw ApiException(404, "未找到讨论，或当前账号没有访问权限")
+        val node = repository.obj("discussion") ?: throw ApiException(404, tr("未找到讨论，或当前账号没有访问权限"))
         return connection(node.requiredObject("comments"), after, ::parseComment)
     }
 
     suspend fun replies(commentId: String, after: String? = null): DiscussionPage<DiscussionComment> {
         val root = graphql(REPLIES_QUERY, mapOf("id" to commentId, "after" to after))
-        val node = root.obj("node") ?: throw ApiException(404, "未找到评论，或当前账号没有访问权限")
+        val node = root.obj("node") ?: throw ApiException(404, tr("未找到评论，或当前账号没有访问权限"))
         return connection(node.requiredObject("replies"), after, ::parseComment)
     }
 
@@ -184,9 +186,9 @@ open class DiscussionsClient(
         body: String,
         canWrite: Boolean,
     ): Discussion {
-        if (!repository.canWrite(canWrite)) throw ApiException(403, "当前无法发表讨论")
-        require(categoryId.isNotBlank()) { "请选择分类" }
-        require(title.isNotBlank() && body.isNotBlank()) { "请填写标题和正文" }
+        if (!repository.canWrite(canWrite)) throw ApiException(403, tr("当前无法发表讨论"))
+        require(categoryId.isNotBlank()) { tr("请选择分类") }
+        require(title.isNotBlank() && body.isNotBlank()) { tr("请填写标题和正文") }
         val input = buildJsonObject {
             put("repositoryId", repository.id)
             put("categoryId", categoryId)
@@ -194,7 +196,7 @@ open class DiscussionsClient(
             put("body", body)
         }
         val node = graphql(CREATE_MUTATION, mapOf("input" to input)).obj("createDiscussion")?.obj("discussion")
-            ?: throw ApiException(400, "GitHub 未确认讨论发表成功；请刷新检查后再提交")
+            ?: throw ApiException(400, tr("GitHub 未确认讨论发表成功；请刷新检查后再提交"))
         return parseDiscussion(node)
     }
 
@@ -206,8 +208,8 @@ open class DiscussionsClient(
         canWrite: Boolean,
         replyToId: String? = null,
     ): DiscussionComment {
-        if (!discussion.canReply(repository, canWrite)) throw ApiException(403, "当前无法回复此讨论")
-        require(body.isNotBlank()) { "请填写回复内容" }
+        if (!discussion.canReply(repository, canWrite)) throw ApiException(403, tr("当前无法回复此讨论"))
+        require(body.isNotBlank()) { tr("请填写回复内容") }
         require(replyToId == null || replyToId.isNotBlank())
         val input = buildJsonObject {
             put("discussionId", discussion.id)
@@ -215,7 +217,7 @@ open class DiscussionsClient(
             if (replyToId != null) put("replyToId", replyToId)
         }
         val node = graphql(REPLY_MUTATION, mapOf("input" to input)).obj("addDiscussionComment")?.obj("comment")
-            ?: throw ApiException(400, "GitHub 未确认回复发表成功；请刷新检查后再提交")
+            ?: throw ApiException(400, tr("GitHub 未确认回复发表成功；请刷新检查后再提交"))
         return parseComment(node)
     }
 
@@ -224,7 +226,7 @@ open class DiscussionsClient(
         require(subjectId.isNotBlank())
         val field = if (on) "addUpvote" else "removeUpvote"
         val subject = graphql(if (on) ADD_UPVOTE_MUTATION else REMOVE_UPVOTE_MUTATION, mapOf("input" to idInput("subjectId", subjectId)))
-            .obj(field)?.obj("subject") ?: throw ApiException(400, "GitHub 未确认点赞结果，请刷新后查看")
+            .obj(field)?.obj("subject") ?: throw ApiException(400, tr("GitHub 未确认点赞结果，请刷新后查看"))
         return subject.requiredInt("upvoteCount") to subject.requiredBoolean("viewerHasUpvoted")
     }
 
@@ -233,40 +235,40 @@ open class DiscussionsClient(
         require(commentId.isNotBlank())
         val field = if (on) "markDiscussionCommentAsAnswer" else "unmarkDiscussionCommentAsAnswer"
         val discussion = graphql(if (on) MARK_ANSWER_MUTATION else UNMARK_ANSWER_MUTATION, mapOf("input" to idInput("id", commentId)))
-            .obj(field)?.obj("discussion") ?: throw ApiException(400, "GitHub 未确认采纳结果，请刷新后查看")
+            .obj(field)?.obj("discussion") ?: throw ApiException(400, tr("GitHub 未确认采纳结果，请刷新后查看"))
         return discussion.bool("isAnswered") ?: on
     }
 
     /** 编辑讨论标题与正文 */
     suspend fun update(discussionId: String, title: String, body: String) {
-        require(title.isNotBlank() && body.isNotBlank()) { "请填写标题和正文" }
+        require(title.isNotBlank() && body.isNotBlank()) { tr("请填写标题和正文") }
         val input = buildJsonObject {
             put("discussionId", discussionId)
             put("title", title.trim())
             put("body", body)
         }
         graphql(UPDATE_MUTATION, mapOf("input" to input)).obj("updateDiscussion")?.obj("discussion")
-            ?: throw ApiException(400, "GitHub 未确认保存成功，请刷新后查看")
+            ?: throw ApiException(400, tr("GitHub 未确认保存成功，请刷新后查看"))
     }
 
     suspend fun delete(discussionId: String) {
         graphql(DELETE_MUTATION, mapOf("input" to idInput("id", discussionId))).obj("deleteDiscussion")
-            ?: throw ApiException(400, "GitHub 未确认删除成功，请刷新后查看")
+            ?: throw ApiException(400, tr("GitHub 未确认删除成功，请刷新后查看"))
     }
 
     suspend fun updateComment(commentId: String, body: String) {
-        require(body.isNotBlank()) { "请填写评论内容" }
+        require(body.isNotBlank()) { tr("请填写评论内容") }
         val input = buildJsonObject {
             put("commentId", commentId)
             put("body", body)
         }
         graphql(UPDATE_COMMENT_MUTATION, mapOf("input" to input)).obj("updateDiscussionComment")?.obj("comment")
-            ?: throw ApiException(400, "GitHub 未确认保存成功，请刷新后查看")
+            ?: throw ApiException(400, tr("GitHub 未确认保存成功，请刷新后查看"))
     }
 
     suspend fun deleteComment(commentId: String) {
         graphql(DELETE_COMMENT_MUTATION, mapOf("input" to idInput("id", commentId))).obj("deleteDiscussionComment")
-            ?: throw ApiException(400, "GitHub 未确认删除成功，请刷新后查看")
+            ?: throw ApiException(400, tr("GitHub 未确认删除成功，请刷新后查看"))
     }
 
     private fun idInput(key: String, id: String) = buildJsonObject { put(key, id) }
@@ -274,7 +276,7 @@ open class DiscussionsClient(
     private fun repoVariables(owner: String, name: String): Map<String, Any?> = mapOf("owner" to owner, "name" to name)
 
     private fun repositoryNode(root: JsonObject) =
-        root.obj("repository") ?: throw ApiException(404, "未找到仓库，或当前账号没有访问权限")
+        root.obj("repository") ?: throw ApiException(404, tr("未找到仓库，或当前账号没有访问权限"))
 
     private fun parseRepository(node: JsonObject) = DiscussionRepository(
         node.requiredString("id"), node.requiredBoolean("hasDiscussionsEnabled"), node.requiredBoolean("isArchived"),
@@ -329,7 +331,7 @@ open class DiscussionsClient(
         val info = node.requiredObject("pageInfo")
         val next = info.str("endCursor")
         val hasNext = info.requiredBoolean("hasNextPage")
-        if (hasNext && (next.isNullOrBlank() || next == after)) throw ApiException(502, "GitHub 返回的分页游标无效，请刷新重试")
+        if (hasNext && (next.isNullOrBlank() || next == after)) throw ApiException(502, tr("GitHub 返回的分页游标无效，请刷新重试"))
         val items = nodes.mapNotNull {
             when (it) {
                 JsonNull -> null
@@ -345,7 +347,7 @@ open class DiscussionsClient(
     private fun JsonObject.requiredString(key: String) = str(key) ?: malformed(key)
     private fun JsonObject.requiredInt(key: String) = int(key) ?: malformed(key)
     private fun JsonObject.requiredBoolean(key: String) = bool(key) ?: malformed(key)
-    private fun malformed(key: String): Nothing = throw ApiException(502, "GitHub 讨论数据不完整：$key")
+    private fun malformed(key: String): Nothing = throw ApiException(502, trf("GitHub 讨论数据不完整：{0}", key))
 
     companion object {
         const val PAGE_SIZE = 20

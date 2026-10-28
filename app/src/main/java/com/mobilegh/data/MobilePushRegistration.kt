@@ -17,6 +17,8 @@ import java.security.SecureRandom
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPOutputStream
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** A small bounded protobuf codec for the Android check-in registration messages. */
 internal object RegistrationProto {
@@ -35,12 +37,12 @@ internal object RegistrationProto {
         fun readVarint(): Long {
             var value = 0L
             for (shift in 0..63 step 7) {
-                require(b.hasRemaining()) { "注册响应被截断" }
+                require(b.hasRemaining()) { tr("注册响应被截断") }
                 val byte = b.get().toInt() and 255
                 value = value or ((byte and 127).toLong() shl shift)
                 if (byte and 128 == 0) return value
             }
-            error("注册响应格式无效")
+            error(tr("注册响应格式无效"))
         }
         val fields = mutableMapOf<Int, Long>()
         while (b.hasRemaining()) {
@@ -51,7 +53,7 @@ internal object RegistrationProto {
                 1 -> { require(b.remaining() >= 8); fields[tag ushr 3] = b.long }
                 2 -> { val n = readVarint(); require(n >= 0 && n <= b.remaining()); b.position(b.position() + n.toInt()) }
                 5 -> { require(b.remaining() >= 4); b.position(b.position() + 4) }
-                else -> error("注册响应格式无效")
+                else -> error(tr("注册响应格式无效"))
             }
         }
         return fields
@@ -92,8 +94,8 @@ internal object MobilePushRegistration {
             .header("Content-Encoding", "gzip").header("User-Agent", "Android-Checkin/2.0 (generic JLS36G); gzip")
             .post(gzip.toRequestBody("application/x-protobuffer".toMediaType())).build())
         val fields = p.fixed64Fields(response)
-        val androidId = fields[7]?.takeIf { it != 0L }?.let(java.lang.Long::toUnsignedString) ?: error("无法注册验证接收设备")
-        val securityToken = fields[8]?.let(java.lang.Long::toUnsignedString) ?: error("无法创建验证接收会话")
+        val androidId = fields[7]?.takeIf { it != 0L }?.let(java.lang.Long::toUnsignedString) ?: error(tr("无法注册验证接收设备"))
+        val securityToken = fields[8]?.let(java.lang.Long::toUnsignedString) ?: error(tr("无法创建验证接收会话"))
         val fidBytes = ByteArray(17).also(random::nextBytes).also { it[0] = ((it[0].toInt() and 15) or 112).toByte() }
         val fid = Base64.getUrlEncoder().withoutPadding().encodeToString(fidBytes).take(22)
         val firebase = buildJsonObject { put("appId", APP_ID); put("authVersion", "FIS_v2"); put("sdkVersion", "a:17.0.0"); put("fid", fid) }
@@ -118,9 +120,9 @@ internal object MobilePushRegistration {
                 .header("User-Agent", "Android-GCM/1.5 (generic LRX22C)").post(form).build()).toString(Charsets.UTF_8).trim()
             if (text.startsWith("token=")) { token = text.removePrefix("token="); break }
             if (text.contains("PHONE_REGISTRATION_ERROR") && attempt < 7) delay(attempt.coerceAtMost(5) * 1000L)
-            else error("验证接收设备注册失败，请稍后重试")
+            else error(tr("验证接收设备注册失败，请稍后重试"))
         }
-        check(!token.isNullOrBlank()) { "验证接收设备注册失败" }
+        check(!token.isNullOrBlank()) { tr("验证接收设备注册失败") }
         fun key() = Base64.getEncoder().encodeToString(ByteArray(32).also(random::nextBytes))
         return buildJsonObject { put("fcmToken", token); put("encryptionKey", key()); put("hmacKey", key())
             put("androidId", androidId); put("securityToken", securityToken) }
@@ -138,7 +140,7 @@ internal object MobilePushRegistration {
             .header("Content-Encoding", "gzip").header("User-Agent", "Android-Checkin/2.0 (generic JLS36G); gzip")
             .post(gzip.toRequestBody("application/x-protobuffer".toMediaType())).build())
         val fields = p.fixed64Fields(data)
-        check(fields[7] != null && fields[8] != null) { "无法刷新认证推送连接" }
+        check(fields[7] != null && fields[8] != null) { tr("无法刷新认证推送连接") }
         return buildJsonObject { credentials.forEach { (k, v) -> put(k, v) }
             put("androidId", java.lang.Long.toUnsignedString(fields.getValue(7)))
             put("securityToken", java.lang.Long.toUnsignedString(fields.getValue(8))) }
@@ -146,8 +148,8 @@ internal object MobilePushRegistration {
 
     private suspend fun execute(request: Request): ByteArray = withContext(Dispatchers.IO) {
         client.routed().newCall(request).await().use { response ->
-            check(response.isSuccessful) { "验证设备注册连接失败 (${response.code})" }
-            response.body.bytes().also { require(it.size <= 65536) { "验证设备注册响应过大" } }
+            check(response.isSuccessful) { trf("验证设备注册连接失败 ({0})", response.code) }
+            response.body.bytes().also { require(it.size <= 65536) { tr("验证设备注册响应过大") } }
         }
     }
 }

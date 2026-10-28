@@ -18,6 +18,8 @@ import java.util.zip.Deflater
 import java.util.zip.DeflaterOutputStream
 import java.util.zip.Inflater
 import kotlin.coroutines.cancellation.CancellationException
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /**
  * 要写进 packfile 的一个对象：git 类型号 + 未压缩长度 + 怎么再打开一次内容。
@@ -64,7 +66,7 @@ object GitPack {
      * 这里**不能**用 [Net.apiBase]：用户自建的 API 反向代理只转发 REST，不保证承载 smart HTTP，
      * 而且那是另一台主机，把凭据发过去等于泄露。
      */
-    private const val GIT_HOST = "https://github.com"
+    internal const val GIT_HOST = "https://github.com"
 
     private val GIT_TYPE = "application/x-git-receive-pack-request".toMediaType()
 
@@ -83,6 +85,9 @@ object GitPack {
             .callTimeout(0, TimeUnit.MILLISECONDS)
             .build()
     }
+
+    /** 传输用的客户端（长超时），LFS 上传也用它 */
+    internal val client: okhttp3.OkHttpClient get() = http
 
     /**
      * 对象头：首字节高 3 位是类型、低 4 位是长度低位，之后每字节按 **7 位**继续（git 的变长整数）。
@@ -129,7 +134,7 @@ object GitPack {
         byteArrayOf('P'.code.toByte(), 'A'.code.toByte(), 'C'.code.toByte(), 'K'.code.toByte()) + be32(2) + be32(count)
 
     /** git 的 HTTP 认证只认 basic（用户名固定 x-access-token），不是 API 用的 Bearer */
-    private fun basicAuth(token: String): String =
+    internal fun basicAuth(token: String): String =
         "Basic " + Base64.getEncoder().encodeToString("x-access-token:$token".toByteArray(Charsets.UTF_8))
 
     /** 一个解开的对象，用来回读自己写出的 pack */
@@ -162,17 +167,17 @@ object GitPack {
      * 顺带校验 trailer：它必须是前面所有字节的 sha1，写错一个字节这里就会炸。
      */
     internal fun parsePack(pack: ByteArray): List<ParsedObject> {
-        if (pack.size < 32 || String(pack, 0, 4, Charsets.US_ASCII) != "PACK") throw ApiException(-1, "不是 pack 数据")
+        if (pack.size < 32 || String(pack, 0, 4, Charsets.US_ASCII) != "PACK") throw ApiException(-1, tr("不是 pack 数据"))
         val version = be32At(pack, 4)
-        require(version == 2) { "只支持 pack v2，收到 v$version" }
+        require(version == 2) { trf("只支持 pack v2，收到 v{0}", version) }
         val count = be32At(pack, 8)
-        require(count in 0..1_000_000) { "pack 对象数异常：$count" }
+        require(count in 0..1_000_000) { trf("pack 对象数异常：{0}", count) }
         val out = ArrayList<ParsedObject>(count)
         var i = 12
         repeat(count) {
             var b = pack[i].toInt() and 0xFF; i++
             val type = (b ushr 4) and 0x07
-            require(type in 1..5) { "pack 里有未知对象类型 $type" }
+            require(type in 1..5) { trf("pack 里有未知对象类型 {0}", type) }
             var size = (b and 0x0F).toLong(); var shift = 4
             while (b and 0x80 != 0) {
                 b = pack[i].toInt() and 0xFF; i++
@@ -186,7 +191,7 @@ object GitPack {
         }
         val body = pack.copyOfRange(0, pack.size - 20)
         if (!MessageDigest.getInstance("SHA-1").digest(body).contentEquals(pack.copyOfRange(pack.size - 20, pack.size)))
-            throw ApiException(-1, "pack 校验和不符")
+            throw ApiException(-1, tr("pack 校验和不符"))
         return out
     }
 
@@ -208,15 +213,15 @@ object GitPack {
                 val n = try {
                     inf.inflate(if (want > 0) out else ByteArray(1), pos, if (want > 0) want - pos else 1)
                 } catch (e: java.util.zip.DataFormatException) {
-                    throw ApiException(-1, "pack 解压失败")
+                    throw ApiException(-1, tr("pack 解压失败"))
                 }
                 pos += n.coerceAtLeast(0)
                 if (inf.finished()) break
-                if (n == 0 && inf.needsInput()) throw ApiException(-1, "pack 里的对象解压不完整")
+                if (n == 0 && inf.needsInput()) throw ApiException(-1, tr("pack 里的对象解压不完整"))
                 if (want > 0 && pos >= want) break
             }
-            if (want > 0 && pos != want) throw ApiException(-1, "pack 里的对象解压不完整")
-            if (want == 0 && !inf.finished()) throw ApiException(-1, "空对象的 zlib 流没走完")
+            if (want > 0 && pos != want) throw ApiException(-1, tr("pack 里的对象解压不完整"))
+            if (want == 0 && !inf.finished()) throw ApiException(-1, tr("空对象的 zlib 流没走完"))
             return Pair(inf.bytesRead.toInt(), out)
         } finally {
             inf.end()
@@ -274,7 +279,7 @@ object GitPack {
                         TYPE_COMMIT -> "commit"
                         TYPE_TREE -> "tree"
                         TYPE_BLOB -> "blob"
-                        else -> throw ApiException(-1, "不支持的 Git 对象类型 ${obj.type}")
+                        else -> throw ApiException(-1, trf("不支持的 Git 对象类型 {0}", obj.type))
                     }
                     val objectMd = MessageDigest.getInstance("SHA-1")
                     objectMd.update("$typeWord ${obj.size}\u0000".toByteArray(Charsets.UTF_8))
@@ -286,7 +291,7 @@ object GitPack {
                         val n = read.read(buf)
                         if (n < 0) break
                         total += n
-                        if (total > obj.size) throw ApiException(-1, "文件在打包期间变大了，请重新选择")
+                        if (total > obj.size) throw ApiException(-1, tr("文件在打包期间变大了，请重新选择"))
                         objectMd.update(buf, 0, n)
                         def.write(buf, 0, n)
                     }
@@ -301,7 +306,7 @@ object GitPack {
         }
     }
 
-    private const val CHANGE_MIDWAY = "文件在打包期间被改动，请重新选择"
+    private val CHANGE_MIDWAY: String get() = tr("文件在打包期间被改动，请重新选择")
 
     /**
      * receive-pack 的回执。[lines] 必须是 [parseGitReport] 解析后的纯文本行 ——
@@ -346,7 +351,7 @@ object GitPack {
          */
         val failure: String?
             get() = if (!declined) null
-            else detail ?: if (code in 200..299) "服务端回包没能解析，请重试一次" else "服务端拒绝（HTTP $code）"
+            else detail ?: if (code in 200..299) tr("服务端回包没能解析，请重试一次") else trf("服务端拒绝（HTTP {0}）", code)
     }
 
     /** advertise-refs 里的一行 */
@@ -385,7 +390,7 @@ object GitPack {
      * 用户于是看到「上传未完成。读取分支列表失败（HTTP 404）」。
      */
     internal suspend fun advertise(owner: String, name: String): List<Ref> {
-        val token = Session.token ?: throw ApiException(401, "请先登录 GitHub")
+        val token = Session.token ?: throw ApiException(401, tr("请先登录 GitHub"))
         val request = Request.Builder()
             .url(infoRefsUrl(owner, name))
             .header("Authorization", basicAuth(token))
@@ -393,7 +398,7 @@ object GitPack {
         val text = try {
             withContext(Dispatchers.IO) {
                 http.routed().newCall(request).await().use { resp ->
-                    if (resp.code !in 200..299) throw ApiException(resp.code, "读取分支列表失败（HTTP ${resp.code}）")
+                    if (resp.code !in 200..299) throw ApiException(resp.code, trf("读取分支列表失败（HTTP {0}）", resp.code))
                     resp.body.string()
                 }
             }
@@ -402,7 +407,7 @@ object GitPack {
         } catch (e: ApiException) {
             throw e
         } catch (e: Throwable) {
-            throw ApiException(-1, e.networkHint() ?: "读取分支列表失败，请检查网络后重试")
+            throw ApiException(-1, e.networkHint() ?: tr("读取分支列表失败，请检查网络后重试"))
         }
         return parseAdvertised(text)
     }
@@ -465,7 +470,7 @@ object GitPack {
         // 没东西可推时不发包。给的回执与真发过一次成功一样（带 unpack ok 与 ok <ref> 两行），
         // 免得调用方把「空包」当成失败
         if (objects.isEmpty()) return Receipt(200, listOf("unpack ok", "ok refs/heads/noop"))
-        val token = Session.token ?: throw ApiException(401, "请先登录 GitHub")
+        val token = Session.token ?: throw ApiException(401, tr("请先登录 GitHub"))
         val request = Request.Builder()
             .url(receivePackUrl(owner, name))
             // 请求体是流式的，重发要能重开文件；响应按原文读，不解 side-band
@@ -478,7 +483,7 @@ object GitPack {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            throw ApiException(-1, e.networkHint() ?: "上传失败：连接中断，请重试")
+            throw ApiException(-1, e.networkHint() ?: tr("上传失败：连接中断，请重试"))
         }
         return response.use { resp ->
             Receipt(resp.code, parseGitReport(withContext(Dispatchers.IO) { resp.body.string() }))

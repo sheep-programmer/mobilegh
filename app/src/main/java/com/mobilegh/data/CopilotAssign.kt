@@ -3,6 +3,7 @@ package com.mobilegh.data
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import com.mobilegh.i18n.tr
 
 /**
  * 把 Issue 指派给 Copilot 编程助手（copilot-swe-agent）。
@@ -64,13 +65,13 @@ object CopilotAssign {
 
     suspend fun assign(owner: String, name: String, number: Int): Result {
         val repo = Api.graphql(QUERY, mapOf("owner" to owner, "name" to name, "number" to number)).obj("repository")
-            ?: throw ApiException(404, "仓库不存在或没有权限")
+            ?: throw ApiException(404, tr("仓库不存在或没有权限"))
         val bot = findBot(parseActors(repo.obj("suggestedActors").arr("nodes"))) ?: return Result.Unavailable
-        val issue = repo.obj("issue") ?: throw ApiException(404, "Issue 不存在")
-        val issueId = issue.str("id") ?: throw ApiException(404, "Issue 不存在")
+        val issue = repo.obj("issue") ?: throw ApiException(404, tr("Issue 不存在"))
+        val issueId = issue.str("id") ?: throw ApiException(404, tr("Issue 不存在"))
         val ids = actorIds(parseActors(issue.obj("assignedActors").arr("nodes")), bot) ?: return Result.AlreadyAssigned
         val done = Api.graphql(MUTATION, mapOf("assignableId" to issueId, "actorIds" to JsonArray(ids.map(::JsonPrimitive))))
-        if (done.obj("replaceActorsForAssignable") == null) throw ApiException(403, "指派失败：可能没有此仓库的写入权限")
+        if (done.obj("replaceActorsForAssignable") == null) throw ApiException(403, tr("指派失败：可能没有此仓库的写入权限"))
         return Result.Assigned
     }
 }

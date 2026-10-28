@@ -194,8 +194,7 @@ class PullRequestIntegrationUiTest {
                 }
             }
         }
-        compose.onNodeWithContentDescription("更多操作").performClick()
-        compose.onNodeWithText("Fork 此仓库").performClick()
+        compose.onNodeWithContentDescription("Fork 此仓库").performClick()
         compose.onNodeWithText("Fork 到我的账号").assertIsSelected()
         compose.onNodeWithText("仓库名称（可选）").performScrollTo().performTextReplacement("repo..name")
         compose.onNodeWithText("仓库名称无效").assertDoesNotExist()
@@ -276,7 +275,7 @@ class PullRequestIntegrationUiTest {
         compose.onNodeWithText("Reading").performClick()
         compose.waitForIdle()
         val initialRequests = requests.get()
-        compose.onNodeWithText("搜索列表内仓库").performTextReplacement("missing")
+        compose.onNodeWithContentDescription("搜索列表内仓库").performTextReplacement("missing")
         compose.onNodeWithContentDescription("应用搜索").performClick()
         compose.waitForIdle()
         compose.runOnUiThread { detail.loading = false }
@@ -305,8 +304,7 @@ class PullRequestIntegrationUiTest {
                 }
             }
         }
-        compose.onNodeWithContentDescription("更多操作").performClick()
-        compose.onNodeWithText("Fork 此仓库").performClick()
+        compose.onNodeWithContentDescription("Fork 此仓库").performClick()
         compose.onNodeWithText("Fork 到组织").performClick()
         compose.onNodeWithText("组织成员身份：读取失败", substring = true).assertIsDisplayed()
         compose.onNodeWithText("当前授权没有返回可用的组织").assertDoesNotExist()

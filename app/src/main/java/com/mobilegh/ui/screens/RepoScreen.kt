@@ -77,8 +77,10 @@ import com.mobilegh.ui.components.MenuGroup
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.MoreMenu
 import com.mobilegh.ui.components.Oc
+import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.Pill
+import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.Topic
 import com.mobilegh.ui.components.copy
 import com.mobilegh.ui.components.fmtCount
@@ -102,6 +104,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trc
+import com.mobilegh.i18n.trf
 
 @Composable
 fun RepoScreen(owner: String, name: String) {
@@ -135,12 +140,14 @@ fun RepoScreen(owner: String, name: String) {
     Page(
         name, subtitle = owner,
         actions = {
+            // Fork 是仓库页最常用的操作之一，直接放在标题栏，不用藏进三点菜单
+            OcButton(R.drawable.oc_repo_forked, { showFork = true }, enabled = r != null, description = tr("Fork 此仓库"))
             MoreMenu(buildList {
-                add(MenuAction("分享") { ctx.share("https://github.com/$owner/$name") })
-                add(MenuAction("复制链接") { ctx.copy("https://github.com/$owner/$name") })
-                add(MenuAction("克隆地址…") { showClone = true })
+                add(MenuAction(tr("分享")) { ctx.share("https://github.com/$owner/$name") })
+                add(MenuAction(tr("复制链接")) { ctx.copy("https://github.com/$owner/$name") })
+                add(MenuAction(tr("克隆地址…")) { showClone = true })
                 // 和网页上 Code → Download ZIP 一样：把当前分支/标签的源码打包下来，不用 clone
-                if (r != null) add(MenuAction("下载源码 zip") {
+                if (r != null) add(MenuAction(tr("下载源码 zip")) {
                     val refName = branch ?: r.defaultBranch
                     zipInfo = FileInfo(
                         name = "${r.name}-${refName.replace('/', '-')}.zip",
@@ -148,26 +155,25 @@ fun RepoScreen(owner: String, name: String) {
                         isPrivate = r.isPrivate,
                         mimeType = "application/zip",
                         details = listOf(
-                            "内容" to "分支 / 标签 $refName 的完整源代码（zip 压缩包）",
-                            "仓库" to "$owner/$name",
-                            "大小" to "下载时由 GitHub 实时打包，大小未知",
-                            "说明" to "不含提交历史，也不含子模块内容",
+                            tr("内容") to trf("分支 / 标签 {0} 的完整源代码（zip 压缩包）", refName),
+                            tr("仓库") to "$owner/$name",
+                            tr("大小") to tr("下载时由 GitHub 实时打包，大小未知"),
+                            tr("说明") to tr("不含提交历史，也不含子模块内容"),
                         ),
                     )
                 })
-                if (r != null) add(MenuAction("加入 Star 列表…") { showLists = true })
-                if (HomePrefs.layout().isFavorite(owner, name)) add(MenuAction("移出首页收藏") {
+                if (r != null) add(MenuAction(tr("加入 Star 列表…")) { showLists = true })
+                if (HomePrefs.layout().isFavorite(owner, name)) add(MenuAction(tr("移出首页收藏")) {
                     HomePrefs.toggleFavorite(owner, name)
-                    ctx.toast("已移出首页收藏")
-                }) else add(MenuAction("加入首页收藏") {
+                    ctx.toast(tr("已移出首页收藏"))
+                }) else add(MenuAction(tr("加入首页收藏")) {
                     // 使用仓库返回的规范大小写，避免收藏里出现 Owner/Repo 与 owner/repo 两种写法
                     runCatching { HomePrefs.toggleFavorite(r?.owner?.login ?: owner, r?.name ?: name) }
-                        .onSuccess { ctx.toast("已加入首页收藏") }
-                        .onFailure { ctx.toast(it.message ?: "收藏失败") }
+                        .onSuccess { ctx.toast(tr("已加入首页收藏")) }
+                        .onFailure { ctx.toast(it.message ?: tr("收藏失败")) }
                 })
-                add(MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name") })
-                add(MenuAction("Fork 此仓库") { showFork = true })
-                if (admin) add(MenuAction("仓库设置") { nav.push(Screen.RepoSettings(owner, name)) })
+                add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$owner/$name") })
+                if (admin) add(MenuAction(tr("仓库设置")) { nav.push(Screen.RepoSettings(owner, name)) })
             })
         },
     ) { pad ->
@@ -182,12 +188,12 @@ fun RepoScreen(owner: String, name: String) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             val s = starStatus.data == true
                             GhButton(
-                                "${if (s) "已 Star" else "Star"} ${fmtCount(r.stargazersCount)}",
+                                "${if (s) tr("已 Star") else "Star"} ${fmtCount(r.stargazersCount)}",
                                 Modifier.weight(1f), icon = if (s) R.drawable.oc_star_fill else R.drawable.oc_star, enabled = entry.sameAccount() && starStatus.data != null && !starBusy && !starStatus.loading && !repo.loading,
                                 // 和 GitHub 一样：点按切换 Star；只有已 Star 的仓库才能长按管理所在列表
                                 onLongClick = {
                                     if (s) showLists = true
-                                    else ctx.toast("先 Star 这个仓库，再长按加入列表")
+                                    else ctx.toast(tr("先 Star 这个仓库，再长按加入列表"))
                                 },
                             ) {
                                 if (!starBusy && entry.sameAccount()) {
@@ -210,32 +216,13 @@ fun RepoScreen(owner: String, name: String) {
                                     }
                                 }
                             }
-                            GhButton(watching.data?.title ?: if (watching.loading) "读取订阅…" else "订阅设置", Modifier.weight(1f), icon = R.drawable.oc_eye, enabled = entry.sameAccount()) {
+                            GhButton(watching.data?.title ?: if (watching.loading) tr("读取订阅…") else tr("订阅设置"), Modifier.weight(1f), icon = R.drawable.oc_eye, enabled = entry.sameAccount()) {
                                 showSubscription = true
                             }
                         }
-                        starStatus.error?.let { InlineError("Star 状态读取失败：$it", Modifier.padding(horizontal = 16.dp)) { if (!starBusy && entry.sameAccount()) starStatus.refresh() } }
-                        watching.error?.let { InlineError("订阅状态读取失败：$it", Modifier.padding(horizontal = 16.dp)) { if (entry.sameAccount()) watching.refresh() } }
+                        starStatus.error?.let { InlineError(trf("Star 状态读取失败：{0}", it), Modifier.padding(horizontal = 16.dp)) { if (!starBusy && entry.sameAccount()) starStatus.refresh() } }
+                        watching.error?.let { InlineError(trf("订阅状态读取失败：{0}", it), Modifier.padding(horizontal = 16.dp)) { if (entry.sameAccount()) watching.refresh() } }
                         Spacer(Modifier.height(16.dp))
-                    }
-                    item {
-                        MenuGroup {
-                            MenuRow(R.drawable.oc_search, "查找文件", g.fgMuted) { nav.push(Screen.FileFinder(owner, name, branch)) }
-                            // 仓库内代码搜索使用独立搜索页的代码类型，并预填 repo:，可继续组合语言/路径/文件名
-                            MenuRow(R.drawable.oc_code, "搜索代码", g.fgMuted) { nav.push(Screen.Search(SearchType.CODE, "repo:$owner/$name ")) }
-                            MenuRow(R.drawable.oc_issue_opened, "Issues", g.success) { nav.push(Screen.Issues(owner, name, false)) }
-                            MenuRow(R.drawable.oc_git_pull_request, "Pull Requests", g.accent) { nav.push(Screen.Issues(owner, name, true)) }
-                            if (r.hasDiscussions) MenuRow(R.drawable.oc_comment_discussion, "Discussions", g.done) { nav.push(Screen.Discussions(owner, name)) }
-                            MenuRow(R.drawable.oc_table, "项目", g.success) { nav.push(Screen.Projects(ProjectOwnerKind.Repo, owner, name)) }
-                            MenuRow(R.drawable.oc_play, "Actions", g.fgMuted) { nav.push(Screen.Actions(owner, name)) }
-                            MenuRow(R.drawable.oc_tag, "Releases", g.success) { nav.push(Screen.Releases(owner, name)) }
-                            MenuRow(R.drawable.oc_people, "贡献者统计", g.severe) { nav.push(Screen.Contributors(owner, name)) }
-                            MenuRow(R.drawable.oc_graph, "洞察 · 流量统计", g.done) { nav.push(Screen.Insights(owner, name)) }
-                            if (admin) {
-                                MenuRow(R.drawable.oc_person, "协作者管理", g.sponsors) { nav.push(Screen.Collaborators(owner, name)) }
-                                MenuRow(R.drawable.oc_gear, "仓库设置", g.fgMuted) { nav.push(Screen.RepoSettings(owner, name)) }
-                            }
-                        }
                     }
                     item {
                         // 分支 + 代码
@@ -255,21 +242,42 @@ fun RepoScreen(owner: String, name: String) {
                                 Oc(R.drawable.oc_chevron_down, g.fgMuted, 12.dp)
                             }
                             Spacer(Modifier.width(8.dp))
-                            GhButton("分支", icon = R.drawable.oc_git_branch) { nav.push(Screen.Branches(owner, name)) }
+                            GhButton(tr("分支"), icon = R.drawable.oc_git_branch) { nav.push(Screen.Branches(owner, name)) }
                         }
                         MenuGroup {
-                            MenuRow(R.drawable.oc_code, "浏览代码") { nav.push(Screen.Files(owner, name, "", ref.value)) }
+                            MenuRow(R.drawable.oc_code, tr("浏览代码"), g.accent) { nav.push(Screen.Files(owner, name, "", ref.value)) }
+                            MenuRow(R.drawable.oc_search, tr("查找文件"), g.fgMuted) { nav.push(Screen.FileFinder(owner, name, branch)) }
+                            // 仓库内代码搜索使用独立搜索页的代码类型，并预填 repo:，可继续组合语言/路径/文件名
+                            MenuRow(R.drawable.oc_search, tr("搜索代码"), g.fgMuted) { nav.push(Screen.Search(SearchType.CODE, "repo:$owner/$name ")) }
                             // 选文件 / 选文件夹，一次上传只产生一个提交（没权限时不给入口，与「新建文件」一致）
-                            if (canPush) MenuRow(R.drawable.oc_upload, "上传文件（夹）") { nav.push(Screen.UploadFiles(owner, name, ref.value, "")) }
-                            MenuRow(R.drawable.oc_git_commit, "提交历史") { nav.push(Screen.Commits(owner, name, ref.value)) }
-                            MenuRow(R.drawable.oc_git_branch, "比较分支与提交") { nav.push(Screen.Compare(owner, name)) }
+                            if (canPush) MenuRow(R.drawable.oc_upload, tr("上传文件（夹）")) { nav.push(Screen.UploadFiles(owner, name, ref.value, "")) }
+                            MenuRow(R.drawable.oc_git_commit, tr("提交历史")) { nav.push(Screen.Commits(owner, name, ref.value)) }
+                            MenuRow(R.drawable.oc_git_branch, tr("比较分支与提交")) { nav.push(Screen.Compare(owner, name)) }
                         }
+                    }
+                    item {
+                        // 协作与管理入口：四列图标网格，和首页「我的工作」一致，不再占一整屏竖排长菜单
+                        SectionTitle(tr("协作与管理"))
+                        HomeShortcuts(buildList {
+                            add(HomeShortcut(R.drawable.oc_issue_opened, "Issues", g.success, { nav.push(Screen.Issues(owner, name, false)) }))
+                            add(HomeShortcut(R.drawable.oc_git_pull_request, "PR", g.accent, { nav.push(Screen.Issues(owner, name, true)) }))
+                            add(HomeShortcut(R.drawable.oc_play, "Actions", g.fgMuted, { nav.push(Screen.Actions(owner, name)) }))
+                            add(HomeShortcut(R.drawable.oc_table, tr("项目"), g.success, { nav.push(Screen.Projects(ProjectOwnerKind.Repo, owner, name)) }))
+                            if (r.hasDiscussions) add(HomeShortcut(R.drawable.oc_comment_discussion, tr("讨论"), g.done, { nav.push(Screen.Discussions(owner, name)) }))
+                            add(HomeShortcut(R.drawable.oc_tag, "Releases", g.success, { nav.push(Screen.Releases(owner, name)) }))
+                            add(HomeShortcut(R.drawable.oc_people, tr("贡献者"), g.severe, { nav.push(Screen.Contributors(owner, name)) }))
+                            add(HomeShortcut(R.drawable.oc_graph, tr("洞察"), g.done, { nav.push(Screen.Insights(owner, name)) }))
+                            if (admin) {
+                                add(HomeShortcut(R.drawable.oc_person, tr("协作者"), g.sponsors, { nav.push(Screen.Collaborators(owner, name)) }))
+                                add(HomeShortcut(R.drawable.oc_gear, tr("设置"), g.fgMuted, { nav.push(Screen.RepoSettings(owner, name)) }))
+                            }
+                        })
                     }
                     langs.data?.takeIf { it.isNotEmpty() }?.let { l ->
                         item {
                             Card(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
                                 Column(Modifier.padding(14.dp)) {
-                                    Text("语言", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = g.fg)
+                                    Text(tr("语言"), fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = g.fg)
                                     Spacer(Modifier.height(10.dp))
                                     LanguageBar(l)
                                 }
@@ -295,7 +303,7 @@ fun RepoScreen(owner: String, name: String) {
                                     )
                                     readme.loading -> Loading(Modifier.fillMaxWidth().heightIn(min = 120.dp))
                                     readme.error != null -> ErrorState(readme.error!!, Modifier.fillMaxWidth()) { readme.load(true) }
-                                    else -> Text("该仓库没有 README", Modifier.padding(16.dp), color = g.fgMuted)
+                                    else -> Text(tr("该仓库没有 README"), Modifier.padding(16.dp), color = g.fgMuted)
                                 }
                             }
                         }
@@ -329,11 +337,11 @@ fun RepoScreen(owner: String, name: String) {
         )
     }
     if (showClone && r != null) {
-        GhDialog("克隆", onDismiss = { showClone = false }) {
+        GhDialog(tr("克隆"), onDismiss = { showClone = false }) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 val https = r.cloneUrl ?: "https://github.com/${r.fullName}.git"
                 val fast = if (r.isPrivate) null else com.mobilegh.data.Net.cloneUrl(https)
-                (listOf("HTTPS" to https) + listOfNotNull(fast?.let { "HTTPS 加速（${it.first}）" to "git clone ${it.second}" }) +
+                (listOf("HTTPS" to https) + listOfNotNull(fast?.let { trf("HTTPS 加速（{0}）", it.first) to "git clone ${it.second}" }) +
                     listOf("SSH" to (r.sshUrl ?: "git@github.com:${r.fullName}.git"), "GitHub CLI" to "gh repo clone ${r.fullName}")).forEach { (k, v) ->
                     Column {
                         Text(k, fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(bottom = 4.dp))
@@ -422,14 +430,14 @@ private fun ForkDialog(
                 } catch (e: Throwable) {
                     true
                 }
-                check(entry.sameAccount()) { "账号已切换，旧账号的 Fork 结果不再打开" }
+                check(entry.sameAccount()) { tr("账号已切换，旧账号的 Fork 结果不再打开") }
                 busy = false
                 waiting = false
                 ctx.toast(
                     when {
-                        followUpFailed && descriptionChanged -> "已 Fork 到 ${forked.fullName}，但等待创建或写入描述失败"
-                        followUpFailed -> "已 Fork 到 ${forked.fullName}，仓库仍在创建，请稍后刷新"
-                        else -> "已 Fork 到 ${forked.fullName}"
+                        followUpFailed && descriptionChanged -> trf("已 Fork 到 {0}，但等待创建或写入描述失败", forked.fullName)
+                        followUpFailed -> trf("已 Fork 到 {0}，仓库仍在创建，请稍后刷新", forked.fullName)
+                        else -> trf("已 Fork 到 {0}", forked.fullName)
                     }
                 )
                 onDone(forked)
@@ -444,9 +452,9 @@ private fun ForkDialog(
     }
 
     GhDialog(
-        "Fork 此仓库",
+        tr("Fork 此仓库"),
         onDismiss = { if (!busy) onDismiss() },
-        confirm = if (waiting) "等待创建…" else if (busy) "Fork 中…" else "Fork",
+        confirm = if (waiting) tr("等待创建…") else if (busy) tr("Fork 中…") else "Fork",
         confirmEnabled = valid,
         dismissEnabled = !busy,
         onConfirm = ::submit,
@@ -455,8 +463,8 @@ private fun ForkDialog(
             Text("$owner/$name", fontSize = 12.sp, color = g.fgMuted)
 
             Spacer(Modifier.height(10.dp))
-            RadioRow(!toOrg, "Fork 到我的账号", login?.let { "@$it" }, enabled = !busy) { toOrg = false }
-            RadioRow(toOrg, "Fork 到组织", "需要对该组织有创建仓库的权限", enabled = !busy) { toOrg = true }
+            RadioRow(!toOrg, tr("Fork 到我的账号"), login?.let { "@$it" }, enabled = !busy) { toOrg = false }
+            RadioRow(toOrg, tr("Fork 到组织"), tr("需要对该组织有创建仓库的权限"), enabled = !busy) { toOrg = true }
 
             if (toOrg) {
                 Spacer(Modifier.height(6.dp))
@@ -464,17 +472,17 @@ private fun ForkDialog(
                 val list = directory?.orgs?.map { it.login }
                 val warnings = directory?.warnings.orEmpty()
                 if (warnings.isNotEmpty()) {
-                    InlineError("部分组织信息读取不完整：${warnings.joinToString("\n")}") { orgs.refresh() }
+                    InlineError(trf("部分组织信息读取不完整：{0}", warnings.joinToString("\n"))) { orgs.refresh() }
                 }
                 when {
                     list != null && list.isEmpty() -> Text(
-                        if (warnings.isEmpty()) "当前授权没有返回可用的组织"
-                        else "未读取到可用组织；请先检查上方读取警告",
+                        if (warnings.isEmpty()) tr("当前授权没有返回可用的组织")
+                        else tr("未读取到可用组织；请先检查上方读取警告"),
                         fontSize = 12.sp, color = g.danger,
                     )
                     list != null -> {
                         Chips(list, list.indexOf(org), enabled = !busy, onSelect = { org = list[it] })
-                        if (org.isBlank()) Text("请选择组织", fontSize = 12.sp, color = g.danger)
+                        if (org.isBlank()) Text(tr("请选择组织"), fontSize = 12.sp, color = g.danger)
                     }
                     orgs.error != null -> InlineError(orgs.error!!) { orgs.refresh() }
                     else -> Loading(Modifier.fillMaxWidth().height(60.dp))
@@ -482,23 +490,23 @@ private fun ForkDialog(
             }
 
             Spacer(Modifier.height(10.dp))
-            GhField(newName, { newName = it }, "仓库名称（可选）", enabled = !busy, placeholder = name)
-            Text("留空沿用原名；可使用字母、数字、点、下划线和连字符。", Modifier.padding(top = 4.dp), fontSize = 11.sp, color = g.fgMuted)
-            if (nameInvalid) Text("仓库名称无效", fontSize = 12.sp, color = g.danger)
+            GhField(newName, { newName = it }, tr("仓库名称（可选）"), enabled = !busy, placeholder = name)
+            Text(tr("留空沿用原名；可使用字母、数字、点、下划线和连字符。"), Modifier.padding(top = 4.dp), fontSize = 11.sp, color = g.fgMuted)
+            if (nameInvalid) Text(tr("仓库名称无效"), fontSize = 12.sp, color = g.danger)
 
             Spacer(Modifier.height(10.dp))
-            GhField(desc, { desc = it }, "描述", singleLine = false, minLines = 2, enabled = !busy)
+            GhField(desc, { desc = it }, tr("描述"), singleLine = false, minLines = 2, enabled = !busy)
 
             Spacer(Modifier.height(10.dp))
             SwitchRow(
-                "只复制默认分支",
-                "关闭后连同其余分支一起 fork；GitHub 无法只挑某几个分支",
+                tr("只复制默认分支"),
+                tr("关闭后连同其余分支一起 fork；GitHub 无法只挑某几个分支"),
                 defaultOnly,
                 enabled = !busy,
             ) { defaultOnly = it }
             if (repo.defaultBranch.isNotBlank()) {
                 Text(
-                    "默认分支：${repo.defaultBranch}",
+                    trf("默认分支：{0}", repo.defaultBranch),
                     Modifier.padding(start = 16.dp, top = 2.dp, bottom = 4.dp),
                     fontSize = 12.sp,
                     color = g.fgMuted,
@@ -527,16 +535,16 @@ private fun RepoHeader(r: Repo) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(r.name, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = g.fg, modifier = Modifier.weight(1f, false))
             Spacer(Modifier.width(8.dp))
-            Pill(if (r.isPrivate) "私有" else if (r.visibility == "internal") "内部" else "公开")
+            com.mobilegh.ui.components.VisibilityBadge(r.isPrivate, label = if (r.isPrivate) tr("私有") else if (r.visibility == "internal") tr("内部") else tr("公开"))
         }
         FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (r.archived) Pill("已归档", g.attention)
-            if (r.isTemplate) Pill("模板")
-            if (r.disabled) Pill("已禁用", g.danger)
+            if (r.archived) Pill(tr("已归档"), g.attention)
+            if (r.isTemplate) Pill(tr("模板"))
+            if (r.disabled) Pill(tr("已禁用"), g.danger)
         }
         r.parent?.let { p ->
             Text(
-                "Fork 自 ${p.fullName}", color = g.accent, fontSize = 13.sp,
+                trf("Fork 自 {0}", p.fullName), color = g.accent, fontSize = 13.sp,
                 modifier = Modifier.padding(top = 2.dp).clickable { nav.push(Screen.Repo(p.owner.login, p.name)) },
             )
         }
@@ -567,7 +575,7 @@ private fun RepoHeader(r: Repo) {
             // 许可证名称可能很长（如自定义许可证的全称），窄屏下折行显示
             r.license?.let { IconText(R.drawable.oc_law, it.spdxId?.takeIf { s -> s != "NOASSERTION" } ?: it.name, maxLines = Int.MAX_VALUE) }
             IconText(R.drawable.oc_package, fmtSize(r.size * 1024))
-            IconText(R.drawable.oc_clock, "推送于 ${relTime(r.pushedAt)}")
+            IconText(R.drawable.oc_clock, trf("推送于 {0}", relTime(r.pushedAt)))
         }
     }
 }
@@ -580,10 +588,10 @@ fun BranchPicker(owner: String, name: String, current: String, onDismiss: () -> 
     var q by rememberSaveable { mutableStateOf("") }
     val branches = rememberLoader("pick:branches") { GitHub.branches(owner, name, 1, it).map { b -> b.name } }
     val tags = rememberLoader("pick:tags") { GitHub.tags(owner, name, 1, it).map { t -> t.name } }
-    GhDialog("切换分支 / 标签", onDismiss = onDismiss) {
+    GhDialog(tr("切换分支 / 标签"), onDismiss = onDismiss) {
         Column {
-            Chips(listOf("分支", "标签"), tab) { tab = it }
-            GhField(q, { q = it }, "筛选")
+            Chips(listOf(tr("分支"), trc("标签", "git")), tab) { tab = it }
+            GhField(q, { q = it }, tr("筛选"))
             Spacer(Modifier.height(8.dp))
             val l = if (tab == 0) branches else tags
             val list = l.data?.filter { it.contains(q, true) }
@@ -596,7 +604,7 @@ fun BranchPicker(owner: String, name: String, current: String, onDismiss: () -> 
                             Text(b, color = g.fg, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
-                    if (list.isEmpty()) item { Text(if (q.isBlank()) (if (tab == 0) "没有分支" else "没有标签") else "无匹配结果", color = g.fgMuted, modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = TextAlign.Center) }
+                    if (list.isEmpty()) item { Text(if (q.isBlank()) (if (tab == 0) tr("没有分支") else tr("没有标签")) else tr("无匹配结果"), color = g.fgMuted, modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = TextAlign.Center) }
                 }
                 l.error != null -> InlineError(l.error!!) { l.refresh() }
                 else -> Loading(Modifier.fillMaxWidth().height(120.dp))

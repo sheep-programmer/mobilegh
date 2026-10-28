@@ -49,6 +49,8 @@ import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.RepoItem
 import com.mobilegh.ui.theme.Gh
 import java.time.LocalDate
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /**
  * 探索页：热门仓库 + 进入搜索的入口。
@@ -59,15 +61,15 @@ fun ExploreScreen() {
     val nav = LocalNav.current
     val g = Gh.c
     var trend by rememberSaveable { mutableIntStateOf(0) }
-    val trendRanges = listOf(7L to "本周", 30L to "本月", 1L to "今天")
+    val trendRanges = listOf(7L to tr("本周"), 30L to tr("本月"), 1L to tr("今天"))
     val state = rememberLazyListState()
 
     LaunchedEffect(trend) { state.scrollToItem(0) }
     com.mobilegh.nav.OnTabReselect(Tab.Explore) { state.animateScrollToItem(0) }
     fun openSearch() = nav.push(Screen.Search(SearchType.REPO))
 
-    Page("探索", back = false, contentWindowInsets = WindowInsets(0),
-        actions = { OcButton(R.drawable.oc_search, ::openSearch, description = "搜索") }) { pad ->
+    Page(tr("探索"), back = false, contentWindowInsets = WindowInsets(0),
+        actions = { OcButton(R.drawable.oc_search, ::openSearch, description = tr("搜索")) }) { pad ->
         Column(Modifier.padding(pad)) {
             SearchEntry(::openSearch)
             val days = trendRanges[trend].first
@@ -92,13 +94,13 @@ fun ExploreScreen() {
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Oc(R.drawable.oc_flame, g.attention, 18.dp, Modifier.padding(end = 6.dp))
-                            Text("新晋热门仓库", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = g.fg)
+                            Text(tr("新晋热门仓库"), fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = g.fg)
                         }
                         Dropdown(trendRanges[trend].second, trendRanges.map { it.second }, { trend = it })
                     }
                     HDivider()
                 }
-            }) { RepoItem(it, extra = "创建于 ${it.createdAt?.take(10)}") }
+            }) { RepoItem(it, extra = it.createdAt?.take(10)?.let { d -> trf("创建于 {0}", d) }) }
         }
     }
 }
@@ -114,13 +116,13 @@ private fun SearchEntry(onClick: () -> Unit) {
                 .border(1.dp, g.border, RoundedCornerShape(8.dp))
                 .background(g.canvasSubtle, RoundedCornerShape(8.dp))
                 .clickable(role = Role.Button, onClick = onClick)
-                .semantics { contentDescription = "搜索 GitHub" }
+                .semantics { contentDescription = tr("搜索 GitHub") }
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Oc(R.drawable.oc_search, g.fgMuted, 18.dp)
             Spacer(Modifier.width(8.dp))
-            Text("搜索仓库、用户、Issue、PR 或代码", Modifier.weight(1f), color = g.fgMuted, fontSize = 14.sp)
+            Text(tr("搜索仓库、用户、Issue、PR 或代码"), Modifier.weight(1f), color = g.fgMuted, fontSize = 14.sp)
             Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
         }
     }

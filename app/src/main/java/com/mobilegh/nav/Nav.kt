@@ -17,6 +17,7 @@ import com.mobilegh.data.History
 import com.mobilegh.data.IssueQuery
 import com.mobilegh.data.Session
 import com.mobilegh.data.ProjectOwnerKind
+import com.mobilegh.i18n.tr
 
 /** 所有页面。使用轻量的自定义导航栈，无需 navigation 库，也无需参数序列化。 */
 sealed interface Screen {
@@ -91,7 +92,8 @@ sealed interface Screen {
 enum class UserKind { Followers, Following, Stargazers, Watchers, Contributors, Members }
 enum class RepoKind { User, Starred, Org, Forks }
 
-enum class Tab(val title: String) { Home("首页"), Repos("仓库"), Notifications("通知"), Explore("探索"), Me("我的") }
+enum class Tab(private val titleZh: String) { Home("首页"), Repos("仓库"), Notifications("通知"), Explore("探索"), Me("我的");
+    val title: String get() = tr(titleZh) }
 
 private val ids = AtomicLong()
 

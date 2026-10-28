@@ -3,38 +3,50 @@ package com.mobilegh.data
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** Issue / PR 列表的状态筛选 */
 @Serializable
-enum class IssueStateFilter(val label: String, val api: String) { Open("开放", "open"), Closed("已关闭", "closed"), All("全部", "all") }
+enum class IssueStateFilter(private val labelZh: String, private val apiZh: String) { Open("开放", "open"), Closed("已关闭", "closed"), All("全部", "all");
+    val label: String get() = tr(labelZh)
+    val api: String get() = tr(apiZh) }
 
 /** 排序：search 与 list 两种接口的参数各不相同 */
 @Serializable
-enum class IssueSort(val label: String, val field: String, val order: String) {
+enum class IssueSort(private val labelZh: String, private val fieldZh: String, private val orderZh: String) {
     Newest("最新", "created", "desc"),
     Oldest("最早", "created", "asc"),
     Comments("最多评论", "comments", "desc"),
-    Updated("最近更新", "updated", "desc"),
+    Updated("最近更新", "updated", "desc");
+    val label: String get() = tr(labelZh)
+    val field: String get() = tr(fieldZh)
+    val order: String get() = tr(orderZh)
 }
 
 /** PR 的评审状态 */
 @Serializable
-enum class ReviewFilter(val label: String, val qualifier: String) {
+enum class ReviewFilter(private val labelZh: String, private val qualifierZh: String) {
     Required("需要评审", "review:required"),
     Approved("已批准", "review:approved"),
-    ChangesRequested("请求修改", "review:changes_requested"),
+    ChangesRequested("请求修改", "review:changes_requested");
+    val label: String get() = tr(labelZh)
+    val qualifier: String get() = tr(qualifierZh)
 }
 
 /** 「我的 Issues / PR」中与我相关的方式 */
 @Serializable
-enum class Involvement(val label: String, val qualifier: String, val pullsOnly: Boolean = false) {
+enum class Involvement(private val labelZh: String, private val qualifierZh: String, val pullsOnly: Boolean = false) {
     Created("创建的", "author:@me"),
     Assigned("指派给我", "assignee:@me"),
     Mentioned("提及我", "mentions:@me"),
-    ReviewRequested("评审请求", "review-requested:@me", pullsOnly = true),
+    ReviewRequested("评审请求", "review-requested:@me", pullsOnly = true);
+    val label: String get() = tr(labelZh)
+    val qualifier: String get() = tr(qualifierZh)
 }
 
-enum class FilterKind(val label: String) { Author("作者"), Assignee("指派人"), Label("标签"), Milestone("里程碑"), Review("评审"), Draft("草稿"), Text("搜索") }
+enum class FilterKind(private val labelZh: String) { Author("作者"), Assignee("指派人"), Label("标签"), Milestone("里程碑"), Review("评审"), Draft("草稿"), Text("搜索");
+    val label: String get() = tr(labelZh) }
 
 /** 一个可单独移除的已生效筛选条件 */
 data class ActiveFilter(val kind: FilterKind, val value: String, val text: String)
@@ -85,13 +97,13 @@ data class IssueQuery(
 
     /** 已生效的筛选条件（用于可移除的标签） */
     fun activeFilters(): List<ActiveFilter> = buildList {
-        author?.let { add(ActiveFilter(FilterKind.Author, it, "作者：$it")) }
-        assignee?.let { add(ActiveFilter(FilterKind.Assignee, it, "指派人：$it")) }
-        labels.forEach { add(ActiveFilter(FilterKind.Label, it, "标签：$it")) }
-        milestone?.let { add(ActiveFilter(FilterKind.Milestone, it, "里程碑：$it")) }
+        author?.let { add(ActiveFilter(FilterKind.Author, it, trf("作者：{0}", it))) }
+        assignee?.let { add(ActiveFilter(FilterKind.Assignee, it, trf("指派人：{0}", it))) }
+        labels.forEach { add(ActiveFilter(FilterKind.Label, it, trf("标签：{0}", it))) }
+        milestone?.let { add(ActiveFilter(FilterKind.Milestone, it, trf("里程碑：{0}", it))) }
         if (pulls) {
-            review?.let { add(ActiveFilter(FilterKind.Review, it.name, "评审：${it.label}")) }
-            draft?.let { add(ActiveFilter(FilterKind.Draft, it.toString(), if (it) "仅草稿" else "排除草稿")) }
+            review?.let { add(ActiveFilter(FilterKind.Review, it.name, trf("评审：{0}", it.label))) }
+            draft?.let { add(ActiveFilter(FilterKind.Draft, it.toString(), if (it) tr("仅草稿") else tr("排除草稿"))) }
         }
         text.trim().takeIf { it.isNotEmpty() }?.let { add(ActiveFilter(FilterKind.Text, it, "“$it”")) }
     }
@@ -127,7 +139,7 @@ data class IssueQuery(
 
     /** 简短描述，用于保存的搜索 */
     fun summary(): String = buildList {
-        add(repo ?: involves?.label ?: "全部")
+        add(repo ?: involves?.label ?: tr("全部"))
         add(state.label)
         addAll(activeFilters().map { it.text })
         if (sort != IssueSort.Newest) add(sort.label)

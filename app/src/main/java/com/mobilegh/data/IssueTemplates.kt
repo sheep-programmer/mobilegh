@@ -1,5 +1,7 @@
 package com.mobilegh.data
 
+import com.mobilegh.i18n.tr
+
 /** 仓库 .github/ISSUE_TEMPLATE/ 中的一个模板（Markdown 模板或 YAML Issue 表单） */
 data class IssueTemplate(
     val file: String,
@@ -87,7 +89,7 @@ object IssueTemplates {
                         if (l.isNotBlank()) append("- [ ] ").append(l).append('\n')
                     }
                     "dropdown" -> strList(attrs["options"]).takeIf { it.isNotEmpty() }?.let {
-                        append("<!-- 可选：").append(it.joinToString(" / ")).append(" -->\n")
+                        append(tr("<!-- 可选：")).append(it.joinToString(" / ")).append(" -->\n")
                     }
                     else -> str(attrs["value"]).takeIf { it.isNotBlank() }?.let { v ->
                         if (str(attrs["render"]).isNotBlank()) append("```").append(str(attrs["render"])).append('\n').append(v.trimEnd()).append("\n```\n")

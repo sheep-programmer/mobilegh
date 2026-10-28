@@ -7,6 +7,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.InputStream
 import java.security.MessageDigest
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trc
+import com.mobilegh.i18n.trf
 
 /**
  * 待上传的一个文件：本机地址 [uri]（SAF content://）对应仓库里的路径 [path]。
@@ -19,6 +22,8 @@ data class UploadItem(
     val path: String,
     val size: Long = 0,
     val skip: String? = null,
+    /** 超过仓库 100 MiB 上限的文件：改用 Git LFS，仓库里只放指针文件 */
+    val lfs: Boolean = false,
 )
 
 /** 仓库基准树里已有的一个文件：blob sha 与权限位 */
@@ -44,8 +49,9 @@ data class TreeWrite(val path: String, val mode: String, val sha: String) {
  * [Sending] 阶段要先把 deflate 填满才能确认写出字节数，OkHttp 又自己缓冲，
  * 本机拿不到可靠的已发送量——界面在这一步得改用不确定进度条，
  * 否则会出现「进度 100% 但还在上传」这种自相矛盾的显示。
+ * [Lfs] 是例外：LFS 上传是我们自己按字节写出的，已发送量是真实的，进度条可以确定。
  */
-enum class UploadStage { Reading, Sending, Finalizing }
+enum class UploadStage { Reading, Lfs, Sending, Finalizing }
 
 /** 上传进度：已处理文件数、总数、已读字节、总字节、当前在做的件事、处于哪个阶段 */
 data class UploadProgress(
@@ -103,7 +109,7 @@ object GitUpload {
         return "$login <$mail> $epochSeconds +0000"
     }
 
-    const val UNREADABLE = "打不开该文件，可能已被移动、删除，或应用失去了访问权限"
+    val UNREADABLE: String get() = tr("打不开该文件，可能已被移动、删除，或应用失去了访问权限")
 
     /** 本机名称 → 仓库里的一段路径。任何一段不能用就整体返回 null，由调用标成「路径无效」 */
     fun sanitizeName(raw: String?): String? = raw?.replace('/', '_')?.trim()?.takeIf { it.isNotEmpty() && it != "." && it != ".." }
@@ -118,7 +124,8 @@ object GitUpload {
     }
 
     /**
-     * 整理清单：重复路径、非法路径直接去掉（先加入的胜出），超过 GitHub 单文件硬上限的保留但标出原因。
+     * 整理清单：重复路径、非法路径直接去掉（先加入的胜出）；超过 100 MiB 的文件标记为走 Git LFS，
+     * 超过 LFS 上限的保留在清单里但标出原因。
      * [Triage.dropped] 是被直接去掉的数量，界面上要说明，否则用户会以为已经传上去了。
      */
     fun triage(items: List<UploadItem>): Triage {
@@ -131,7 +138,9 @@ object GitUpload {
                 when {
                     !seen.add(i.path) -> { dropped++; null }
                     !CodeReading.validPath(i.path) -> { dropped++; null }
-                    i.size > MAX_FILE_BYTES -> base.copy(skip = "超过 GitHub 的 ${MAX_FILE_BYTES / 1024 / 1024} MB 单文件上限，任何人都无法上传（请用 Git LFS）")
+                    i.size > GitLfs.MAX_BYTES -> base.copy(skip = trf("超过 Git LFS 的 {0} GB 单文件上限，无法上传", GitLfs.MAX_BYTES / 1024 / 1024 / 1024))
+                    // 超过仓库 100 MiB 上限的文件自动走 Git LFS
+                    i.size > MAX_FILE_BYTES -> base.copy(lfs = true)
                     else -> base
                 }
             }
@@ -184,7 +193,7 @@ object GitUpload {
         }
         return when (val again = pass(open(), real, limit)) {
             is PassResult.Ok -> again.file
-            else -> throw ApiException(-1, "文件在读取期间发生了变化，请重新选择")
+            else -> throw ApiException(-1, tr("文件在读取期间发生了变化，请重新选择"))
         }
     }
 
@@ -230,7 +239,7 @@ object GitUpload {
     }
 
     private fun tooBigMessage(limit: Long) =
-        "文件超过 ${limit / 1024 / 1024} MB，超出 GitHub 的单文件上限，仓库会直接拒绝这个提交（大文件请用 Git LFS）"
+        trf("文件超过 {0} MB，超出 GitHub 的单文件上限，仓库会直接拒绝这个提交（大文件请用 Git LFS）", limit / 1024 / 1024)
 
     private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
 
@@ -276,7 +285,7 @@ object GitUpload {
     /** 覆盖文件时必须有完整基准树，否则无法可靠保留现有权限位。 */
     fun completeSnapshot(index: TreeIndex): Map<String, RepoBlob> {
         if (index.truncated)
-            throw ApiException(409, "无法完整读取基准目录，为避免改变现有文件权限，请稍后重试")
+            throw ApiException(409, tr("无法完整读取基准目录，为避免改变现有文件权限，请稍后重试"))
         return index.blobs
     }
 
@@ -286,13 +295,13 @@ object GitUpload {
         val login = Session.login
         return {
             if (Session.generation != generation || Session.login != login)
-                throw ApiException(409, "账号已切换，上传已停止；请在新账号下重新选择并上传")
+                throw ApiException(409, tr("账号已切换，上传已停止；请在新账号下重新选择并上传"))
         }
     }
 
     /** 一行清单说明：文件数 + 合计大小 + 被排除的数量 */
     fun summary(ok: Int, bytes: Long, skipped: Int): String =
-        "$ok 个文件 · " + com.mobilegh.ui.components.fmtSize(bytes) + if (skipped > 0) " · $skipped 项不上传" else ""
+        trf("{0} 个文件 · ", ok) + com.mobilegh.ui.components.fmtSize(bytes) + if (skipped > 0) trf(" · {0} 项不上传", skipped) else ""
 
     /**
      * 把上传失败换成能看懂的下一步。分支引用只允许快进，所以「别人先推了」和「受保护分支」
@@ -305,29 +314,29 @@ object GitUpload {
     /** [raw] 是服务端或底层错误的原文片段 */
     fun explain(raw: String, commit: String?): String {
         val saved = commit?.takeIf { it.isNotEmpty() }?.let {
-            val uncertain = raw.isBlank() || listOf("timeout", "network", "socket", "connection", "网络", "连接", "中断")
+            val uncertain = raw.isBlank() || listOf("timeout", "network", "socket", "connection", tr("网络"), tr("连接"), tr("中断"))
                 .any { word -> raw.contains(word, true) }
-            if (uncertain) "内容已经生成提交 ${it.take(7)}，但分支更新结果未确认；请先查看分支和提交历史再重试。"
-            else "内容已经生成提交 ${it.take(7)}，但分支没有更新。"
+            if (uncertain) trf("内容已经生成提交 {0}，但分支更新结果未确认；请先查看分支和提交历史再重试。", it.take(7))
+            else trf("内容已经生成提交 {0}，但分支没有更新。", it.take(7))
         } ?: ""
         val hint = when {
             raw.contains("not a fast forward", true) || raw.contains("cannot lock ref", true) ->
-                "这个分支在你上传期间有了新提交。重新上传一次即可，会基于最新内容。"
+                tr("这个分支在你上传期间有了新提交。重新上传一次即可，会基于最新内容。")
             raw.contains("pre-receive hook declined", true) || raw.contains("Large files detected", true) ->
-                "GitHub 拒收了这次传输。常见原因是单个文件超过 ${MAX_FILE_BYTES / 1024 / 1024} MB 的仓库硬上限；超大的文件请用 Git LFS。"
+                trf("GitHub 拒收了这次传输。常见原因是单个文件超过 {0} MB 的仓库硬上限；超大的文件请用 Git LFS。", MAX_FILE_BYTES / 1024 / 1024)
             raw.contains("index-pack failed", true) ->
-                "打包数据没被接受（可能是选中的文件在上传期间被改了）。重新选一次再上传。"
+                tr("打包数据没被接受（可能是选中的文件在上传期间被改了）。重新选一次再上传。")
             raw.contains("protected", true) || raw.contains("blocked", true) ->
-                "该分支受保护。请在仓库设置里允许你的角色推送，或改为新建分支后发起拉取请求。"
-            raw.contains("SAML", true) -> "该组织启用了 SAML SSO，请先在网页上为本应用授权 SSO。"
+                tr("该分支受保护。请在仓库设置里允许你的角色推送，或改为新建分支后发起拉取请求。")
+            raw.contains("SAML", true) -> tr("该组织启用了 SAML SSO，请先在网页上为本应用授权 SSO。")
             raw.contains("Resource not accessible", true) || raw.contains("admin rights", true) ->
-                "你对这个仓库或分支没有推送权限。"
+                tr("你对这个仓库或分支没有推送权限。")
             raw.contains("BadObjectState", true) ->
-                "路径冲突：仓库里同名的位置已经是文件或目录。换个路径再传。"
+                tr("路径冲突：仓库里同名的位置已经是文件或目录。换个路径再传。")
             raw.isNotBlank() -> raw
-            else -> "请检查网络后重试"
+            else -> tr("请检查网络后重试")
         }
-        return "上传未完成。$saved$hint"
+        return trf("上传未完成。{0}{1}", saved, hint)
     }
 
     /**
@@ -349,19 +358,19 @@ object GitUpload {
         onProgress: (UploadProgress) -> Unit = {},
         onCommit: suspend (String) -> Unit = {},
     ): UploadResult {
-        if (files.isEmpty()) throw ApiException(400, "请先选择要上传的文件")
+        if (files.isEmpty()) throw ApiException(400, tr("请先选择要上传的文件"))
         val checkAccount = uploadAccountGuard()
         val total = files.sumOf { it.size }.coerceAtLeast(0)
 
         // 基准提交。实测：空仓库（没有任何提交）时 /commits/{ref} 返回 409「Git Repository is empty」，
         // ref 不存在才是 404。空仓库没有基准可用，走 bootstrap（本地建树与建提交），不拦用户
-        if (baseRef.isBlank()) throw ApiException(400, "分支名无效，请重新选择分支后再上传")
+        if (baseRef.isBlank()) throw ApiException(400, tr("分支名无效，请重新选择分支后再上传"))
         val base = try {
             checkAccount()
             withContext(Dispatchers.IO) { GitHub.resolveSha(owner, name, baseRef) }
         } catch (e: ApiException) {
             if (e.code == 409 || e.message.contains("empty", true)) null
-            else if (e.code == 404) throw ApiException(404, "找不到 $baseRef，请重新选择分支后再上传")
+            else if (e.code == 404) throw ApiException(404, trf("找不到 {0}，请重新选择分支后再上传", baseRef))
             else throw e
         }
         if (base == null) return bootstrap(owner, name, targetBranch, files, message, open, onProgress, checkAccount)
@@ -371,7 +380,7 @@ object GitUpload {
         fun step(current: String, stage: UploadStage = UploadStage.Reading) =
             onProgress(UploadProgress(done, files.size, bytesDone.coerceAtMost(total), total, current, stage))
 
-        step("读取仓库当前内容")
+        step(tr("读取仓库当前内容"))
         checkAccount()
         val baseTree = withContext(Dispatchers.IO) { GitHub.commitTreeSha(owner, name, base) }
         // 读取失败或树被截断时不能猜现有权限位；必须停止，而不是把可执行文件改成普通文件。
@@ -379,18 +388,34 @@ object GitUpload {
         val snapshot = completeSnapshot(withContext(Dispatchers.IO) { GitHub.treeIndex(owner, name, baseTree) })
 
         // 1) 流式算 sha，确定哪些文件真的要写入
-        val scanned = scan(files, open, snapshot) { d, b, n -> done = d; bytesDone = b; step(n) }
-        if (scanned.writes.isEmpty())
-            throw ApiException(400, "所选文件与 $baseRef 上的内容完全一致，没有需要提交的改动")
+        val scanned0 = scan(files, open, snapshot) { d, b, n -> done = d; bytesDone = b; step(n) }
+        if (scanned0.writes.isEmpty())
+            throw ApiException(400, trf("所选文件与 {0} 上的内容完全一致，没有需要提交的改动", baseRef))
+        // 有大文件走 LFS：先读到现有的 .gitattributes，读不到就停下，绝不盲写覆盖别人的规则
+        val attributesBlob = snapshot[ATTRIBUTES]
+        val scanned = if (scanned0.lfs.isEmpty() || attributesBlob == null) withAttributes(scanned0, null, files)
+        else {
+            checkAccount()
+            val text = try {
+                withContext(Dispatchers.IO) { GitHub.fileRaw(owner, name, ATTRIBUTES, base, force = true) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                throw ApiException(-1, trf("无法读取仓库里现有的 .gitattributes，为避免覆盖已有规则，已停止上传：{0}", e.message ?: tr("请重试")))
+            }
+            withAttributes(scanned0, text, files)
+        }
+        // 1.5) 大文件先传到 Git LFS（仓库里提交的只是指针）
+        uploadLfs(owner, name, targetBranch, scanned.lfs, onProgress, checkAccount)
 
         // 2) 用 git 传输把 blob 推进仓库：借一条确实存在的 ref 发空操作指令（实测不会动到分支）
         checkAccount()
         val ref = GitPack.pickRef(GitPack.advertise(owner, name), baseRef)
-            ?: throw ApiException(409, "仓库状态变了（现在没有可借用的分支），请重新打开本页再上传")
+            ?: throw ApiException(409, tr("仓库状态变了（现在没有可借用的分支），请重新打开本页再上传"))
         val groups = packGroups(scanned.pending)
         for ((i, part) in groups.withIndex()) {
-            val batchNote = if (groups.size > 1) "（第 ${i + 1}/${groups.size} 批）" else ""
-            step("打包上传$batchNote", UploadStage.Sending)
+            val batchNote = if (groups.size > 1) trf("（第 {0}/{1} 批）", i + 1, groups.size) else ""
+            step(trf("打包上传{0}", batchNote), UploadStage.Sending)
             checkAccount()
             val receipt = GitPack.push(
                 owner, name, GitPack.noOpCommand(ref),
@@ -398,7 +423,7 @@ object GitUpload {
             ) { index, sha ->
                 // 回调来自 OkHttp 的写线程，Compose state 要回主线程改
                 withContext(Dispatchers.Main) {
-                    step("上传 ${scanned.labelOf[sha] ?: "文件"}（${index + 1}/${part.size}）$batchNote", UploadStage.Sending)
+                    step(trf("上传 {0}（{1}/{2}）{3}", scanned.labelOf[sha] ?: trc("文件", "noun"), index + 1, part.size, batchNote), UploadStage.Sending)
                 }
             }
             // 借的 ref 被拒不影响对象落库（见 Receipt 的实测说明）；只有整包被拒才是真失败
@@ -411,28 +436,28 @@ object GitUpload {
         var tree = baseTree
         val treeGroups = batches(scanned.writes)
         for ((i, part) in treeGroups.withIndex()) {
-            step(if (treeGroups.size > 1) "整理文件 ${i + 1}/${treeGroups.size}" else "")
+            step(if (treeGroups.size > 1) trf("整理文件 {0}/{1}", i + 1, treeGroups.size) else "")
             checkAccount()
             tree = withContext(Dispatchers.IO) {
                 try {
                     GitHub.createTree(owner, name, tree, part.map { it.payload() })
                 } catch (e: ApiException) {
                     if (e.message.contains("not a valid blob", true))
-                        throw ApiException(e.code, "GitHub 说文件对象还不存在（上传可能没完成），请重新上传一次")
+                        throw ApiException(e.code, tr("GitHub 说文件对象还不存在（上传可能没完成），请重新上传一次"))
                     throw e
                 }
             }
         }
 
         // 4) 一个提交，然后才移动分支
-        step("生成提交", UploadStage.Finalizing)
+        step(tr("生成提交"), UploadStage.Finalizing)
         checkAccount()
         val sha = withContext(Dispatchers.IO) {
             GitHub.createCommit(owner, name, commitMessage(message), tree, listOf(base))
         }
         // 到这里内容已经是一个完整提交，只是分支还没跟上来
         withContext(Dispatchers.Main) { onCommit(sha) }
-        step(if (newBranch) "创建分支 $targetBranch" else "推送到 $targetBranch")
+        step(if (newBranch) trf("创建分支 {0}", targetBranch) else trf("推送到 {0}", targetBranch))
         checkAccount()
         withContext(Dispatchers.IO) {
             if (newBranch) GitHub.createRef(owner, name, targetBranch, sha)
@@ -441,12 +466,48 @@ object GitUpload {
         return UploadResult(sha, scanned.writes.size, scanned.unchanged, targetBranch)
     }
 
+    /**
+     * 有 LFS 文件时，把它们的跟踪规则并进根目录的 .gitattributes（没有就新建），一起作为这次提交的内容。
+     * 克隆下来的 git-lfs 靠这个文件才知道要还原哪些大文件。用户自己选了 .gitattributes 时尊重他们的内容，不再改。
+     */
+    private fun withAttributes(scanned: Scanned, existing: String?, selected: List<UploadItem>): Scanned {
+        if (scanned.lfs.isEmpty() || selected.any { it.path == ATTRIBUTES }) return scanned
+        val merged = GitLfs.mergeAttributes(existing, scanned.lfs.map { it.path }.distinct()) ?: return scanned
+        val bytes = merged.toByteArray(Charsets.UTF_8)
+        val sha = blobSha(bytes)
+        return Scanned(
+            scanned.writes.filter { it.path != ATTRIBUTES } + TreeWrite(ATTRIBUTES, "100644", sha),
+            scanned.pending.filter { it.sha != sha } + Pending(sha, bytes.size.toLong()) { bytes.inputStream() },
+            scanned.labelOf + (sha to ATTRIBUTES), scanned.unchanged, scanned.lfs,
+        )
+    }
+
+    private const val ATTRIBUTES = ".gitattributes"
+
+    /** 上传 LFS 文件；进度走 [UploadStage.Lfs]，字节数是真实已发送量 */
+    private suspend fun uploadLfs(
+        owner: String, name: String, targetBranch: String, lfs: List<LfsFile>,
+        onProgress: (UploadProgress) -> Unit, checkAccount: () -> Unit,
+    ) {
+        if (lfs.isEmpty()) return
+        checkAccount()
+        val token = Session.token ?: throw ApiException(401, tr("请先登录 GitHub"))
+        val unique = lfs.distinctBy { it.oid }
+        val total = unique.sumOf { it.size }
+        GitLfs.upload(GitPack.client.routed(), token, owner, name, "refs/heads/$targetBranch", lfs) { done, bytes, current ->
+            onProgress(UploadProgress(done, unique.size, bytes.coerceAtMost(total), total, trf("上传到 Git LFS：{0}", current), UploadStage.Lfs))
+        }
+        checkAccount()
+    }
+
     /** 一轮扫描的结果：要写入的条目、需要推的对象、sha→文件名、与仓库一致而跳过的数量 */
     private class Scanned(
         val writes: List<TreeWrite>,
         val pending: List<Pending>,
         val labelOf: Map<String, String>,
         val unchanged: Int,
+        /** 需要先上传到 Git LFS 的大文件（仓库里放的是它们的指针） */
+        val lfs: List<LfsFile> = emptyList(),
     )
 
     /**
@@ -463,19 +524,47 @@ object GitUpload {
         val writes = ArrayList<TreeWrite>(files.size)
         val pending = LinkedHashMap<String, Pending>()
         val labelOf = HashMap<String, String>()
+        val lfsFiles = ArrayList<LfsFile>()
         var unchanged = 0
         var bytes = 0L
         files.forEachIndexed { i, f ->
             onFile(i, bytes, f.name)
-            val hashed = try {
-                withContext(Dispatchers.IO) { hash({ open(f) }, f.size) }
+            var asLfs = f.lfs
+            var hashed: HashedFile? = null
+            try {
+                if (!asLfs) hashed = withContext(Dispatchers.IO) { hash({ open(f) }, f.size) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ApiException) {
-                throw ApiException(e.code, "${f.name}：${e.message}")
+                // 系统没报大小的文件读到一半才发现超过 100 MiB：改走 LFS，而不是失败
+                if (e.code == 413) asLfs = true else throw ApiException(e.code, "${f.name}：${e.message}")
             } catch (e: Throwable) {
-                throw ApiException(-1, "读取 ${f.name} 失败：" + (e.message ?: "无法读取该文件"))
+                throw ApiException(-1, trf("读取 {0} 失败：", f.name) + (e.message ?: tr("无法读取该文件")))
             }
+            if (asLfs) {
+                val d = try {
+                    withContext(Dispatchers.IO) { GitLfs.digest({ open(f) }) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: ApiException) {
+                    throw ApiException(e.code, "${f.name}：${e.message}")
+                } catch (e: Throwable) {
+                    throw ApiException(-1, trf("读取 {0} 失败：", f.name) + (e.message ?: tr("无法读取该文件")))
+                }
+                bytes += d.size
+                val pointer = GitLfs.pointer(d.oid, d.size)
+                val pointerSha = blobSha(pointer)
+                val existing = snapshot?.get(f.path)
+                val mode = if (existing?.mode == "100755") "100755" else "100644"
+                // 仓库里已经是同一个指针：对象早就上传过了，不重复传
+                if (!needsWrite(pointerSha, mode, existing)) { unchanged++; return@forEachIndexed }
+                lfsFiles.add(LfsFile(f.path, f.name, d.oid, d.size) { open(f) })
+                pending.getOrPut(pointerSha) { Pending(pointerSha, pointer.size.toLong()) { pointer.inputStream() } }
+                labelOf.putIfAbsent(pointerSha, f.name)
+                writes.add(TreeWrite(f.path, mode, pointerSha))
+                return@forEachIndexed
+            }
+            hashed!!
             bytes += hashed.size
             val existing = snapshot?.get(f.path)
             val mode = modeOf(f.path, hashed.head, existing)
@@ -486,7 +575,7 @@ object GitUpload {
             labelOf.putIfAbsent(hashed.sha, f.name)
             writes.add(TreeWrite(f.path, mode, hashed.sha))
         }
-        return Scanned(writes, pending.values.toList(), labelOf, unchanged)
+        return Scanned(writes, pending.values.toList(), labelOf, unchanged, lfsFiles)
     }
 
     /**
@@ -509,8 +598,9 @@ object GitUpload {
         checkAccount: () -> Unit,
     ): UploadResult {
         val plan = planBootstrap(files, message, open, onProgress, checkAccount)
+        uploadLfs(owner, name, targetBranch, plan.lfs, onProgress, checkAccount)
         onProgress(UploadProgress(files.size, files.size, plan.total, plan.total,
-            "创建分支 $targetBranch", UploadStage.Sending))
+            trf("创建分支 {0}", targetBranch), UploadStage.Sending))
         checkAccount()
         val receipt = GitPack.push(owner, name, GitPack.createCommand(targetBranch, plan.commitSha), plan.objects)
         // 这一条指令是真的要把分支建出来的：没建出来就是失败，不能只当对象落库就算成功
@@ -518,7 +608,7 @@ object GitUpload {
         // 「上传未完成。上传未完成。」
         receipt.failure?.let { throw ApiException(-1, it) }
         if (!receipt.refUpdated)
-            throw ApiException(-1, receipt.detail ?: "分支 $targetBranch 没有建出来")
+            throw ApiException(-1, receipt.detail ?: trf("分支 {0} 没有建出来", targetBranch))
         return UploadResult(plan.commitSha, plan.written, plan.unchanged, targetBranch)
     }
 
@@ -529,6 +619,7 @@ object GitUpload {
         val written: Int,
         val unchanged: Int,
         val total: Long,
+        val lfs: List<LfsFile> = emptyList(),
     )
 
     /**
@@ -546,10 +637,10 @@ object GitUpload {
         checkAccount: () -> Unit = {},
     ): BootPlan {
         val total = files.sumOf { it.size }.coerceAtLeast(0)
-        val scanned = scan(files, open, null) { d, b, n ->
+        val scanned = withAttributes(scan(files, open, null) { d, b, n ->
             onProgress(UploadProgress(d, files.size, b.coerceAtMost(total), total, n, UploadStage.Reading))
-        }
-        if (scanned.writes.isEmpty()) throw ApiException(400, "没有需要上传的文件")
+        }, null, files)
+        if (scanned.writes.isEmpty()) throw ApiException(400, tr("没有需要上传的文件"))
 
         val entries = scanned.writes.map { GitTree.Entry(it.path.split('/'), it.mode, it.sha) }
         val built = withContext(Dispatchers.Default) { GitTree.buildRootTree(entries) }
@@ -572,6 +663,6 @@ object GitUpload {
         } + listOf(
             commitSha to PackObject(GitPack.TYPE_COMMIT, commit.size.toLong()) { commit.inputStream() },
         )
-        return BootPlan(commitSha, objects, scanned.writes.size, scanned.unchanged, total)
+        return BootPlan(commitSha, objects, scanned.writes.size, scanned.unchanged, total, scanned.lfs)
     }
 }

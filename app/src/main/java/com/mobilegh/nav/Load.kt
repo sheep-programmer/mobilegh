@@ -15,10 +15,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 fun Throwable.friendly(): String = when (this) {
     is ApiException -> message
-    is kotlinx.serialization.SerializationException -> "数据解析失败：${message?.take(160)}"
+    is kotlinx.serialization.SerializationException -> trf("数据解析失败：{0}", message?.take(160))
     else -> networkHint() ?: message ?: javaClass.simpleName
 }
 
@@ -83,7 +85,7 @@ class Pager<T>(
     /** 服务端游标分页在过滤 null 节点后可能不足 pageSize，此时由数据源明确报告是否还有下一页。 */
     private val hasMore: ((page: Int) -> Boolean)? = null,
     private val fetchPage: (suspend (page: Int, force: Boolean) -> PagerPage<T>)? = null,
-    private val fetch: suspend (page: Int, force: Boolean) -> List<T> = { _, _ -> error("Pager 缺少数据源") },
+    private val fetch: suspend (page: Int, force: Boolean) -> List<T> = { _, _ -> error(tr("Pager 缺少数据源")) },
 ) {
     private val generation = Session.generation
     val items = mutableStateListOf<T>()
@@ -176,7 +178,7 @@ fun <T> rememberPager(
     pageSize: Int = 30,
     hasMore: ((page: Int) -> Boolean)? = null,
     fetchPage: (suspend (page: Int, force: Boolean) -> PagerPage<T>)? = null,
-    fetch: suspend (page: Int, force: Boolean) -> List<T> = { _, _ -> error("Pager 缺少数据源") },
+    fetch: suspend (page: Int, force: Boolean) -> List<T> = { _, _ -> error(tr("Pager 缺少数据源")) },
 ): Pager<T> = retain(key) { e -> Pager(e.scope, pageSize, hasMore, fetchPage, fetch).also { it.loadMore() } }
 
 /** 在页面作用域内执行一次性操作（如 star、合并），并返回错误提示 */
@@ -231,9 +233,9 @@ fun <T> Entry.write(onError: (String) -> Unit = {}, onDone: (T) -> Unit = {}, bl
 
 /** 在调用方自己的协程里执行写操作，前后各确认一次账号未切换 */
 suspend fun <T> Entry.guarded(block: suspend () -> T): T {
-    check(sameAccount()) { "账号已切换，请重新打开页面" }
+    check(sameAccount()) { tr("账号已切换，请重新打开页面") }
     val result = block()
-    check(sameAccount()) { "账号已切换，旧账号的操作结果不再更新当前页面" }
+    check(sameAccount()) { tr("账号已切换，旧账号的操作结果不再更新当前页面") }
     return result
 }
 

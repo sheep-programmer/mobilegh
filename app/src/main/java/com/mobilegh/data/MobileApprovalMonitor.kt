@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.mobilegh.service.MobileApprovalService
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 data class ApprovalMonitorState(
     val device: MobileApprovalDevice? = null,
@@ -57,7 +59,7 @@ object MobileApprovalMonitor {
         runCatching { MobileApprovalNotifications.channels(context) }
         if (state.value.device == null || !state.value.enabled) return
         runCatching { context.startService(Intent(context, MobileApprovalService::class.java)) }
-            .onFailure { AppLog.warn("2fa", "系统暂未允许后台验证检测，请打开 App 后重试") }
+            .onFailure { AppLog.warn("2fa", tr("系统暂未允许后台验证检测，请打开 App 后重试")) }
     }
 
     fun setForeground(context: Context, visible: Boolean) {
@@ -114,7 +116,7 @@ object MobileApprovalMonitor {
                 if (notificationTarget != null) {
                     notificationTarget = null
                     mutableState.value = current.copy(request = null, dialogVisible = false, connected = true,
-                        error = "验证请求已结束，请在浏览器重新发起")
+                        error = tr("验证请求已结束，请在浏览器重新发起"))
                 } else mutableState.value = current.copy(request = null, dialogVisible = false, connected = true)
                 return@withLock
             }
@@ -127,10 +129,10 @@ object MobileApprovalMonitor {
             if (!foreground && notifiedId != request.id) {
                 if (MobileApprovalNotifications.request(context, device, request)) notifiedId = request.id
             }
-            if (changed) AppLog.info("2fa", "收到 GitHub 验证请求 ${request.id}")
+            if (changed) AppLog.info("2fa", trf("收到 GitHub 验证请求 {0}", request.id))
         } catch (e: CancellationException) { throw e
         } catch (e: Exception) {
-            if (state.value.device == device) mutableState.value = state.value.copy(connected = false, error = e.networkHint() ?: e.message ?: "无法读取验证请求")
+            if (state.value.device == device) mutableState.value = state.value.copy(connected = false, error = e.networkHint() ?: e.message ?: tr("无法读取验证请求"))
         }
     }
 
@@ -145,11 +147,11 @@ object MobileApprovalMonitor {
                 if (state.value.device == device && state.value.request == expected) {
                     mutableState.value = state.value.copy(request = null, dialogVisible = false, busy = false, approvedId = expected.id, error = null)
                     MobileApprovalNotifications.clearRequest(context)
-                    AppLog.info("2fa", "GitHub 验证请求 ${expected.id} 已批准")
+                    AppLog.info("2fa", trf("GitHub 验证请求 {0} 已批准", expected.id))
                 }
             } catch (e: CancellationException) { throw e
             } catch (e: Exception) {
-                if (state.value.device == device) mutableState.value = state.value.copy(busy = false, error = e.networkHint() ?: e.message ?: "批准失败")
+                if (state.value.device == device) mutableState.value = state.value.copy(busy = false, error = e.networkHint() ?: e.message ?: tr("批准失败"))
             } finally {
                 if (state.value.device == device && state.value.busy) mutableState.value = state.value.copy(busy = false)
             }

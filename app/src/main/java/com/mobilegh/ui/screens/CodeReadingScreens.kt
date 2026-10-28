@@ -26,6 +26,8 @@ import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 @Composable
 fun CodeSearchScreen(owner: String, name: String) {
@@ -37,14 +39,14 @@ fun CodeSearchScreen(owner: String, name: String) {
         if (query.isNotBlank()) History.search(CodeReading.searchQuery(query, owner, name), 4)
         focus.clearFocus()
     }
-    Page("仓库代码搜索", subtitle = "$owner/$name") { pad ->
+    Page(tr("仓库代码搜索"), subtitle = "$owner/$name") { pad ->
         Column(Modifier.padding(pad)) {
-            GhField(input, { input = it }, "搜索代码内容", Modifier.padding(12.dp),
-                placeholder = "函数名、类名或文字，支持 language: 与 path:",
+            GhField(input, { input = it }, tr("搜索代码内容"), Modifier.padding(12.dp),
+                placeholder = tr("函数名、类名或文字，支持 language: 与 path:"),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { submit() }),
                 trailing = { OcButton(R.drawable.oc_search, { submit() }) })
-            if (query.isBlank()) EmptyState("输入关键词搜索该仓库的默认分支", R.drawable.oc_search)
+            if (query.isBlank()) EmptyState(tr("输入关键词搜索该仓库的默认分支"), R.drawable.oc_search)
             else CodeSearchResults(CodeReading.searchQuery(query, owner, name))
         }
     }
@@ -58,10 +60,10 @@ fun CodeSearchResults(query: String) {
     val pager = rememberPager("code-search:$query") { page, force ->
         CodeReading.search(query, page, force).also { total = it.totalCount; incomplete = it.incompleteResults }.items
     }
-    PagedList(pager, itemKey = { "${it.repository.fullName}:${it.path}" }, empty = "没有找到匹配的代码", header = {
+    PagedList(pager, itemKey = { "${it.repository.fullName}:${it.path}" }, empty = tr("没有找到匹配的代码"), header = {
         item {
-            Text("搜索默认分支中的代码 · $total 个结果", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
-            if (incomplete || total > 1000) Text("GitHub 返回了部分结果，请添加仓库、路径或语言条件缩小范围", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.attention, fontSize = 12.sp)
+            Text(trf("搜索默认分支中的代码 · {0} 个结果", total), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
+            if (incomplete || total > 1000) Text(tr("GitHub 返回了部分结果，请添加仓库、路径或语言条件缩小范围"), Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.attention, fontSize = 12.sp)
         }
     }) { hit ->
         Column(Modifier.fillMaxWidth().clickable {
@@ -86,15 +88,15 @@ fun FileFinderScreen(owner: String, name: String, ref: String?) {
         delay(120)
         matches = withContext(Dispatchers.Default) { CodeReading.filterFiles(data.entries, input) }
     }
-    Page("查找文件", subtitle = "$owner/$name · ${ref ?: "默认分支"}") { pad ->
+    Page(tr("查找文件"), subtitle = "$owner/$name · ${ref ?: tr("默认分支")}") { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            GhField(input, { input = it }, "输入文件名或路径", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), placeholder = "如 README 或 src Main")
+            GhField(input, { input = it }, tr("输入文件名或路径"), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), placeholder = tr("如 README 或 src Main"))
             LoadBox(index, Modifier.weight(1f)) { data ->
                 Column {
-                    Text("${matches.count} 个匹配路径 · ${data.commit.take(7)}", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
-                    if (data.truncated) Text("仓库很大，GitHub 只返回了部分路径；未找到时可继续按目录浏览", Modifier.padding(horizontal = 16.dp), color = Gh.c.attention, fontSize = 12.sp)
-                    if (matches.count > matches.entries.size) Text("显示前 ${matches.entries.size} 项，请继续输入以缩小范围", Modifier.padding(horizontal = 16.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
-                    if (matches.entries.isEmpty()) EmptyState("没有匹配的文件或目录", R.drawable.oc_search, action = if (input.isNotBlank()) "清除输入" else null) { input = "" }
+                    Text(trf("{0} 个匹配路径 · {1}", matches.count, data.commit.take(7)), Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
+                    if (data.truncated) Text(tr("仓库很大，GitHub 只返回了部分路径；未找到时可继续按目录浏览"), Modifier.padding(horizontal = 16.dp), color = Gh.c.attention, fontSize = 12.sp)
+                    if (matches.count > matches.entries.size) Text(trf("显示前 {0} 项，请继续输入以缩小范围", matches.entries.size), Modifier.padding(horizontal = 16.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
+                    if (matches.entries.isEmpty()) EmptyState(tr("没有匹配的文件或目录"), R.drawable.oc_search, action = if (input.isNotBlank()) tr("清除输入") else null) { input = "" }
                     else LazyColumn {
                         items(matches.entries, key = { it.path }) { file ->
                             Row(Modifier.fillMaxWidth().clickable {
@@ -118,25 +120,25 @@ fun BlameScreen(owner: String, name: String, path: String, ref: String?) {
     val nav = LocalNav.current
     val blame = rememberLoader("blame:$ref") { CodeReading.blame(owner, name, path, ref) }
     var lineInput by rememberSaveable { mutableStateOf("") }
-    Page("逐行归因", subtitle = path, actions = {
+    Page(tr("逐行归因"), subtitle = path, actions = {
         OcButton(R.drawable.oc_file_code, { nav.push(Screen.FileView(owner, name, path, blame.data?.commit ?: ref)) })
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            GhField(lineInput, { lineInput = it.filter(Char::isDigit) }, "定位行号（留空查看全部）", Modifier.padding(12.dp))
+            GhField(lineInput, { lineInput = it.filter(Char::isDigit) }, tr("定位行号（留空查看全部）"), Modifier.padding(12.dp))
             LoadBox(blame, Modifier.weight(1f)) { data ->
                 val line = lineInput.toIntOrNull()
                 val ranges = if (lineInput.isBlank()) data.ranges else listOfNotNull(line?.let(data::rangeFor))
                 Column {
                     Text("$owner/$name · ${data.commit.take(7)}", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
                     data.sourceNote?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.attention, fontSize = 12.sp) }
-                    if (ranges.isEmpty()) EmptyState(if (lineInput.isBlank()) "该文件没有可用的行归因" else "行号不在该文件中")
+                    if (ranges.isEmpty()) EmptyState(if (lineInput.isBlank()) tr("该文件没有可用的行归因") else tr("行号不在该文件中"))
                     else LazyColumn {
                         ranges.forEach { range ->
                             item(key = "commit:${range.start}") {
                                 Row(Modifier.fillMaxWidth().clickable { nav.push(Screen.CommitDetail(owner, name, range.commit)) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Avatar(range.avatar, 28.dp)
                                     Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                                        Text("${range.author} · ${range.start}–${range.end} 行", color = Gh.c.fg, fontSize = 13.sp)
+                                        Text(trf("{0} · {1}–{2} 行", range.author, range.start, range.end), color = Gh.c.fg, fontSize = 13.sp)
                                         Text(range.message, color = Gh.c.accent, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                         Text("${range.commit.take(7)} · ${relTime(range.date)}", color = Gh.c.fgMuted, fontSize = 11.sp)
                                     }

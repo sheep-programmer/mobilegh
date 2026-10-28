@@ -65,6 +65,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /**
  * 首页「收藏列表」和仓库长按弹窗共用同一份 Star 列表读取入口：
@@ -220,7 +222,7 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                 error = null
                 scope.launch {
                     if (!canCreateListWithRepository(snapshot, mine)) {
-                        error = "仓库归属尚未确认，请返回后重试"
+                        error = tr("仓库归属尚未确认，请返回后重试")
                         saving = false
                         return@launch
                     }
@@ -260,18 +262,18 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Star 列表", fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = g.fg)
+                    Text(tr("Star 列表"), fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = g.fg)
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             repo.fullName.ifBlank { "${repo.owner.login}/${repo.name}" },
                             Modifier.weight(1f), fontSize = 13.sp, color = g.fg,
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
-                        Text("${ordered.size} 个列表", fontSize = 12.sp, color = g.fgMuted)
+                        Text(trf("{0} 个列表", ordered.size), fontSize = 12.sp, color = g.fgMuted)
                     }
                 }
                 if (snapshot?.starred == false) Text(
-                    if (mine) "这是你拥有的仓库，可以直接加入列表。" else "请先 Star 仓库再添加；仍可移除已有分类。",
+                    if (mine) tr("这是你拥有的仓库，可以直接加入列表。") else tr("请先 Star 仓库再添加；仍可移除已有分类。"),
                     fontSize = 12.sp, color = g.fgMuted,
                 )
                 error?.let {
@@ -283,17 +285,17 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                     }
                 }
                 if (base != null && catalog.error != null) {
-                    InlineError("列表刷新失败：${catalog.error}", Modifier.fillMaxWidth()) { catalog.refresh() }
+                    InlineError(trf("列表刷新失败：{0}", catalog.error), Modifier.fillMaxWidth()) { catalog.refresh() }
                 }
 
                 when {
-                    base == null && catalog.error != null -> InlineError("列表读取失败：${catalog.error}", Modifier.fillMaxWidth()) { catalog.refresh() }
+                    base == null && catalog.error != null -> InlineError(trf("列表读取失败：{0}", catalog.error), Modifier.fillMaxWidth()) { catalog.refresh() }
                     base == null -> Loading(Modifier.fillMaxWidth().height(72.dp))
                     else -> {
                         // 归属是后台读的，不占版面；只有真失败了才提示并给重试
                         val failure = membershipError
-                        if (snapshot == null && failure != null) InlineError("列表归属读取失败：$failure", Modifier.fillMaxWidth()) { loadMembership() }
-                        if (ordered.isEmpty()) Text("还没有 GitHub 列表，新建一个后即可加入。", fontSize = 13.sp, color = g.fgMuted)
+                        if (snapshot == null && failure != null) InlineError(trf("列表归属读取失败：{0}", failure), Modifier.fillMaxWidth()) { loadMembership() }
+                        if (ordered.isEmpty()) Text(tr("还没有 GitHub 列表，新建一个后即可加入。"), fontSize = 13.sp, color = g.fgMuted)
                         else Column(Modifier.fillMaxWidth()) {
                             ordered.forEach { list ->
                                 // 直接在行内读状态：勾选变化一定让这一行自己重组，不依赖外层是否传下新值
@@ -314,7 +316,7 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                                     Column(Modifier.weight(1f)) {
                                         Text(list.name, color = if (enabled) g.fg else g.fgMuted, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                         Text(
-                                            if (list.isPrivate) "${list.count} 个仓库 · 私有" else "${list.count} 个仓库",
+                                            if (list.isPrivate) trf("{0} 个仓库 · 私有", list.count) else trf("{0} 个仓库", list.count),
                                             color = g.fgMuted, fontSize = 12.sp,
                                         )
                                     }
@@ -327,19 +329,19 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                 // 新建会同时加入当前仓库，因此归属未读妥或不可添加时不能创建后静默跳过写入。
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (lists.size < UserListsClient.MAX_LISTS) GhButton(
-                        "新建列表", Modifier.weight(1f), icon = R.drawable.oc_plus,
+                        tr("新建列表"), Modifier.weight(1f), icon = R.drawable.oc_plus,
                         enabled = !saving && !writing && canCreateListWithRepository(snapshot, mine),
                     ) {
                         error = null
                         creating = true
                     }
-                    GhButton("管理", Modifier.weight(1f), icon = R.drawable.oc_checklist, enabled = !saving && !writing) {
+                    GhButton(tr("管理"), Modifier.weight(1f), icon = R.drawable.oc_checklist, enabled = !saving && !writing) {
                         onDismiss()
                         nav.push(Screen.StarLists(account.login))
                     }
                 }
                 TextButton(onClick = onLocal, enabled = !saving && !writing, modifier = Modifier.fillMaxWidth()) {
-                    Text("改用本机列表（不同步 GitHub）")
+                    Text(tr("改用本机列表（不同步 GitHub）"))
                 }
             }
         }
@@ -372,7 +374,7 @@ private fun LocalOnlyStarListDialog(repo: Repo, account: StarListAccount, onDism
                 selected = local.filter { list -> list.repositories.any { it.id == repo.id } }.map { it.id }.toSet()
                 starred = GitHub.isStarred(repo.owner.login, repo.name)
                 check(Session.generation == account.generation && account.login.equals(Session.login, true) && Session.token != null) {
-                    "账号已切换，请重新打开列表"
+                    tr("账号已切换，请重新打开列表")
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -386,9 +388,9 @@ private fun LocalOnlyStarListDialog(repo: Repo, account: StarListAccount, onDism
 
     LaunchedEffect(account, repo.id) { load() }
     GhDialog(
-        "加入本机列表",
+        tr("加入本机列表"),
         onDismiss = { if (!saving) onDismiss() },
-        confirm = if (saving) "保存中…" else "保存",
+        confirm = if (saving) tr("保存中…") else tr("保存"),
         confirmEnabled = !saving && !loading && lists != null && selected != original &&
             (starred == true || selected.all { it in original }),
         onConfirm = {
@@ -412,11 +414,11 @@ private fun LocalOnlyStarListDialog(repo: Repo, account: StarListAccount, onDism
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(repo.fullName.ifBlank { "${repo.owner.login}/${repo.name}" }, fontWeight = FontWeight.SemiBold)
-            Text("仅保存在当前设备，不会同步到 GitHub。", color = Gh.c.fgMuted, fontSize = 12.sp)
-            if (starred == false) Text("请先 Star 此仓库再添加；仍可移除已有的本机分类。", color = Gh.c.fgMuted, fontSize = 12.sp)
+            Text(tr("仅保存在当前设备，不会同步到 GitHub。"), color = Gh.c.fgMuted, fontSize = 12.sp)
+            if (starred == false) Text(tr("请先 Star 此仓库再添加；仍可移除已有的本机分类。"), color = Gh.c.fgMuted, fontSize = 12.sp)
             error?.let { InlineError(it, Modifier.fillMaxWidth()) { load() } }
             if (loading) Loading(Modifier.fillMaxWidth().height(48.dp))
-            if (lists?.isEmpty() == true) Text("暂无本机列表，先在管理页创建一个。", color = Gh.c.fgMuted, fontSize = 13.sp)
+            if (lists?.isEmpty() == true) Text(tr("暂无本机列表，先在管理页创建一个。"), color = Gh.c.fgMuted, fontSize = 13.sp)
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp)) {
                 items(lists.orEmpty(), key = { it.id }) { list ->
                     val checked = list.id in selected
@@ -439,7 +441,7 @@ private fun LocalOnlyStarListDialog(repo: Repo, account: StarListAccount, onDism
                 onClick = { onDismiss(); nav.push(Screen.StarLists(account.login, local = true)) },
                 enabled = !saving,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("管理 / 新建本机列表") }
+            ) { Text(tr("管理 / 新建本机列表")) }
         }
     }
 }

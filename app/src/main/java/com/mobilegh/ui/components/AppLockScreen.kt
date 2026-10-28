@@ -40,6 +40,8 @@ import androidx.lifecycle.compose.currentStateAsState
 import com.mobilegh.R
 import com.mobilegh.data.AppLock
 import com.mobilegh.ui.theme.Gh
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** 系统身份验证（生物识别或锁屏密码）。 */
 object Biometrics {
@@ -66,7 +68,7 @@ object Biometrics {
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                 AppLock.authenticating = false
-                if (errorCode !in silent) onError(errString.toString().ifBlank { "验证失败（$errorCode）" })
+                if (errorCode !in silent) onError(errString.toString().ifBlank { trf("验证失败（{0}）", errorCode) })
             }
         })
         val info = BiometricPrompt.PromptInfo.Builder()
@@ -76,7 +78,7 @@ object Biometrics {
             .build()
         runCatching { prompt.authenticate(info) }.onFailure {
             AppLock.authenticating = false
-            onError("无法发起验证：${it.message ?: it.javaClass.simpleName}")
+            onError(trf("无法发起验证：{0}", it.message ?: it.javaClass.simpleName))
         }
     }
 }
@@ -105,11 +107,11 @@ fun AppLockScreen() {
         if (!Biometrics.available(a)) {
             // 设备已移除锁屏密码：应用锁失去意义，自动关闭以免无法进入
             AppLock.setLockEnabled(false)
-            ctx.toast("设备未设置锁屏密码，应用锁已关闭")
+            ctx.toast(tr("设备未设置锁屏密码，应用锁已关闭"))
             return
         }
         error = null
-        Biometrics.authenticate(a, "解锁 MobileGH", "验证身份后继续使用", onSuccess = { AppLock.unlock() }, onError = { error = it })
+        Biometrics.authenticate(a, tr("解锁 MobileGH"), tr("验证身份后继续使用"), onSuccess = { AppLock.unlock() }, onError = { error = it })
     }
 
     LaunchedEffect(lifecycle) {
@@ -137,11 +139,11 @@ fun AppLockScreen() {
     ) {
         Oc(R.drawable.oc_mark_github, g.fg, 56.dp)
         Spacer(Modifier.height(20.dp))
-        Text("MobileGH 已锁定", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+        Text(tr("MobileGH 已锁定"), fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
         Spacer(Modifier.height(6.dp))
-        Text("使用指纹、面容或锁屏密码解锁", fontSize = 14.sp, color = g.fgMuted, textAlign = TextAlign.Center)
+        Text(tr("使用指纹、面容或锁屏密码解锁"), fontSize = 14.sp, color = g.fgMuted, textAlign = TextAlign.Center)
         Spacer(Modifier.height(24.dp))
-        GhButton("解锁", Modifier.fillMaxWidth(0.6f), primary = true, icon = R.drawable.oc_unlock) { prompt() }
+        GhButton(tr("解锁"), Modifier.fillMaxWidth(0.6f), primary = true, icon = R.drawable.oc_unlock) { prompt() }
         error?.let {
             Spacer(Modifier.height(12.dp))
             Text(it, fontSize = 13.sp, color = g.danger, textAlign = TextAlign.Center)

@@ -97,21 +97,23 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 @Composable
 fun AchievementsStrip(login: String, self: Boolean) {
     val ctx = rememberCtx()
     val loader = rememberLoader("ach-public:${login.lowercase(Locale.ROOT)}") { Web.achievements(login, self) }
     Column {
-        SectionTitle("成就", trailing = { Text("公开主页", fontSize = 12.sp, color = Gh.c.fgMuted) })
+        SectionTitle(tr("成就"), trailing = { Text(tr("公开主页"), fontSize = 12.sp, color = Gh.c.fgMuted) })
         when {
             loader.data == null && loader.error != null -> Text(
-                "成就暂时无法读取 · 点击重试", color = Gh.c.fgMuted, fontSize = 12.sp,
+                tr("成就暂时无法读取 · 点击重试"), color = Gh.c.fgMuted, fontSize = 12.sp,
                 modifier = Modifier.fillMaxWidth().clickable { loader.load(true) }.padding(horizontal = 16.dp, vertical = 8.dp),
             )
             loader.data == null -> Loading(Modifier.fillMaxWidth().height(56.dp))
             loader.data!!.isEmpty() -> Text(
-                "公开主页未显示成就，隐藏的成就无法读取。", color = Gh.c.fgMuted, fontSize = 12.sp,
+                tr("公开主页未显示成就，隐藏的成就无法读取。"), color = Gh.c.fgMuted, fontSize = 12.sp,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
             else -> Row(
@@ -130,7 +132,7 @@ fun AchievementsStrip(login: String, self: Boolean) {
 
 @Composable
 internal fun AchievementBadge(badge: Achievement, modifier: Modifier = Modifier) {
-    val tier = when (badge.tier) { "bronze" -> "铜级"; "silver" -> "银级"; "gold" -> "金级"; else -> "" }
+    val tier = when (badge.tier) { "bronze" -> tr("铜级"); "silver" -> tr("银级"); "gold" -> tr("金级"); else -> "" }
     Column(
         modifier.width(76.dp).semantics(mergeDescendants = true) {
             contentDescription = listOf(badge.name, tier, "x${badge.count}").filter(String::isNotEmpty).joinToString("，")
@@ -154,14 +156,14 @@ fun AchievementsScreen(login: String) {
     fun open(badge: Achievement) {
         ctx.openBrowser("https://github.com/${Api.encodePath(login)}?achievement=${Api.q(badge.slug)}&tab=achievements")
     }
-    Page(if (self) "我的成就" else "成就", subtitle = login, actions = {
+    Page(if (self) tr("我的成就") else tr("成就"), subtitle = login, actions = {
         OcButton(R.drawable.oc_link_external, { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=achievements") })
     }) { pad ->
         LoadBox(badges, Modifier.padding(pad).fillMaxSize()) { data ->
             val listState = rememberLazyListState()
             LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(16.dp)) {
-                item { Text("公开主页的徽章、等级和倍数", color = Gh.c.fgMuted, fontSize = 13.sp) }
-                if (data.isEmpty()) emptyItem(listState, "公开主页尚未显示成就；隐藏的徽章无法读取", R.drawable.oc_verified, "在 GitHub 查看") {
+                item { Text(tr("公开主页的徽章、等级和倍数"), color = Gh.c.fgMuted, fontSize = 13.sp) }
+                if (data.isEmpty()) emptyItem(listState, tr("公开主页尚未显示成就；隐藏的徽章无法读取"), R.drawable.oc_verified, tr("在 GitHub 查看")) {
                     ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=achievements")
                 }
                 else item {
@@ -232,60 +234,62 @@ private fun StarListsContent(login: String, generation: Int, onGitHub: () -> Uni
         selectedId = null
         query = ""
     }
-    Page(selected?.name ?: "Star 列表", subtitle = "$login · 本机列表", onBack = if (selected != null) ({ selectedId = null; query = "" }) else null, actions = {
+    Page(selected?.name ?: tr("Star 列表"), subtitle = trf("{0} · 本机列表", login), onBack = if (selected != null) ({ selectedId = null; query = "" }) else null, actions = {
         if (selected != null) {
             OcButton(R.drawable.oc_plus, { pickerOpen = true }, enabled = !saving && selected.repositories.size < LocalStarListsStore.MAX_REPOSITORIES)
-            MoreMenu(listOf(MenuAction("编辑列表") { editing = selected; editorOpen = true }, MenuAction("删除列表", danger = true) { deleting = selected }))
+            MoreMenu(listOf(MenuAction(tr("编辑列表")) { editing = selected; editorOpen = true }, MenuAction(tr("删除列表"), danger = true) { deleting = selected }))
         } else OcButton(R.drawable.oc_link_external, { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=stars") })
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            if (selectedId == null && self) Segmented(listOf("GitHub", "本机"), 1, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), enabled = !saving) { onGitHub() }
+            if (selectedId == null && self) Segmented(listOf("GitHub", tr("本机")), 1, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), enabled = !saving) { onGitHub() }
             Column(Modifier.weight(1f)) {
-                Text("按账号保存在当前设备，不会同步到 GitHub。", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
+                if (selected != null) Text(tr("按账号保存在当前设备，不会同步到 GitHub。"), Modifier.padding(horizontal = 16.dp, vertical = 6.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
                 if (error != null && lists != null) Text(error!!, Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Gh.c.danger, fontSize = 13.sp)
                 when {
                     lists == null && error != null -> ErrorState(error!!, Modifier.weight(1f)) { load() }
                     lists == null -> Loading(Modifier.weight(1f).fillMaxWidth())
                     selected == null -> {
-                        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                            GhButton("新建本机列表", icon = R.drawable.oc_plus, enabled = !saving && lists!!.size < LocalStarListsStore.MAX_LISTS) { editing = null; editorOpen = true }
-                        }
-                        Text("最多 ${LocalStarListsStore.MAX_LISTS} 个列表，每个 ${LocalStarListsStore.MAX_REPOSITORIES} 个仓库，总计 ${LocalStarListsStore.MAX_MEMBERSHIPS} 条记录。", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 11.sp, color = Gh.c.fgMuted)
-                        if (lists!!.isEmpty()) EmptyState("暂无本机列表，创建一个来整理 Stars。", R.drawable.oc_checklist, Modifier.weight(1f).fillMaxWidth(), "新建本机列表") { editing = null; editorOpen = true }
-                        else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(vertical = 4.dp)) {
-                            items(lists!!, key = { it.id }) { list ->
-                                Card(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).clickable { selectedId = list.id; query = "" }) {
-                                    Column(Modifier.padding(14.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(list.name, color = Gh.c.fg, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            Pill("${list.repositories.size} 个仓库")
-                                        }
-                                        if (list.description.isNotEmpty()) Text(list.description, color = Gh.c.fgMuted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-                                    }
-                                }
+                        val all = lists!!
+                        val canCreate = !saving && all.size < LocalStarListsStore.MAX_LISTS
+                        if (all.isEmpty()) ListsEmptyHero(
+                            R.drawable.oc_device_mobile, tr("还没有本机列表"), tr("暂无本机列表，创建一个来整理 Stars。"),
+                            Modifier.weight(1f).fillMaxWidth(), tr("新建本机列表"), R.drawable.oc_plus,
+                        ) { editing = null; editorOpen = true }
+                        else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
+                            item(key = "summary") {
+                                ListsSummaryCard(
+                                    R.drawable.oc_device_mobile, trf("{0} 个本机列表", all.size), trf("共收纳 {0} 条仓库记录", all.sumOf { it.repositories.size }),
+                                    tr("按账号保存在当前设备，不会同步到 GitHub。") + "\n" +
+                                        trf("最多 {0} 个列表，每个 {1} 个仓库，总计 {2} 条记录。", LocalStarListsStore.MAX_LISTS, LocalStarListsStore.MAX_REPOSITORIES, LocalStarListsStore.MAX_MEMBERSHIPS),
+                                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    action = tr("新建本机列表"), actionIcon = R.drawable.oc_plus, actionEnabled = canCreate,
+                                ) { editing = null; editorOpen = true }
+                            }
+                            items(all, key = { it.id }) { list ->
+                                StarListCard(list.name, list.description, list.repositories.size, isPrivate = false) { selectedId = list.id; query = "" }
                             }
                         }
                     }
                     else -> {
                         if (selected.description.isNotEmpty()) Text(selected.description, Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Gh.c.fgMuted, fontSize = 13.sp)
-                        GhField(query, { query = it }, "搜索此列表", modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                        GhField(query, { query = it }, tr("搜索此列表"), modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                         val filtered = selected.repositories.filter { it.fullName.contains(query.trim(), true) }
                         if (filtered.isEmpty()) {
-                            if (selected.repositories.isEmpty()) EmptyState("列表为空，添加已 Star 的仓库。", R.drawable.oc_star, Modifier.weight(1f).fillMaxWidth(), "添加仓库") { pickerOpen = true }
-                            else EmptyState("没有匹配的仓库", R.drawable.oc_search, Modifier.weight(1f).fillMaxWidth(), "清除搜索") { query = "" }
+                            if (selected.repositories.isEmpty()) EmptyState(tr("列表为空，添加已 Star 的仓库。"), R.drawable.oc_star, Modifier.weight(1f).fillMaxWidth(), tr("添加仓库")) { pickerOpen = true }
+                            else EmptyState(tr("没有匹配的仓库"), R.drawable.oc_search, Modifier.weight(1f).fillMaxWidth(), tr("清除搜索")) { query = "" }
                         }
                         else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
                             items(filtered, key = { it.id }) { repo ->
                                 Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f).clickable { nav.push(Screen.Repo(repo.owner, repo.name)) }.padding(vertical = 12.dp)) {
                                         Text(repo.fullName, fontWeight = FontWeight.SemiBold, color = Gh.c.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        if (repo.isPrivate) Text("私有仓库", fontSize = 11.sp, color = Gh.c.fgMuted)
+                                        if (repo.isPrivate) Text(tr("私有仓库"), fontSize = 11.sp, color = Gh.c.fgMuted)
                                     }
-                                    TextButton(onClick = { change { store.removeRepository(account, selected.id, repo.id) } }, enabled = !saving) { Text("移除") }
+                                    TextButton(onClick = { change { store.removeRepository(account, selected.id, repo.id) } }, enabled = !saving) { Text(tr("移除")) }
                                 }
                             }
                         }
-                        Text("移除仓库或删除本机列表不会取消 GitHub Star。", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
+                        Text(tr("移除仓库或删除本机列表不会取消 GitHub Star。"), Modifier.padding(horizontal = 16.dp, vertical = 6.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
                     }
                 }
             }
@@ -299,11 +303,11 @@ private fun StarListsContent(login: String, generation: Int, onGitHub: () -> Uni
         }
     }
     deleting?.let { list ->
-        GhDialog("删除本机列表？", onDismiss = { if (!saving) { deleting = null; error = null } }, confirm = "删除", danger = true, confirmEnabled = !saving, onConfirm = {
+        GhDialog(tr("删除本机列表？"), onDismiss = { if (!saving) { deleting = null; error = null } }, confirm = tr("删除"), danger = true, confirmEnabled = !saving, onConfirm = {
             change(onDone = { deleting = null; selectedId = null }) { store.delete(account, list.id) }
         }) {
             Column {
-                Text("删除「${list.name}」及其本机分类记录。仓库的 GitHub Star 会保留。")
+                Text(trf("删除「{0}」及其本机分类记录。仓库的 GitHub Star 会保留。", list.name))
                 if (error != null) Text(error!!, color = Gh.c.danger)
             }
         }
@@ -317,11 +321,11 @@ private fun StarListsContent(login: String, generation: Int, onGitHub: () -> Uni
 private fun ListEditor(list: LocalStarList?, saving: Boolean, error: String?, onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
     var name by remember(list?.id) { mutableStateOf(list?.name.orEmpty()) }
     var description by remember(list?.id) { mutableStateOf(list?.description.orEmpty()) }
-    GhDialog(if (list == null) "新建本机列表" else "编辑本机列表", onDismiss = onDismiss, confirm = if (saving) "保存中…" else "保存", confirmEnabled = !saving && name.isNotBlank(), onConfirm = { onSave(name, description) }) {
+    GhDialog(if (list == null) tr("新建本机列表") else tr("编辑本机列表"), onDismiss = onDismiss, confirm = if (saving) tr("保存中…") else tr("保存"), confirmEnabled = !saving && name.isNotBlank(), onConfirm = { onSave(name, description) }) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            GhField(name, { if (it.length <= LocalStarListsStore.MAX_NAME) name = it }, "名称")
-            GhField(description, { if (it.length <= LocalStarListsStore.MAX_DESCRIPTION) description = it }, "描述（可选）", singleLine = false, minLines = 2)
-            Text("仅保存在当前设备，不会同步到 GitHub。", color = Gh.c.fgMuted, fontSize = 12.sp)
+            GhField(name, { if (it.length <= LocalStarListsStore.MAX_NAME) name = it }, tr("名称"))
+            GhField(description, { if (it.length <= LocalStarListsStore.MAX_DESCRIPTION) description = it }, tr("描述（可选）"), singleLine = false, minLines = 2)
+            Text(tr("仅保存在当前设备，不会同步到 GitHub。"), color = Gh.c.fgMuted, fontSize = 12.sp)
             if (error != null) Text(error, color = Gh.c.danger, fontSize = 13.sp)
         }
     }
@@ -368,10 +372,10 @@ private fun StarredRepoSelectionDialog(
         error = null
         scope.launch {
             try {
-                check(Session.generation == account.generation && account.login.equals(Session.login, true) && Session.token != null) { "账号已切换，请重新打开列表" }
+                check(Session.generation == account.generation && account.login.equals(Session.login, true) && Session.token != null) { tr("账号已切换，请重新打开列表") }
                 val next = page + 1
                 val loaded = GitHub.starred(null, next, false)
-                check(Session.generation == account.generation && account.login.equals(Session.login, true) && Session.token != null) { "账号已切换，请重新打开列表" }
+                check(Session.generation == account.generation && account.login.equals(Session.login, true) && Session.token != null) { tr("账号已切换，请重新打开列表") }
                 repos = (repos + loaded).distinctBy { it.id }
                 page = next
                 end = loaded.size < GitHub.STARRED_PER || page >= maxPages
@@ -384,12 +388,12 @@ private fun StarredRepoSelectionDialog(
     val filtered = repos.filter { repo ->
         repo.fullName.contains(query.trim(), true) || repo.name.contains(query.trim(), true) || repo.owner.login.contains(query.trim(), true)
     }
-    GhDialog("添加已 Star 的仓库", onDismiss = onDismiss, confirm = if (saving) "保存中…" else "添加 (${selected.size})", confirmEnabled = !saving && selected.isNotEmpty(), onConfirm = {
+    GhDialog(tr("添加已 Star 的仓库"), onDismiss = onDismiss, confirm = if (saving) tr("保存中…") else trf("添加 ({0})", selected.size), confirmEnabled = !saving && selected.isNotEmpty(), onConfirm = {
         onAdd(repos.filter { it.id in selected })
     }) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            GhField(query, { query = it }, "搜索已加载的 Stars")
-            Text("已加载 ${repos.size} 个 · 可再添加 $available 个。搜索较早的 Stars 时请继续加载。", color = Gh.c.fgMuted, fontSize = 12.sp)
+            GhField(query, { query = it }, tr("搜索已加载的 Stars"))
+            Text(trf("已加载 {0} 个 · 可再添加 {1} 个。搜索较早的 Stars 时请继续加载。", repos.size, available), color = Gh.c.fgMuted, fontSize = 12.sp)
             if (saveError != null) Text(saveError, color = Gh.c.danger, fontSize = 12.sp)
             if (error != null) Text(error!!, color = Gh.c.danger, fontSize = 12.sp)
             LazyColumn(Modifier.fillMaxWidth().heightIn(min = 80.dp, max = 300.dp)) {
@@ -402,16 +406,16 @@ private fun StarredRepoSelectionDialog(
                         Checkbox(checked, onCheckedChange = { toggle() }, enabled = enabled)
                         Column(Modifier.weight(1f)) {
                             Text(repo.fullName.ifBlank { "${repo.owner.login}/${repo.name}" }, color = Gh.c.fg, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            if (already) Text("已在列表中", color = Gh.c.fgMuted, fontSize = 11.sp)
-                            else if (repo.isPrivate) Text("私有仓库", color = Gh.c.fgMuted, fontSize = 11.sp)
+                            if (already) Text(tr("已在列表中"), color = Gh.c.fgMuted, fontSize = 11.sp)
+                            else if (repo.isPrivate) Text(tr("私有仓库"), color = Gh.c.fgMuted, fontSize = 11.sp)
                         }
                     }
                 }
-                if (filtered.isEmpty() && !loading) item { Text(if (repos.isEmpty() && error == null) "暂无已 Star 的仓库" else "未找到匹配；可加载更多 Stars。", color = Gh.c.fgMuted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 12.dp)) }
+                if (filtered.isEmpty() && !loading) item { Text(if (repos.isEmpty() && error == null) tr("暂无已 Star 的仓库") else tr("未找到匹配；可加载更多 Stars。"), color = Gh.c.fgMuted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 12.dp)) }
             }
             if (loading) Loading(Modifier.fillMaxWidth().height(36.dp))
-            else if (!end) GhButton(if (error == null) "加载更多 Stars" else "重试加载", enabled = !saving) { loadMore() }
-            else if (page >= maxPages) Text("已达到 ${maxPages * GitHub.STARRED_PER} 个候选仓库的读取上限。", color = Gh.c.fgMuted, fontSize = 12.sp)
+            else if (!end) GhButton(if (error == null) tr("加载更多 Stars") else tr("重试加载"), enabled = !saving) { loadMore() }
+            else if (page >= maxPages) Text(trf("已达到 {0} 个候选仓库的读取上限。", maxPages * GitHub.STARRED_PER), color = Gh.c.fgMuted, fontSize = 12.sp)
         }
     }
 }
@@ -470,8 +474,8 @@ internal class UserListDetailLoader<T>(
                 currentCoroutineContext().ensureActive()
                 if (version != operation) return@launch
                 val next = if (replace) page.items else items + page.items
-                check(next.map(id).distinct().size == next.size && (page.nextCursor == null || page.nextCursor != after)) { "GitHub 仓库分页重复，请刷新" }
-                check(next.size <= page.totalCount && (page.nextCursor != null || next.size == page.totalCount)) { "GitHub 列表仓库读取不完整，请刷新" }
+                check(next.map(id).distinct().size == next.size && (page.nextCursor == null || page.nextCursor != after)) { tr("GitHub 仓库分页重复，请刷新") }
+                check(next.size <= page.totalCount && (page.nextCursor != null || next.size == page.totalCount)) { tr("GitHub 列表仓库读取不完整，请刷新") }
                 items = next.take(limit)
                 total = page.totalCount
                 cursor = page.nextCursor
@@ -540,7 +544,7 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
                 // 本次 mutation 已在这里刷新，revision 观察者只处理其他页面的修改。
                 handledRevision = UserLists.changes.value
                 try { reload() } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Exception) {
-                    error = "已保存到 GitHub，但刷新失败：${failure.friendly()}"
+                    error = trf("已保存到 GitHub，但刷新失败：{0}", failure.friendly())
                 }
                 if (selected != null) detail.refresh()
             } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Exception) { error = failure.friendly() }
@@ -564,56 +568,76 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
     BackHandler(enabled = selectedId != null && !editorOpen && !pickerOpen && deleting == null) {
         selectedId = null; query = ""
     }
-    Page(selected?.name ?: "Star 列表", subtitle = "$login · GitHub${if (!self) " · 只读" else " · 已同步"}", onBack = if (selected != null) ({ selectedId = null; query = "" }) else null, actions = {
+    Page(selected?.name ?: tr("Star 列表"), subtitle = "$login · GitHub${if (!self) tr(" · 只读") else tr(" · 已同步")}", onBack = if (selected != null) ({ selectedId = null; query = "" }) else null, actions = {
         if (selected != null) {
             if (self) OcButton(R.drawable.oc_plus, { pickerOpen = true }, enabled = !saving && !loading)
             MoreMenu(buildList {
-                add(MenuAction("刷新") { if (!saving && !loading) { load(); detail.refresh() } })
+                add(MenuAction(tr("刷新")) { if (!saving && !loading) { load(); detail.refresh() } })
                 if (self) {
-                    add(MenuAction("编辑列表") { editing = selected; editorOpen = true })
-                    add(MenuAction("删除列表", danger = true) { deleting = selected })
+                    add(MenuAction(tr("编辑列表")) { editing = selected; editorOpen = true })
+                    add(MenuAction(tr("删除列表"), danger = true) { deleting = selected })
                 }
-                add(MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=stars") })
+                add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=stars") })
             })
-        } else OcButton(R.drawable.oc_link_external, { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=stars") })
+        } else MoreMenu(listOf(
+            MenuAction(tr("刷新")) { if (!saving && !loading) load() },
+            MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=stars") },
+        ))
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            if (selected == null && onLocal != null) Segmented(listOf("GitHub", "本机"), 0, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), enabled = !saving && !loading) { onLocal() }
+            if (selected == null && onLocal != null) Segmented(listOf("GitHub", tr("本机")), 0, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), enabled = !saving && !loading) { onLocal() }
             val visibleError = error ?: detail.error
             if (visibleError != null && lists != null) Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                 Text(visibleError, fontSize = 13.sp, color = Gh.c.danger)
                 if (!saving && !loading) TextButton(onClick = {
                     if (error != null || selected == null) load() else detail.retry()
-                }) { Text("重新加载") }
+                }) { Text(tr("重新加载")) }
             }
             if (lists == null) {
                 if (error != null && !loading) ErrorState(error!!, Modifier.weight(1f).fillMaxWidth()) { load() }
                 else Loading(Modifier.weight(1f).fillMaxWidth())
             } else if (selected == null) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (self) GhButton("新建 GitHub 列表", icon = R.drawable.oc_plus, enabled = !saving && !loading && lists!!.size < UserListsClient.MAX_LISTS) { editing = null; editorOpen = true }
-                    GhButton("刷新", enabled = !saving && !loading) { load() }
-                }
-                Text(if (self) "列表与 GitHub 同步；公开列表可被其他人查看。" else "查看公开的 GitHub 列表。", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
                 // 列表目录：和首页卡片区共用同一份搜索/排序状态
                 val browser = rememberSharedListBrowser("home-lists:$login")
-                SearchBox(
-                    browser.input, browser.query, { browser.input = it }, { browser.apply() }, { browser.clear() },
-                    "搜索列表", "名称或描述",
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                )
-                SortBar(
-                    LIST_SORTS, browser.sort, browser.descending,
-                    { browser.pick(it) }, { browser.descending = !browser.descending },
-                    enabled = !saving && !loading,
-                )
-                val shownLists = browser.shown(lists!!)
+                val all = lists!!
+                val shownLists = browser.shown(all)
+                val canCreate = self && !saving && !loading && all.size < UserListsClient.MAX_LISTS
                 when {
-                    lists!!.isEmpty() -> if (self) EmptyState("暂无 GitHub 列表，创建一个来整理 Stars。", R.drawable.oc_checklist, Modifier.weight(1f).fillMaxWidth(), "新建 GitHub 列表") { editing = null; editorOpen = true }
-                    else EmptyState("$login 还没有公开的 GitHub 列表", R.drawable.oc_checklist, Modifier.weight(1f).fillMaxWidth(), "刷新") { load() }
-                    shownLists.isEmpty() -> EmptyState("没有匹配的列表", R.drawable.oc_search, Modifier.weight(1f).fillMaxWidth(), "清除搜索") { browser.clear() }
-                    else -> LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(vertical = 6.dp)) {
-                        items(shownLists, key = { it.id }) { list ->
+                    all.isEmpty() -> if (self) ListsEmptyHero(
+                        R.drawable.oc_checklist, tr("还没有 GitHub 列表"), tr("用列表给 Stars 分门别类，列表会同步到 GitHub。"),
+                        Modifier.weight(1f).fillMaxWidth(), tr("新建 GitHub 列表"), R.drawable.oc_plus,
+                    ) { editing = null; editorOpen = true }
+                    else ListsEmptyHero(
+                        R.drawable.oc_checklist, trf("{0} 还没有公开的 GitHub 列表", login), "",
+                        Modifier.weight(1f).fillMaxWidth(), tr("刷新"),
+                    ) { load() }
+                    else -> LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
+                        item(key = "summary") {
+                            val privateCount = all.count { it.isPrivate }
+                            ListsSummaryCard(
+                                R.drawable.oc_checklist, trf("{0} 个列表", all.size), trf("{0} 个公开 · {1} 个私有", all.size - privateCount, privateCount),
+                                if (self) tr("列表与 GitHub 同步；公开列表可被其他人查看。") else tr("查看公开的 GitHub 列表。"),
+                                Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                action = if (self) tr("新建 GitHub 列表") else null, actionIcon = R.drawable.oc_plus, actionEnabled = canCreate,
+                            ) { editing = null; editorOpen = true }
+                        }
+                        item(key = "controls") {
+                            Column(Modifier.padding(bottom = 8.dp)) {
+                                SearchBox(
+                                    browser.input, browser.query, { browser.input = it }, { browser.apply() }, { browser.clear() },
+                                    tr("搜索列表"), tr("名称或描述"),
+                                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                )
+                                SortBar(
+                                    LIST_SORTS, browser.sort, browser.descending,
+                                    { browser.pick(it) }, { browser.descending = !browser.descending },
+                                    enabled = !saving && !loading,
+                                )
+                            }
+                        }
+                        if (shownLists.isEmpty()) item(key = "no-match") {
+                            ListsEmptyHero(R.drawable.oc_search, tr("没有匹配的列表"), "", Modifier.fillMaxWidth(), tr("清除搜索")) { browser.clear() }
+                        } else items(shownLists, key = { it.id }) { list ->
                             StarListRow(list, enabled = !saving && !loading) { selectedId = list.id; query = "" }
                         }
                     }
@@ -623,30 +647,30 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
                 var itemInput by rememberSaveable(selected.id) { mutableStateOf("") }
                 var itemQuery by rememberSaveable(selected.id) { mutableStateOf("") }
                 Text(
-                    "${if (selected.isPrivate) "私有" else "公开"} · 已加载 ${repositories.size} / $detailTotal",
+                    trf("{0} · 已加载 {1} / {2}", if (selected.isPrivate) tr("私有") else tr("公开"), repositories.size, detailTotal),
                     Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.fgMuted, fontSize = 12.sp,
                 )
                 if (selected.description.isNotEmpty()) Text(selected.description, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.fgMuted, fontSize = 13.sp)
                 SearchBox(
                     itemInput, itemQuery, { itemInput = it }, { itemQuery = itemInput.trim() },
                     { itemInput = ""; itemQuery = "" },
-                    "搜索列表内仓库", "名称或描述",
+                    tr("搜索列表内仓库"), tr("名称或描述"),
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                 )
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("GitHub 顺序", Modifier.weight(1f), color = Gh.c.fgMuted, fontSize = 13.sp)
+                    Text(tr("GitHub 顺序"), Modifier.weight(1f), color = Gh.c.fgMuted, fontSize = 13.sp)
                     DirectionButton(itemDesc) { itemDesc = !itemDesc }
                 }
                 // 方向由服务端决定（正序 after 往后、倒序 before 往回），这里只做搜索过滤
                 run {
                     val filtered = repositories.filter { starMatches(it.repo, itemQuery) }
                     if (filtered.isEmpty() && detailLoaded && !detail.hasMore && !loading) {
-                        if (repositories.isNotEmpty()) EmptyState("没有匹配的已加载仓库", R.drawable.oc_search, Modifier.weight(1f).fillMaxWidth(), "清除搜索") { itemInput = ""; itemQuery = "" }
-                        else if (self) EmptyState("列表暂无仓库，添加已 Star 的仓库。", R.drawable.oc_star, Modifier.weight(1f).fillMaxWidth(), "添加仓库") { pickerOpen = true }
-                        else EmptyState("列表暂无仓库", R.drawable.oc_star, Modifier.weight(1f).fillMaxWidth())
+                        if (repositories.isNotEmpty()) EmptyState(tr("没有匹配的已加载仓库"), R.drawable.oc_search, Modifier.weight(1f).fillMaxWidth(), tr("清除搜索")) { itemInput = ""; itemQuery = "" }
+                        else if (self) EmptyState(tr("列表暂无仓库，添加已 Star 的仓库。"), R.drawable.oc_star, Modifier.weight(1f).fillMaxWidth(), tr("添加仓库")) { pickerOpen = true }
+                        else EmptyState(tr("列表暂无仓库"), R.drawable.oc_star, Modifier.weight(1f).fillMaxWidth())
                     } else if (filtered.isEmpty() && !detailLoaded) {
                         if (loading) Loading(Modifier.weight(1f).fillMaxWidth())
                         else Spacer(Modifier.weight(1f))
@@ -664,7 +688,7 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
                         item(key = "list-footer") {
                             when {
                                 loading -> Loading(Modifier.fillMaxWidth().height(40.dp))
-                                detail.limited -> Text("已达 ${UserListsClient.MAX_DETAIL_ITEMS} 个仓库的显示上限，请在网页中继续查看。", Modifier.padding(16.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
+                                detail.limited -> Text(trf("已达 {0} 个仓库的显示上限，请在网页中继续查看。", UserListsClient.MAX_DETAIL_ITEMS), Modifier.padding(16.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
                                 detail.hasMore -> LaunchedEffect(detail.loaded, detail.hasMore) {
                                     // 尾部一旦进入组合（即滑到底）就继续拉下一页
                                     if (detail.hasMore && !detail.loading && !saving) detail.loadMore()
@@ -673,7 +697,7 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
                         }
                     }
                 }
-                if (self) Text("移除分类不会取消 Star。", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
+                if (self) Text(tr("移除分类不会取消 Star。"), Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
             }
         }
     }
@@ -685,11 +709,11 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
         }
     }
     deleting?.let { list ->
-        GhDialog("删除 GitHub 列表？", onDismiss = { if (!saving) deleting = null }, confirm = "删除", danger = true, confirmEnabled = !saving, onConfirm = {
+        GhDialog(tr("删除 GitHub 列表？"), onDismiss = { if (!saving) deleting = null }, confirm = tr("删除"), danger = true, confirmEnabled = !saving, onConfirm = {
             mutate(onDone = { deleting = null; selectedId = null }) { UserLists.delete(account, list) }
         }) {
             Column {
-                Text("从 GitHub 删除「${list.name}」。仓库的 Star 会保留。")
+                Text(trf("从 GitHub 删除「{0}」。仓库的 Star 会保留。", list.name))
                 if (error != null) Text(error!!, color = Gh.c.danger, fontSize = 12.sp)
             }
         }
@@ -705,15 +729,15 @@ fun GitHubListEditor(list: GitHubStarList?, saving: Boolean, error: String?, onD
     var name by remember(list?.id) { mutableStateOf(list?.name.orEmpty()) }
     var description by remember(list?.id) { mutableStateOf(list?.description.orEmpty()) }
     var privateList by remember(list?.id) { mutableStateOf(list?.isPrivate ?: false) }
-    GhDialog(if (list == null) "新建 GitHub 列表" else "编辑 GitHub 列表", onDismiss = onDismiss, confirm = if (saving) "保存中…" else "保存到 GitHub", confirmEnabled = !saving && name.isNotBlank(), onConfirm = { onSave(name, description, privateList) }) {
+    GhDialog(if (list == null) tr("新建 GitHub 列表") else tr("编辑 GitHub 列表"), onDismiss = onDismiss, confirm = if (saving) tr("保存中…") else tr("保存到 GitHub"), confirmEnabled = !saving && name.isNotBlank(), onConfirm = { onSave(name, description, privateList) }) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            GhField(name, { if (it.length <= UserListsClient.MAX_NAME) name = it }, "名称")
-            GhField(description, { if (it.length <= UserListsClient.MAX_DESCRIPTION) description = it }, "描述（可选）", singleLine = false, minLines = 2)
+            GhField(name, { if (it.length <= UserListsClient.MAX_NAME) name = it }, tr("名称"))
+            GhField(description, { if (it.length <= UserListsClient.MAX_DESCRIPTION) description = it }, tr("描述（可选）"), singleLine = false, minLines = 2)
             Row(Modifier.fillMaxWidth().clickable(enabled = !saving) { privateList = !privateList }, verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(privateList, onCheckedChange = { privateList = it }, enabled = !saving)
-                Text("私有列表（仅自己可见）", fontSize = 13.sp)
+                Text(tr("私有列表（仅自己可见）"), fontSize = 13.sp)
             }
-            Text(if (privateList) "列表将保存在 GitHub，设为私有。" else "公开列表会显示在你的 GitHub Stars 页面。", color = Gh.c.fgMuted, fontSize = 12.sp)
+            Text(if (privateList) tr("列表将保存在 GitHub，设为私有。") else tr("公开列表会显示在你的 GitHub Stars 页面。"), color = Gh.c.fgMuted, fontSize = 12.sp)
             if (error != null) Text(error, color = Gh.c.danger, fontSize = 12.sp)
         }
     }

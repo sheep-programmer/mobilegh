@@ -15,6 +15,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import java.io.IOException
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /** Retained by the navigation entry, so configuration changes do not restart OAuth. */
 internal class LoginFlow(
@@ -76,7 +78,7 @@ internal class LoginFlow(
                 if (!e.retryable()) throw e
                 // Network failures never replace the device code or extend its lifetime.
                 nextDelay = maxOf(interval, nextDelay.coerceAtMost(Long.MAX_VALUE / 2) * 2)
-                notice = "连接中断，正在等待重试，授权有效期不变"
+                notice = tr("连接中断，正在等待重试，授权有效期不变")
                 continue
             }
             currentCoroutineContext().ensureActive()
@@ -97,7 +99,7 @@ internal class LoginFlow(
                 is DevicePoll.Failed -> error(result.message)
             }
         }
-        error("授权码已过期，请重新开始")
+        error(tr("授权码已过期，请重新开始"))
     }
 
     private suspend fun finish(result: DevicePoll.Authorized) {
@@ -112,7 +114,7 @@ internal class LoginFlow(
                 currentCoroutineContext().ensureActive()
                 if (!e.retryable() || retries == 3) throw e
                 val wait = 5_000L shl retries++
-                notice = "正在连接 GitHub 确认账号，${wait / 1000} 秒后重试"
+                notice = trf("正在连接 GitHub 确认账号，{0} 秒后重试", wait / 1000)
                 pause(wait)
                 currentCoroutineContext().ensureActive()
             }

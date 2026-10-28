@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -48,6 +49,7 @@ import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.copy
+import com.mobilegh.ui.components.DiffModeToggle
 import com.mobilegh.ui.components.diffLines
 import com.mobilegh.ui.components.fmtDateTime
 import com.mobilegh.ui.components.openBrowser
@@ -60,14 +62,16 @@ import com.mobilegh.ui.theme.Gh
 import com.mobilegh.ui.theme.GhColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 @Composable
 fun CommitsScreen(owner: String, name: String, ref: String?, path: String?, author: String? = null, since: String? = null, until: String? = null) {
     val pager = rememberPager("commits:$author:$since:$until") { p, f -> GitHub.commits(owner, name, ref, path, p, f, author, since, until) }
-    Page("提交历史", subtitle = listOfNotNull("$owner/$name", ref, path, author).joinToString(" · ")) { pad ->
+    Page(tr("提交历史"), subtitle = listOfNotNull("$owner/$name", ref, path, author).joinToString(" · ")) { pad ->
         PagedList(pager, Modifier.padding(pad), itemKey = { it.sha }, header = {
             if (since != null || until != null) item {
-                Text("${since?.take(10) ?: "不限"} 至 ${until?.take(10) ?: "不限"} · 按提交时间精确筛选（UTC）",
+                Text(trf("{0} 至 {1} · 按提交时间精确筛选（UTC）", since?.take(10) ?: tr("不限"), until?.take(10) ?: tr("不限")),
                     Modifier.padding(16.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
             }
         }) { CommitRow(owner, name, it) }
@@ -78,27 +82,26 @@ fun CommitsScreen(owner: String, name: String, ref: String?, path: String?, auth
 fun CommitRow(owner: String, name: String, c: Commit) {
     val nav = LocalNav.current
     val g = Gh.c
-    Row(
+    // 提交说明独占整行，作者与 SHA 放在下一行：长标题不会被 SHA 徽章挤成窄列
+    Column(
         Modifier.fillMaxWidth().clickable { nav.push(Screen.CommitDetail(owner, name, c.sha)) }.padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Column(Modifier.weight(1f)) {
-            MdText(c.commit.message.lineSequence().first(), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2)
-            Spacer(Modifier.height(6.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Avatar(c.author?.avatarUrl, 18.dp)
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    "${c.author?.login ?: c.commit.author?.name ?: ""} 提交于 ${relTime(c.commit.author?.date)}",
-                    fontSize = 12.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
-                )
-            }
+        MdText(c.commit.message.lineSequence().first(), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2)
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Avatar(c.author?.avatarUrl, 18.dp)
+            Spacer(Modifier.width(6.dp))
+            Text(
+                trf("{0} 提交于 {1}", c.author?.login ?: c.commit.author?.name ?: "", relTime(c.commit.author?.date)),
+                fontSize = 12.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                c.sha.take(7),
+                Modifier.background(g.neutralMuted, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
+                fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = g.fg,
+            )
         }
-        Spacer(Modifier.width(8.dp))
-        Text(
-            c.sha.take(7),
-            Modifier.background(g.neutralMuted, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp),
-            fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = g.fg,
-        )
     }
 }
 
@@ -117,13 +120,13 @@ fun CommitDetailScreen(owner: String, name: String, sha: String) {
     // 链接里可能是分支名或 HEAD，加载后统一换成实际 SHA
     val sha = data.data?.first?.sha?.takeIf { it.isNotBlank() } ?: sha
     Page(
-        "提交 ${sha.take(7)}", subtitle = "$owner/$name",
+        trf("提交 {0}", sha.take(7)), subtitle = "$owner/$name",
         actions = {
             MoreMenu(listOf(
-                MenuAction("复制 SHA") { ctx.copy(sha) },
-                MenuAction("浏览此版本的文件") { nav.push(Screen.Files(owner, name, "", sha)) },
-                MenuAction("分享") { ctx.share("https://github.com/$owner/$name/commit/$sha") },
-                MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name/commit/$sha") },
+                MenuAction(tr("复制 SHA")) { ctx.copy(sha) },
+                MenuAction(tr("浏览此版本的文件")) { nav.push(Screen.Files(owner, name, "", sha)) },
+                MenuAction(tr("分享")) { ctx.share("https://github.com/$owner/$name/commit/$sha") },
+                MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$owner/$name/commit/$sha") },
             ))
         },
     ) { pad ->
@@ -148,25 +151,25 @@ fun CommitDetailScreen(owner: String, name: String, sha: String) {
                             Avatar(c.author?.avatarUrl, 22.dp, Modifier.clickable { c.author?.login?.let { nav.push(Screen.Profile(it)) } })
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                "${c.author?.login ?: c.commit.author?.name} 于 ${fmtDateTime(c.commit.author?.date)} 提交",
+                                trf("{0} 于 {1} 提交", c.author?.login ?: c.commit.author?.name, fmtDateTime(c.commit.author?.date)),
                                 fontSize = 13.sp, color = g.fgMuted,
                             )
                         }
                         if (c.committer?.login != null && c.committer.login != c.author?.login) {
-                            Text("由 ${c.committer.login} 合入 · ${fmtDateTime(c.commit.committer?.date)}", fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(top = 4.dp))
+                            Text(trf("由 {0} 合入 · {1}", c.committer.login, fmtDateTime(c.commit.committer?.date)), fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(top = 4.dp))
                         }
                         Spacer(Modifier.height(8.dp))
                         Text("SHA  $sha", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.clickable { ctx.copy(sha) })
                         c.parents.forEach { p ->
                             Text(
-                                "父提交  ${p.sha.take(7)}", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = g.accent,
+                                trf("父提交  {0}", p.sha.take(7)), fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = g.accent,
                                 modifier = Modifier.padding(top = 2.dp).clickable { nav.push(Screen.CommitDetail(owner, name, p.sha)) },
                             )
                         }
                         Spacer(Modifier.height(10.dp))
                         c.stats?.let { s ->
                             Row {
-                                Text("${files.size} 个文件变更 ", fontSize = 13.sp, color = g.fg)
+                                Text(trf("{0} 个文件变更 ", files.size), fontSize = 13.sp, color = g.fg)
                                 Text("+${s.additions} ", fontSize = 13.sp, color = g.success, fontWeight = FontWeight.SemiBold)
                                 Text("−${s.deletions}", fontSize = 13.sp, color = g.danger, fontWeight = FontWeight.SemiBold)
                             }
@@ -174,6 +177,7 @@ fun CommitDetailScreen(owner: String, name: String, sha: String) {
                     }
                     HDivider()
                 }
+                item { Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.End) { DiffModeToggle() } }
                 fileDiffs(files, collapsed, g) { f -> nav.push(Screen.FileView(owner, name, f.filename, sha)) }
                 item { Spacer(Modifier.height(32.dp)) }
             }
@@ -199,7 +203,7 @@ fun LazyListScope.fileDiffs(
             if (pf.lines.isEmpty()) {
                 item(key = "e:${f.filename}") {
                     Text(
-                        if (f.status == "renamed") "文件已重命名（无内容变化）" else "二进制文件或变更过大，无法显示 diff",
+                        if (f.status == "renamed") tr("文件已重命名（无内容变化）") else tr("二进制文件或变更过大，无法显示 diff"),
                         Modifier.padding(16.dp), fontSize = 13.sp, color = g.fgMuted,
                     )
                 }
@@ -236,16 +240,16 @@ fun FileDiffHeader(
             Oc(if (collapsed) R.drawable.oc_chevron_right else R.drawable.oc_chevron_down, g.fgMuted, 14.dp)
             Spacer(Modifier.width(6.dp))
             val (label, color) = when (f.status) {
-                "added" -> "新增" to g.success
-                "removed" -> "删除" to g.danger
-                "renamed" -> "重命名" to g.attention
-                else -> "修改" to g.fgMuted
+                "added" -> tr("新增") to g.success
+                "removed" -> tr("删除") to g.danger
+                "renamed" -> tr("重命名") to g.attention
+                else -> tr("修改") to g.fgMuted
             }
             Text(label, fontSize = 11.sp, color = color, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.width(6.dp))
             Column(Modifier.weight(1f)) {
                 Text(f.filename, fontSize = 13.sp, fontFamily = FontFamily.Monospace, color = if (viewed == true) g.fgMuted else g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                f.previousFilename?.let { Text("重命名自 $it", fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = g.fgMuted, maxLines = 1) }
+                f.previousFilename?.let { Text(trf("重命名自 {0}", it), fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = g.fgMuted, maxLines = 1) }
                 if (viewed != null) Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("+${f.additions}", fontSize = 12.sp, color = g.success, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.width(4.dp))
@@ -279,7 +283,7 @@ fun FileDiffHeader(
                         contentAlignment = Alignment.Center,
                     ) { if (viewed) Oc(R.drawable.oc_check, g.canvas, 12.dp) }
                     Spacer(Modifier.width(6.dp))
-                    Text("已查看", fontSize = 12.sp, color = if (viewed) g.accent else g.fg, fontWeight = FontWeight.Medium)
+                    Text(tr("已查看"), fontSize = 12.sp, color = if (viewed) g.accent else g.fg, fontWeight = FontWeight.Medium)
                 }
             }
             if (menu != null) MoreMenu(menu, g.fgMuted)

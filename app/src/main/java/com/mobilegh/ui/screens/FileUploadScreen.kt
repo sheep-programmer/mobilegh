@@ -71,6 +71,8 @@ import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 /**
  * 上传页的本机状态。文件清单可能有几千项，只挂在页面条目上（不进 saved state）；
@@ -131,7 +133,7 @@ private class UploadState {
     /** 底部一行：文件数 + 合计大小 + 被排除的数量 */
     fun lineSummary(): String {
         val size = if (usable.isEmpty()) "" else " · " + fmtSize(bytes)
-        return "${usable.size} 个文件$size" + if (skipped > 0) " · $skipped 项不上传" else ""
+        return trf("{0} 个文件{1}", usable.size, size) + if (skipped > 0) trf(" · {0} 项不上传", skipped) else ""
     }
 }
 
@@ -182,7 +184,7 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
             GitUpload.pathOf(path, segs.dropLast(1), segs.last())?.let { UploadItem(e.uri, segs.last(), it, e.size) }
         })
         st.note = group.note
-        if (group.entries.isEmpty()) ctx.toast(group.note ?: "没有读到可上传的文件")
+        if (group.entries.isEmpty()) ctx.toast(group.note ?: tr("没有读到可上传的文件"))
     }
 
     val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -192,7 +194,7 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
             // 递归统计可能很慢（几千个文件），统计完前不让重复点
             val read = runCatching { UploadSource.readFiles(ctx, uris) }
             st.reading = false
-            if (read.isFailure) st.error = "读取所选文件失败：" + read.exceptionOrNull()?.friendlyText()
+            if (read.isFailure) st.error = tr("读取所选文件失败：") + read.exceptionOrNull()?.friendlyText()
             else accept(read.getOrThrow())
         }
     }
@@ -202,7 +204,7 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
         entry.scope.launch {
             val read = runCatching { UploadSource.readFolder(ctx, tree) }
             st.reading = false
-            if (read.isFailure) st.error = "读取文件夹失败：" + read.exceptionOrNull()?.friendlyText()
+            if (read.isFailure) st.error = tr("读取文件夹失败：") + read.exceptionOrNull()?.friendlyText()
             else accept(read.getOrThrow())
         }
     }
@@ -231,15 +233,15 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
                 RepoWrite.changed(owner, name)
                 st.busy = false
                 st.progress = null
-                st.doneMsg = "${r.written} 个文件已提交到 ${r.branch}（${r.sha.take(7)}）" +
-                    (if (r.unchanged > 0) "；另有 ${r.unchanged} 个与仓库内容相同，没有重复写入" else "") +
-                    "。仓库里没选中的文件都没有动。"
+                st.doneMsg = trf("{0} 个文件已提交到 {1}（{2}）", r.written, r.branch, r.sha.take(7)) +
+                    (if (r.unchanged > 0) trf("；另有 {0} 个与仓库内容相同，没有重复写入", r.unchanged) else "") +
+                    tr("。仓库里没选中的文件都没有动。")
                 st.clearAll()
                 if (asNew && openPr) nav.replace(Screen.NewPull(owner, name, r.branch, t.prBase, summary.trim(), description.trim()))
             } catch (e: CancellationException) {
                 st.busy = false
                 st.progress = null
-                st.error = "已取消上传。" + (st.commit?.let { "提交 ${it.take(7)} 已经生成，但分支更新结果未确认，请先查看分支和提交历史。" } ?: "GitHub 上还没有产生提交。")
+                st.error = tr("已取消上传。") + (st.commit?.let { trf("提交 {0} 已经生成，但分支更新结果未确认，请先查看分支和提交历史。", it.take(7)) } ?: tr("GitHub 上还没有产生提交。"))
                 throw e
             } catch (e: Throwable) {
                 st.busy = false
@@ -250,11 +252,11 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
     }
 
     Page(
-        "上传文件（夹）",
-        subtitle = "${t?.baseRef ?: ref ?: "默认分支"} · $owner/$name" + if (path.isEmpty()) "" else " · $path/",
+        tr("上传文件（夹）"),
+        subtitle = "${t?.baseRef ?: ref ?: tr("默认分支")} · $owner/$name" + if (path.isEmpty()) "" else " · $path/",
         onBack = { if (st.busy || st.raw.isNotEmpty()) st.confirmLeave = true else nav.pop() },
         actions = {
-            if (st.raw.isNotEmpty() && !st.busy) OcButton(R.drawable.oc_trash, { st.confirmClear = true }, g.fgMuted, description = "清空已选")
+            if (st.raw.isNotEmpty() && !st.busy) OcButton(R.drawable.oc_trash, { st.confirmClear = true }, g.fgMuted, description = tr("清空已选"))
         },
         bottomBar = {
             Column(Modifier.background(g.header).navigationBarsPadding().imePadding()) {
@@ -263,13 +265,13 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
                     Column(Modifier.weight(1f)) {
                         Text(st.lineSummary(), fontSize = 12.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (st.skipped > 0 || st.dropped > 0) Text(
-                            (if (st.skipped > 0) "不上传的项在列表里标了原因" else "") +
-                                if (st.dropped > 0) (if (st.skipped > 0) "；" else "") + "${st.dropped} 项路径重复或无效，已去掉" else "",
+                            (if (st.skipped > 0) tr("不上传的项在列表里标了原因") else "") +
+                                if (st.dropped > 0) (if (st.skipped > 0) "；" else "") + trf("{0} 项路径重复或无效，已去掉", st.dropped) else "",
                             fontSize = 11.sp, color = g.attention, maxLines = 2, overflow = TextOverflow.Ellipsis,
                         )
                     }
                     Spacer(Modifier.width(8.dp))
-                    GhButton(if (st.busy) "上传中…" else "上传并提交", primary = true, enabled = canSubmit, onClick = ::upload)
+                    GhButton(if (st.busy) tr("上传中…") else tr("上传并提交"), primary = true, enabled = canSubmit, onClick = ::upload)
                 }
             }
         },
@@ -283,58 +285,58 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
                     Column {
                         if (!t.canPush) NoPushNotice(t.repo.archived, "https://github.com/$owner/$name/upload/${t.prBase}")
                         if (emptyRepo) Text(
-                            "这是一个空仓库：上传会把选中的内容直接建成 ${t.baseRef} 的第一个提交。",
+                            trf("这是一个空仓库：上传会把选中的内容直接建成 {0} 的第一个提交。", t.baseRef),
                             Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 12.sp, lineHeight = 17.sp, color = g.fgMuted,
                         )
                         if (t.canPush) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            GhButton("选择文件", Modifier.weight(1f), icon = R.drawable.oc_file, enabled = !st.busy && !st.reading) {
+                            GhButton(tr("选择文件"), Modifier.weight(1f), icon = R.drawable.oc_file, enabled = !st.busy && !st.reading) {
                                 st.reading = true
-                                runCatching { pickFiles.launch(arrayOf("*/*")) }.onFailure { st.reading = false; ctx.toast("这台设备没有可用的文件选择器") }
+                                runCatching { pickFiles.launch(arrayOf("*/*")) }.onFailure { st.reading = false; ctx.toast(tr("这台设备没有可用的文件选择器")) }
                             }
-                            GhButton("选择文件夹", Modifier.weight(1f), icon = R.drawable.oc_file_directory, enabled = !st.busy && !st.reading) {
+                            GhButton(tr("选择文件夹"), Modifier.weight(1f), icon = R.drawable.oc_file_directory, enabled = !st.busy && !st.reading) {
                                 st.reading = true
-                                runCatching { pickFolder.launch(null) }.onFailure { st.reading = false; ctx.toast("这台设备没有可用的目录选择器") }
+                                runCatching { pickFolder.launch(null) }.onFailure { st.reading = false; ctx.toast(tr("这台设备没有可用的目录选择器")) }
                             }
                         }
                         if (st.reading) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             Oc(R.drawable.oc_sync, g.accent, 14.dp)
                             Spacer(Modifier.width(8.dp))
-                            Text("正在统计选中的文件…", fontSize = 13.sp, color = g.fgMuted)
+                            Text(tr("正在统计选中的文件…"), fontSize = 13.sp, color = g.fgMuted)
                         }
                         st.note?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 12.sp, lineHeight = 17.sp, color = g.attention) }
                         Text(
-                            "文件可以多选（数量不限），也可以选文件夹：文件夹按名字在仓库里建目录并递归带上里面的内容。" +
-                                "单个文件最大 ${GitUpload.MAX_FILE_BYTES / 1024 / 1024} MB（GitHub 仓库的硬上限，超过的项不会进入提交）；" +
-                                "一次最多带 ${GitUpload.MAX_FOLDER_FILES} 个文件。" +
-                                "走的是和 git push 相同的传输，一次上传只产生一个提交，仓库里没选中的文件不受影响。",
+                            tr("文件可以多选（数量不限），也可以选文件夹：文件夹按名字在仓库里建目录并递归带上里面的内容。") +
+                                trf("单个文件最大 {0} MB（GitHub 仓库的硬上限，超过的项不会进入提交）；", GitUpload.MAX_FILE_BYTES / 1024 / 1024) +
+                                trf("一次最多带 {0} 个文件。", GitUpload.MAX_FOLDER_FILES) +
+                                tr("走的是和 git push 相同的传输，一次上传只产生一个提交，仓库里没选中的文件不受影响。"),
                             Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 11.sp, lineHeight = 16.sp, color = g.fgMuted,
                         )
 
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                            GhField(summary, { summary = it }, "提交信息", labelAbove = true, placeholder = "例如 Add logo.png")
+                            GhField(summary, { summary = it }, tr("提交信息"), labelAbove = true, placeholder = tr("例如 Add logo.png"))
                             Spacer(Modifier.height(8.dp))
-                            GhField(description, { description = it }, "扩展描述（可选）", singleLine = false, minLines = 2, labelAbove = true)
+                            GhField(description, { description = it }, tr("扩展描述（可选）"), singleLine = false, minLines = 2, labelAbove = true)
                             Spacer(Modifier.height(10.dp))
-                            RadioRow(!newBranch, "直接提交到 ${t.baseRef}",
+                            RadioRow(!newBranch, trf("直接提交到 {0}", t.baseRef),
                                 when {
-                                    emptyRepo -> "空仓库：这会成为它的第一个提交"
-                                    t.branch == null -> "${t.baseRef} 不是分支，不能直接提交"
-                                    t.branch.protected -> "该分支受保护，推送可能被 GitHub 拒绝"
-                                    else -> "先把文件写完，最后才把分支移动过去（相当于 push）"
+                                    emptyRepo -> tr("空仓库：这会成为它的第一个提交")
+                                    t.branch == null -> trf("{0} 不是分支，不能直接提交", t.baseRef)
+                                    t.branch.protected -> tr("该分支受保护，推送可能被 GitHub 拒绝")
+                                    else -> tr("先把文件写完，最后才把分支移动过去（相当于 push）")
                                 },
                                 enabled = (t.branch != null || emptyRepo) && !st.busy,
                             ) { st.useNewBranch = false }
-                            RadioRow(newBranch, "新建分支并推送", "从 ${t.baseRef} 创建", enabled = !st.busy && !emptyRepo) { st.useNewBranch = true }
+                            RadioRow(newBranch, tr("新建分支并推送"), trf("从 {0} 创建", t.baseRef), enabled = !st.busy && !emptyRepo) { st.useNewBranch = true }
                             if (newBranch) {
                                 Spacer(Modifier.height(4.dp))
-                                GhField(branchInput, { branchInput = it }, "新分支名称", placeholder = suggestedBranch)
+                                GhField(branchInput, { branchInput = it }, tr("新分支名称"), placeholder = suggestedBranch)
                                 when {
-                                    branchInput.isNotBlank() && !RepoWrite.validBranch(branchInput.trim()) -> Text("分支名称无效", fontSize = 12.sp, color = g.danger)
-                                    branchTaken -> Text("已存在同名分支", fontSize = 12.sp, color = g.danger)
+                                    branchInput.isNotBlank() && !RepoWrite.validBranch(branchInput.trim()) -> Text(tr("分支名称无效"), fontSize = 12.sp, color = g.danger)
+                                    branchTaken -> Text(tr("已存在同名分支"), fontSize = 12.sp, color = g.danger)
                                 }
-                                if (branchInput.isBlank()) Text("留空则使用 $branch", fontSize = 11.sp, color = g.fgMuted)
+                                if (branchInput.isBlank()) Text(trf("留空则使用 {0}", branch), fontSize = 11.sp, color = g.fgMuted)
                                 Spacer(Modifier.height(6.dp))
-                                SwitchRow("推送后创建拉取请求", "合并到 ${t.prBase}", openPr, enabled = !st.busy) { openPr = it }
+                                SwitchRow(tr("推送后创建拉取请求"), trf("合并到 {0}", t.prBase), openPr, enabled = !st.busy) { openPr = it }
                             }
                         }
 
@@ -342,13 +344,20 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
                         st.error?.let { InlineError(it, Modifier.padding(horizontal = 16.dp)) }
 
                         if (st.items.isEmpty()) {
-                            if (!st.reading) EmptyState(if (t.canPush) "还没有选择文件" else "没有推送权限", R.drawable.oc_upload, Modifier.fillMaxWidth())
+                            if (!st.reading) EmptyState(if (t.canPush) tr("还没有选择文件") else tr("没有推送权限"), R.drawable.oc_upload, Modifier.fillMaxWidth())
                         } else {
                             HDivider()
                             Text(
-                                "已选 ${st.items.size} 项" + if (st.skipped > 0) "（${st.skipped} 项不上传）" else "",
+                                trf("已选 {0} 项", st.items.size) + if (st.skipped > 0) trf("（{0} 项不上传）", st.skipped) else "",
                                 Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 4.dp),
                                 fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = g.fg,
+                            )
+                            val lfsCount = st.items.count { it.lfs && it.skip == null }
+                            if (lfsCount > 0) Text(
+                                trf("其中 {0} 个文件超过 100 MB，会先上传到 Git LFS，再在仓库里提交指针文件并自动更新 .gitattributes。", lfsCount) +
+                                    tr("GitHub 免费账号的 LFS 额度是 1 GiB 存储和每月 1 GiB 流量，超出需要购买额度。"),
+                                Modifier.padding(start = 16.dp, end = 16.dp, bottom = 6.dp),
+                                fontSize = 12.sp, lineHeight = 17.sp, color = g.fgMuted,
                             )
                         }
                     }
@@ -363,16 +372,16 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
         }
     }
 
-    if (st.confirmClear) GhDialog("清空已选文件？", onDismiss = { st.confirmClear = false }, confirm = "清空", danger = true, onConfirm = {
+    if (st.confirmClear) GhDialog(tr("清空已选文件？"), onDismiss = { st.confirmClear = false }, confirm = tr("清空"), danger = true, onConfirm = {
         st.confirmClear = false
         st.clearAll()
         st.note = null
-    }) { Text("只清空本机这份清单，GitHub 上的文件不受影响。", fontSize = 14.sp, color = g.fg) }
+    }) { Text(tr("只清空本机这份清单，GitHub 上的文件不受影响。"), fontSize = 14.sp, color = g.fg) }
 
     if (st.confirmLeave) GhDialog(
-        if (st.busy) "上传正在进行" else "离开上传页？",
+        if (st.busy) tr("上传正在进行") else tr("离开上传页？"),
         { st.confirmLeave = false },
-        confirm = if (st.busy) "取消上传并离开" else "离开并丢弃",
+        confirm = if (st.busy) tr("取消上传并离开") else tr("离开并丢弃"),
         danger = st.busy,
         onConfirm = {
             st.confirmLeave = false
@@ -381,17 +390,17 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
         },
     ) {
         Text(
-            if (st.busy) "取消后已经写到 GitHub 的文件对象不会清理，但不会产生半个提交：分支只有在全部成功后才会移动。"
-            else "上传还没开始。离开会丢掉已选的 ${st.items.size} 项（GitHub 上什么都没有改动）。",
+            if (st.busy) tr("取消后已经写到 GitHub 的文件对象不会清理，但不会产生半个提交：分支只有在全部成功后才会移动。")
+            else trf("上传还没开始。离开会丢掉已选的 {0} 项（GitHub 上什么都没有改动）。", st.items.size),
             fontSize = 14.sp, color = g.fg,
         )
         if (!st.busy) Spacer(Modifier.height(8.dp))
-        if (!st.busy) Text("想继续上传就点「取消」，清单会留在本页。", fontSize = 12.sp, color = g.fgMuted)
+        if (!st.busy) Text(tr("想继续上传就点「取消」，清单会留在本页。"), fontSize = 12.sp, color = g.fgMuted)
     }
 
     st.doneMsg?.let { msg ->
         val sha = st.commit
-        GhDialog("上传完成", onDismiss = { st.doneMsg = null }, confirm = if (sha != null) "查看提交" else "关闭", onConfirm = {
+        GhDialog(tr("上传完成"), onDismiss = { st.doneMsg = null }, confirm = if (sha != null) tr("查看提交") else tr("关闭"), onConfirm = {
             st.doneMsg = null
             if (sha != null) nav.push(Screen.CommitDetail(owner, name, sha))
         }) { Text(msg, fontSize = 14.sp, color = g.fg) }
@@ -418,9 +427,9 @@ internal fun UploadProgressCard(p: UploadProgress?) {
             Spacer(Modifier.height(6.dp))
             Text(
                 (p?.let {
-                    if (determinateProgress(it)) "${it.done}/${it.total} 个文件 · ${fmtSize(it.bytesDone)} / ${fmtSize(it.totalBytes)}"
-                    else "${it.done}/${it.total} 个文件"
-                } ?: "准备中…") +
+                    if (determinateProgress(it)) trf("{0}/{1} 个文件 · {2} / {3}", it.done, it.total, fmtSize(it.bytesDone), fmtSize(it.totalBytes))
+                    else trf("{0}/{1} 个文件", it.done, it.total)
+                } ?: tr("准备中…")) +
                     if (p != null && p.current.isNotEmpty()) "\n${p.current}" else "",
                 fontSize = 12.sp, lineHeight = 17.sp, color = g.fgMuted,
             )
@@ -441,10 +450,11 @@ private fun UploadRow(item: UploadItem, busy: Boolean, onRemove: () -> Unit) {
             Text(item.name, fontSize = 13.sp, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(item.path, fontSize = 11.sp, color = g.fgMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
             item.skip?.let { Text(it, fontSize = 11.sp, lineHeight = 15.sp, color = g.attention) }
+            if (item.lfs && item.skip == null) Text(tr("超过 100 MB，将通过 Git LFS 上传（仓库里保存指针文件）"), fontSize = 11.sp, lineHeight = 15.sp, color = g.accent)
         }
         Spacer(Modifier.width(8.dp))
         if (item.skip == null && item.size > 0) Text(fmtSize(item.size), fontSize = 11.sp, color = g.fgMuted)
-        if (!busy) Text("移除", fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(start = 10.dp).clickable(onClick = onRemove))
+        if (!busy) Text(tr("移除"), fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(start = 10.dp).clickable(onClick = onRemove))
     }
 }
 
@@ -454,7 +464,7 @@ private fun UploadRow(item: UploadItem, busy: Boolean, onRemove: () -> Unit) {
  * 若继续沿用读阶段的比例，条会停在 100% 而上传其实才刚开始。
  */
 internal fun determinateProgress(p: UploadProgress?): Boolean =
-    p != null && p.stage == UploadStage.Reading && p.totalBytes > 0
+    p != null && (p.stage == UploadStage.Reading || p.stage == UploadStage.Lfs) && p.totalBytes > 0
 
 /** 读取阶段的异常没有 friendly() 的语义，单独给一句人能看懂的话 */
-private fun Throwable?.friendlyText(): String = this?.message?.takeIf { it.isNotBlank() } ?: "无法读取该文件"
+private fun Throwable?.friendlyText(): String = this?.message?.takeIf { it.isNotBlank() } ?: tr("无法读取该文件")

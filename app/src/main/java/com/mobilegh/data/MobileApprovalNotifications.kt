@@ -14,6 +14,8 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.mobilegh.MainActivity
 import com.mobilegh.R
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 object MobileApprovalNotifications {
     const val EXTRA_REQUEST = "com.mobilegh.extra.APPROVAL_REQUEST"
@@ -34,8 +36,8 @@ object MobileApprovalNotifications {
      */
     fun channels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(REQUEST_CHANNEL, "GitHub 两步验证", NotificationManager.IMPORTANCE_DEFAULT).apply {
-            description = "应用不在前台时，提醒有一条 GitHub 数字确认请求"
+        manager.createNotificationChannel(NotificationChannel(REQUEST_CHANNEL, tr("GitHub 两步验证"), NotificationManager.IMPORTANCE_DEFAULT).apply {
+            description = tr("应用不在前台时，提醒有一条 GitHub 数字确认请求")
             lockscreenVisibility = Notification.VISIBILITY_PRIVATE
         })
         runCatching { manager.deleteNotificationChannel(LEGACY_REQUEST_CHANNEL) }
@@ -53,7 +55,7 @@ object MobileApprovalNotifications {
         channels(context)
         if (!allowed(context)) return false
         val notification = NotificationCompat.Builder(context, REQUEST_CHANNEL).setSmallIcon(R.drawable.oc_shield_lock)
-            .setContentTitle("GitHub 验证请求").setContentText("@${device.login} · 点击输入浏览器显示的数字")
+            .setContentTitle(tr("GitHub 验证请求")).setContentText(trf("@{0} · 点击输入浏览器显示的数字", device.login))
             .setContentIntent(intent(context, request.id)).setAutoCancel(true).setOnlyAlertOnce(true)
             .setTimeoutAfter(120_000).setPriority(NotificationCompat.PRIORITY_DEFAULT).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setCategory(NotificationCompat.CATEGORY_STATUS).build()

@@ -83,7 +83,7 @@ object RepoChanges {
 }
 
 /** 写入目标：仓库权限 + 当前查看的 ref 是否为分支（标签和提交不能直接提交） */
-data class WriteTarget(val repo: Repo, val baseRef: String, val branch: Branch?) {
+data class WriteTarget(val repo: Repo, val baseRef: String, val branch: Branch?, val emptyRepo: Boolean = false) {
     val canPush: Boolean get() = repo.permissions?.push == true && !repo.archived
     /** 发起拉取请求时的目标分支：当前分支，查看标签/提交时退回默认分支 */
     val prBase: String get() = branch?.name ?: repo.defaultBranch
@@ -97,7 +97,14 @@ data class WriteTarget(val repo: Repo, val baseRef: String, val branch: Branch?)
             } catch (e: ApiException) {
                 if (e.code == 404) null else throw e
             }
-            return WriteTarget(repo, base, branch)
+            // 空仓库（一个提交都没有）时连默认分支都读不到；实测提交列表会 409「Git Repository is empty」。
+            // 只有分支查不到时才多跑这一项，普通仓库不会多花请求
+            val empty = branch == null && try {
+                GitHub.commits(owner, name, null, null, 1, true).isEmpty()
+            } catch (e: ApiException) {
+                e.code == 409 || e.message.contains("empty", ignoreCase = true)
+            }
+            return WriteTarget(repo, base, branch, empty)
         }
     }
 }

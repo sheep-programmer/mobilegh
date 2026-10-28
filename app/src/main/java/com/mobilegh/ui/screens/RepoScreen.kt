@@ -129,6 +129,7 @@ fun RepoScreen(owner: String, name: String) {
 
     val r = repo.data
     val admin = r?.permissions?.admin == true
+    val canPush = r?.let { it.permissions?.push == true && !it.archived } == true
     val branch = ref.value ?: r?.defaultBranch
 
     Page(
@@ -258,6 +259,8 @@ fun RepoScreen(owner: String, name: String) {
                         }
                         MenuGroup {
                             MenuRow(R.drawable.oc_code, "浏览代码") { nav.push(Screen.Files(owner, name, "", ref.value)) }
+                            // 选文件 / 选文件夹，一次上传只产生一个提交（没权限时不给入口，与「新建文件」一致）
+                            if (canPush) MenuRow(R.drawable.oc_upload, "上传文件（夹）") { nav.push(Screen.UploadFiles(owner, name, ref.value, "")) }
                             MenuRow(R.drawable.oc_git_commit, "提交历史") { nav.push(Screen.Commits(owner, name, ref.value)) }
                             MenuRow(R.drawable.oc_git_branch, "比较分支与提交") { nav.push(Screen.Compare(owner, name)) }
                         }

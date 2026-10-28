@@ -6,9 +6,12 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.put
 
@@ -200,6 +203,61 @@ object GitHub {
             put("sha", sha)
             put("branch", branch)
         })
+
+    // ---------------- Git 数据接口（配合 GitPack：对象走 git pack 传，树与提交走这里） ----------------
+    /** 某个提交对应的文件树 sha */
+    suspend fun commitTreeSha(o: String, n: String, sha: String): String =
+        Api.get<Commit>("${r(o, n)}/commits/$sha", force = true).commit.tree?.sha?.takeIf { it.length >= 40 }
+            ?: throw ApiException(500, "GitHub 没有返回该提交的文件树，请稍后重试")
+
+    /**
+     * 递归读取一棵树，得到「仓库里已经有哪些文件」。
+     * 树太大时 GitHub 会返回 truncated，这份表就不完整，调用方应当作全部重写处理，否则会漏文件。
+     */
+    suspend fun treeIndex(o: String, n: String, tree: String): TreeIndex {
+        val t = Api.get<RepositoryTree>("${r(o, n)}/git/trees/$tree?recursive=1", force = true)
+        val blobs = HashMap<String, RepoBlob>()
+        t.tree.forEach { if (it.type == "blob") blobs[it.path] = RepoBlob(it.sha, it.mode.ifEmpty { "100644" }) }
+        return TreeIndex(blobs, t.truncated)
+    }
+
+    /** 在 [base] 之上叠加 [entries]，返回新树 sha；基准树里没被列出的文件原样保留 */
+    suspend fun createTree(o: String, n: String, base: String, entries: List<JsonObject>): String {
+        val body = buildJsonObject {
+            put("base_tree", base)
+            put("tree", JsonArray(entries))
+        }
+        return shaOf("POST", "${r(o, n)}/git/trees", body = body, what = "文件树")
+    }
+
+    /** 用现成的树生成一个提交（作者与提交者由 GitHub 按 Token 归属，和网页提交一致） */
+    suspend fun createCommit(o: String, n: String, message: String, tree: String, parents: List<String>): String {
+        val body = buildJsonObject {
+            put("message", message)
+            put("tree", tree)
+            put("parents", JsonArray(parents.map { JsonPrimitive(it) }))
+        }
+        return shaOf("POST", "${r(o, n)}/git/commits", body = body, what = "提交")
+    }
+
+    /** 把分支快进到 [sha]，等价于 `git push`；受保护分支或非快进会被 GitHub 拒绝 */
+    suspend fun updateBranch(o: String, n: String, branch: String, sha: String) =
+        Api.exec("PATCH", "${r(o, n)}/git/refs/${Api.encodePath("heads/$branch")}", buildJsonObject { put("sha", sha) })
+
+    /** 新分支直接指向 [sha] */
+    suspend fun createRef(o: String, n: String, branch: String, sha: String) =
+        Api.send<GitRef>("POST", "${r(o, n)}/git/refs", buildJsonObject {
+            put("ref", "refs/heads/$branch")
+            put("sha", sha)
+        })
+
+    /** 发出写入请求并取回响应里的 sha；[what] 只用于出错时把话说清楚 */
+    private suspend fun shaOf(method: String, path: String, body: JsonElement? = null, what: String): String {
+        val resp = Api.ensureOk(Api.call(method, path, body, force = true))
+        val sha = runCatching { (Api.json.parseToJsonElement(resp.body) as? JsonObject)?.get("sha") as? JsonPrimitive }
+            .getOrNull()?.takeIf { it !is JsonNull }?.contentOrNull
+        return sha ?: throw ApiException(500, "GitHub 没有返回新的$what，请先打开提交列表确认写入结果，再决定是否重试")
+    }
 
     // ---------------- 分支 ----------------
     /** 分支、标签或提交 SHA 对应的提交 SHA */

@@ -381,7 +381,7 @@ data class CommitFile(
 data class GitActor(val name: String? = null, val email: String? = null, val date: String? = null)
 
 @Serializable
-data class CommitInfo(val message: String = "", val author: GitActor? = null, val committer: GitActor? = null, val commentCount: Int = 0)
+data class CommitInfo(val message: String = "", val author: GitActor? = null, val committer: GitActor? = null, val commentCount: Int = 0, val tree: ShaRef? = null)
 
 @Serializable
 data class CommitStats(val total: Int = 0, val additions: Int = 0, val deletions: Int = 0)

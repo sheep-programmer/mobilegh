@@ -97,7 +97,11 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
         actions = {
             OcButton(R.drawable.oc_history, { nav.push(Screen.Commits(owner, name, ref, path.ifEmpty { null })) })
             MoreMenu(buildList {
-                if (canPush.data == true) add(MenuAction("新建文件") { nav.push(Screen.EditFile(owner, name, ref, null, path)) })
+                if (canPush.data == true) {
+                    add(MenuAction("新建文件") { nav.push(Screen.EditFile(owner, name, ref, null, path)) })
+                    // 当前目录就是上传的目标目录，选文件夹时会在下面再建一层
+                    add(MenuAction("上传文件（夹）") { nav.push(Screen.UploadFiles(owner, name, ref, path)) })
+                }
                 add(MenuAction("复制路径") { ctx.copy(path.ifEmpty { "/" }) })
                 add(MenuAction("查找仓库文件") { nav.push(Screen.FileFinder(owner, name, ref)) })
                 add(MenuAction("在浏览器打开") { ctx.openBrowser("https://github.com/$owner/$name/tree/${ref ?: "HEAD"}/$path") })

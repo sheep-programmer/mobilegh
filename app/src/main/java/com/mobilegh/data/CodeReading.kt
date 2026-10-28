@@ -16,7 +16,7 @@ data class CodeSearchHit(val name: String = "", val path: String = "", val htmlU
 @Serializable
 data class CodeSearchPage(val totalCount: Int = 0, val incompleteResults: Boolean = false, val items: List<CodeSearchHit> = emptyList())
 @Serializable
-data class RepositoryTreeEntry(val path: String, val type: String, val sha: String = "", val size: Long = 0)
+data class RepositoryTreeEntry(val path: String, val type: String, val sha: String = "", val size: Long = 0, val mode: String = "")
 @Serializable
 data class RepositoryTree(val tree: List<RepositoryTreeEntry> = emptyList(), val truncated: Boolean = false)
 data class RepositoryFileIndex(val commit: String, val entries: List<RepositoryTreeEntry>, val truncated: Boolean)

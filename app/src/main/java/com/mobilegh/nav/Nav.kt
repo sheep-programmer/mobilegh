@@ -31,6 +31,8 @@ sealed interface Screen {
     data class Blame(val owner: String, val name: String, val path: String, val ref: String?) : Screen
     /** path == null 表示在 dir 目录下新建文件 */
     data class EditFile(val owner: String, val name: String, val ref: String?, val path: String?, val dir: String = "") : Screen
+    /** 上传文件（夹）：用完整 git 流程写成一次提交并推送到分支；path 是当前浏览的目录 */
+    data class UploadFiles(val owner: String, val name: String, val ref: String?, val path: String = "") : Screen
     data class NewPull(val owner: String, val name: String, val head: String, val base: String, val title: String = "", val body: String = "") : Screen
     /** releaseId == null 表示新建 */
     data class EditRelease(val owner: String, val name: String, val releaseId: Long? = null) : Screen

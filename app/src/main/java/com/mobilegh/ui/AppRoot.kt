@@ -258,6 +258,7 @@ private fun ScreenHost(s: Screen) {
         is Screen.Search -> SearchScreen(s.type, s.query)
         is Screen.Blame -> BlameScreen(s.owner, s.name, s.path, s.ref)
         is Screen.EditFile -> EditFileScreen(s.owner, s.name, s.ref, s.path, s.dir)
+        is Screen.UploadFiles -> UploadFilesScreen(s.owner, s.name, s.path, s.ref)
         is Screen.NewPull -> NewPullScreen(s.owner, s.name, s.head, s.base, s.title, s.body)
         is Screen.EditRelease -> EditReleaseScreen(s.owner, s.name, s.releaseId)
         is Screen.RunWorkflow -> RunWorkflowScreen(s.owner, s.name, s.workflowId, s.path, s.title, s.ref)

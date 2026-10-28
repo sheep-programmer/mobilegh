@@ -212,10 +212,16 @@ fun EditFileScreen(owner: String, name: String, ref: String?, path: String?, dir
                 !ready || t == null -> Loading()
                 else -> {
                     if (!t.canPush) NoPushNotice(t.repo.archived, webUrl)
-                    if (t.branch == null && t.canPush) {
+                    if (t.branch == null && !t.emptyRepo && t.canPush) {
                         Text(
                             "当前查看的是标签或提交 ${t.baseRef}，不能直接提交，只能新建分支后提交。",
                             Modifier.padding(horizontal = 16.dp, vertical = 6.dp), fontSize = 12.sp, color = g.attention,
+                        )
+                    }
+                    if (t.emptyRepo && t.canPush) {
+                        Text(
+                            "这是一个空仓库：第一个文件会直接提交到 ${t.baseRef}，不能再选“新建分支”（没有提交可以指向新分支）。",
+                            Modifier.padding(horizontal = 16.dp, vertical = 6.dp), fontSize = 12.sp, lineHeight = 17.sp, color = g.attention,
                         )
                     }
                     if (creating) {
@@ -327,7 +333,7 @@ private fun CommitDialog(
     val fileName = path.substringAfterLast('/')
     var summary by rememberSaveable { mutableStateOf((if (creating) "Create " else "Update ") + fileName) }
     var description by rememberSaveable { mutableStateOf("") }
-    var newBranch by rememberSaveable { mutableStateOf(target.branch == null) }
+    var newBranch by rememberSaveable { mutableStateOf(target.branch == null && !target.emptyRepo) }
     var branchName by rememberSaveable { mutableStateOf("") }
     var openPr by rememberSaveable { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
@@ -388,13 +394,15 @@ private fun CommitDialog(
             RadioRow(
                 !newBranch, "直接提交到 ${target.baseRef}",
                 when {
+                    // 空仓库连一个提交都没有，不能先建分支（没有 SHA 可指）；contents 接口允许直接向默认分支写入
+                    target.emptyRepo -> "空仓库的第一个提交会直接建在 ${target.baseRef} 上"
                     target.branch == null -> "${target.baseRef} 不是分支，无法直接提交"
                     target.branch.protected -> "该分支受保护，提交可能被拒绝"
                     else -> null
                 },
-                enabled = target.branch != null && !busy,
+                enabled = (target.branch != null || target.emptyRepo) && !busy,
             ) { newBranch = false }
-            RadioRow(newBranch, "新建分支并提交", "从 ${target.baseRef} 创建新分支", enabled = !busy) { newBranch = true }
+            RadioRow(newBranch, "新建分支并提交", "从 ${target.baseRef} 创建新分支", enabled = !busy && !target.emptyRepo) { newBranch = true }
             if (newBranch) {
                 Spacer(Modifier.height(4.dp))
                 GhField(branchName, { branchName = it }, "新分支名称")

@@ -67,6 +67,13 @@ import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.HDivider
+import com.mobilegh.ui.components.CompactSearchField
+import com.mobilegh.ui.components.FieldAction
+import com.mobilegh.ui.components.Segmented
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.lazy.itemsIndexed
 import com.mobilegh.ui.components.HtmlView
 import com.mobilegh.ui.components.IconText
 import com.mobilegh.ui.components.LanguageBar
@@ -189,7 +196,9 @@ fun RepoScreen(owner: String, name: String) {
                             val s = starStatus.data == true
                             GhButton(
                                 "${if (s) tr("已 Star") else "Star"} ${fmtCount(r.stargazersCount)}",
-                                Modifier.weight(1f), icon = if (s) R.drawable.oc_star_fill else R.drawable.oc_star, enabled = entry.sameAccount() && starStatus.data != null && !starBusy && !starStatus.loading && !repo.loading,
+                                // 写入期间不改成禁用态，否则点一下按钮会灰一下；重复点击由 onClick 里的 starBusy 挡住
+                                Modifier.weight(1f), icon = if (s) R.drawable.oc_star_fill else R.drawable.oc_star, iconTint = if (s) g.star else null,
+                                enabled = entry.sameAccount() && starStatus.data != null && !starStatus.loading && !repo.loading,
                                 // 和 GitHub 一样：点按切换 Star；只有已 Star 的仓库才能长按管理所在列表
                                 onLongClick = {
                                     if (s) showLists = true
@@ -209,9 +218,8 @@ fun RepoScreen(owner: String, name: String) {
                                         }
                                     }) {
                                         try {
+                                            // 成功后不刷新整页：星标已乐观更新，计数等返回页面或手动刷新时再更新
                                             entry.guarded { GitHub.star(owner, name, on) }
-                                            repo.refresh()
-                                            starStatus.refresh()
                                         } finally { starBusy = false }
                                     }
                                 }
@@ -580,32 +588,67 @@ private fun RepoHeader(r: Repo) {
     }
 }
 
-/** 分支 / 标签选择 */
+/**
+ * 分支 / 标签选择：底部弹层，顶部分段切换，中间是紧凑搜索框和带分隔线的列表。
+ * 当前选中的一项高亮并打勾，右侧显示提交的短 SHA，方便区分同名的分支和标签。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BranchPicker(owner: String, name: String, current: String, onDismiss: () -> Unit, onPick: (String) -> Unit) {
     val g = Gh.c
     var tab by rememberSaveable { mutableStateOf(0) }
     var q by rememberSaveable { mutableStateOf("") }
-    val branches = rememberLoader("pick:branches") { GitHub.branches(owner, name, 1, it).map { b -> b.name } }
-    val tags = rememberLoader("pick:tags") { GitHub.tags(owner, name, 1, it).map { t -> t.name } }
-    GhDialog(tr("切换分支 / 标签"), onDismiss = onDismiss) {
-        Column {
-            Chips(listOf(tr("分支"), trc("标签", "git")), tab) { tab = it }
-            GhField(q, { q = it }, tr("筛选"))
-            Spacer(Modifier.height(8.dp))
-            val l = if (tab == 0) branches else tags
-            val list = l.data?.filter { it.contains(q, true) }
+    val branches = rememberLoader("pick:branches") { GitHub.branches(owner, name, 1, it).map { b -> b.name to b.commit.sha } }
+    val tags = rememberLoader("pick:tags") { GitHub.tags(owner, name, 1, it).map { t -> t.name to t.commit.sha } }
+    val l = if (tab == 0) branches else tags
+    val list = l.data?.filter { it.first.contains(q, true) }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = g.canvasSubtle,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(tr("切换分支 / 标签"), color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Text("$owner/$name", color = g.fgMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Segmented(listOf(tr("分支"), trc("标签", "git")), tab, Modifier.fillMaxWidth()) { tab = it }
+            CompactSearchField(
+                q, { q = it }, tr("筛选"), Modifier.fillMaxWidth(),
+                trailing = if (q.isEmpty()) null else { { FieldAction(R.drawable.oc_x, tr("清空筛选关键词")) { q = "" } } },
+            )
             when {
-                list != null -> LazyColumn(Modifier.heightIn(max = 360.dp)) {
-                    boxedItems(list) { b ->
-                        Row(Modifier.fillMaxWidth().clickable { onPick(b) }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Oc(if (b == current) R.drawable.oc_check else if (tab == 0) R.drawable.oc_git_branch else R.drawable.oc_tag, if (b == current) g.accent else g.fgMuted)
+                list != null && list.isNotEmpty() -> LazyColumn(
+                    Modifier.fillMaxWidth().heightIn(max = 380.dp).clip(RoundedCornerShape(12.dp))
+                        .background(g.canvas, RoundedCornerShape(12.dp)).border(1.dp, g.border, RoundedCornerShape(12.dp)),
+                ) {
+                    itemsIndexed(list) { i, (branch, sha) ->
+                        val selected = branch == current
+                        Row(
+                            Modifier.fillMaxWidth().clickable { onPick(branch) }.padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Oc(if (tab == 0) R.drawable.oc_git_branch else R.drawable.oc_tag, if (selected) g.accent else g.fgMuted, 16.dp)
                             Spacer(Modifier.width(10.dp))
-                            Text(b, color = g.fg, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                branch, Modifier.weight(1f),
+                                color = if (selected) g.accent else g.fg, fontSize = 15.sp,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                            if (sha.isNotBlank()) {
+                                Text(sha.take(7), color = g.fgMuted, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            if (selected) Oc(R.drawable.oc_check, g.accent, 16.dp)
                         }
+                        if (i < list.lastIndex) HDivider()
                     }
-                    if (list.isEmpty()) item { Text(if (q.isBlank()) (if (tab == 0) tr("没有分支") else tr("没有标签")) else tr("无匹配结果"), color = g.fgMuted, modifier = Modifier.fillMaxWidth().padding(24.dp), textAlign = TextAlign.Center) }
                 }
+                list != null -> Text(
+                    if (q.isBlank()) (if (tab == 0) tr("没有分支") else tr("没有标签")) else tr("无匹配结果"),
+                    Modifier.fillMaxWidth().padding(vertical = 24.dp), color = g.fgMuted, fontSize = 13.sp, textAlign = TextAlign.Center,
+                )
                 l.error != null -> InlineError(l.error!!) { l.refresh() }
                 else -> Loading(Modifier.fillMaxWidth().height(120.dp))
             }

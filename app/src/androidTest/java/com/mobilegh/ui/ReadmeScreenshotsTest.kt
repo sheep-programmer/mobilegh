@@ -14,6 +14,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -288,6 +289,13 @@ class ReadmeScreenshotsTest {
         saveScreen("14-search-filter")
     }
     @Test fun repo() = shot("03-repo") { it.push(Screen.Repo("mona", "mobilegh")) }
+    /** 分支选择是底部弹层，单独截整屏（弹层是另一个窗口） */
+    @Test fun branchPicker() = shot("03b-branch-picker", after = {
+        compose.onAllNodesWithText("main")[0].performClick()
+        Thread.sleep(1200)
+        compose.waitForIdle()
+        saveScreen("03b-branch-picker-sheet")
+    }) { it.push(Screen.Repo("mona", "mobilegh")) }
     @Test fun issue() = shot("04-issue") { it.push(Screen.IssueDetail("mona", "mobilegh", 42, false)) }
     @Test fun diff() = shot("05-diff-split", after = {
         compose.onNodeWithText("app/src/Main.kt", substring = true).performClick()

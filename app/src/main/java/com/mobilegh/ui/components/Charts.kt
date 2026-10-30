@@ -36,6 +36,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -191,10 +192,14 @@ fun Legend(color: Color, text: String) {
 
 /** 横向比例条（如贡献类型占比） */
 @Composable
-fun RatioRow(label: String, value: Int, total: Int, color: Color) {
+fun RatioRow(label: String, value: Int, total: Int, color: Color, badge: (@Composable () -> Unit)? = null) {
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Row {
-            Text(label, fontSize = 13.sp, color = Gh.c.fg, modifier = Modifier.weight(1f))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, fontSize = 13.sp, color = Gh.c.fg, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (badge != null) {
+                badge()
+                Spacer(Modifier.width(8.dp))
+            }
             Text("$value", fontSize = 13.sp, color = Gh.c.fgMuted)
         }
         Spacer(Modifier.height(4.dp))

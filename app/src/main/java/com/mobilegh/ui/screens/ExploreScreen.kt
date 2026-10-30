@@ -73,9 +73,10 @@ fun ExploreScreen() {
         Column(Modifier.padding(pad)) {
             SearchEntry(::openSearch)
             val days = trendRanges[trend].first
-            val since = LocalDate.now().minusDays(days)
-            val tq = "created:>$since"
-            val trending = rememberPager("trend:$trend") { p, _ -> GitHub.searchRepos(tq, "stars", p).items }
+            // 日期在每次取数时重新算：跨天或手动刷新后，「本周 / 本月」的起点都会跟着变
+            val trending = rememberPager("trend:$trend") { p, force ->
+                GitHub.searchRepos("created:>${LocalDate.now().minusDays(days)}", "stars", p, force).items
+            }
             PagedList(trending, state = state, header = {
                 item {
                     SearchHistorySection(

@@ -66,6 +66,8 @@ import com.mobilegh.nav.Screen
 import com.mobilegh.nav.rememberPager
 import com.mobilegh.ui.components.ActiveFilterChips
 import com.mobilegh.ui.components.ChoicePicker
+import com.mobilegh.ui.components.CompactSearchField
+import com.mobilegh.ui.components.FieldAction
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.FilterCard
 import com.mobilegh.ui.components.FilterEntry
@@ -210,19 +212,16 @@ private fun SearchBar(
         Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        GhField(
+        // 和右侧筛选按钮同为 44dp 高；原来的 GhField 默认 56dp，两者高度对不齐
+        CompactSearchField(
             input, onInput, trf("搜索 {0}", SearchType.labels[type]),
             Modifier.weight(1f),
-            placeholder = placeholder(type),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
-            leading = { Oc(R.drawable.oc_search, g.fgMuted, 18.dp) },
+            hint = placeholder(type),
+            onSearch = onSubmit,
             trailing = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (input.isNotEmpty()) {
-                        OcButton(R.drawable.oc_x, onClearInput, g.fgMuted, description = tr("清空关键词"))
-                    }
-                    OcButton(R.drawable.oc_arrow_right, { onSubmit() }, g.accent, description = tr("搜索"))
+                    if (input.isNotEmpty()) FieldAction(R.drawable.oc_x, tr("清空关键词"), onClick = onClearInput)
+                    FieldAction(R.drawable.oc_arrow_right, tr("搜索"), g.accent, onClick = onSubmit)
                 }
             },
         )
@@ -314,7 +313,7 @@ private fun RepoResults(query: String, state: LazyListState) {
     val g = Gh.c
     var sort by rememberSaveable(query) { mutableIntStateOf(0) }
     val sorts = listOf(null to tr("最佳匹配"), "stars" to tr("最多 Star"), "updated" to tr("最近更新"), "forks" to tr("最多 Fork"))
-    val pager = rememberPager("search-repo:$query:$sort") { p, _ -> GitHub.searchRepos(query, sorts[sort].first, p).items }
+    val pager = rememberPager("search-repo:$query:$sort") { p, force -> GitHub.searchRepos(query, sorts[sort].first, p, force).items }
     PagedList(pager, state = state, empty = tr("没有找到匹配的仓库"), emptyIcon = R.drawable.oc_repo, header = {
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {

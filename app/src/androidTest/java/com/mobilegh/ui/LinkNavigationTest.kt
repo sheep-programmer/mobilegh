@@ -70,7 +70,7 @@ class LinkNavigationTest {
 
     @Test fun keyboardSearchOpensPastedRepositoryAddress() {
         showSearch()
-        val field = compose.onNodeWithText("搜索 仓库")
+        val field = compose.onNodeWithContentDescription("搜索 仓库")
         field.performTextInput("https://github.com/octocat/Hello-World.git")
         field.performImeAction()
         compose.runOnIdle { assertEquals(Screen.Repo("octocat", "Hello-World"), nav.top.screen) }
@@ -78,7 +78,7 @@ class LinkNavigationTest {
 
     @Test fun searchButtonOpensIssueLink() {
         showSearch()
-        compose.onNodeWithText("搜索 仓库")
+        compose.onNodeWithContentDescription("搜索 仓库")
             .performTextInput("github.com/octocat/Hello-World/issues/42")
         compose.onNodeWithContentDescription("搜索").performClick()
         compose.runOnIdle { assertEquals(Screen.IssueDetail("octocat", "Hello-World", 42, false), nav.top.screen) }

@@ -323,6 +323,53 @@ fun OrgsScreen() {
     }
 }
 
+/**
+ * 通知页顶部的待处理邀请：和「仓库 → 待处理邀请」用同一批数据、同一套接受 / 拒绝操作。
+ * 没有邀请时整块不占位；邀请处理后立即从这里移除。
+ */
+@Composable
+internal fun InvitationBlock() {
+    val g = Gh.c
+    val nav = LocalNav.current
+    val entry = LocalEntry.current
+    val ctx = rememberCtx()
+    val repoInv = rememberLoader("rinv") { GitHub.repoInvitations(it) }
+    val orgInv = rememberLoader("oinv") { runCatching { GitHub.orgInvitations(it) }.getOrDefault(emptyList()) }
+    var hidden by remember { mutableStateOf(setOf<String>()) }
+    val orgs = orgInv.data.orEmpty().filter { "o${it.organization.login}" !in hidden }
+    val repos = repoInv.data.orEmpty().filter { "r${it.id}" !in hidden }
+    if (orgs.isEmpty() && repos.isEmpty()) return
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(trf("待处理邀请 {0}", orgs.size + repos.size), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = g.fg)
+        orgs.forEach { m ->
+            OrgInviteRow(m) {
+                hidden = hidden + "o${m.organization.login}"
+                entry.act({ ctx.toast(it); hidden = hidden - "o${m.organization.login}" }) {
+                    GitHub.acceptOrg(m.organization.login)
+                    ctx.toast(trf("已加入 {0}", m.organization.login))
+                }
+            }
+        }
+        repos.forEach { inv ->
+            RepoInviteRow(
+                inv,
+                onAccept = {
+                    hidden = hidden + "r${inv.id}"
+                    entry.act({ ctx.toast(it); hidden = hidden - "r${inv.id}" }) {
+                        GitHub.acceptInvitation(inv.id)
+                        ctx.toast(tr("已接受，现在可以在「仓库 → 协作的」中找到它"))
+                    }
+                },
+                onDecline = {
+                    hidden = hidden + "r${inv.id}"
+                    entry.act({ ctx.toast(it); hidden = hidden - "r${inv.id}" }) { GitHub.declineInvitation(inv.id) }
+                },
+                onOpen = { nav.push(Screen.Repo(inv.repository.owner.login, inv.repository.name)) },
+            )
+        }
+    }
+}
+
 /** 仓库协作邀请 / 组织邀请（官方 App 不能处理） */
 @Composable
 fun InvitationsScreen() {

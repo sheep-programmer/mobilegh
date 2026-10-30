@@ -1,6 +1,5 @@
 package com.mobilegh.ui.screens
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,12 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -35,7 +30,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.mobilegh.R
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.GitHubStarList
@@ -55,6 +49,7 @@ import com.mobilegh.nav.Screen
 import com.mobilegh.nav.friendly
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.ui.components.GhButton
+import com.mobilegh.ui.components.FilterSheet
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.Loading
@@ -125,6 +120,8 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
     // 最后一次服务端确认的完整归属；requested 单独记录用户上一次提交的选择。
     var applied by remember { mutableStateOf<Set<String>>(emptySet()) }
     var writing by remember { mutableStateOf(false) }
+    // 写入中点了遮罩收起：等写完再关，不打断正在进行的写入
+    var closeAfterWrite by remember { mutableStateOf(false) }
     var membershipError by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -179,6 +176,7 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                 error = failure.friendly()
             } finally {
                 writing = false
+                if (closeAfterWrite) onDismiss()
             }
         }
     }
@@ -249,101 +247,80 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
         return
     }
 
-    // 和官方客户端的选择面板一样：自己画卡片，底部不给「取消/保存」，勾选即生效
-    Dialog(onDismissRequest = { if (!saving && !writing) onDismiss() }) {
-        Surface(
-            Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            color = g.canvas,
-            border = BorderStroke(1.dp, g.border),
-        ) {
-            Column(
-                Modifier.padding(horizontal = 18.dp, vertical = 16.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+    // 底部弹层：点遮罩或下滑即可收起；勾选即生效，没有保存/取消按钮。写入中收起会等这次写入结束再关，避免写一半被取消
+    FilterSheet(
+        title = tr("Star 列表"),
+        subtitle = repo.fullName.ifBlank { "${repo.owner.login}/${repo.name}" },
+        closeDescription = tr("关闭"),
+        onDismiss = { if (saving || writing) closeAfterWrite = true else onDismiss() },
+        footer = {
+            if (lists.size < UserListsClient.MAX_LISTS) GhButton(
+                tr("新建列表"), Modifier.weight(1f), icon = R.drawable.oc_plus,
+                enabled = !saving && !writing && canCreateListWithRepository(snapshot, mine),
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(tr("Star 列表"), fontWeight = FontWeight.SemiBold, fontSize = 18.sp, color = g.fg)
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            repo.fullName.ifBlank { "${repo.owner.login}/${repo.name}" },
-                            Modifier.weight(1f), fontSize = 13.sp, color = g.fg,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(trf("{0} 个列表", ordered.size), fontSize = 12.sp, color = g.fgMuted)
-                    }
+                error = null
+                creating = true
+            }
+            GhButton(tr("管理"), Modifier.weight(1f), icon = R.drawable.oc_checklist, enabled = !saving && !writing) {
+                onDismiss()
+                nav.push(Screen.StarLists(account.login))
+            }
+        },
+    ) {
+        if (snapshot?.starred == false) Text(
+            if (mine) tr("这是你拥有的仓库，可以直接加入列表。") else tr("请先 Star 仓库再添加；仍可移除已有分类。"),
+            fontSize = 12.sp, color = g.fgMuted,
+        )
+        error?.let {
+            InlineError(it, Modifier.fillMaxWidth()) {
+                if (!saving && !writing) {
+                    error = null
+                    writePending()
                 }
-                if (snapshot?.starred == false) Text(
-                    if (mine) tr("这是你拥有的仓库，可以直接加入列表。") else tr("请先 Star 仓库再添加；仍可移除已有分类。"),
-                    fontSize = 12.sp, color = g.fgMuted,
-                )
-                error?.let {
-                    InlineError(it, Modifier.fillMaxWidth()) {
-                        if (!saving && !writing) {
-                            error = null
-                            writePending()
-                        }
-                    }
-                }
-                if (base != null && catalog.error != null) {
-                    InlineError(trf("列表刷新失败：{0}", catalog.error), Modifier.fillMaxWidth()) { catalog.refresh() }
-                }
+            }
+        }
+        if (base != null && catalog.error != null) {
+            InlineError(trf("列表刷新失败：{0}", catalog.error), Modifier.fillMaxWidth()) { catalog.refresh() }
+        }
 
-                when {
-                    base == null && catalog.error != null -> InlineError(trf("列表读取失败：{0}", catalog.error), Modifier.fillMaxWidth()) { catalog.refresh() }
-                    base == null -> Loading(Modifier.fillMaxWidth().height(72.dp))
-                    else -> {
-                        // 归属是后台读的，不占版面；只有真失败了才提示并给重试
-                        val failure = membershipError
-                        if (snapshot == null && failure != null) InlineError(trf("列表归属读取失败：{0}", failure), Modifier.fillMaxWidth()) { loadMembership() }
-                        if (ordered.isEmpty()) Text(tr("还没有 GitHub 列表，新建一个后即可加入。"), fontSize = 13.sp, color = g.fgMuted)
-                        else Column(Modifier.fillMaxWidth()) {
-                            ordered.forEach { list ->
-                                // 直接在行内读状态：勾选变化一定让这一行自己重组，不依赖外层是否传下新值
-                                val chosen = picked ?: applied
-                                val checked = list.id in chosen
-                                val addable = snapshot?.starred != false || mine
-                                // 未 Star 时只允许移除已有分类；移除后不能绕过数据层校验再次添加。
-                                val enabled = snapshot != null && !saving && (addable || checked)
-                                Row(
-                                    Modifier.fillMaxWidth()
-                                        .toggleable(value = checked, enabled = enabled, role = Role.Checkbox) { toggle(list.id) }
-                                        .padding(vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    // 复选框自身不处理点击，整行只有这一个点击入口
-                                    Checkbox(checked, null, enabled = enabled)
-                                    Spacer(Modifier.width(10.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        Text(list.name, color = if (enabled) g.fg else g.fgMuted, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        Text(
-                                            if (list.isPrivate) trf("{0} 个仓库 · 私有", list.count) else trf("{0} 个仓库", list.count),
-                                            color = g.fgMuted, fontSize = 12.sp,
-                                        )
-                                    }
-                                }
+        when {
+            base == null && catalog.error != null -> InlineError(trf("列表读取失败：{0}", catalog.error), Modifier.fillMaxWidth()) { catalog.refresh() }
+            base == null -> Loading(Modifier.fillMaxWidth().height(72.dp))
+            else -> {
+                // 归属是后台读的，不占版面；只有真失败了才提示并给重试
+                val failure = membershipError
+                if (snapshot == null && failure != null) InlineError(trf("列表归属读取失败：{0}", failure), Modifier.fillMaxWidth()) { loadMembership() }
+                if (ordered.isEmpty()) Text(tr("还没有 GitHub 列表，新建一个后即可加入。"), fontSize = 13.sp, color = g.fgMuted)
+                else Column(Modifier.fillMaxWidth()) {
+                    ordered.forEach { list ->
+                        // 直接在行内读状态：勾选变化一定让这一行自己重组，不依赖外层是否传下新值
+                        val chosen = picked ?: applied
+                        val checked = list.id in chosen
+                        val addable = snapshot?.starred != false || mine
+                        // 未 Star 时只允许移除已有分类；移除后不能绕过数据层校验再次添加。
+                        val enabled = snapshot != null && !saving && (addable || checked)
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .toggleable(value = checked, enabled = enabled, role = Role.Checkbox) { toggle(list.id) },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // 复选框自身不处理点击，整行只有这一个点击入口
+                            Checkbox(checked, null, enabled = enabled)
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(list.name, color = if (enabled) g.fg else g.fgMuted, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    if (list.isPrivate) trf("{0} 个仓库 · 私有", list.count) else trf("{0} 个仓库", list.count),
+                                    color = g.fgMuted, fontSize = 12.sp,
+                                )
                             }
                         }
                     }
                 }
-
-                // 新建会同时加入当前仓库，因此归属未读妥或不可添加时不能创建后静默跳过写入。
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (lists.size < UserListsClient.MAX_LISTS) GhButton(
-                        tr("新建列表"), Modifier.weight(1f), icon = R.drawable.oc_plus,
-                        enabled = !saving && !writing && canCreateListWithRepository(snapshot, mine),
-                    ) {
-                        error = null
-                        creating = true
-                    }
-                    GhButton(tr("管理"), Modifier.weight(1f), icon = R.drawable.oc_checklist, enabled = !saving && !writing) {
-                        onDismiss()
-                        nav.push(Screen.StarLists(account.login))
-                    }
-                }
-                TextButton(onClick = onLocal, enabled = !saving && !writing, modifier = Modifier.fillMaxWidth()) {
-                    Text(tr("改用本机列表（不同步 GitHub）"))
-                }
             }
+        }
+        TextButton(onClick = onLocal, enabled = !saving && !writing, modifier = Modifier.fillMaxWidth()) {
+            Text(tr("改用本机列表（不同步 GitHub）"))
         }
     }
 }

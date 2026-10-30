@@ -738,7 +738,10 @@ object GitHub {
     }
 
     // ---------------- 搜索 ----------------
-    suspend fun searchRepos(q: String, sort: String?, page: Int) = Api.get<SearchResult<Repo>>("/search/repositories?q=${Api.q(q)}&per_page=$PER&page=$page" + (sort?.let { "&sort=$it" } ?: ""))
+    suspend fun searchRepos(q: String, sort: String?, page: Int, force: Boolean = false) = Api.get<SearchResult<Repo>>(
+        "/search/repositories?q=${Api.q(q)}&per_page=$PER&page=$page" + (sort?.let { "&sort=$it" } ?: ""),
+        force,
+    )
     suspend fun searchUsers(q: String, page: Int) = Api.get<SearchResult<User>>("/search/users?q=${Api.q(q)}&per_page=$PER&page=$page")
     suspend fun searchIssues(q: String, page: Int, sort: String? = null, order: String? = null, force: Boolean = false) =
         Api.get<SearchResult<Issue>>(

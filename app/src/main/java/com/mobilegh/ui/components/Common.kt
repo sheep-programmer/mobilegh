@@ -361,6 +361,8 @@ fun GhButton(
     danger: Boolean = false,
     enabled: Boolean = true,
     @DrawableRes icon: Int? = null,
+    // 图标单独换色，例如已 Star 的星标用黄色；禁用时仍按统一的灰色
+    iconTint: Color? = null,
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
@@ -372,7 +374,7 @@ fun GhButton(
     }
     val content: @Composable RowScope.() -> Unit = {
         if (icon != null) {
-            Oc(icon, if (!enabled || primary || danger) LocalContentColor.current else g.fgMuted)
+            Oc(icon, iconTint?.takeIf { enabled } ?: if (!enabled || primary || danger) LocalContentColor.current else g.fgMuted)
             Spacer(Modifier.width(6.dp))
         }
         Text(text, fontWeight = FontWeight.Medium, fontSize = 14.sp)

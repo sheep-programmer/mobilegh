@@ -115,12 +115,12 @@ private val REASON_FILTERS = listOf(
     "ci_activity" to tr("CI 活动"),
     "security_alert" to tr("安全告警"),
     "subscribed" to tr("订阅"),
+    "invitation" to tr("邀请"),
 )
 
 /** 行内 Pill 的文案：比筛选项多一些 GitHub 会返回的原因 */
 private val REASON_EXTRA = mapOf(
     "manual" to tr("手动订阅"),
-    "invitation" to tr("邀请"),
     "approval_requested" to tr("等待批准"),
 )
 
@@ -861,22 +861,17 @@ fun NotificationsScreen() {
             }
             HDivider()
             if (!doneTab) {
-                Row(
-                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Dropdown(REASON_FILTERS[reason].second, REASON_FILTERS.map { it.second }, { reason = it })
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        when {
-                            reason != 0 -> tr("只筛选已加载的通知：GitHub 接口不支持按原因过滤")
-                            grouped -> tr("按仓库分组")
-                            else -> tr("按时间排列")
-                        },
-                        Modifier.weight(1f),
-                        fontSize = 11.sp, lineHeight = 14.sp, color = g.fgMuted, maxLines = 2,
-                    )
-                }
+                // 原因筛选改成一排可横滑的标签：下拉菜单有 11 项，展开会占满半个屏幕
+                Chips(REASON_FILTERS.map { it.second }, reason) { reason = it }
+                Text(
+                    when {
+                        reason != 0 -> tr("只筛选已加载的通知：GitHub 接口不支持按原因过滤")
+                        grouped -> tr("按仓库分组")
+                        else -> tr("按时间排列")
+                    },
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 6.dp),
+                    fontSize = 11.sp, lineHeight = 14.sp, color = g.fgMuted, maxLines = 2,
+                )
                 HDivider()
             }
             Box(Modifier.weight(1f)) {
@@ -902,7 +897,11 @@ fun NotificationsScreen() {
                         groupHeader = { list ->
                             RepoHeader(list) { nav.push(Screen.Repo(list.first().repository.owner.login, list.first().repository.name)) }
                         },
-                        header = { if (busy) item(key = "bulk") { BulkBanner(state.busyLabel ?: "", state.busyDone, state.busyTotal) } },
+                        header = {
+                            // 仓库协作邀请和组织邀请不在通知接口里，这里单独合并进来，接受 / 拒绝与「仓库 → 待处理邀请」一致
+                            item(key = "invites") { InvitationBlock() }
+                            if (busy) item(key = "bulk") { BulkBanner(state.busyLabel ?: "", state.busyDone, state.busyTotal) }
+                        },
                     ) { n ->
                         NotificationRow(
                             n = n,

@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.Contributions
+import com.mobilegh.data.Event
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.PinnedRepo
 import com.mobilegh.data.ProjectOwnerKind
@@ -79,6 +80,8 @@ import com.mobilegh.ui.components.RepoItem
 import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.StatCell
 import com.mobilegh.ui.components.UserItem
+import com.mobilegh.ui.components.VisibilityBadge
+import com.mobilegh.ui.components.parseInstant
 import com.mobilegh.ui.components.contribStats
 import com.mobilegh.ui.components.copy
 import com.mobilegh.ui.components.fmtCount
@@ -182,7 +185,7 @@ fun ContributionBody(state: ContribState, full: Boolean) {
                                     val (o, r) = name.split('/').let { it[0] to it.getOrElse(1) { "" } }
                                     nav.push(Screen.Repo(o, r))
                                 }) {
-                                    RatioRow(name, rc.contributions.totalCount, max, g.success)
+                                    RatioRow(name, rc.contributions.totalCount, max, g.success, badge = { VisibilityBadge(rc.repository.isPrivate) })
                                 }
                             }
                         }
@@ -512,6 +515,8 @@ fun ActivityScreen(login: String) {
             PagedList(
                 pager, empty = tr("最近 90 天没有公开动态"),
                 itemKey = { it.id },
+                // 按发生时间倒序严格排列；没有时间的事件放到最后
+                itemSort = compareByDescending<Event> { parseInstant(it.createdAt)?.toEpochMilli() ?: Long.MIN_VALUE },
                 itemFilter = { cat == com.mobilegh.ui.components.EventCat.All || com.mobilegh.ui.components.eventCat(it) == cat },
             ) { EventItem(it) }
         }

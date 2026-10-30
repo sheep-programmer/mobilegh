@@ -414,7 +414,7 @@ private fun NewBranchDialog(owner: String, name: String, initialSource: String, 
 }
 
 @Composable
-private fun DeleteBranchDialog(owner: String, name: String, b: com.mobilegh.data.Branch, onDismiss: () -> Unit, onDeleted: () -> Unit) {
+internal fun DeleteBranchDialog(owner: String, name: String, b: com.mobilegh.data.Branch, onDismiss: () -> Unit, onDeleted: () -> Unit) {
     val g = Gh.c
     val entry = LocalEntry.current
     var busy by remember { mutableStateOf(false) }
@@ -436,7 +436,11 @@ private fun DeleteBranchDialog(owner: String, name: String, b: com.mobilegh.data
         Column {
             Text(trf("确定删除分支 {0} 吗？", b.name), fontSize = 14.sp, color = g.fg)
             Spacer(Modifier.height(6.dp))
-            Text(trf("最新提交 {0}。只存在于该分支上的提交在删除后只能通过 SHA 找回；以该分支发起的拉取请求会被关闭。", b.commit.sha.take(7)), fontSize = 13.sp, color = g.fgMuted)
+            Text(
+                if (b.commit.sha.isBlank()) tr("只存在于该分支上的提交在删除后只能通过 SHA 找回；以该分支发起的拉取请求会被关闭。")
+                else trf("最新提交 {0}。只存在于该分支上的提交在删除后只能通过 SHA 找回；以该分支发起的拉取请求会被关闭。", b.commit.sha.take(7)),
+                fontSize = 13.sp, color = g.fgMuted,
+            )
             if (b.protected) {
                 Spacer(Modifier.height(6.dp))
                 Text(tr("该分支受保护，GitHub 可能拒绝删除。"), fontSize = 13.sp, color = g.attention)

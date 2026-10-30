@@ -185,7 +185,9 @@ fun wrapHtml(body: String, dark: Boolean): String = """
   var c=document.getElementById('c');
   // ResizeObserver 每次布局都会回调；高度没变就不往原生层报，否则每次重排都打一条日志
   var last=-1;
-  function r(){var v=Math.ceil(c.getBoundingClientRect().height)+2;if(v===last)return;last=v;Bridge.h(v);}
+  // 内容高度 = 容器盒子与所有子元素底边的最大值：绝对定位、负边距等溢出的图片也要算进去，否则会被裁掉一半
+  function ext(){var b=c.getBoundingClientRect();var m=b.height;var all=c.getElementsByTagName('*');for(var i=0;i<all.length;i++){var y=all[i].getBoundingClientRect().bottom-b.top;if(y>m)m=y;}return m;}
+  function r(){var v=Math.ceil(ext())+2;if(v===last)return;last=v;Bridge.h(v);}
   new ResizeObserver(r).observe(c); r();
   // 首次排版时图片高度还是 0，照片加载完会把内容撑高十几万像素。等到 load 事件再报一次，
   // 否则原生层会按占位高度分配 WebView，页面底部的内容就再也滚不到。
@@ -232,7 +234,7 @@ private const val DARK_VARS = """
 private const val MARKDOWN_CSS = """
 html,body{margin:0;padding:0;background:transparent;}
 .markdown-body{color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans",Helvetica,Arial,sans-serif;
-font-size:15px;line-height:1.6;word-wrap:break-word;padding:0 16px 8px 16px;overflow:hidden;}
+font-size:15px;line-height:1.6;word-wrap:break-word;padding:0 16px 8px 16px;display:flow-root;}
 .markdown-body>*:first-child,.markdown-body article>*:first-child,.markdown-body .markdown-heading:first-child>*{margin-top:0!important;}
 a{color:var(--accent);text-decoration:none;}
 p,blockquote,ul,ol,dl,table,pre,details{margin-top:0;margin-bottom:14px;}

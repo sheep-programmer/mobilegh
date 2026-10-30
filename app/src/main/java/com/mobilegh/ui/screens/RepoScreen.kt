@@ -207,19 +207,23 @@ fun RepoScreen(owner: String, name: String) {
                             ) {
                                 if (!starBusy && entry.sameAccount()) {
                                     val on = !s
+                                    val before = repo.data ?: r
+                                    // 星标和计数立即变化；写入失败再整体回滚
                                     starStatus.accept(on)
+                                    repo.accept(repoWithStar(before, on))
                                     starBusy = true
                                     entry.act({
                                         if (entry.sameAccount()) {
                                             starStatus.accept(s)
-                                            starStatus.refresh()
-                                            repo.refresh()
+                                            repo.accept(before)
                                             ctx.toast(it)
                                         }
                                     }) {
                                         try {
-                                            // 成功后不刷新整页：星标已乐观更新，计数等返回页面或手动刷新时再更新
                                             entry.guarded { GitHub.star(owner, name, on) }
+                                            // 写入成功后静默同步服务器上的真实计数和状态，不出现加载态
+                                            repo.refreshSilently()
+                                            starStatus.refreshSilently()
                                         } finally { starBusy = false }
                                     }
                                 }
@@ -525,6 +529,10 @@ private fun ForkDialog(
         }
     }
 }
+
+/** Star 写入时先在本地把计数加一或减一，界面立即变化；写入失败再回滚。计数不会低于 0。 */
+internal fun repoWithStar(repo: Repo, on: Boolean): Repo =
+    repo.copy(stargazersCount = (repo.stargazersCount + if (on) 1 else -1).coerceAtLeast(0))
 
 @Composable
 private fun RepoHeader(r: Repo) {

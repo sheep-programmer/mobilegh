@@ -69,6 +69,29 @@ class Loader<T>(private val scope: CoroutineScope, private val block: suspend (f
     }
 
     fun refresh() = load(true)
+
+    /**
+     * 静默刷新：强制取最新数据，但不切换 loading / refreshing，界面没有加载态（按钮不变灰、下拉圈不出现）。
+     * 正在加载时跳过，避免和进行中的请求互相覆盖；失败时保留现有数据，不弹错误。
+     */
+    fun refreshSilently() {
+        if (loading || Session.generation != generation) return
+        val id = ++operation
+        job?.cancel()
+        job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try {
+                val result = withContext(Dispatchers.Default) {
+                    if (Session.generation != generation) throw CancellationException("Account changed")
+                    block(true)
+                }
+                if (id == operation && Session.generation == generation) data = result
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                // 静默：保留已有数据
+            }
+        }
+    }
 }
 
 /** 一页结果及其元数据。[onCommit] 只会在请求仍是最新时、于 Pager 所在主线程执行。 */

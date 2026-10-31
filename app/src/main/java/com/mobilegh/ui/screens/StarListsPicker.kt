@@ -82,6 +82,10 @@ internal fun starListPickedAfterWrite(wanted: Set<String>, picked: Set<String>, 
 internal fun canCreateListWithRepository(snapshot: RepositoryListMemberships?, mine: Boolean): Boolean =
     snapshot != null && (snapshot.starred || mine)
 
+/** 写入结束后是否收起弹层：只有用户点过收起且这次写入成功才收起；失败时保留弹层和错误 */
+internal fun pickerDismissesAfterWrite(closeRequested: Boolean, failed: Boolean): Boolean =
+    closeRequested && !failed
+
 /** 仓库菜单 / Star 长按的唯一入口：与首页同源的 Star 列表多选。 */
 @Composable
 fun AddToStarListsDialog(repo: Repo, onDismiss: () -> Unit) {
@@ -154,6 +158,7 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
         scope.launch {
             // requested 只含用户提交的选择；applied 保存服务端实际确认的完整归属。
             var requested = applied
+            var failed = false
             try {
                 while (true) {
                     val wanted = picked ?: break
@@ -173,10 +178,14 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (failure: Exception) {
+                failed = true
                 error = failure.friendly()
             } finally {
                 writing = false
-                if (closeAfterWrite) onDismiss()
+                // 失败时不收起：错误显示在弹层里，用户可以重试，或之后再点遮罩收起
+                val dismiss = pickerDismissesAfterWrite(closeAfterWrite, failed)
+                closeAfterWrite = false
+                if (dismiss) onDismiss()
             }
         }
     }
@@ -254,17 +263,20 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
         closeDescription = tr("关闭"),
         onDismiss = { if (saving || writing) closeAfterWrite = true else onDismiss() },
         footer = {
-            if (lists.size < UserListsClient.MAX_LISTS) GhButton(
-                tr("新建列表"), Modifier.weight(1f), icon = R.drawable.oc_plus,
+            if (lists.size < UserListsClient.MAX_LISTS) TextButton(
+                onClick = {
+                    error = null
+                    creating = true
+                },
                 enabled = !saving && !writing && canCreateListWithRepository(snapshot, mine),
-            ) {
-                error = null
-                creating = true
-            }
-            GhButton(tr("管理"), Modifier.weight(1f), icon = R.drawable.oc_checklist, enabled = !saving && !writing) {
-                onDismiss()
-                nav.push(Screen.StarLists(account.login))
-            }
+            ) { Text(tr("新建列表")) }
+            TextButton(
+                onClick = {
+                    onDismiss()
+                    nav.push(Screen.StarLists(account.login))
+                },
+                enabled = !saving && !writing,
+            ) { Text(tr("管理")) }
         },
     ) {
         if (snapshot?.starred == false) Text(

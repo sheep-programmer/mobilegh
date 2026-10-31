@@ -23,6 +23,7 @@ class ContributionStatsTest {
         ContributionRecord(User(login = login), total, weeks.toList())
     private fun snapshot(vararg records: ContributionRecord) = ContributionSnapshot(records.toList(), loadedAt = now)
     private fun response(code: Int, body: String = "", headers: Headers = Headers.Builder().build()) = Resp(code, body, headers)
+    private fun isProbe(path: String) = path.endsWith("/contributors?anon=1&per_page=1&page=1")
 
     @Test fun allHistoryUsesApiTotalAndLabelsShortWeeklyCoverage() {
         val result = aggregateContributions(snapshot(record(weeks = arrayOf(week("2026-09-27", 7), week("2026-10-04", 3)))), ContributionRange.All)
@@ -166,10 +167,12 @@ class ContributionStatsTest {
         val delays = mutableListOf<Long>()
         var attempt = 0
         val result = ContributionStats.load("owner", "repo", request = { path, force ->
-            assertTrue(path.endsWith("/stats/contributors"))
-            forces += force
-            if (attempt++ < 2) response(202, headers = Headers.Builder().add("Retry-After", "999").build())
-            else response(200, """[{"author":null,"total":6,"weeks":[{"w":1791072000,"c":2}]}]""")
+            if (isProbe(path)) response(200, "[]") else {
+                assertTrue(path.endsWith("/stats/contributors"))
+                forces += force
+                if (attempt++ < 2) response(202, headers = Headers.Builder().add("Retry-After", "999").build())
+                else response(200, """[{"author":null,"total":6,"weeks":[{"w":1791072000,"c":2}]}]""")
+            }
         }, pause = { delays += it })
         assertEquals(listOf(false, true, true), forces)
         assertEquals(listOf(8000L, 8000L), delays)
@@ -186,7 +189,8 @@ class ContributionStatsTest {
             if (path.endsWith("/stats/contributors")) response(202)
             else response(200, """[{"login":"octocat","id":1,"contributions":40}]""")
         }, pause = { delays += it })
-        assertEquals(5, calls)
+        // 1 个人数探测 + 4 次周统计 + 1 页贡献者列表
+        assertEquals(6, calls)
         assertEquals(listOf(1000L, 2000L, 4000L), delays)
         assertEquals(ContributionStatus.Pending, result.status)
         assertEquals(ContributionSource.ContributorList, result.source)
@@ -204,7 +208,7 @@ class ContributionStatsTest {
 
     @Test fun empty204DoesNotFallBackAndIsDistinctFromPending() = runBlocking {
         var calls = 0
-        val result = ContributionStats.load("owner", "repo", request = { _, _ -> calls++; response(204) }, pause = { fail("Unexpected delay") })
+        val result = ContributionStats.load("owner", "repo", request = { path, _ -> if (path.endsWith("/stats/contributors")) calls++; response(204) }, pause = { fail("Unexpected delay") })
         assertEquals(1, calls)
         assertEquals(ContributionStatus.Empty, result.status)
     }
@@ -224,11 +228,13 @@ class ContributionStatsTest {
             else response(200, """[{"name":"Anonymous","type":"Anonymous","contributions":8}]""",
                 Headers.Builder().add("Link", "<https://api.github.com/next>; rel=\"next\"").build())
         }, pause = { fail("Unexpected delay") })
-        assertEquals(6, paths.size)
-        assertTrue(paths.drop(1).all { it.contains("anon=1&per_page=100") })
+        // 探测 + 周统计 + 第 1 页；后续页由界面按需加载，不再一次读满
+        assertEquals(3, paths.size)
+        assertTrue(paths.drop(2).all { it.contains("anon=1&per_page=100&page=1") })
         assertTrue(result.truncated)
+        assertEquals(2, result.nextPage)
         assertEquals(ContributionStatus.Unavailable, result.status)
-        assertEquals(5, result.records.size)
+        assertEquals(1, result.records.size)
         assertTrue(result.records.all { it.author!!.login.isBlank() })
     }
 
@@ -243,29 +249,88 @@ class ContributionStatsTest {
         }, pause = { fail("Unexpected delay") })
         assertEquals(20L, result.records.single().total)
         assertTrue(result.truncated)
-        assertTrue(result.message!!.contains("Try later"))
+        assertEquals(2, result.nextPage)
+        // 后续页的失败由界面按需加载时报告；这里只确认第 2 页的请求失败会以异常返回
+        val later = runCatching {
+            ContributionStats.contributorPage("owner", "repo", 2, request = { _, _ -> response(503, "{}") })
+        }
+        assertTrue(later.isFailure)
     }
 
     @Test fun authenticationAndRateLimitFailuresDoNotTryAnotherEndpoint() = runBlocking {
         for (code in listOf(401, 403, 429)) {
-            var calls = 0
+            var statsCalls = 0
+            var listCalls = 0
             try {
-                ContributionStats.load("owner", "repo", request = { _, _ -> calls++; response(code, "{}") })
+                ContributionStats.load("owner", "repo", request = { path, _ ->
+                    if (path.endsWith("/stats/contributors")) statsCalls++
+                    if (path.contains("per_page=100")) listCalls++
+                    response(code, "{}")
+                })
                 fail("Expected API failure")
             } catch (error: ApiException) {
                 assertEquals(code, error.code)
             }
-            assertEquals(1, calls)
+            assertEquals(1, statsCalls)
+            assertEquals(0, listCalls)
         }
     }
 
     @Test fun cancellationStopsPollingWithoutLoadingFallback() = runBlocking {
         var calls = 0
         try {
-            ContributionStats.load("owner", "repo", request = { _, _ -> calls++; response(202) }, pause = { throw CancellationException("screen left") })
+            ContributionStats.load("owner", "repo", request = { path, _ -> if (path.endsWith("/stats/contributors")) calls++; response(202) }, pause = { throw CancellationException("screen left") })
             fail("Expected cancellation")
         } catch (_: CancellationException) { }
         assertEquals(1, calls)
+    }
+
+    @Test fun largeRepositoryUsesPagedListWithoutWeeklyStatistics() = runBlocking {
+        val paths = mutableListOf<String>()
+        val result = ContributionStats.load("owner", "repo", request = { path, _ ->
+            paths += path
+            if (isProbe(path)) response(200, """[{"login":"octocat","id":1,"contributions":900}]""",
+                Headers.Builder().add("Link", "<https://api.github.com/x?anon=1&per_page=1&page=2>; rel=\"next\", <https://api.github.com/x?anon=1&per_page=1&page=321>; rel=\"last\"").build())
+            else response(200, """[{"login":"octocat","id":1,"contributions":900}]""")
+        }, pause = { fail("Unexpected delay") })
+        assertTrue(paths.none { it.endsWith("/stats/contributors") })
+        assertEquals(ContributionSource.ContributorList, result.source)
+        assertEquals(ContributionStatus.Ready, result.status)
+        assertEquals(900L, result.records.single().total)
+        assertNotNull(result.message)
+    }
+
+    @Test fun tooLargeContributorListIsExplainedWithoutStatisticsCalls() = runBlocking {
+        var calls = 0
+        val result = ContributionStats.load("owner", "repo", request = { _, _ -> calls++
+            response(403, """{"message":"The history or contributor list is too large to list contributors for this repository via the API."}""")
+        }, pause = { fail("Unexpected delay") })
+        assertEquals(1, calls)
+        assertEquals(ContributionStatus.Unavailable, result.status)
+        assertTrue(result.records.isEmpty())
+        assertTrue(result.message!!.contains("仓库过大"))
+    }
+
+    @Test fun personActivityBucketsRecentCommitsByUtcSundayWeek() = runBlocking {
+        val commits = """[
+            {"commit":{"author":{"date":"2026-10-05T10:00:00Z"}}},
+            {"commit":{"author":{"date":"2026-10-04T00:00:01Z"}}},
+            {"commit":{"author":{"date":"2026-09-27T23:59:59Z"}}}
+        ]"""
+        val activity = ContributionStats.personActivity("owner", "repo", "octocat",
+            request = { path, _ -> assertTrue(path.contains("author=octocat")); response(200, commits) }, now = now)
+        assertEquals(52, activity.weekly.size)
+        assertFalse(activity.truncated)
+        assertEquals(LocalDate.parse("2026-10-04"), activity.weekly.last().start)
+        assertEquals(2L, activity.weekly.last().commits)
+        assertEquals(1L, activity.weekly[activity.weekly.size - 2].commits)
+        assertEquals(0L, activity.weekly.first().commits)
+    }
+
+    @Test fun authorCommitCountComesFromLastPageOfOneItemPages() = runBlocking {
+        val last = Headers.Builder().add("Link", "<https://api.github.com/x?per_page=1&page=2>; rel=\"next\", <https://api.github.com/x?per_page=1&page=42>; rel=\"last\"").build()
+        assertEquals(42L, ContributionStats.authorCommits("owner", "repo", "octocat", request = { _, _ -> response(200, "[{}]", last) }))
+        assertEquals(0L, ContributionStats.authorCommits("owner", "repo", "nobody", request = { _, _ -> response(200, "[]") }))
     }
 
     @Test fun pendingWithoutFallbackIsUnknownRatherThanZeroCommits() {

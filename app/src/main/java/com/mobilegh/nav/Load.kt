@@ -12,6 +12,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -20,7 +21,8 @@ import com.mobilegh.i18n.trf
 
 fun Throwable.friendly(): String = when (this) {
     is ApiException -> message
-    is kotlinx.serialization.SerializationException -> trf("数据解析失败：{0}", message?.take(160))
+    // 解析失败通常是代理或接口返回了非预期内容：只给用户一句中文提示，原始错误留给日志
+    is kotlinx.serialization.SerializationException -> tr("数据格式异常，请稍后重试")
     else -> networkHint() ?: message ?: javaClass.simpleName
 }
 
@@ -94,12 +96,61 @@ class Loader<T>(private val scope: CoroutineScope, private val block: suspend (f
     }
 }
 
-/** 一页结果及其元数据。[onCommit] 只会在请求仍是最新时、于 Pager 所在主线程执行。 */
+/**
+ * 一页结果及其元数据。[totalPages] 为数据源已知的总页数（如搜索结果的 total_count 换算），未知时为 null。
+ * [onCommit] 只会在请求仍是最新时、于 Pager 所在主线程执行。
+ */
 data class PagerPage<T>(
     val items: List<T>,
     val hasMore: Boolean? = null,
+    val totalPages: Int? = null,
     val onCommit: () -> Unit = {},
 )
+
+/** [Pager.loadAll] 默认的条目上限：不限制 */
+const val PAGER_UNLIMITED = Int.MAX_VALUE
+
+/** 分块加载每一步最多读取的页数 */
+const val CHUNK_PAGES_PER_STEP = 3
+
+/** 分块加载两步之间的停顿（毫秒），给列表留出渲染与滚动的时间 */
+const val CHUNK_PAUSE_MS = 300L
+
+/** GitHub 搜索 API 最多返回的结果条数（超过的页直接返回 422） */
+const val GITHUB_SEARCH_RESULT_CAP = 1000
+
+/**
+ * 计算分块加载的一步要读取的页码区间（页码从 1 开始，闭区间）。
+ * [nextPage] 为下一个未读页，[pagesPerStep] 为每步上限，[totalPages] 已知时不会越过最后一页。
+ * 返回空区间表示没有可读的页。
+ */
+fun planChunk(nextPage: Int, pagesPerStep: Int, totalPages: Int?): IntRange {
+    require(nextPage >= 1 && pagesPerStep >= 1) { "nextPage and pagesPerStep must be positive" }
+    val last = (nextPage.toLong() + pagesPerStep - 1).coerceAtMost(Int.MAX_VALUE.toLong())
+    val bound = totalPages?.let { minOf(it.toLong(), last) } ?: last
+    return nextPage..bound.toInt()
+}
+
+/**
+ * 分块加载是否应因条目上限而停止：已加载条目数达到上限，且服务端仍有下一页。
+ * 没有下一页时即使超过上限也不算截断（列表已经读完）。
+ */
+fun chunkLimitReached(loaded: Int, maxItems: Int, hasNext: Boolean): Boolean = hasNext && loaded >= maxItems
+
+/**
+ * 失败后续读的页码：最后一次成功提交的页之后的那一页。失败的那一页没有提交，所以正好是它本身。
+ */
+fun resumePage(lastCommittedPage: Int): Int = lastCommittedPage.coerceAtLeast(0) + 1
+
+/** GitHub 搜索在第 [page] 页之后是否还有可读的结果（上限取 [cap] 与 [totalCount] 的较小值） */
+fun searchHasNextPage(page: Int, perPage: Int, totalCount: Int, cap: Int = GITHUB_SEARCH_RESULT_CAP): Boolean =
+    page.toLong() * perPage < minOf(totalCount, cap)
+
+/** GitHub 搜索可读的总页数（超过上限的部分不计入） */
+fun searchTotalPages(perPage: Int, totalCount: Int, cap: Int = GITHUB_SEARCH_RESULT_CAP): Int {
+    val readable = minOf(totalCount, cap).coerceAtLeast(0)
+    return (readable + perPage - 1) / perPage
+}
 
 /** 分页列表 */
 class Pager<T>(
@@ -120,8 +171,24 @@ class Pager<T>(
     private var page = 0
     private var job: Job? = null
     private var operation = 0
-    private enum class Request { More, Refresh, All }
+    private enum class Request { More, Refresh, All, Chunked }
     private var failed: Request? = null
+    /** 最近一次请求的类型，供 [cancelLoadAll] 判断当前是否在全量加载 */
+    private var active: Request? = null
+    /** 全量加载的已加载条目上限；[retry] 沿用同一上限 */
+    private var allLimit = PAGER_UNLIMITED
+    /** 分块加载的每步页数与步间停顿；[retry] 沿用同一设置 */
+    private var chunkPages = CHUNK_PAGES_PER_STEP
+    private var chunkPauseMs = CHUNK_PAUSE_MS
+    /** 最近一次提交的页所报告的总页数；未知时为 null */
+    private var knownTotalPages: Int? = null
+
+    /** 全量加载因达到条目上限而停止、后面仍有未读页时为 true；新请求开始时复位 */
+    var truncated by mutableStateOf(false)
+        private set
+
+    /** 正在进行的是全量或分块加载（而非普通翻页与刷新），界面据此决定是否显示“停止”按钮 */
+    val fullScanning: Boolean get() = loading && isFullScan(active)
 
     fun loadMore() {
         if (!loading && !end) request(Request.More)
@@ -129,19 +196,60 @@ class Pager<T>(
 
     fun refresh() = request(Request.Refresh)
 
-    /** 加载全部剩余页（用于本地搜索过滤） */
-    fun loadAll() {
-        if (!loading && !end) request(Request.All)
+    /**
+     * 加载全部剩余页（用于本地搜索过滤）。[maxItems] 为已加载条目的上限：达到后停止翻页，
+     * 并把 [truncated] 置为 true；已加载的条目与游标保留，之后仍可 [loadMore] 继续。默认不限制。
+     */
+    fun loadAll(maxItems: Int = PAGER_UNLIMITED) {
+        if (!loading && !end) {
+            allLimit = maxItems
+            request(Request.All)
+        }
+    }
+
+    /**
+     * 分块加载剩余页（用于本地搜索过滤）：每步最多读取 [pagesPerStep] 页，步与步之间停顿 [pauseMs] 毫秒。
+     * 每一页取回后立即加入列表，已加载的条目不会因后续某一块失败而丢弃；失败后 [error] 非空，
+     * [retry] 从失败的那一页继续。[maxItems]、停止与 [truncated] 的语义与 [loadAll] 相同。
+     */
+    fun loadChunked(
+        maxItems: Int = PAGER_UNLIMITED,
+        pagesPerStep: Int = CHUNK_PAGES_PER_STEP,
+        pauseMs: Long = CHUNK_PAUSE_MS,
+    ) {
+        if (!loading && !end) {
+            allLimit = maxItems
+            chunkPages = pagesPerStep
+            chunkPauseMs = pauseMs
+            request(Request.Chunked)
+        }
+    }
+
+    /**
+     * 停止正在进行的全量加载（搜索词变化、清空或用户点击停止时调用）。只取消 [loadAll] 与 [loadChunked]，
+     * 不影响普通翻页与刷新；已加载的条目和页码保持不变，之后可再次加载从断点继续。
+     */
+    fun cancelLoadAll() {
+        truncated = false
+        if (!loading || !isFullScan(active)) return
+        operation++
+        job?.cancel()
+        job = null
+        loading = false
+        refreshing = false
     }
 
     fun retry() {
         if (loading) return
         when (failed) {
             Request.Refresh -> refresh()
-            Request.All -> loadAll()
+            Request.All -> loadAll(allLimit)
+            Request.Chunked -> loadChunked(allLimit, chunkPages, chunkPauseMs)
             else -> loadMore()
         }
     }
+
+    private fun isFullScan(kind: Request?) = kind == Request.All || kind == Request.Chunked
 
     private fun request(kind: Request) {
         if (Session.generation != generation) return
@@ -151,22 +259,25 @@ class Pager<T>(
         refreshing = kind == Request.Refresh
         error = null
         failed = null
+        truncated = false
+        active = kind
+        val limit = if (isFullScan(kind)) allLimit else PAGER_UNLIMITED
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
-                do {
-                    val next = if (kind == Request.Refresh) 1 else page + 1
-                    val result = withContext(Dispatchers.Default) {
-                        if (Session.generation != generation) throw CancellationException("Account changed")
-                        fetchPage?.invoke(next, kind == Request.Refresh)
-                            ?: PagerPage(fetch(next, kind == Request.Refresh))
-                    }
-                    if (id != operation || Session.generation != generation) return@launch
-                    if (kind == Request.Refresh) items.clear()
-                    result.onCommit()
-                    items.addAll(result.items)
-                    page = next
-                    end = result.hasMore?.not() ?: hasMore?.invoke(next)?.not() ?: (result.items.size < pageSize)
-                } while (kind == Request.All && !end)
+                if (kind == Request.Chunked) {
+                    scanChunks(id, limit)
+                } else {
+                    do {
+                        // 全量加载达到上限且仍有下一页：停止翻页。不丢弃已加载条目，也不把 end 置位，之后仍可 loadMore。
+                        if (items.size >= limit && !end) {
+                            if (id == operation) truncated = true
+                            break
+                        }
+                        // 刷新：旧条目保持可见，直到新的第一页取回并提交后才替换（失败则保留旧条目）
+                        val next = if (kind == Request.Refresh) 1 else page + 1
+                        if (!commitPage(id, next, kind)) return@launch
+                    } while (kind == Request.All && !end)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -179,6 +290,55 @@ class Pager<T>(
                 }
             }
         }
+    }
+
+    /**
+     * 分块加载：每步按 [planChunk] 依次读取最多 [chunkPages] 页，每页取回后立即提交，步与步之间停顿。
+     * 任一页失败会抛出到 [request] 统一处理，此前提交的页保留，[resumePage] 决定从哪一页续读。
+     */
+    private suspend fun scanChunks(id: Int, limit: Int) {
+        val pagesPerStep = chunkPages
+        val pauseMs = chunkPauseMs
+        var stepsDone = 0
+        while (!end) {
+            // 达到条目上限且仍有下一页：停止，已加载的条目与游标保留
+            if (chunkLimitReached(items.size, limit, hasNext = true)) {
+                if (id == operation) truncated = true
+                return
+            }
+            val step = planChunk(resumePage(page), pagesPerStep, knownTotalPages)
+            if (step.isEmpty()) return
+            // 第一步立即开始（重试时也是），之后每步前停顿，让已提交的结果先渲染；取消会在 delay 处生效
+            if (stepsDone++ > 0) delay(pauseMs)
+            for (next in step) {
+                if (!commitPage(id, next, Request.Chunked)) return
+                if (end) return
+                if (chunkLimitReached(items.size, limit, hasNext = true)) {
+                    if (id == operation) truncated = true
+                    return
+                }
+            }
+        }
+    }
+
+    /**
+     * 读取第 [next] 页并提交。请求已过期（被取消、切换账号或被本地写操作覆盖）时返回 false，且不改动任何状态。
+     */
+    private suspend fun commitPage(id: Int, next: Int, kind: Request): Boolean {
+        val result = withContext(Dispatchers.Default) {
+            if (Session.generation != generation) throw CancellationException("Account changed")
+            fetchPage?.invoke(next, kind == Request.Refresh)
+                ?: PagerPage(fetch(next, kind == Request.Refresh))
+        }
+        if (id != operation || Session.generation != generation) return false
+        // 刷新：旧条目保持可见，直到新的第一页取回并提交后才替换（失败则保留旧条目）
+        if (kind == Request.Refresh) items.clear()
+        result.onCommit()
+        items.addAll(result.items)
+        page = next
+        knownTotalPages = result.totalPages
+        end = result.hasMore?.not() ?: hasMore?.invoke(next)?.not() ?: (result.items.size < pageSize)
+        return true
     }
 
     /** 已确认的本地写操作会使旧响应失效，避免进行中的刷新把已删除条目加回来。 */

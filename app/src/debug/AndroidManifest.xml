@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 仅 debug 构建：允许模拟器访问主机上的本地测试服务器（10.0.2.2）做下载测试。release 不包含此配置。 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:networkSecurityConfig="@xml/network_security_debug" />
+</manifest>

@@ -25,6 +25,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -65,6 +67,7 @@ fun Heatmap(cal: ContribCalendar, modifier: Modifier = Modifier) {
     var selected by remember(cal) { mutableStateOf<ContribDay?>(null) }
     val scroll = rememberScrollState()
     LaunchedEffect(cal, scroll.maxValue) { scroll.scrollTo(scroll.maxValue) }
+    val summary = remember(cal) { heatmapSummary(cal) }
 
     Column(modifier) {
         Box(Modifier.fillMaxWidth().horizontalScroll(scroll)) {
@@ -73,6 +76,7 @@ fun Heatmap(cal: ContribCalendar, modifier: Modifier = Modifier) {
             Canvas(
                 Modifier
                     .size(width, height)
+                    .semantics { contentDescription = summary }
                     .pointerInput(cal) {
                         detectTapGestures { p ->
                             val col = ((p.x - left.toPx()) / (cell + gap).toPx()).toInt()
@@ -166,6 +170,21 @@ fun contribStats(cal: ContribCalendar): ContribStats {
         best = days.maxByOrNull { it.contributionCount }?.takeIf { it.contributionCount > 0 },
         byWeekday = byWeekday,
     )
+}
+
+/** 热力图的读屏摘要：日期范围、全年贡献合计、有贡献的天数，以及贡献最多的一天。纯函数。 */
+fun heatmapSummary(cal: ContribCalendar): String {
+    val days = cal.weeks.flatMap { it.contributionDays }
+    if (days.isEmpty()) return tr("暂无贡献数据")
+    val active = days.count { it.contributionCount > 0 }
+    val best = days.maxByOrNull { it.contributionCount }?.takeIf { it.contributionCount > 0 }
+    val first = days.minOf { it.date }
+    val last = days.maxOf { it.date }
+    return if (best != null) {
+        trf("贡献热力图，{0} 至 {1}，共 {2} 次贡献，{3} 天有贡献，最多 {4} 次（{5}）", first, last, cal.totalContributions, active, best.contributionCount, best.date)
+    } else {
+        trf("贡献热力图，{0} 至 {1}，共 {2} 次贡献，{3} 天有贡献", first, last, cal.totalContributions, active)
+    }
 }
 
 @Composable

@@ -61,8 +61,6 @@ import com.mobilegh.ui.components.share
 import com.mobilegh.ui.components.MdText
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.ui.theme.GhColors
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 
@@ -106,7 +104,16 @@ fun CommitRow(owner: String, name: String, c: Commit) {
     }
 }
 
-class ParsedFile(val file: CommitFile, val lines: List<DiffLine>)
+/**
+ * 一个文件的变更。patch 在 [lines] 第一次被读取（文件第一次展开）时才解析，结果按文件缓存，
+ * 没展开的文件不付出解析代价。也可以直接传入已解析好的行。
+ */
+class ParsedFile private constructor(val file: CommitFile, private val parsed: Lazy<List<DiffLine>>) {
+    constructor(file: CommitFile) : this(file, lazy(LazyThreadSafetyMode.SYNCHRONIZED) { file.patch?.let(::parsePatch).orEmpty() })
+    constructor(file: CommitFile, lines: List<DiffLine>) : this(file, lazyOf(lines))
+
+    val lines: List<DiffLine> get() = parsed.value
+}
 
 @Composable
 fun CommitDetailScreen(owner: String, name: String, sha: String) {
@@ -115,7 +122,7 @@ fun CommitDetailScreen(owner: String, name: String, sha: String) {
     val g = Gh.c
     val data = rememberLoader("commit") {
         val c = GitHub.commit(owner, name, sha)
-        c to withContext(Dispatchers.Default) { c.files.orEmpty().map { f -> ParsedFile(f, f.patch?.let(::parsePatch).orEmpty()) } }
+        c to c.files.orEmpty().map { ParsedFile(it) }
     }
     val collapsed = retain("collapsed") { mutableStateMapOf<String, Boolean>() }
     // 链接里可能是分支名或 HEAD，加载后统一换成实际 SHA

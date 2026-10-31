@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.SpanStyle
@@ -24,6 +26,11 @@ import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.Event
 import com.mobilegh.data.Issue
+import com.mobilegh.data.PullCiState
+import com.mobilegh.data.PullReviewState
+import com.mobilegh.data.PullRequestStatuses
+import com.mobilegh.data.PullStatus
+import com.mobilegh.data.Session
 import com.mobilegh.data.Pull
 import com.mobilegh.data.Repo
 import com.mobilegh.data.User
@@ -117,9 +124,10 @@ fun IssueItem(issue: Issue, repoName: String? = null, onClick: () -> Unit) {
     val g = Gh.c
     val isPull = issue.pullRequest != null
     val st = issueState(issue.state, issue.stateReason, isPull, issue.pullRequest?.mergedAt != null, issue.draft)
-    val (icon, color, _) = stateVisual(st)
+    val (icon, color, statusText) = stateVisual(st)
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Oc(icon, color, 16.dp, Modifier.padding(top = 2.dp))
+        // 状态图标带上文字（开启/已关闭/草稿等），行的整体读屏描述才包含状态
+        Oc(icon, color, 16.dp, Modifier.padding(top = 2.dp), contentDescription = statusText)
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             if (repoName != null) Text("$repoName #${issue.number}", fontSize = 12.sp, color = g.fgMuted)
@@ -147,9 +155,13 @@ fun IssueItem(issue: Issue, repoName: String? = null, onClick: () -> Unit) {
 fun PullItem(pr: Pull, onClick: () -> Unit) {
     val g = Gh.c
     val st = issueState(pr.state, null, true, pr.mergedAt != null, pr.draft)
-    val (icon, color, _) = stateVisual(st)
+    val (icon, color, statusText) = stateVisual(st)
+    // 审查与 CI 状态由列表页加载时后台补充；未到达或读取失败时这里为 null，行上不显示
+    val statuses by PullRequestStatuses.flow.collectAsState()
+    val status = statuses[PullRequestStatuses.key(Session.generation, pr.nodeId)]
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Oc(icon, color, 16.dp, Modifier.padding(top = 2.dp))
+        // 状态图标带上文字（开启/已合并/草稿等），行的整体读屏描述才包含状态
+        Oc(icon, color, 16.dp, Modifier.padding(top = 2.dp), contentDescription = statusText)
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             MdText(pr.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 3)
@@ -163,7 +175,34 @@ fun PullItem(pr: Pull, onClick: () -> Unit) {
             Text(trf("#{0} · {1} 开启于 {2}", pr.number, pr.user?.login ?: "", relTime(pr.createdAt)), fontSize = 12.sp, color = g.fgMuted)
             if (pr.head.label.isNotBlank() && pr.base.ref.isNotBlank())
                 Text("${pr.head.label} → ${pr.base.ref}", fontSize = 12.sp, color = g.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (status != null) PullStatusPills(status)
         }
+    }
+}
+
+/** 审查结论与 CI 状态的小标签；仓库没有审查要求（NONE）时不显示审查标签 */
+@Composable
+private fun PullStatusPills(status: PullStatus) {
+    val g = Gh.c
+    val review = when (status.review) {
+        PullReviewState.APPROVED -> tr("审查通过") to g.success
+        PullReviewState.CHANGES_REQUESTED -> tr("需要修改") to g.danger
+        PullReviewState.REVIEW_REQUIRED -> tr("待审查") to g.attention
+        PullReviewState.NONE -> null
+    }
+    val ci = when (status.ci) {
+        PullCiState.SUCCESS -> tr("CI 成功") to g.success
+        PullCiState.FAILURE -> tr("CI 失败") to g.danger
+        PullCiState.PENDING -> tr("CI 进行中") to g.attention
+        PullCiState.NONE -> tr("CI 无") to g.fgMuted
+    }
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.padding(top = 4.dp),
+    ) {
+        review?.let { (text, color) -> Pill(text, color) }
+        Pill(ci.first, ci.second)
     }
 }
 

@@ -29,6 +29,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -146,7 +149,9 @@ fun AppLockScreen() {
         GhButton(tr("解锁"), Modifier.fillMaxWidth(0.6f), primary = true, icon = R.drawable.oc_unlock) { prompt() }
         error?.let {
             Spacer(Modifier.height(12.dp))
-            Text(it, fontSize = 13.sp, color = g.danger, textAlign = TextAlign.Center)
+            // 错误出现时屏幕阅读器应主动朗读，不必用户自己去找
+            Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                fontSize = 13.sp, color = g.danger, textAlign = TextAlign.Center)
         }
     }
 }

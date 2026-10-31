@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.ContentUris
+import android.content.ContentValues
 import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
@@ -23,6 +24,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import com.mobilegh.service.DownloadService
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -55,6 +58,102 @@ fun retryableDownloadFailure(reason: Int): Boolean = when (reason) {
     else -> true
 }
 
+/** 下载记录最多保留的条数（不含进行中的任务） */
+internal const val HISTORY_KEEP = 20
+
+/** 超出保留数量、需要从列表中移出的较早记录（纯函数，便于单测）；列表按新到旧排列 */
+internal fun historyOverflow(tasks: List<DownloadTask>, keep: Int = HISTORY_KEEP): List<DownloadTask> =
+    tasks.filter { !it.active }.drop(keep)
+
+/**
+ * 同时提交给 DownloadManager 的下载上限。DownloadManager 没有并发设置，由应用控制提交数量；
+ * 超出的任务留在应用内排队（状态 Queued、没有 managerId），前面的结束后再提交。
+ */
+internal const val MAX_CONCURRENT_DOWNLOADS = 3
+
+/** 还能不能再占用一个名额：已占用的数量小于上限（纯函数，便于单测） */
+internal fun canStartNext(running: Int, limit: Int = MAX_CONCURRENT_DOWNLOADS): Boolean = running < limit
+
+/** 排队中的一项：只需要 key 和是否暂停 */
+internal data class QueueEntry(val key: String, val paused: Boolean)
+
+/**
+ * 从排队中挑出本次应该提交的任务（纯函数，便于单测）。
+ *
+ * - queue：按入队先后排列，最早的在前（先进先出）
+ * - running：当前已占用名额的任务数（已提交或正在准备提交）
+ * - 已暂停的任务跳过：既不提交，也不占名额，也不挡住后面的任务
+ *
+ * 返回按队列顺序的 key，数量不超过剩余名额。
+ */
+internal fun keysToPromote(queue: List<QueueEntry>, running: Int, limit: Int = MAX_CONCURRENT_DOWNLOADS): List<String> {
+    val promoted = mutableListOf<String>()
+    var slots = running
+    for (entry in queue) {
+        if (entry.paused) continue
+        if (!canStartNext(slots, limit)) break
+        promoted += entry.key
+        slots++
+    }
+    return promoted
+}
+
+/**
+ * 系统报告的失败原因 → 给用户看的说明。原始错误码不显示，只写进日志。
+ * HTTP 类（401/403/404/407/429/451/5xx）与私有下载的映射保持一致。
+ */
+internal fun downloadFailureMessage(reason: Int): String = when (reason) {
+    DownloadManager.ERROR_INSUFFICIENT_SPACE -> tr("存储空间不足，请清理后重试")
+    DownloadManager.ERROR_FILE_ALREADY_EXISTS -> tr("同名文件已存在，请重试")
+    DownloadManager.ERROR_DEVICE_NOT_FOUND -> tr("存储设备不可用")
+    DownloadManager.ERROR_TOO_MANY_REDIRECTS -> tr("下载地址跳转过多")
+    DownloadManager.ERROR_FILE_ERROR -> tr("无法写入文件，请检查下载目录")
+    DownloadManager.ERROR_CANNOT_RESUME -> tr("下载中断且无法续传，请重新下载")
+    DownloadManager.ERROR_HTTP_DATA_ERROR -> tr("数据传输中断，请检查网络后重试")
+    401 -> tr("需要登录 GitHub 后才能下载")
+    403, 404 -> tr("没有下载权限，或资源已经删除")
+    407 -> tr("网络代理需要认证，请检查代理设置")
+    429 -> tr("请求过于频繁，请稍后重试")
+    451 -> tr("该资源因法律原因无法下载")
+    in 500..599 -> tr("服务器暂时不可用，请稍后重试")
+    else -> tr("下载失败，请检查网络后重试")
+}
+
+/**
+ * 卡住或过慢时界面上的提示。私有下载只有一条直连地址，没有可更换的节点，文案不提「更换节点」。
+ */
+internal fun stuckDownloadHint(isPrivate: Boolean, slow: Boolean): String = when {
+    slow -> tr("下载速度过慢，系统仍在继续；可取消或更换节点")
+    isPrivate -> tr("连接 GitHub 没有响应，系统仍在重试；可取消后重新下载")
+    else -> tr("节点无响应，系统仍在重试；可取消或更换节点")
+}
+
+/** 慢速判定的窗口：连续监控满这么久，平均速度才算数，短时间的波动不算 */
+internal const val SLOW_WINDOW_MS = 45_000L
+
+/**
+ * 平均速度低于 64 KB/s 视为节点太慢。取值依据：远低于正常加速节点的速度，普通波动不会触发；
+ * 而 64 KB/s 下 20 MB 的 APK 要五分钟多，这时换节点通常比继续等划算。
+ */
+internal const val SLOW_BYTES_PER_SEC = 64L * 1024
+
+/**
+ * 进行中的下载是否慢到值得换一个节点（纯函数，便于单测）。
+ *
+ * - windowMs / windowBytes：连续监控期间累计的时长和新增字节
+ * - remainingBytes：还剩多少字节，总大小未知时为 null
+ * - hasNextCandidate：是否还有下一个候选节点；私有下载、手动节点、已是最后一个候选时为 false，永不换
+ *
+ * 剩下的数据按当前速度在一个窗口内就能下完的不换：换节点要从头再下，反而更慢。
+ */
+internal fun isSlowDownload(windowMs: Long, windowBytes: Long, remainingBytes: Long?, hasNextCandidate: Boolean): Boolean {
+    if (!hasNextCandidate || windowMs < SLOW_WINDOW_MS) return false
+    val bytesPerSec = windowBytes * 1000.0 / windowMs
+    if (bytesPerSec >= SLOW_BYTES_PER_SEC) return false
+    if (remainingBytes != null && remainingBytes <= bytesPerSec * SLOW_WINDOW_MS / 1000.0) return false
+    return true
+}
+
 @Serializable
 data class DownloadTask(
     val key: String = UUID.randomUUID().toString(),
@@ -70,6 +169,8 @@ data class DownloadTask(
     val appDirectory: Boolean = false,
     /** 下载完成后的落地路径。用于打开文件 / 删除本地文件；DownloadManager 的 URI 不可靠。 */
     val filePath: String? = null,
+    /** 下载完成后在 MediaStore 中的 URI（Android 10 及以上落在「下载」文件夹时使用） */
+    val contentUri: String? = null,
     /** 公开下载的候选地址（按节点排列）：失败后自动换下一个，私有下载为空（只有一条直连地址） */
     val targets: List<DownloadTarget> = emptyList(),
     /** 当前正在使用的候选序号 */
@@ -77,8 +178,15 @@ data class DownloadTask(
     /** 本次尝试使用的节点，用于统计哪个节点真的能下载 */
     val nodeId: String? = null,
     val nodeName: String? = null,
+    /** 排队中用户点了「暂停」：不提交给 DownloadManager，直到用户继续。只对应用内排队的任务有效 */
+    val paused: Boolean = false,
 ) {
     val active get() = state in setOf(DownloadState.Preparing, DownloadState.Queued, DownloadState.Running, DownloadState.Waiting)
+    /** 还在应用内排队、尚未交给 DownloadManager 的任务（没有 managerId） */
+    val waitingForSlot get() = state == DownloadState.Queued
+    /** 能暂停或继续：排队中、传输中，或已暂停的任务 */
+    val canTogglePause get() = state == DownloadState.Queued || state == DownloadState.Running ||
+        state == DownloadState.Preparing || (state == DownloadState.Waiting && paused)
     val progress: Float? get() = when {
         state == DownloadState.Complete -> 1f
         total > 0 -> (downloaded.toDouble() / total).toFloat().coerceIn(0f, 0.99f)
@@ -86,40 +194,94 @@ data class DownloadTask(
     }
 }
 
-/** 系统负责后台传输，应用负责进度、历史和文件操作；这里不会保存 Token。 */
+/** 应用内下载：断点续传引擎（[ResumableTransfer]）负责传输，这里负责任务状态、排队、换节点、历史和文件操作；Token 不会保存。 */
 object Downloads {
     private lateinit var context: Context
     private lateinit var prefs: android.content.SharedPreferences
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var monitor: Job? = null
     private var foreground = false
-    private val manager get() = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-    private val privateHttp by lazy { OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).build() }
+    private var lastServiceCount = -1
+    /** 每个任务正在运行的传输协程，按任务 key 索引 */
+    private val transfers = HashMap<String, Job>()
+    /** 用户点了暂停、正在取消的任务：取消后保留已下载的部分，状态改为已暂停 */
+    private val pausing = HashSet<String>()
+    private val privateHttp by lazy { OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector()).followRedirects(false).followSslRedirects(false).build() }
+    private val transferHttp by lazy {
+        OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector())
+            .connectTimeout(20, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
+    }
+    private val engine by lazy { ResumableTransfer(transferHttp) }
     /** 没有进度的任务从什么时候开始卡住的（只记内存，用于判断该换节点了） */
     private val stalledSince = HashMap<String, Long>()
     private const val STALL_MS = 20_000L
-    private val authHosts = setOf("github.com", "api.github.com", "raw.githubusercontent.com", "codeload.github.com")
+    /** 每次尝试的速度采样（只记内存）：window* 用于判断慢速，total* 用于算完成时的实测速度 */
+    private val paces = HashMap<String, Pace>()
+    /** 两次采样间隔超过这个时间，说明监控中断（App 在后台、暂停），这段时间不计入速度 */
+    private const val PACE_GAP_MS = 3_000L
+    /** 采样时长不足 1 秒时噪声太大，不记录实测速度 */
+    private const val MIN_SPEED_SAMPLE_MS = 1_000L
+    private const val MONITOR_TICK_MS = 500L
+
+    private class Pace {
+        var lastAt = 0L
+        var lastBytes = 0L
+        var windowMs = 0L
+        var windowBytes = 0L
+        var totalMs = 0L
+        var totalBytes = 0L
+    }
+
+    /** 一次传输要用的地址、请求头和节点 */
+    private class Source(val url: String, val headers: Map<String, String>, val nodeId: String?, val nodeName: String)
 
     val tasks = mutableStateListOf<DownloadTask>()
     var selectedKey by mutableStateOf<String?>(null)
     var showHistory by mutableStateOf(false)
+    /** 完成或失败、而用户没有在看它的弹窗时记下它；直到用户点开或点 ✕ 才消失，不会自动收起 */
+    var finishedKey by mutableStateOf<String?>(null)
+    val finishedTask get() = tasks.firstOrNull { it.key == finishedKey && !it.active }
     val activeCount get() = tasks.count { it.active }
+    /** 正在传输的任务数；其余未完成的（排队、已暂停）计为排队 */
+    val runningCount get() = tasks.count { it.state == DownloadState.Running || it.state == DownloadState.Preparing }
+    val queuedCount get() = activeCount - runningCount
+    /** 因超出保留数量而从列表移出的历史记录条数（累计，清空历史时归零） */
+    var droppedRecords by mutableStateOf(0)
+        private set
+    /** 仅 Wi-Fi 下载（默认关闭）：开启后计费网络下不开始新的下载，进行中的会继续 */
+    var wifiOnly by mutableStateOf(false)
+        private set
 
     fun init(ctx: Context) {
         context = ctx.applicationContext
         prefs = context.getSharedPreferences("downloads", Context.MODE_PRIVATE)
+        wifiOnly = prefs.getBoolean("wifiOnly", false)
+        droppedRecords = prefs.getInt("dropped", 0)
         tasks.clear()
         runCatching {
             val stored = prefs.getString("tasks", null) ?: return@runCatching
             tasks.addAll(Api.plain.decodeFromString<List<DownloadTask>>(stored).map {
-                if (it.active && it.managerId == null) it.copy(state = DownloadState.Failed, message = tr("下载准备被中断，请重试")) else it
+                when {
+                    // 旧版交给系统下载器的记录无法继续，直接提示重新下载
+                    it.active && it.managerId != null -> it.copy(state = DownloadState.Failed, message = tr("旧版下载记录已失效，请重新下载"))
+                    // 上次正在传输的：进程结束了，保留已下的部分，等用户继续
+                    it.state == DownloadState.Running || it.state == DownloadState.Preparing ->
+                        it.copy(state = DownloadState.Waiting, paused = true, message = tr("应用已重启，已暂停，可以继续下载"))
+                    else -> it
+                }
             })
         }
+        pump()
+    }
+
+    fun changeWifiOnly(on: Boolean) {
+        wifiOnly = on
+        prefs.edit().putBoolean("wifiOnly", on).apply()
     }
 
     fun setForeground(visible: Boolean) {
         foreground = visible
-        if (visible) startMonitor() else { monitor?.cancel(); monitor = null }
+        if (visible) pump()
     }
 
     fun start(rawUrl: String, filename: String?, isPrivate: Boolean, mimeType: String? = null) {
@@ -131,137 +293,195 @@ object Downloads {
             mimeType = mimeType,
             // 私有下载只有一条解析后的直连地址；公开下载准备好整条节点候选链，失败自动换下一个
             targets = if (isPrivate) emptyList() else Net.downloadTargets(rawUrl),
+            // 统一先记为排队，由 pump() 按名额决定是否立即开始
+            state = DownloadState.Queued,
         )
         tasks.add(0, task)
-        tasks.filter { !it.active }.drop(20).forEach { tasks.remove(it) }
+        // 超出保留数量的较早记录移出列表，并计数，让界面能说明移掉了多少条
+        historyOverflow(tasks).takeIf { it.isNotEmpty() }?.let { overflow ->
+            val dropKeys = overflow.map { it.key }.toSet()
+            tasks.removeAll { it.key in dropKeys }
+            droppedRecords += overflow.size
+            prefs.edit().putInt("dropped", droppedRecords).apply()
+        }
         selectedKey = task.key
         showHistory = false
         AppLog.info("download", tr("开始下载：") + task.filename + "（" + (if (isPrivate) "private" else "public") + "）")
         save()
-        scope.launch {
-            try {
-                val queued = withContext(Dispatchers.IO) { enqueue(task, Session.token) }
-                val current = tasks.firstOrNull { it.key == task.key }
-                if (current == null || current.state == DownloadState.Cancelled) {
-                    withContext(Dispatchers.IO) { queued.managerId?.let { manager.remove(it) } }
-                } else {
-                    update(queued)
-                    save()
-                    startMonitor()
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                val current = tasks.firstOrNull { it.key == task.key }?.takeIf { it.state != DownloadState.Cancelled }
-                // 起不来也可能是这个节点不通，先换节点，全都试过才把错误显示给用户
-                val rotated = if (current != null) rotate(current, e.networkHint() ?: e.message) else null
-                if (rotated == null) {
-                    AppLog.warn("download", tr("无法开始下载：") + task.filename + "：" + (e.message ?: e.javaClass.simpleName))
-                    if (current != null) {
-                        reportAllFailed(current)
-                        update(current.copy(state = DownloadState.Failed, message = e.networkHint() ?: e.message ?: tr("无法开始下载")))
-                        save()
-                    }
-                }
-            }
+        pump()
+        if (tasks.firstOrNull { it.key == task.key }?.waitingForSlot == true) {
+            AppLog.info("download", tr("同时下载已满，已加入排队：") + task.filename)
         }
-    }
-
-    private fun enqueue(task: DownloadTask, token: String?): DownloadTask {
-        var url = task.url
-        var authorization: String? = null
-        // 候选链里的当前一条；旧记录没有候选链时退回单节点选择
-        val target = task.targets.getOrNull(task.attempt)
-        if (task.isPrivate) {
-            require(!token.isNullOrBlank()) { tr("请先登录 GitHub 后下载") }
-            val resolved = resolvePrivateUrl(url, token)
-            url = resolved.first
-            authorization = resolved.second
-        } else if (target != null) {
-            url = target.url
-        } else {
-            url = Net.download(url)
-        }
-        val nodeName = if (task.isPrivate) tr("直连 GitHub") else target?.nodeName ?: Net.downloadNode().name
-        AppLog.info(
-            "download",
-            task.filename + tr(" 使用节点：") + nodeName +
-                if (target != null && task.targets.size > 1) trf("（第 {0}/{1} 个候选）", task.attempt + 1, task.targets.size) else "" +
-                tr("；地址主机：") + (Uri.parse(url).host ?: "unknown"),
-        )
-        val appDirectory = Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
-            ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
-        @Suppress("DEPRECATION")
-        val directory = if (appDirectory) context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-        else Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        requireNotNull(directory) { tr("下载目录不可用") }
-        val actualName = uniqueFilename(task.filename, directory)
-        val request = DownloadManager.Request(Uri.parse(url)).apply {
-            setTitle(actualName)
-            setDescription(tr("MobileGH 下载"))
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN)
-            if (appDirectory) setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, actualName)
-            else setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, actualName)
-            setAllowedOverMetered(true)
-            setAllowedOverRoaming(true)
-            (task.mimeType ?: mimeFor(actualName))?.let(::setMimeType)
-            authorization?.let { addRequestHeader("Authorization", it) }
-            if (task.isPrivate && Uri.parse(url).host == "api.github.com") {
-                addRequestHeader("Accept", "application/octet-stream")
-                addRequestHeader("X-GitHub-Api-Version", "2022-11-28")
-            }
-            addRequestHeader("User-Agent", "MobileGH (Android)")
-        }
-        return task.copy(
-            managerId = manager.enqueue(request),
-            filename = actualName,
-            state = DownloadState.Queued,
-            appDirectory = appDirectory,
-            filePath = File(directory, actualName).absolutePath,
-            nodeId = if (task.isPrivate) null else target?.nodeId,
-            nodeName = nodeName,
-        )
     }
 
     /**
-     * 换用下一个候选节点重试。返回换过节点的新任务；返回 null 表示已经试完所有候选，
-     * 调用方按失败处理。私有下载和手动选定的节点都不换。
+     * 按入队先后补足名额：排队中且未暂停的任务开始传输，直到占满 [MAX_CONCURRENT_DOWNLOADS]。
+     * 开始前先把状态改为 Preparing，名额在同一次调用里就已占用，不会重复开始。
      */
-    private suspend fun rotate(task: DownloadTask, reason: String?): DownloadTask? {
+    private fun pump() {
+        if (!::context.isInitialized) return
+        val queue = tasks.asReversed().filter { it.waitingForSlot }
+        if (queue.isNotEmpty() && !(wifiOnly && isMeteredNow())) {
+            val running = tasks.count { it.state == DownloadState.Preparing || it.state == DownloadState.Running }
+            val keys = keysToPromote(queue.map { QueueEntry(it.key, it.paused) }, running)
+            for (key in keys) {
+                val current = tasks.firstOrNull { it.key == key } ?: continue
+                val promoted = current.copy(state = DownloadState.Preparing, paused = false, message = null)
+                update(promoted)
+                launchTransfer(promoted)
+            }
+            if (keys.isNotEmpty()) save()
+        }
+        syncService()
+    }
+
+    /** 当前网络是否按流量计费（Wi-Fi 下载开启时用于暂缓新任务） */
+    private fun isMeteredNow(): Boolean =
+        context.getSystemService(android.net.ConnectivityManager::class.java)?.isActiveNetworkMetered == true
+
+    /** 前台服务只在有进行中的下载时保持，数量变化时更新通知 */
+    private fun syncService() {
+        val count = tasks.count { it.state == DownloadState.Running || it.state == DownloadState.Preparing }
+        if (count == lastServiceCount) return
+        lastServiceCount = count
+        com.mobilegh.service.DownloadService.sync(context, count)
+    }
+
+    private fun launchTransfer(task: DownloadTask) {
+        transfers.remove(task.key)?.cancel()
+        transfers[task.key] = scope.launch { runTransfer(task.key) }
+        startMonitor()
+    }
+
+    /** 一次传输：解析地址 → 下载（可续传）→ 完成则落盘，失败则换节点或报错 */
+    private suspend fun runTransfer(key: String) {
+        val started = tasks.firstOrNull { it.key == key } ?: return
+        val source = try {
+            withContext(Dispatchers.IO) { resolveSource(started) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            transfers.remove(key)
+            update(started.copy(state = DownloadState.Failed, message = e.networkHint() ?: e.message ?: tr("无法开始下载")))
+            save(); pump()
+            return
+        }
+        tasks.firstOrNull { it.key == key }?.let { current ->
+            if (current.state == DownloadState.Cancelled) return
+            update(current.copy(state = DownloadState.Running, nodeId = source.nodeId, nodeName = source.nodeName, message = null))
+        }
+        AppLog.info("download", started.filename + tr(" 使用节点：") + source.nodeName + tr("；地址主机：") + (Uri.parse(source.url).host ?: "unknown"))
+        val partial = partialFile(started)
+        val result = try {
+            engine.run(source.url, source.headers, partial, onProgress = { done, total -> scope.launch { progress(key, done, total) } })
+        } catch (e: CancellationException) {
+            onInterrupted(key)
+            throw e
+        }
+        when (result) {
+            TransferResult.Complete -> finishTransfer(key, partial)
+            is TransferResult.Failed -> failTransfer(key, result)
+        }
+    }
+
+    private fun progress(key: String, done: Long, total: Long) {
+        val current = tasks.firstOrNull { it.key == key } ?: return
+        if (current.state != DownloadState.Running) return
+        update(current.copy(downloaded = done, total = total))
+    }
+
+    /** 传输协程被取消：用户暂停则保留部分文件并改为已暂停；用户取消则删除部分文件。换节点等其它取消不改状态。 */
+    private fun onInterrupted(key: String) {
+        val current = tasks.firstOrNull { it.key == key } ?: return
+        when {
+            current.state == DownloadState.Cancelled -> partialFile(current).delete()
+            key in pausing -> {
+                pausing.remove(key)
+                transfers.remove(key)
+                update(current.copy(state = DownloadState.Waiting, paused = true, message = tr("已暂停")))
+                save(); pump()
+            }
+        }
+    }
+
+    private fun finishTransfer(key: String, partial: File) {
+        transfers.remove(key)
+        val task = tasks.firstOrNull { it.key == key } ?: return
+        scope.launch {
+            val published = try {
+                withContext(Dispatchers.IO) { publish(task, partial) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AppLog.warn("download", task.filename + "：" + (e.message ?: e.javaClass.simpleName))
+                update(task.copy(state = DownloadState.Failed, message = tr("无法保存到「下载」文件夹，请检查存储空间后重试")))
+                save(); pump()
+                return@launch
+            }
+            partial.delete()
+            val current = tasks.firstOrNull { it.key == key } ?: return@launch
+            update(current.copy(
+                state = DownloadState.Complete, filename = published.name, filePath = published.filePath,
+                contentUri = published.contentUri, downloaded = if (current.total > 0) current.total else current.downloaded,
+                message = null, paused = false,
+            ))
+            DownloadService.notifyFinished(context, published.name, tr("下载完成"))
+            save(); pump()
+        }
+    }
+
+    private fun failTransfer(key: String, result: TransferResult.Failed) {
+        transfers.remove(key)
+        val task = tasks.firstOrNull { it.key == key } ?: return
+        if (task.state == DownloadState.Cancelled) return
+        // 可以重试的错误先换下一个节点；节点都试过了才显示错误（部分文件保留，重新下载时从断点继续）
+        if (result.retryable && rotate(task, result.message)) return
+        AppLog.warn("download", task.filename + "：" + result.message + (result.httpCode?.let { " (HTTP $it)" } ?: ""))
+        reportAllFailed(task)
+        val message = failureText(result.httpCode, result.retryable)
+        update(task.copy(state = DownloadState.Failed, message = message))
+        DownloadService.notifyFinished(context, task.filename, message)
+        save(); pump()
+    }
+
+    /** 失败的说明：按 HTTP 状态给出中文提示，原始信息只写日志 */
+    private fun failureText(httpCode: Int?, retryable: Boolean): String = when (httpCode) {
+        401 -> tr("GitHub 授权失效，请重新登录")
+        403 -> tr("没有下载权限，或资源已经删除")
+        404 -> tr("文件不存在或已被删除")
+        429 -> tr("请求太频繁，请稍后重试")
+        in 500..599 -> tr("服务器暂时不可用，请稍后重试")
+        else -> if (retryable) tr("网络中断，可以点击重试从断点继续") else tr("下载失败，请检查网络后重试")
+    }
+
+    /** 换用下一个候选节点继续（保留已下的部分）。返回 false 表示没有可换的节点。 */
+    private fun rotate(task: DownloadTask, reason: String?): Boolean {
         val next = task.attempt + 1
-        // 没有下一个候选了：停在最后一个节点上继续等系统自己重试，失败由调用方统一处理
-        if (task.isPrivate || next >= task.targets.size) return null
+        // 私有下载、手动节点和已是最后一个候选时不换
+        if (task.isPrivate || next >= task.targets.size) return false
         val failed = task.targets[task.attempt]
         val target = task.targets[next]
-        // 新的一次尝试重新计时，否则会拿着上一个节点的超时时间立刻再换一次
         stalledSince.remove(task.key)
+        paces.remove(task.key)
         AppLog.warn(
             "download",
-            task.filename + tr(" 节点 ") + failed.nodeName + tr(" 失败") + (reason?.let { "（$it）" } ?: "") + tr("，改用 ") + target.nodeName + tr(" 重试"),
+            task.filename + tr(" 节点 ") + failed.nodeName + tr(" 失败") + (reason?.let { "（$it）" } ?: "") + tr("，改用 ") + target.nodeName + tr("，从断点续传"),
         )
         Net.markDownloadFail(failed.nodeId)
-        // 清掉上一次的排队记录和残留的半截文件，避免下一个节点因同名文件直接失败
-        task.managerId?.let { id -> withContext(Dispatchers.IO) { runCatching { manager.remove(id) } } }
-        withContext(Dispatchers.IO) { task.filePath?.let { path -> runCatching { File(path).delete() } } }
-        val rotating = tasks.firstOrNull { it.key == task.key } ?: return null
-        if (rotating.state == DownloadState.Cancelled) return null
+        transfers.remove(task.key)?.cancel()
+        val rotating = tasks.firstOrNull { it.key == task.key } ?: return false
+        if (rotating.state == DownloadState.Cancelled) return false
         val updated = rotating.copy(
             attempt = next,
             state = DownloadState.Preparing,
-            managerId = null,
+            paused = false,
             downloaded = 0,
-            total = -1,
             message = tr("节点 ") + failed.nodeName + tr(" 不通，正在改用 ") + target.nodeName,
         )
         update(updated)
         save()
-        return try {
-            enqueue(updated, Session.token).also { update(it); save() }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            rotate(updated, e.networkHint() ?: e.message)
-        }
+        launchTransfer(updated)
+        return true
     }
 
     /** 所有候选都试过之后的收尾：记下失败节点并重新测速，供下次选择参考 */
@@ -272,125 +492,101 @@ object Downloads {
         Net.speedTestAsync()
     }
 
-    private fun resolvePrivateUrl(initial: String, token: String): Pair<String, String?> {
-        var url = initial.toHttpUrl()
-        repeat(6) {
-            require(url.isHttps) { tr("GitHub 下载地址必须使用 HTTPS") }
-            if (url.host !in authHosts) return url.toString() to null
-            val req = Request.Builder().url(url).header("Authorization", "Bearer " + token)
-                .header("Accept", privateDownloadAccept(url.toString())).build()
-            privateHttp.routed().newCall(req).execute().use { response ->
-                if (response.code in 300..399) {
-                    val next = response.header("Location")?.let(url::resolve) ?: error(tr("下载跳转缺少地址"))
-                    require(next.isHttps) { tr("下载跳转必须使用 HTTPS") }
-                    url = next
-                } else {
-                    require(response.isSuccessful) {
-                        when (response.code) {
-                            401 -> tr("GitHub 授权失效，请重新登录")
-                            403, 404 -> tr("没有下载权限，或资源已经删除")
-                            else -> tr("无法下载资源（HTTP ") + response.code + "）"
-                        }
-                    }
-                    return url.toString() to ("Bearer " + token)
-                }
+    /** 解析这次传输用的地址、请求头和节点（私有下载需要先换到可直接下载的地址） */
+    private fun resolveSource(task: DownloadTask): Source {
+        val headers = mutableMapOf("User-Agent" to "MobileGH (Android)")
+        if (task.isPrivate) {
+            val token = Session.token
+            require(!token.isNullOrBlank()) { tr("请先登录 GitHub 后下载") }
+            val (url, authorization) = resolvePrivateUrl(task.url, token)
+            authorization?.let { headers["Authorization"] = it }
+            if (Uri.parse(url).host == "api.github.com") {
+                headers["Accept"] = "application/octet-stream"
+                headers["X-GitHub-Api-Version"] = "2022-11-28"
             }
+            return Source(url, headers, null, tr("直连 GitHub"))
         }
-        error(tr("下载地址跳转过多"))
+        val target = task.targets.getOrNull(task.attempt)
+        val url = target?.url ?: Net.download(task.url)
+        return Source(url, headers, target?.nodeId, target?.nodeName ?: Net.downloadNode().name)
     }
 
-    private fun startMonitor() {
-        if (!foreground || monitor?.isActive == true) return
-        monitor = scope.launch {
-            do {
-                refresh()
-                delay(500)
-            } while (isActive && tasks.any { it.active && it.managerId != null })
-        }
-    }
-
-    suspend fun refresh() {
-        val snapshot = tasks.filter { it.managerId != null && it.state != DownloadState.Cancelled }
-        if (snapshot.isEmpty()) return
-        val queried = withContext(Dispatchers.IO) {
-            runCatching {
-                manager.query(DownloadManager.Query().setFilterById(*snapshot.map { it.managerId!! }.toLongArray())).use { cursor ->
-                    val result = HashMap<Long, DownloadTask>()
-                    val reasons = HashMap<Long, Int>()
-                    while (cursor.moveToNext()) {
-                        val id = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_ID))
-                        val original = snapshot.firstOrNull { it.managerId == id } ?: continue
-                        val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                        val reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
-                        val state = when (status) {
-                            DownloadManager.STATUS_SUCCESSFUL -> DownloadState.Complete
-                            DownloadManager.STATUS_FAILED -> DownloadState.Failed
-                            DownloadManager.STATUS_RUNNING -> DownloadState.Running
-                            DownloadManager.STATUS_PAUSED -> DownloadState.Waiting
-                            else -> DownloadState.Queued
-                        }
-                        if (state == DownloadState.Failed) reasons[id] = reason
-                        result[id] = original.copy(
-                            state = state,
-                            downloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)).coerceAtLeast(0),
-                            total = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)),
-                            message = when (state) {
-                                DownloadState.Failed -> failureMessage(reason)
-                                DownloadState.Waiting -> if (reason == DownloadManager.PAUSED_WAITING_FOR_NETWORK || reason == DownloadManager.PAUSED_QUEUED_FOR_WIFI) tr("等待网络连接") else tr("网络中断，正在重试")
-                                else -> null
-                            },
-                        )
-                    }
-                    result to reasons
-                }
-            }.getOrNull()
-        } ?: return
-        val rows = queried.first
-        val reasons = queried.second
-        var persist = false
-        snapshot.forEach { previous ->
-            val current = tasks.firstOrNull { it.key == previous.key } ?: return@forEach
-            if (current.state == DownloadState.Cancelled) return@forEach
-            var next = rows[previous.managerId] ?: previous.copy(state = DownloadState.Failed, message = tr("下载记录或文件已被移除，请重试"))
-            val reason = reasons[previous.managerId]
-            val stalled = stalledReason(current.key, next, reason)
-            // 第一次看到失败、且原因像是节点不通时自动换下一个节点，而不是直接把错误抛给用户
-            if (next.state == DownloadState.Failed && current.state != DownloadState.Failed &&
-                reason != null && retryableFailure(reason)
-            ) {
-                val rotated = rotate(current, next.message)
-                next = rotated ?: if (current.targets.size > 1) {
-                    reportAllFailed(current)
-                    next.copy(message = tr("所有下载节点都不通，请检查网络后重试"))
-                } else next
-            } else if (stalled != null) {
-                // 节点不通时系统会自己重试好几轮，等它自己认输要几分钟，这里先换节点
-                next = rotate(current, stalled) ?: next
-            }
-            if (next.state in setOf(DownloadState.Complete, DownloadState.Failed, DownloadState.Cancelled)) {
-                stalledSince.remove(current.key)
-            }
-            if (current != next) persist = true
-            update(next)
-        }
-        if (persist) save()
+    /** 部分下载文件放在应用自己的目录，不需要存储权限；完成后再复制到「下载」文件夹 */
+    private fun partialFile(task: DownloadTask): File {
+        val base = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+        return File(File(base, "transfers").apply { mkdirs() }, "${task.key}.part")
     }
 
     /**
-     * 卡在某个节点上的判断。
-     *
-     * 交给系统之后一直没有进展（没有任何字节，或者暂停了很久），说明这个节点不通：
-     * 系统自己会重试好几轮，等它认输要好几分钟，不如先换下一个节点。
-     * 「等待网络连接」不换——那种情况网络恢复后系统会自己续传。
-     * 返回卡住的原因（用于换节点），没卡住返回 null。
+     * 把完成的部分文件放进「下载」文件夹：Android 10 及以上通过 MediaStore 写入（分区存储，不需要额外权限）；
+     * 更早的系统直接写入公共下载目录，没有写入权限时退回应用自己的目录。
      */
-    private fun stalledReason(key: String, task: DownloadTask, reason: Int?): String? {
-        val waitingForNetwork = task.state == DownloadState.Waiting &&
-            (reason == DownloadManager.PAUSED_WAITING_FOR_NETWORK || reason == DownloadManager.PAUSED_QUEUED_FOR_WIFI)
+    private fun publish(task: DownloadTask, partial: File): Published {
+        val mime = task.mimeType ?: mimeFor(task.filename) ?: "application/octet-stream"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, task.filename)
+                put(MediaStore.Downloads.MIME_TYPE, mime)
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val uri = context.contentResolver.insert(collection, values) ?: error(tr("无法创建下载文件"))
+            try {
+                val out = context.contentResolver.openOutputStream(uri) ?: error(tr("无法写入下载文件"))
+                out.use { stream -> partial.inputStream().use { it.copyTo(stream, 64 * 1024) } }
+                context.contentResolver.update(uri, ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }, null, null)
+            } catch (e: Exception) {
+                context.contentResolver.delete(uri, null, null)
+                throw e
+            }
+            val name = context.contentResolver.query(uri, arrayOf(MediaStore.Downloads.DISPLAY_NAME), null, null, null)
+                ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: task.filename
+            return Published(name, null, uri.toString())
+        }
+        @Suppress("DEPRECATION")
+        val publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val canWritePublic = ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        val directory = if (canWritePublic && publicDir != null) publicDir else context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+        directory.mkdirs()
+        val name = uniqueFilename(task.filename, directory)
+        val target = File(directory, name)
+        partial.copyTo(target, overwrite = false)
+        return Published(name, target.absolutePath, null)
+    }
+
+    private class Published(val name: String, val filePath: String?, val contentUri: String?)
+
+    private fun startMonitor() {
+        if (monitor?.isActive == true) return
+        monitor = scope.launch {
+            do {
+                tick()
+                delay(MONITOR_TICK_MS)
+            } while (isActive && tasks.any { it.state == DownloadState.Running || it.state == DownloadState.Preparing })
+        }
+    }
+
+    /** 监控一轮：卡住或太慢的传输换节点（或提示），并补足排队 */
+    private fun tick() {
+        tasks.filter { it.state == DownloadState.Running }.forEach { task ->
+            val pace = samplePace(task.key, task)
+            val stalled = stalledReason(task.key, task)
+            val slow = if (stalled == null) slowReason(task, pace) else null
+            val reason = stalled ?: slow ?: return@forEach
+            if (!rotate(task, reason)) {
+                tasks.firstOrNull { it.key == task.key }?.let { current ->
+                    update(current.copy(message = stuckDownloadHint(current.isPrivate, slow = stalled == null)))
+                }
+            }
+        }
+        pump()
+    }
+
+    private fun stalledReason(key: String, task: DownloadTask): String? {
         // 排在另一个正在下载的任务后面等着，不算卡住
         val queuedBehindAnother = tasks.any { it.key != key && it.state == DownloadState.Running }
-        val stuck = task.active && !waitingForNetwork && !queuedBehindAnother &&
-            (task.state != DownloadState.Running || task.downloaded <= 0)
+        val stuck = task.state == DownloadState.Running && !queuedBehindAnother && task.downloaded <= 0
         if (!stuck) {
             stalledSince.remove(key)
             return null
@@ -400,38 +596,107 @@ object Downloads {
             stalledSince[key] = System.currentTimeMillis()
             return null
         }
-        // 已经下了一部分又停住的多给一点时间：可能是大文件在慢速网络上，系统还能续传
-        val limit = if (task.downloaded > 0) STALL_MS * 3 else STALL_MS
-        return if (System.currentTimeMillis() - since >= limit) tr("节点没有响应") else null
+        return if (System.currentTimeMillis() - since >= STALL_MS) tr("节点没有响应") else null
     }
 
     /**
-     * 换节点重试是否有可能成功。
-     *
-     * 空间不足、文件已存在、存储设备不可用、写入失败这类原因换哪个节点都一样；
-     * 权限/未找到（401/403/404/407/451）也说明是资源本身的问题，不该反复重试。
+     * 记录一次进度采样。只累计连续监控期间的字节和时间：暂停、非运行状态、或者两次采样间隔过长
+     * （App 在后台时没有刷新）都会断开，断开后慢速窗口也重新计时。
      */
-    private fun retryableFailure(reason: Int) = retryableDownloadFailure(reason)
-
-    fun cancel(task: DownloadTask) {
-        if (!task.active) return
-        update(task.copy(state = DownloadState.Cancelled, message = null))
-        save()
-        task.managerId?.let { id -> scope.launch { withContext(Dispatchers.IO) { runCatching { manager.remove(id) } } } }
+    private fun samplePace(key: String, task: DownloadTask): Pace {
+        val pace = paces.getOrPut(key) { Pace() }
+        val now = System.currentTimeMillis()
+        if (task.state != DownloadState.Running) {
+            pace.lastAt = 0L
+            pace.windowMs = 0L
+            pace.windowBytes = 0L
+            return pace
+        }
+        if (pace.lastAt != 0L && now - pace.lastAt <= PACE_GAP_MS) {
+            val dt = now - pace.lastAt
+            val db = (task.downloaded - pace.lastBytes).coerceAtLeast(0L)
+            pace.windowMs += dt
+            pace.windowBytes += db
+            pace.totalMs += dt
+            pace.totalBytes += db
+        } else {
+            pace.windowMs = 0L
+            pace.windowBytes = 0L
+        }
+        pace.lastAt = now
+        pace.lastBytes = task.downloaded
+        return pace
     }
 
+    /** 有进度但平均速度长时间太低：返回原因（用于换节点），否则返回 null。 */
+    private fun slowReason(task: DownloadTask, pace: Pace): String? {
+        if (task.state != DownloadState.Running || task.downloaded <= 0) {
+            pace.windowMs = 0L
+            pace.windowBytes = 0L
+            return null
+        }
+        val hasNext = !task.isPrivate && task.attempt + 1 < task.targets.size
+        val remaining = task.total.takeIf { it > 0 }?.let { (it - task.downloaded).coerceAtLeast(0L) }
+        if (isSlowDownload(pace.windowMs, pace.windowBytes, remaining, hasNext)) return tr("下载速度过慢")
+        if (pace.windowMs >= SLOW_WINDOW_MS) {
+            pace.windowMs = 0L
+            pace.windowBytes = 0L
+        }
+        return null
+    }
+
+    /** 暂停或继续。排队中的：切换是否参与排队；传输中的：中断传输并保留部分文件；已暂停的：重新排队。 */
+    fun togglePause(task: DownloadTask) {
+        val current = tasks.firstOrNull { it.key == task.key } ?: return
+        when {
+            current.state == DownloadState.Queued -> {
+                update(current.copy(paused = !current.paused))
+                save(); pump()
+            }
+            current.state == DownloadState.Running || current.state == DownloadState.Preparing -> {
+                pausing.add(current.key)
+                transfers[current.key]?.cancel()
+            }
+            current.state == DownloadState.Waiting && current.paused -> {
+                update(current.copy(state = DownloadState.Queued, paused = false, message = null))
+                save(); pump()
+            }
+        }
+    }
+
+    /** 取消：传输中的会删除部分文件，排队中的直接结束。 */
+    fun cancel(task: DownloadTask) {
+        // 以列表里的最新记录为准：界面拿到的副本可能已经被刷新或换过节点
+        val current = tasks.firstOrNull { it.key == task.key } ?: return
+        if (!current.active) return
+        paces.remove(current.key)
+        stalledSince.remove(current.key)
+        pausing.remove(current.key)
+        update(current.copy(state = DownloadState.Cancelled, message = null, paused = false))
+        save()
+        val job = transfers.remove(current.key)
+        if (job != null) job.cancel() else scope.launch(Dispatchers.IO) { partialFile(current).delete() }
+        pump()
+    }
+
+    /** 重试：失败或取消的任务从断点继续（部分文件还在就接着下），已完成的记录则重新开始一条新任务。 */
     fun retry(task: DownloadTask) {
         if (task.active) return
-        tasks.removeAll { it.key == task.key }
-        start(task.url, task.filename, task.isPrivate, task.mimeType)
+        if (task.state == DownloadState.Complete) {
+            tasks.removeAll { it.key == task.key }
+            start(task.url, task.filename, task.isPrivate, task.mimeType)
+            return
+        }
+        tasks.firstOrNull { it.key == task.key }?.let { current ->
+            update(current.copy(state = DownloadState.Queued, paused = false, message = null))
+            save(); pump()
+        }
     }
 
     /**
      * 打开已下载的文件。
      *
-     * 不用 DownloadManager.getUriForDownloadedFile：它返回的是 content://downloads/... 内部 URI，
-     * 外部应用通常无权读取（点击无反应）；而且 VISIBILITY_HIDDEN 的记录会被系统在 7 天后静默清理。
-     * 这里改为直接按记录下来的落盘路径，通过 FileProvider 生成可读 URI。
+     * 优先用记录下来的 MediaStore URI（分区存储下可以直接读取），其次用落盘路径经 FileProvider 生成的 URI。
      */
     fun open(ctx: Context, task: DownloadTask) {
         scope.launch {
@@ -439,8 +704,8 @@ object Downloads {
             val uri = withContext(Dispatchers.IO) { readableUri(ctx, task) }
             AppLog.info("download", tr("打开文件：") + task.filename + " → " + (uri?.toString() ?: tr("无可用 URI")))
             if (uri == null) {
-                update(task.copy(state = DownloadState.Failed, message = tr("文件已被移动或删除，请重新下载")))
-                save()
+                // 记录保留为「完成」，列表里会按 isFileMissing 显示「文件已不在」并提供重新下载
+                ctx.toast(tr("文件已被移动或删除，请重新下载"))
                 return@launch
             }
             val intent = Intent(Intent.ACTION_VIEW)
@@ -479,14 +744,11 @@ object Downloads {
         open(ctx, task)
     }
 
-    /**
-     * 取得一个外部应用可读的 URI。
-     *
-     * 优先用落盘路径经 FileProvider 分享（API 26–28 与部分 29+ 设备可用）；
-     * API 29+ 起公共「下载」目录受分区存储限制，java.io.File 可能读不到，
-     * 此时改为在 MediaStore.Downloads 中按文件名查找真正的 content://media URI。
-     */
     private fun readableUri(ctx: Context, task: DownloadTask): Uri? {
+        task.contentUri?.let { raw ->
+            val uri = Uri.parse(raw)
+            if (fileExists(task)) return uri
+        }
         task.filePath?.let { path ->
             val f = File(path)
             if (f.isFile) runCatching { FileProvider.getUriForFile(ctx, authority(ctx), f) }.getOrNull()?.let { return it }
@@ -494,8 +756,7 @@ object Downloads {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             mediaStoreUri(ctx, task.filename)?.let { return it }
         }
-        // 最后退回 DownloadManager 自己的 URI（同一应用入队时可用）
-        return task.managerId?.let { id -> runCatching { manager.getUriForDownloadedFile(id) }.getOrNull() }
+        return null
     }
 
     /** 在 MediaStore.Downloads 中按显示名查找文件 */
@@ -524,7 +785,7 @@ object Downloads {
             if (fileUri != null) {
                 add(
                     Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(fileUri.parentOrSelf(), "vnd.android.document/directory")
+                        setDataAndType(fileUri, "vnd.android.document/directory")
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                     },
                 )
@@ -550,38 +811,39 @@ object Downloads {
     suspend fun deleteFile(ctx: Context, task: DownloadTask): Boolean {
         val ok = withContext(Dispatchers.IO) { deleteFileQuiet(ctx, task) }
         if (ok) {
-            task.managerId?.let { id -> withContext(Dispatchers.IO) { runCatching { manager.remove(id) } } }
             tasks.firstOrNull { it.key == task.key }?.let { current ->
-                update(current.copy(managerId = null, filePath = null, state = DownloadState.Cancelled, message = tr("本地文件已删除")))
+                update(current.copy(filePath = null, contentUri = null, state = DownloadState.Cancelled, message = tr("本地文件已删除")))
                 save()
             }
         }
         return ok
     }
 
-    /** 从下载记录中移除（不删除已完成的本地文件） */
+    /** 从下载记录中移除（不删除已完成的本地文件）；传输中的会被取消并删除部分文件 */
     fun forget(ctx: Context, task: DownloadTask) {
         tasks.removeAll { it.key == task.key }
         if (selectedKey == task.key) selectedKey = null
         save()
-        task.managerId?.takeIf { task.active }?.let { id ->
-            scope.launch { withContext(Dispatchers.IO) { runCatching { manager.remove(id) } } }
-        }
+        if (task.active) cancel(task)
+        pump()
     }
 
     /** 清空下载历史；先移除任务，再在后台删除文件，避免查询/删除阻塞界面。 */
     suspend fun clearHistory(ctx: Context, withFiles: Boolean): Pair<Int, Int> {
-        val snapshot = tasks.toList()
-        tasks.clear()
-        stalledSince.clear()
-        selectedKey = null
+        // 只清理已经结束的记录：正在下载或排队中的任务保留
+        val snapshot = tasks.filterNot { it.active }
+        val finishedKeys = snapshot.map { it.key }.toSet()
+        tasks.removeAll { it.key in finishedKeys }
+        finishedKeys.forEach { key -> stalledSince.remove(key); paces.remove(key) }
+        droppedRecords = 0
+        prefs.edit().putInt("dropped", 0).apply()
+        selectedKey = selectedKey?.takeIf { key -> tasks.any { it.key == key } }
         showHistory = false
         save()
         val files = withContext(Dispatchers.IO) {
             var deleted = 0
             snapshot.forEach { task ->
                 if (withFiles && deleteFileQuiet(ctx, task)) deleted++
-                task.managerId?.takeIf { task.active || withFiles }?.let { id -> runCatching { manager.remove(id) } }
             }
             deleted
         }
@@ -591,10 +853,13 @@ object Downloads {
 
     /** 删除本地文件但不改动记录状态（用于后台删除/清空历史） */
     private fun deleteFileQuiet(ctx: Context, task: DownloadTask): Boolean {
+        task.contentUri?.let { raw ->
+            if (runCatching { ctx.contentResolver.delete(Uri.parse(raw), null, null) > 0 }.getOrDefault(false)) return true
+        }
         val file = task.filePath?.let { File(it) }?.takeIf { it.isFile }
         var ok = file != null && runCatching { file.delete() }.getOrDefault(false)
         if (!ok && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // 分区存储下 File 删除会失败，改用 MediaStore 删除自己创建的文件（无需额外权限）
+            // 记录里没有 URI 的旧任务：按显示名在 MediaStore 中查找后删除
             ok = mediaStoreUri(ctx, task.filename)?.let { uri ->
                 runCatching { ctx.contentResolver.delete(uri, null, null) > 0 }.getOrDefault(false)
             } ?: false
@@ -602,13 +867,20 @@ object Downloads {
         return ok
     }
 
-    fun fileExists(task: DownloadTask): Boolean = task.filePath?.let { File(it).isFile } == true
+    fun fileExists(task: DownloadTask): Boolean {
+        task.filePath?.let { if (File(it).isFile) return true }
+        val uri = task.contentUri?.let { Uri.parse(it) } ?: return false
+        return runCatching {
+            context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns._ID), null, null, null)?.use { it.moveToFirst() } == true
+        }.getOrDefault(false)
+    }
+
+    /** 下载已完成，但本地文件已经不在（被移动或删除）：记录还在，打开会失败 */
+    fun isFileMissing(task: DownloadTask): Boolean = task.state == DownloadState.Complete && !fileExists(task)
 
     suspend fun deleteAllFiles(ctx: Context): Int = clearHistory(ctx, true).second
 
     private fun authority(ctx: Context) = ctx.packageName + ".fileprovider"
-
-    private fun Uri.parentOrSelf(): Uri = this
 
     private fun update(task: DownloadTask) {
         tasks.indexOfFirst { it.key == task.key }.takeIf { it >= 0 }?.let { index ->
@@ -624,10 +896,15 @@ object Downloads {
                 if (old.state != task.state && task.state == DownloadState.Complete) {
                     task.nodeId?.let(Net::markDownloadOk)
                 }
+                // 完成或失败时用户不在看它的弹窗（例如点过「后台下载」）：留下提示，避免完成后找不到
+                if (old.state != task.state && task.state in setOf(DownloadState.Complete, DownloadState.Failed) && selectedKey != task.key) {
+                    finishedKey = task.key
+                }
                 tasks[index] = task
             }
         }
     }
+
     private fun save() { prefs.edit().putString("tasks", Api.plain.encodeToString(tasks.toList())).apply() }
     private fun safeFilename(name: String): String = name.substringAfterLast('/').substringAfterLast('\\')
         .replace(Regex("[\\p{Cntrl}:*?\"<>|]"), "_").trim().take(180)
@@ -643,12 +920,33 @@ object Downloads {
         name.endsWith(".apk", true) -> "application/vnd.android.package-archive"
         else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase())
     }
-    private fun failureMessage(reason: Int): String = when (reason) {
-        DownloadManager.ERROR_INSUFFICIENT_SPACE -> tr("存储空间不足，请清理后重试")
-        DownloadManager.ERROR_FILE_ALREADY_EXISTS -> tr("同名文件已存在，请重试")
-        DownloadManager.ERROR_DEVICE_NOT_FOUND -> tr("存储设备不可用")
-        DownloadManager.ERROR_TOO_MANY_REDIRECTS -> tr("下载地址跳转过多")
-        DownloadManager.ERROR_FILE_ERROR -> tr("无法写入文件，请检查下载目录")
-        else -> tr("下载失败，请检查网络后重试（") + reason + "）"
+
+    private fun resolvePrivateUrl(initial: String, token: String): Pair<String, String?> {
+        var url = initial.toHttpUrl()
+        repeat(6) {
+            require(url.isHttps) { tr("GitHub 下载地址必须使用 HTTPS") }
+            if (url.host !in authHosts) return url.toString() to null
+            val req = Request.Builder().url(url).header("Authorization", "Bearer " + token)
+                .header("Accept", privateDownloadAccept(url.toString())).build()
+            privateHttp.routed().newCall(req).execute().use { response ->
+                if (response.code in 300..399) {
+                    val next = response.header("Location")?.let(url::resolve) ?: error(tr("下载跳转缺少地址"))
+                    require(next.isHttps) { tr("下载跳转必须使用 HTTPS") }
+                    url = next
+                } else {
+                    require(response.isSuccessful) {
+                        when (response.code) {
+                            401 -> tr("GitHub 授权失效，请重新登录")
+                            403, 404 -> tr("没有下载权限，或资源已经删除")
+                            else -> tr("无法下载资源（HTTP ") + response.code + "）"
+                        }
+                    }
+                    return url.toString() to ("Bearer " + token)
+                }
+            }
+        }
+        error(tr("下载地址跳转过多"))
     }
+
+    private val authHosts = setOf("github.com", "api.github.com", "raw.githubusercontent.com", "codeload.github.com")
 }

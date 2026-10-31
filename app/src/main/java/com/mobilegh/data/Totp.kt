@@ -14,23 +14,40 @@ import com.mobilegh.i18n.tr
 object Totp {
     private const val BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
+    /**
+     * otpauth://totp/… 链接解析结果。
+     * [issuer] 与 [account] 来自标签（如 `GitHub:用户名`）和 issuer 参数，用于让用户确认这条验证器属于哪个账号。
+     */
+    data class OtpAuth(val issuer: String?, val account: String?, val secret: String)
+
+    /** 解析 otpauth:// 链接；不是链接返回 null。算法、位数、周期不是 GitHub 使用的值时抛出异常。 */
+    fun parseOtpAuth(input: String): OtpAuth? {
+        val s = input.trim()
+        if (!s.startsWith("otpauth://", ignoreCase = true)) return null
+        val uri = URI(s)
+        require(uri.host.equals("totp", true)) { tr("仅支持 TOTP 链接") }
+        val params = uri.rawQuery.orEmpty().split('&').associate {
+            val parts = it.split('=', limit = 2)
+            parts[0] to URLDecoder.decode(parts.getOrElse(1) { "" }, "UTF-8")
+        }
+        require(params["algorithm"].orEmpty().ifBlank { "SHA1" }.equals("SHA1", true)) { tr("GitHub 使用 SHA1 验证码") }
+        require(params["digits"].orEmpty().ifBlank { "6" } == "6") { tr("GitHub 使用 6 位验证码") }
+        require(params["period"].orEmpty().ifBlank { "30" } == "30") { tr("GitHub 使用 30 秒验证码") }
+        // URI.path 已经解码百分号编码；标签形如 发行方:账号，只有账号时整个标签就是账号
+        val label = uri.path.orEmpty().trimStart('/')
+        val colon = label.indexOf(':')
+        val labelIssuer = if (colon >= 0) label.substring(0, colon).trim() else ""
+        val labelAccount = (if (colon >= 0) label.substring(colon + 1) else label).trim()
+        return OtpAuth(
+            issuer = params["issuer"]?.takeIf { it.isNotBlank() } ?: labelIssuer.takeIf { it.isNotBlank() },
+            account = labelAccount.takeIf { it.isNotBlank() },
+            secret = params["secret"].orEmpty(),
+        )
+    }
+
     /** 兼容直接粘贴密钥或整条 otpauth:// 链接；去掉空格/连字符并大写 */
     fun normalize(input: String): String {
-        val s = input.trim()
-        val secret = if (s.startsWith("otpauth://", ignoreCase = true)) {
-            val uri = URI(s)
-            require(uri.host.equals("totp", true)) { tr("仅支持 TOTP 链接") }
-            val params = uri.rawQuery.orEmpty().split('&').associate {
-                val parts = it.split('=', limit = 2)
-                parts[0] to URLDecoder.decode(parts.getOrElse(1) { "" }, "UTF-8")
-            }
-            require(params["algorithm"].orEmpty().ifBlank { "SHA1" }.equals("SHA1", true)) { tr("GitHub 使用 SHA1 验证码") }
-            require(params["digits"].orEmpty().ifBlank { "6" } == "6") { tr("GitHub 使用 6 位验证码") }
-            require(params["period"].orEmpty().ifBlank { "30" } == "30") { tr("GitHub 使用 30 秒验证码") }
-            params["secret"].orEmpty()
-        } else {
-            s
-        }
+        val secret = parseOtpAuth(input)?.secret ?: input.trim()
         return secret.filterNot { it.isWhitespace() || it == '-' }.uppercase(Locale.ROOT)
     }
 

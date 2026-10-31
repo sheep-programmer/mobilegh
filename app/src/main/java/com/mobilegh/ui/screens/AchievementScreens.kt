@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.Achievement
+import com.mobilegh.data.AchievementText
 import com.mobilegh.data.Api
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.ListedRepository
@@ -101,6 +102,16 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
+import com.mobilegh.ui.components.CompactSearchField
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.background
 
 @Composable
 fun AchievementsStrip(login: String, self: Boolean) {
@@ -134,9 +145,10 @@ fun AchievementsStrip(login: String, self: Boolean) {
 @Composable
 internal fun AchievementBadge(badge: Achievement, modifier: Modifier = Modifier) {
     val tier = when (badge.tier) { "bronze" -> tr("铜级"); "silver" -> tr("银级"); "gold" -> tr("金级"); else -> "" }
+    val achievementName = AchievementText.name(badge.slug, badge.name)
     Column(
         modifier.width(76.dp).semantics(mergeDescendants = true) {
-            contentDescription = listOf(badge.name, tier, "x${badge.count}").filter(String::isNotEmpty).joinToString("，")
+            contentDescription = listOf(achievementName, tier, "x${badge.count}").filter(String::isNotEmpty).joinToString("，")
         }, horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(Modifier.size(60.dp), contentAlignment = Alignment.BottomEnd) {
@@ -144,7 +156,7 @@ internal fun AchievementBadge(badge: Achievement, modifier: Modifier = Modifier)
             if (badge.count > 1) Pill("x${badge.count}", Gh.c.accent)
         }
         Spacer(Modifier.height(4.dp))
-        Text(badge.name, fontSize = 11.sp, lineHeight = 13.sp, color = Gh.c.fgMuted, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(achievementName, fontSize = 11.sp, lineHeight = 13.sp, color = Gh.c.fgMuted, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
         if (tier.isNotEmpty()) Text(tier, fontSize = 11.sp, color = Gh.c.fgMuted)
     }
 }
@@ -156,7 +168,7 @@ fun AchievementsScreen(login: String) {
     val badges = rememberLoader("ach-public:${login.lowercase(Locale.ROOT)}") { Web.achievements(login, self) }
     var picked by remember { mutableStateOf<Achievement?>(null) }
     Page(if (self) tr("我的成就") else tr("成就"), subtitle = login, actions = {
-        OcButton(R.drawable.oc_link_external, { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=achievements") })
+        OcButton(R.drawable.oc_link_external, { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=achievements") }, description = tr("在浏览器打开"))
     }) { pad ->
         LoadBox(badges, Modifier.padding(pad).fillMaxSize()) { data ->
             val listState = rememberLazyListState()
@@ -238,7 +250,7 @@ private fun StarListsContent(login: String, generation: Int, onGitHub: () -> Uni
         if (selected != null) {
             OcButton(R.drawable.oc_plus, { pickerOpen = true }, enabled = !saving && selected.repositories.size < LocalStarListsStore.MAX_REPOSITORIES)
             MoreMenu(listOf(MenuAction(tr("编辑列表")) { editing = selected; editorOpen = true }, MenuAction(tr("删除列表"), danger = true) { deleting = selected }))
-        } else OcButton(R.drawable.oc_link_external, { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=stars") })
+        } else OcButton(R.drawable.oc_link_external, { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=stars") }, description = tr("在浏览器打开"))
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             if (selectedId == null && self) Segmented(listOf("GitHub", tr("本机")), 1, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), enabled = !saving) { onGitHub() }
@@ -272,7 +284,7 @@ private fun StarListsContent(login: String, generation: Int, onGitHub: () -> Uni
                     }
                     else -> {
                         if (selected.description.isNotEmpty()) Text(selected.description, Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Gh.c.fgMuted, fontSize = 13.sp)
-                        GhField(query, { query = it }, tr("搜索此列表"), modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+                        CompactSearchField(query, { query = it }, tr("搜索此列表"), modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
                         val filtered = selected.repositories.filter { it.fullName.contains(query.trim(), true) }
                         if (filtered.isEmpty()) {
                             if (selected.repositories.isEmpty()) EmptyState(tr("列表为空，添加已 Star 的仓库。"), R.drawable.oc_star, Modifier.weight(1f).fillMaxWidth(), tr("添加仓库")) { pickerOpen = true }
@@ -392,7 +404,7 @@ private fun StarredRepoSelectionDialog(
         onAdd(repos.filter { it.id in selected })
     }) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            GhField(query, { query = it }, tr("搜索已加载的 Stars"))
+            CompactSearchField(query, { query = it }, tr("搜索已加载的 Stars"))
             Text(trf("已加载 {0} 个 · 可再添加 {1} 个。搜索较早的 Stars 时请继续加载。", repos.size, available), color = Gh.c.fgMuted, fontSize = 12.sp)
             if (saveError != null) Text(saveError, color = Gh.c.danger, fontSize = 12.sp)
             if (error != null) Text(error!!, color = Gh.c.danger, fontSize = 12.sp)
@@ -747,20 +759,41 @@ internal fun AchievementDetailDialog(badge: Achievement, login: String, onDismis
     val g = Gh.c
     val ctx = rememberCtx()
     val tier = when (badge.tier) { "bronze" -> tr("铜级"); "silver" -> tr("银级"); "gold" -> tr("金级"); else -> "" }
+    val achievementName = AchievementText.name(badge.slug, badge.name)
     val detail = rememberLoader("ach-detail:${login.lowercase(Locale.ROOT)}:${badge.slug}") { Web.achievementDetail(login, badge.slug) }
-    GhDialog(badge.name, onDismiss = onDismiss, confirm = tr("关闭"), onConfirm = onDismiss) {
+    GhDialog(achievementName, onDismiss = onDismiss, confirm = tr("关闭"), onConfirm = onDismiss) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            NetImage(badge.imageUrl, Modifier.size(96.dp), contentScale = ContentScale.Fit, placeholder = false)
+            // 第一次打开这枚徽章时，金色辉光从中心闪一次；之后再打开不再播放
+            val playGlow = remember { FirstOpenGlow.claim("${login.lowercase(Locale.ROOT)}/${badge.slug}") }
+            val glow = remember { Animatable(0f) }
+            LaunchedEffect(Unit) {
+                if (playGlow) {
+                    glow.animateTo(1f, tween(durationMillis = 450))
+                    glow.animateTo(0f, tween(durationMillis = 450))
+                }
+            }
+            Box(Modifier.size(120.dp), contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier.size(120.dp).graphicsLayer { alpha = glow.value }
+                        .background(Brush.radialGradient(listOf(Color(0xFFFFD33D), Color(0x00FFD33D))), CircleShape),
+                )
+                NetImage(badge.imageUrl, Modifier.size(96.dp), contentScale = ContentScale.Fit, placeholder = false)
+            }
             if (tier.isNotEmpty()) Text(tier, fontSize = 14.sp, color = g.fg, fontWeight = FontWeight.SemiBold)
             if (badge.count > 1) Text(trf("倍数 x{0}", badge.count), fontSize = 13.sp, color = g.fgMuted)
             val data = detail.data
             when {
                 data != null -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (data.description.isNotBlank()) Text(data.description, fontSize = 14.sp, color = g.fg)
+                    if (data.description.isNotBlank()) Text(AchievementText.description(data.description), fontSize = 14.sp, color = g.fg)
                     if (data.history.isNotEmpty()) {
                         HDivider()
                         Text(tr("解锁历史"), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = g.fgMuted)
-                        data.history.forEach { Text(it, fontSize = 13.sp, color = g.fg) }
+                        // 一条历史可能用「·」连着多个事件（如等级与首次解锁时间）：拆成独立的行，逐行排列
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            data.history.flatMap { AchievementText.historyLine(it).split(" · ") }
+                                .map { it.trim() }.filter { it.isNotEmpty() }
+                                .forEach { Text(it, fontSize = 13.sp, lineHeight = 18.sp, color = g.fg) }
+                        }
                     }
                 }
                 detail.error != null -> InlineError(trf("说明加载失败：{0}", detail.error!!), Modifier.fillMaxWidth()) { detail.refresh() }
@@ -769,4 +802,10 @@ internal fun AchievementDetailDialog(badge: Achievement, login: String, onDismis
             GhButton(tr("在浏览器打开"), icon = R.drawable.oc_link_external) { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?achievement=${Api.q(badge.slug)}&tab=achievements") }
         }
     }
+}
+
+/** 本次运行里已经播放过辉光的徽章：同一枚徽章只在第一次打开时闪一次，重启应用后重新计算 */
+internal object FirstOpenGlow {
+    private val played = HashSet<String>()
+    @Synchronized fun claim(key: String): Boolean = played.add(key)
 }

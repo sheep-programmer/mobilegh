@@ -41,6 +41,7 @@ class HomePartsTest {
                         error = if (error) "unavailable" else null,
                         onList = { nav.push(Screen.StarLists("mona", it.id)) },
                         onAll = { nav.push(Screen.StarLists("mona")) },
+                        onCreate = {},
                         onRetry = {},
                     )
                     HomeAchievementsRow(if (error) null else emptyList(), if (error) "unavailable" else null, { nav.push(Screen.Achievements("mona")) }, {})

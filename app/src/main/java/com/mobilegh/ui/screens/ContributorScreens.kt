@@ -15,7 +15,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -23,13 +25,17 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,7 +68,12 @@ import com.mobilegh.data.ContributionStats
 import com.mobilegh.data.ContributionStatus
 import com.mobilegh.data.ContributionSummary
 import com.mobilegh.data.ContributorContribution
+import com.mobilegh.data.ContributorListState
+import com.mobilegh.data.ContributorPager
+import com.mobilegh.data.ContributorScanPhase
 import com.mobilegh.data.aggregateContributions
+import com.mobilegh.data.contributorMatches
+import com.mobilegh.data.normalizeContributorQuery
 import com.mobilegh.data.validateContributionDates
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
@@ -94,6 +105,9 @@ fun ContributorsScreen(owner: String, name: String) {
     val today = Instant.now().atOffset(ZoneOffset.UTC).toLocalDate()
     var startDate by rememberSaveable(owner, name) { mutableStateOf(today.minusDays(29).toString()) }
     var endDate by rememberSaveable(owner, name) { mutableStateOf(today.toString()) }
+    var query by rememberSaveable(owner, name) { mutableStateOf("") }
+    // 搜索不到已加载的人时，只有用户点按才去仓库里查这个登录名，避免每敲一个字就发一次请求
+    var lookup by rememberSaveable(owner, name) { mutableStateOf<String?>(null) }
     val dates = remember(startDate, endDate, today) { validateContributionDates(startDate, endDate, today) }
     // Keep usable statistics visible if a later refresh finds the server rebuilding its cache.
     var lastStatistics by remember(owner, name) { mutableStateOf<ContributionSnapshot?>(null) }
@@ -103,8 +117,40 @@ fun ContributorsScreen(owner: String, name: String) {
             lastStatistics = current
         }
     }
-    val snapshot = if (current?.source == ContributionSource.ContributorList && lastStatistics != null) lastStatistics else current
-    val stale = snapshot !== current || loader.error != null
+    // The loader supplies page 1 of the contributor list; further pages are appended by the pager below.
+    val scope = rememberCoroutineScope()
+    val pager = remember(current, owner, name) {
+        ContributorPager(
+            scope,
+            ContributorListState(records = current?.records.orEmpty(), nextPage = current?.nextPage),
+            { page -> ContributionStats.contributorPage(owner, name, page) },
+        )
+    }
+    DisposableEffect(pager) { onDispose { pager.close() } }
+    val pagingState by pager.state.collectAsState()
+    val showingList = current?.source == ContributionSource.ContributorList && lastStatistics == null
+    val needle = normalizeContributorQuery(query)
+    // Searching scans the remaining pages in the background; the scan stops when the list is not on screen.
+    LaunchedEffect(pager, needle, showingList) { pager.setQuery(if (showingList) needle else "") }
+    val listState = rememberLazyListState()
+    // Load the next page only when the user scrolls within a few items of the loaded end.
+    LaunchedEffect(pager) {
+        snapshotFlow {
+            val info = listState.layoutInfo
+            info.totalItemsCount - (info.visibleItemsInfo.lastOrNull()?.index ?: 0)
+        }.collect { remaining -> if (remaining in 1..LOAD_AHEAD_ITEMS) pager.loadNext() }
+    }
+    val pagedList = remember(current, showingList, pagingState.records, pagingState.nextPage) {
+        if (showingList) current?.copy(records = pagingState.records, truncated = pagingState.nextPage != null,
+            nextPage = pagingState.nextPage) else null
+    }
+    val snapshot = when {
+        current?.source == ContributionSource.ContributorList && lastStatistics != null -> lastStatistics
+        showingList -> pagedList
+        else -> current
+    }
+    // A paged copy of the list is the current data, not a stale fallback.
+    val stale = (snapshot !== current && !showingList) || loader.error != null
     val summary = remember(snapshot, range, dates.dates, today) {
         snapshot?.let { aggregateContributions(it, range, dates.dates, today.atStartOfDay(ZoneOffset.UTC).toInstant()) }
     }
@@ -129,7 +175,7 @@ fun ContributorsScreen(owner: String, name: String) {
                 isRefreshing = loader.refreshing, onRefresh = { loader.refresh() },
                 modifier = Modifier.padding(pad).fillMaxSize(),
             ) {
-                LazyColumn(Modifier.fillMaxSize()) {
+                LazyColumn(Modifier.fillMaxSize(), state = listState) {
                     item {
                         val weeklyAvailable = snapshot.source == ContributionSource.Statistics
                         Chips(ContributionRange.entries.map { it.label }, range.ordinal) {
@@ -169,16 +215,23 @@ fun ContributorsScreen(owner: String, name: String) {
                     }
                     item { ContributionOverview(summary, range, snapshot) }
                     when {
-                        snapshot.records.isEmpty() -> item {
-                            ContributionEmpty(
-                                when (snapshot.status) {
-                                    ContributionStatus.Pending -> tr("周统计仍在生成")
-                                    ContributionStatus.Empty -> tr("GitHub 未返回贡献统计")
-                                    else -> tr("暂无可用的贡献者数据")
-                                },
-                                if (snapshot.status == ContributionStatus.Empty) tr("仓库可能为空，或统计尚无数据。可稍后刷新。")
-                                else tr("稍后刷新可重新请求统计。"), loader.loading,
-                            ) { loader.refresh() }
+                        snapshot.records.isEmpty() -> {
+                            item {
+                                ContributionEmpty(
+                                    when (snapshot.status) {
+                                        ContributionStatus.Pending -> tr("周统计仍在生成")
+                                        ContributionStatus.Empty -> tr("GitHub 未返回贡献统计")
+                                        else -> tr("暂无可用的贡献者数据")
+                                    },
+                                    if (snapshot.status == ContributionStatus.Empty) tr("仓库可能为空，或统计尚无数据。可稍后刷新。")
+                                    else tr("稍后刷新可重新请求统计。"), loader.loading,
+                                ) { loader.refresh() }
+                            }
+                            // The list is unavailable (too large, timed out), but an exact login can still be looked up in the repository.
+                            if (snapshot.source == ContributionSource.ContributorList && snapshot.status != ContributionStatus.Empty) {
+                                contributorSearchField(query) { query = it; lookup = null }
+                                exactLoginLookup(owner, name, query, lookup, showButton = true) { lookup = it }
+                            }
                         }
                         range == ContributionRange.Custom && dates.error != null -> item {
                             ContributionEmpty(tr("请修正日期范围"), tr("日期需要有效，且结束日期不能晚于今天（UTC）。"))
@@ -195,18 +248,36 @@ fun ContributorsScreen(owner: String, name: String) {
                             ContributionEmpty(tr("该范围内没有贡献"), tr("所选整周没有记录到提交或行数变化。"))
                         }
                         else -> {
+                            val visible = summary.contributors.withIndex().filter { (_, contributor) ->
+                                contributorMatches(contributor.author, needle)
+                            }
+                            contributorSearchField(query) { query = it; lookup = null }
+                            if (needle.isNotEmpty()) item {
+                                ContributorScanStatus(pagingState, visible.size,
+                                    onStop = { pager.stopScan() }, onResume = { pager.resume() })
+                            }
                             item {
                                 Text(
-                                    trf("{0} · {1} 位贡献者", if (range == ContributionRange.All) tr("累计提交排名") else tr("所选整周提交排名"), summary.contributors.size),
+                                    trf("{0} · {1} 位贡献者", if (range == ContributionRange.All) tr("累计提交排名") else tr("所选整周提交排名"), visible.size),
                                     Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                                     color = g.fgMuted, fontSize = 12.sp,
                                 )
                             }
-                            itemsIndexed(summary.contributors, key = { _, contributor -> contributor.key }) { index, contributor ->
+                            if (visible.isEmpty()) {
+                                item {
+                                    ContributionEmpty(tr("已加载的贡献者中没有匹配项"),
+                                        if (pagingState.scanPhase == ContributorScanPhase.Scanning) tr("仍在检索其余贡献者，匹配项会陆续出现。")
+                                        else tr("可以输入完整登录名，在整个仓库中查找。"))
+                                }
+                            }
+                            exactLoginLookup(owner, name, query, lookup, showButton = visible.isEmpty()) { lookup = it }
+                            items(visible, key = { it.value.key }) { (index, contributor) ->
                                 val author = contributor.author?.login?.takeIf { it.isNotBlank() }
                                 val nav = LocalNav.current
                                 ContributorDetailCard(
                                     index + 1, contributor, range, snapshot.truncated,
+                                    owner = owner, name = name,
+                                    listOnly = snapshot.source == ContributionSource.ContributorList,
                                     onViewCommits = if (author != null && (range != ContributionRange.Custom || dates.error == null)) ({
                                         val requested = summary.requestedDates
                                         nav.push(Screen.Commits(owner, name, null, author = author,
@@ -214,6 +285,9 @@ fun ContributorsScreen(owner: String, name: String) {
                                             until = requested?.end?.plusDays(1)?.atStartOfDay(ZoneOffset.UTC)?.toInstant()?.minusSeconds(1)?.toString()))
                                     }) else null,
                                 )
+                            }
+                            if (needle.isEmpty() && pagingState.nextPage != null) item {
+                                ContributorLoadMore(pagingState, onLoad = { pager.loadNext() }, onRetry = { pager.resume() })
                             }
                         }
                     }
@@ -314,12 +388,17 @@ private fun ContributorDetailCard(
     contributor: ContributorContribution,
     range: ContributionRange,
     truncated: Boolean,
+    owner: String,
+    name: String,
+    listOnly: Boolean,
     onViewCommits: (() -> Unit)? = null,
 ) {
     val g = Gh.c
     val nav = LocalNav.current
     val login = contributor.author?.login.orEmpty()
     val displayName = login.ifBlank { contributor.author?.name?.takeIf { it.isNotBlank() } ?: tr("未关联账号的贡献者") }
+    // 备用列表没有周数据：周趋势只在展开时针对这一个人单独加载
+    var expanded by rememberSaveable(owner, name, login) { mutableStateOf(false) }
     Card(Modifier.padding(horizontal = 16.dp, vertical = 5.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(
@@ -341,8 +420,9 @@ private fun ContributorDetailCard(
                     Text("#$rank${if (login.isNotBlank()) tr(" · 查看个人主页") else tr(" · 未关联 GitHub 账号")}", color = g.fgMuted, fontSize = 11.sp)
                 }
             }
-            ContributionMetricGrid(listOf(
-                ContributionMetric(if (range == ContributionRange.All) tr("累计提交") else tr("整周提交"), contributor.commits, g.fg),
+            val commitsMetric = ContributionMetric(if (range == ContributionRange.All) tr("累计提交") else tr("整周提交"), contributor.commits, g.fg)
+            ContributionMetricGrid(if (listOnly) listOf(commitsMetric) else listOf(
+                commitsMetric,
                 ContributionMetric(tr("活跃周 · 返回数据"), contributor.activeWeeks?.toLong(), g.accent),
                 ContributionMetric(tr("新增行 · 返回周数据"), contributor.additions, g.success, "+"),
                 ContributionMetric(tr("删除行 · 返回周数据"), contributor.deletions, g.danger, "−"),
@@ -353,7 +433,21 @@ private fun ContributorDetailCard(
                 if (share != null && share > 0) Box(Modifier.fillMaxWidth(share.toFloat().coerceIn(0f, 1f))
                     .height(5.dp).background(g.success))
             }
-            if (contributor.weekly.isNotEmpty()) {
+            if (listOnly) {
+                if (login.isBlank()) MutedText(tr("未关联账号的贡献者无法查询周趋势。"))
+                else {
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).clickable { expanded = !expanded }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(if (expanded) tr("收起周趋势") else tr("展开查看最近一年的周趋势"), Modifier.weight(1f),
+                            color = g.accent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Oc(R.drawable.oc_chevron_right, g.accent, 14.dp)
+                    }
+                    if (expanded) PersonActivitySection(owner, name, login)
+                }
+            } else if (contributor.weekly.isNotEmpty()) {
                 WeeklyContributionGraph(contributor.weekly, height = 42.dp)
                 if (contributor.firstActiveWeek != null) {
                     MutedText(trf("已知首次活跃周：{0}", contributor.firstActiveWeek))
@@ -375,6 +469,135 @@ private fun ContributorDetailCard(
                     Text(tr("查看逐笔提交"), Modifier.weight(1f), color = g.accent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                     Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
                 }
+            }
+        }
+    }
+}
+
+/** 只有展开时才会组合这个函数，所以周趋势请求只为被展开的人发出。 */
+@Composable
+private fun PersonActivitySection(owner: String, name: String, login: String) {
+    val loader = rememberLoader("personActivity:$owner/$name/$login") { ContributionStats.personActivity(owner, name, login, it) }
+    val activity = loader.data
+    when {
+        activity != null -> {
+            WeeklyContributionGraph(activity.weekly, height = 42.dp)
+            if (activity.truncated) MutedText(tr("提交很多，只取到了最近的一部分；较早的周显示为缺失。"))
+        }
+        loader.error != null -> {
+            MutedText(loader.error!!)
+            TextButton(onClick = { loader.load(true) }, enabled = !loader.loading) { Text(tr("重试")) }
+        }
+        else -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Loading(Modifier.size(20.dp))
+            MutedText(tr("正在加载最近一年的周趋势…"))
+        }
+    }
+}
+
+/** 在整个仓库里查一个登录名的提交数，用于搜索框里找不到的人（只读 Link 头，不下载提交内容）。 */
+@Composable
+private fun AuthorLookupCard(owner: String, name: String, login: String) {
+    val g = Gh.c
+    val nav = LocalNav.current
+    val loader = rememberLoader("authorLookup:$owner/$name/$login") { ContributionStats.authorCommits(owner, name, login, it) }
+    val count = loader.data
+    Card(Modifier.padding(horizontal = 16.dp, vertical = 5.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("@$login", color = g.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            when {
+                count == 0L -> MutedText(tr("默认分支上没有这个作者的提交。"))
+                count != null -> {
+                    Text(trf("默认分支共 {0} 次提交", contributionCount(count)), color = g.accent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    TextButton(onClick = { nav.push(Screen.Commits(owner, name, null, author = login)) }) { Text(tr("查看逐笔提交")) }
+                    PersonActivitySection(owner, name, login)
+                }
+                loader.error != null -> {
+                    MutedText(loader.error!!)
+                    TextButton(onClick = { loader.load(true) }, enabled = !loader.loading) { Text(tr("重试")) }
+                }
+                else -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Loading(Modifier.size(20.dp))
+                    MutedText(tr("正在查找…"))
+                }
+            }
+        }
+    }
+}
+
+private val LOGIN_PATTERN = Regex("[A-Za-z0-9-]{1,39}")
+
+/** Start loading the next contributor page when this many items or fewer remain below the viewport. */
+private const val LOAD_AHEAD_ITEMS = 8
+
+private fun LazyListScope.contributorSearchField(query: String, onQueryChange: (String) -> Unit) {
+    item {
+        OutlinedTextField(
+            query, onQueryChange, singleLine = true,
+            label = { Text(tr("搜索登录名或姓名")) },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+    }
+}
+
+/** Exact-login lookup through the commits API, which works even when the contributor list is unavailable. */
+private fun LazyListScope.exactLoginLookup(
+    owner: String, name: String, query: String, lookup: String?,
+    showButton: Boolean, onLookup: (String) -> Unit,
+) {
+    if (showButton && LOGIN_PATTERN.matches(query.trim())) item {
+        TextButton(onClick = { onLookup(query.trim()) }, Modifier.padding(horizontal = 16.dp)) {
+            Text(trf("在整个仓库中查找 @{0}", query.trim()), color = Gh.c.accent)
+        }
+    }
+    lookup?.let { login -> item { AuthorLookupCard(owner, name, login) } }
+}
+
+/** Progress line for the background search scan, with 停止检索 / 继续检索 / 重试 as appropriate. */
+@Composable
+private fun ContributorScanStatus(state: ContributorListState, matches: Int, onStop: () -> Unit, onResume: () -> Unit) {
+    val g = Gh.c
+    val scanned = state.records.size
+    val progress = trf("已检索 {0} 人，找到 {1} 位", scanned, matches)
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        when (state.scanPhase) {
+            ContributorScanPhase.Scanning -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Loading(Modifier.size(16.dp))
+                Text(progress, Modifier.weight(1f), color = g.fgMuted, fontSize = 12.sp)
+                TextButton(onClick = onStop) { Text(tr("停止检索")) }
+            }
+            ContributorScanPhase.Complete -> Text(trf("已检索全部 {0} 人，找到 {1} 位", scanned, matches), color = g.fgMuted, fontSize = 12.sp)
+            ContributorScanPhase.Stopped -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(trf("已停止检索：已检索 {0} 人，找到 {1} 位", scanned, matches), Modifier.weight(1f), color = g.fgMuted, fontSize = 12.sp)
+                TextButton(onClick = onResume) { Text(tr("继续检索")) }
+            }
+            ContributorScanPhase.Failed -> {
+                Text(progress, color = g.fgMuted, fontSize = 12.sp)
+                MutedText(state.error.orEmpty(), g.danger)
+                TextButton(onClick = onResume) { Text(tr("重试")) }
+            }
+            ContributorScanPhase.Off -> Unit
+        }
+    }
+}
+
+/** Footer for scrolling without a search: shows progress, an error with retry, or a manual 加载更多. */
+@Composable
+private fun ContributorLoadMore(state: ContributorListState, onLoad: () -> Unit, onRetry: () -> Unit) {
+    val g = Gh.c
+    val error = state.error
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        when {
+            state.busy -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Loading(Modifier.size(20.dp))
+                MutedText(tr("正在加载更多贡献者…"))
+            }
+            error != null -> {
+                MutedText(error, g.danger)
+                TextButton(onClick = onRetry) { Text(tr("重试")) }
+            }
+            else -> TextButton(onClick = onLoad) {
+                Text(trf("加载更多贡献者（已加载 {0} 人）", state.records.size), color = g.accent)
             }
         }
     }

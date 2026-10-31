@@ -25,6 +25,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -53,11 +54,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import com.mobilegh.ui.components.MarkdownEditor
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.DraftController
 import com.mobilegh.data.DraftValue
+import com.mobilegh.data.Drafts
+import com.mobilegh.nav.refreshRetained
 import com.mobilegh.ui.components.rememberDraft
 import com.mobilegh.ui.components.DraftBinding
 import com.mobilegh.data.Issue
 import com.mobilegh.data.IssueQuery
+import com.mobilegh.data.PendingReview
 import com.mobilegh.data.Pull
 import com.mobilegh.data.Review
 import com.mobilegh.data.ThreadAccess
@@ -145,6 +150,20 @@ fun IssuesScreen(owner: String, name: String, pulls: Boolean, preset: IssueQuery
 
 class IssueThread(val issue: Issue, val pull: Pull?, val comments: List<Comment>, val reviews: List<Review>, val checks: Checks? = null)
 
+/** 关闭 / 重新开启 Issue 或 PR 前的确认内容；action 执行真正的写入 */
+private class StateChange(
+    val title: String,
+    val confirm: String,
+    val message: String,
+    val danger: Boolean,
+    val action: suspend () -> Unit,
+)
+
+/**
+ * 在本地检出 PR 的命令（GitHub 的 pull/<n>/head 引用）。把 PR 拉成本地分支 pr-<n>，不做远程检出。
+ */
+internal fun prCheckoutCommand(number: Int): String = "git fetch origin pull/$number/head:pr-$number && git checkout pr-$number"
+
 @Composable
 fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean) {
     val g = Gh.c
@@ -166,11 +185,15 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
         }
     }
     val draft = rememberDraft("comment:${owner.lowercase()}/${name.lowercase()}:$number")
+    // 审查意见按 PR 保存草稿，关闭对话框或离开页面后再打开仍在
+    val reviewDraft = rememberDraft("review:${owner.lowercase()}/${name.lowercase()}:$number")
     var comment by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(draft.initial.body)) }
     var previewComment by remember { mutableStateOf(false) }
     var sending by retain("thread:sending") { mutableStateOf(false) }
     var mergeDialog by remember { mutableStateOf(false) }
     var reviewDialog by remember { mutableStateOf(false) }
+    /** 待确认的关闭 / 重新开启操作；null 表示没有待确认的操作 */
+    var stateChange by remember { mutableStateOf<StateChange?>(null) }
     var metaKind by remember { mutableStateOf<String?>(null) }
     /** 正在编辑的评论：id=null 表示编辑 Issue/PR 正文 */
     var editing by remember { mutableStateOf<Pair<Long?, String>?>(null) }
@@ -187,6 +210,9 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
     val access = ThreadAccess.of(repo.data?.permissions, repo.data?.archived == true, t?.issue?.user?.login, Session.login)
 
     fun reload() = data.load(true)
+
+    /** 写入成功后刷新导航栈里同一仓库的列表（状态、新建会改变列表内容） */
+    fun refreshIssueList() = nav.refreshRetained { s -> s is Screen.Issues && s.owner.equals(owner, true) && s.name.equals(name, true) }
 
     fun write(onSuccess: () -> Unit = {}, block: suspend () -> Unit) {
         if (writing) return
@@ -231,18 +257,37 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
                             if (access.editMeta) add(MenuAction(tr("请求审查…")) { metaKind = "reviewers" })
                             if (!pr.draft && access.toggleDraft) add(MenuAction(tr("转为草稿")) { setDraft(true) })
                             if (access.changeState) add(MenuAction(tr("关闭 Pull Request"), danger = true) {
-                                write { GitHub.setPullState(owner, name, number, false) }
+                                stateChange = StateChange(
+                                    tr("关闭 Pull Request？"), tr("关闭"), tr("关闭后仍可在网页或 App 中重新开启。"), danger = true,
+                                ) { GitHub.setPullState(owner, name, number, false) }
                             })
                         } else if (pr != null && !pr.merged && access.changeState) {
-                            add(MenuAction(tr("重新开启")) { write { GitHub.setPullState(owner, name, number, true) } })
+                            add(MenuAction(tr("重新开启")) {
+                                stateChange = StateChange(tr("重新开启 Pull Request？"), tr("重新开启"), tr("重新开启后会再次出现在开放列表中。"), danger = false) {
+                                    GitHub.setPullState(owner, name, number, true)
+                                }
+                            })
                         }
                         add(MenuAction(tr("查看文件变更")) { nav.push(Screen.PullFiles(owner, name, number)) })
+                        add(MenuAction(tr("复制检出命令")) { ctx.copy(prCheckoutCommand(number), tr("检出命令已复制")) })
                     } else if (access.changeState) {
                         if (open) {
-                            add(MenuAction(tr("关闭（已完成）")) { write { GitHub.setIssueState(owner, name, number, false, "completed") } })
-                            add(MenuAction(tr("关闭（不计划）")) { write { GitHub.setIssueState(owner, name, number, false, "not_planned") } })
+                            add(MenuAction(tr("关闭（已完成）")) {
+                                stateChange = StateChange(tr("关闭 Issue？"), tr("关闭"), tr("关闭后仍可在网页或 App 中重新开启。"), danger = true) {
+                                    GitHub.setIssueState(owner, name, number, false, "completed")
+                                }
+                            })
+                            add(MenuAction(tr("关闭（不计划）")) {
+                                stateChange = StateChange(tr("关闭 Issue？"), tr("关闭"), tr("关闭后仍可在网页或 App 中重新开启。"), danger = true) {
+                                    GitHub.setIssueState(owner, name, number, false, "not_planned")
+                                }
+                            })
                         } else {
-                            add(MenuAction(tr("重新开启")) { write { GitHub.setIssueState(owner, name, number, true, "reopened") } })
+                            add(MenuAction(tr("重新开启")) {
+                                stateChange = StateChange(tr("重新开启 Issue？"), tr("重新开启"), tr("重新开启后会再次出现在开放列表中。"), danger = false) {
+                                    GitHub.setIssueState(owner, name, number, true, "reopened")
+                                }
+                            })
                         }
                     }
                 }
@@ -258,20 +303,24 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
                     sending = true
                     val submitted = DraftValue(body = comment.text)
                     draft.update(submitted)
-                    entry.scope.launch {
+                    // 不跟随页面的作用域：离开页面时请求照常完成。若仍绑定页面，离开会取消请求，
+                    // 而服务器可能已经写入，用户再发一次就会重复。草稿只在服务器确认后清除。
+                    Drafts.scope.launch {
                         try {
                             GitHub.addComment(owner, name, number, submitted.body.trim())
-                            draft.submitted(submitted)
-                            if (comment.text == submitted.body) comment = TextFieldValue()
-                            previewComment = false
-                            ctx.toast(tr("评论已发布"))
-                            reload()
+                            withContext(Dispatchers.Main.immediate) {
+                                draft.submitted(submitted)
+                                if (comment.text == submitted.body) comment = TextFieldValue()
+                                previewComment = false
+                                ctx.toast(tr("评论已发布"))
+                                reload()
+                            }
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Throwable) {
-                            ctx.toast(e.friendly())
+                            withContext(Dispatchers.Main.immediate) { ctx.toast(e.friendly()) }
                         } finally {
-                            sending = false
+                            withContext(Dispatchers.Main.immediate) { sending = false }
                         }
                     }
                 }
@@ -432,6 +481,18 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
             write(onSuccess = { deleting = null }) { GitHub.deleteComment(owner, name, cid); ctx.toast(tr("已删除")) }
         }) { Text(tr("删除后无法恢复。"), color = g.fg) }
     }
+    stateChange?.let { change ->
+        GhDialog(
+            change.title, { if (!writing) stateChange = null }, confirm = if (writing) tr("处理中…") else change.confirm,
+            danger = change.danger, confirmEnabled = !writing,
+            onConfirm = {
+                write(onSuccess = { stateChange = null }) {
+                    change.action()
+                    refreshIssueList()
+                }
+            },
+        ) { Text(change.message, color = g.fg) }
+    }
 
     val pr = t?.pull
     if (mergeDialog && pr != null) MergeDialog(pr, busy = writing, onDismiss = { mergeDialog = false }) { m ->
@@ -454,8 +515,21 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
             }
         }
     }
-    if (reviewDialog) ReviewDialog(busy = writing, onDismiss = { reviewDialog = false }) { ev, body ->
-        write(onSuccess = { reviewDialog = false }) { GitHub.review(owner, name, number, ev, body); ctx.toast(tr("审查已提交")) }
+    if (reviewDialog) ReviewDialog(
+        owner, name, number, busy = writing, draft = reviewDraft,
+        onDismiss = { reviewDialog = false },
+        onDiscard = {
+            write(onSuccess = { reviewDialog = false }) {
+                GitHub.discardPendingReview(owner, name, number)
+                ctx.toast(tr("已放弃待提交审查"))
+            }
+        },
+    ) { ev, body ->
+        write(onSuccess = {
+            reviewDialog = false
+            // 只有提交成功后才清除草稿
+            reviewDraft.submitted(DraftValue(body = body))
+        }) { GitHub.submitReview(owner, name, number, ev, body); ctx.toast(tr("审查已提交")) }
     }
 }
 
@@ -630,17 +704,38 @@ private fun reviewerStates(pr: Pull, reviews: List<Review>): List<Pair<User, Str
 }
 
 @Composable
-private fun ReviewDialog(busy: Boolean, onDismiss: () -> Unit, onSubmit: (String, String) -> Unit) {
+private fun ReviewDialog(
+    owner: String, name: String, number: Int,
+    busy: Boolean, draft: DraftController,
+    onDismiss: () -> Unit, onDiscard: () -> Unit, onSubmit: (String, String) -> Unit,
+) {
     val g = Gh.c
     var ev by remember { mutableStateOf("APPROVE") }
-    var body by remember { mutableStateOf("") }
+    var body by remember { mutableStateOf(draft.initial.body) }
+    // 当前用户的待提交审查：提交时其中的行内评论会一并发布。读取失败时不显示提示行
+    var pending by remember { mutableStateOf<PendingReview?>(null) }
+    var confirmDiscard by remember { mutableStateOf(false) }
+    LaunchedEffect(owner, name, number) {
+        pending = try {
+            GitHub.pendingReview(owner, name, number)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            null
+        }
+    }
     GhDialog(
         tr("提交审查"), { if (!busy) onDismiss() }, confirm = if (busy) tr("提交中…") else tr("提交"),
         confirmEnabled = !busy && (ev == "APPROVE" || body.isNotBlank()),
         onConfirm = { onSubmit(ev, body) },
     ) {
         Column {
+            pending?.let { p ->
+                PendingReviewLine(p.commentCount) { if (!busy) confirmDiscard = true }
+                Spacer(Modifier.height(8.dp))
+            }
             GhField(body, { if (!busy) body = it }, tr("审查意见"), singleLine = false, minLines = 3)
+            DraftBinding(draft, DraftValue(body = body))
             Spacer(Modifier.height(8.dp))
             listOf("APPROVE" to tr("批准"), "REQUEST_CHANGES" to tr("请求修改"), "COMMENT" to tr("仅评论")).forEach { (k, v) ->
                 Row(Modifier.fillMaxWidth().clickable(enabled = !busy) { ev = k }, verticalAlignment = Alignment.CenterVertically) {
@@ -650,4 +745,12 @@ private fun ReviewDialog(busy: Boolean, onDismiss: () -> Unit, onSubmit: (String
             }
         }
     }
+    if (confirmDiscard) DiscardPendingReviewDialog(
+        onDismiss = { confirmDiscard = false },
+        onConfirm = {
+            confirmDiscard = false
+            pending = null
+            onDiscard()
+        },
+    )
 }

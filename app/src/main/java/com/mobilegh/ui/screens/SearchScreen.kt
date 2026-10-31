@@ -53,17 +53,24 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
+import com.mobilegh.data.ApiException
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.History
+import com.mobilegh.data.IssueSearchSort
 import com.mobilegh.data.SEARCH_LANGUAGES
+import com.mobilegh.data.SearchFilterCodec
 import com.mobilegh.data.SearchFilters
 import com.mobilegh.data.SearchHistoryEntry
 import com.mobilegh.data.SearchQuery
 import com.mobilegh.data.SearchType
+import com.mobilegh.nav.GITHUB_SEARCH_RESULT_CAP
 import com.mobilegh.nav.Links
 import com.mobilegh.nav.LocalNav
+import com.mobilegh.nav.PagerPage
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.rememberPager
+import com.mobilegh.nav.searchHasNextPage
+import com.mobilegh.nav.searchTotalPages
 import com.mobilegh.ui.components.ActiveFilterChips
 import com.mobilegh.ui.components.ChoicePicker
 import com.mobilegh.ui.components.CompactSearchField
@@ -89,6 +96,19 @@ import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trc
 import com.mobilegh.i18n.trf
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TextButton
 
 /**
  * 独立的搜索大页面：类型切换、关键词、组合筛选、结果都在同一页。
@@ -106,6 +126,9 @@ fun SearchScreen(initialType: Int = SearchType.REPO, initialQuery: String = "") 
     var submitted by rememberSaveable { mutableStateOf(initialQuery.trim()) }
     var filters by rememberSaveable(stateSaver = SearchFiltersSaver) { mutableStateOf(SearchFilters()) }
     var filterDialog by rememberSaveable { mutableStateOf(false) }
+    // 排序与关键词分开保存：改关键词、改筛选都不会把排序重置回默认
+    var repoSort by rememberSaveable { mutableIntStateOf(0) }
+    var issueSort by rememberSaveable(type) { mutableIntStateOf(0) }
 
     fun submit(text: String = input) {
         val clean = text.trim()
@@ -120,9 +143,7 @@ fun SearchScreen(initialType: Int = SearchType.REPO, initialQuery: String = "") 
         }
         input = clean
         submitted = clean
-        if (SearchQuery.hasCriteria(type, clean, filters)) {
-            History.search(SearchQuery.build(type, clean, filters, includeType = false), type)
-        }
+        recordSearch(type, clean, filters)
     }
 
     val query = SearchQuery.build(type, submitted, filters)
@@ -147,9 +168,7 @@ fun SearchScreen(initialType: Int = SearchType.REPO, initialQuery: String = "") 
                     onRemove = { key ->
                         val next = filters.remove(type, key)
                         filters = next
-                        if (SearchQuery.hasCriteria(type, submitted, next)) {
-                            History.search(SearchQuery.build(type, submitted, next, includeType = false), type)
-                        }
+                        recordSearch(type, submitted, next)
                     },
                     onClear = { filters = filters.cleared(type) },
                 )
@@ -159,18 +178,26 @@ fun SearchScreen(initialType: Int = SearchType.REPO, initialQuery: String = "") 
                 !ready -> HintPane(type,
                     onHistory = { entry ->
                         focus.clearFocus()
-                        input = entry.query
                         type = entry.type.coerceIn(0, SearchType.labels.lastIndex)
-                        filters = filters.cleared(type)
-                        submitted = entry.query
-                        History.search(entry.query, type)
+                        // 新版历史保存了纯关键词和筛选：关键词框只放关键词，筛选恢复到面板；旧版历史保持原样回填
+                        val restored = SearchFilterCodec.decode(entry.filters)
+                        if (restored != null) {
+                            input = entry.keyword
+                            filters = restored
+                            submitted = entry.keyword
+                        } else {
+                            input = entry.query
+                            filters = filters.cleared(type)
+                            submitted = entry.query
+                        }
+                        History.search(entry.query, type, entry.keyword, entry.filters)
                     },
                     onExample = { input = it },
                 )
-                type == SearchType.REPO -> RepoResults(query, listState)
+                type == SearchType.REPO -> RepoResults(query, listState, repoSort) { repoSort = it }
                 type == SearchType.USER -> UserResults(query, listState)
                 type == SearchType.CODE -> CodeResults(query, listState)
-                else -> IssueResults(query, type == SearchType.PR, listState)
+                else -> IssueResults(query, type == SearchType.PR, listState, issueSort) { issueSort = it }
             }
         }
     }
@@ -180,9 +207,7 @@ fun SearchScreen(initialType: Int = SearchType.REPO, initialQuery: String = "") 
             filters = it
             filterDialog = false
             focus.clearFocus()
-            if (SearchQuery.hasCriteria(type, submitted, it)) {
-                History.search(SearchQuery.build(type, submitted, it, includeType = false), type)
-            }
+            recordSearch(type, submitted, it)
         }) { filterDialog = false }
     }
     // 新关键词或筛选条件都从首条结果展示，避免沿用上次搜索的滚动位置
@@ -196,7 +221,8 @@ private fun placeholder(type: Int): String = when (type) {
     else -> tr("代码内容，如 fun main")
 }
 
-/** 顶部单行搜索栏：输入框和筛选入口同一行，不再各占一行 */
+/** 顶部搜索栏：标准的圆角输入框（键盘搜索键即提交），右侧是筛选按钮 */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SearchBar(
     input: String,
@@ -207,58 +233,53 @@ private fun SearchBar(
     onSubmit: () -> Unit,
     onOpenFilters: () -> Unit,
 ) {
-    val g = Gh.c
     Row(
-        Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 4.dp),
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // 和右侧筛选按钮同为 44dp 高；原来的 GhField 默认 56dp，两者高度对不齐
-        CompactSearchField(
-            input, onInput, trf("搜索 {0}", SearchType.labels[type]),
-            Modifier.weight(1f),
-            hint = placeholder(type),
-            onSearch = onSubmit,
-            trailing = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (input.isNotEmpty()) FieldAction(R.drawable.oc_x, tr("清空关键词"), onClick = onClearInput)
-                    FieldAction(R.drawable.oc_arrow_right, tr("搜索"), g.accent, onClick = onSubmit)
-                }
+        OutlinedTextField(
+            value = input,
+            onValueChange = onInput,
+            modifier = Modifier.weight(1f).semantics { contentDescription = trf("搜索 {0}", SearchType.labels[type]) },
+            placeholder = { Text(placeholder(type), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            leadingIcon = { Oc(R.drawable.oc_search, MaterialTheme.colorScheme.onSurfaceVariant, 20.dp) },
+            trailingIcon = {
+                if (input.isNotEmpty()) IconButton(
+                    onClick = onClearInput,
+                    modifier = Modifier.semantics { contentDescription = tr("清空关键词") },
+                ) { Oc(R.drawable.oc_x, MaterialTheme.colorScheme.onSurfaceVariant, 18.dp) }
             },
+            singleLine = true,
+            shape = RoundedCornerShape(28.dp),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
         )
         Spacer(Modifier.width(8.dp))
         FilterEntry(count, onOpenFilters)
     }
 }
 
-/** 类型切换：单行等分，选中项实底，和下方的条件标签区分开 */
-@OptIn(ExperimentalLayoutApi::class)
+/** 类型切换：标准的可横向滚动标签栏，选中项用下划线标出 */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TypeTabs(type: Int, onSelect: (Int) -> Unit) {
-    val g = Gh.c
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    PrimaryScrollableTabRow(selectedTabIndex = type, edgePadding = 12.dp) {
         SearchType.labels.forEachIndexed { i, label ->
-            val sel = i == type
-            Box(
-                Modifier.weight(1f)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(if (sel) g.btnPrimary else g.canvasSubtle, RoundedCornerShape(6.dp))
-                    .border(1.dp, if (sel) g.btnPrimary else g.border, RoundedCornerShape(6.dp))
-                    .clickable(role = Role.Tab) { onSelect(i) }
-                    .heightIn(min = 36.dp)
-                    .semantics { selected = sel },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    label,
-                    Modifier.padding(vertical = 8.dp),
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (sel) Color.White else g.fg,
-                )
-            }
+            Tab(
+                selected = i == type,
+                onClick = { onSelect(i) },
+                selectedContentColor = Gh.c.accent,
+                unselectedContentColor = Gh.c.fgMuted,
+                text = { Text(label, maxLines = 1) },
+            )
         }
     }
+}
+
+/** 记录一次搜索：完整查询用于显示，关键词和筛选分开存，回填时才能恢复到筛选面板。 */
+private fun recordSearch(type: Int, keyword: String, filters: SearchFilters) {
+    if (!SearchQuery.hasCriteria(type, keyword, filters)) return
+    History.search(SearchQuery.build(type, keyword, filters, includeType = false), type, keyword, SearchFilterCodec.encode(filters))
 }
 
 /** 没有关键词也没有筛选时的引导：搜索历史 + 可点的语法示例 */
@@ -309,20 +330,50 @@ private fun FlowExamples(examples: List<String>, onPick: (String) -> Unit) {
 }
 
 @Composable
-private fun RepoResults(query: String, state: LazyListState) {
+private fun RepoResults(query: String, state: LazyListState, sort: Int, onSort: (Int) -> Unit) {
     val g = Gh.c
-    var sort by rememberSaveable(query) { mutableIntStateOf(0) }
     val sorts = listOf(null to tr("最佳匹配"), "stars" to tr("最多 Star"), "updated" to tr("最近更新"), "forks" to tr("最多 Fork"))
-    val pager = rememberPager("search-repo:$query:$sort") { p, force -> GitHub.searchRepos(query, sorts[sort].first, p, force).items }
+    val index = sort.coerceIn(0, sorts.lastIndex)
+    // 服务端报告的总数：超过 GitHub 搜索的 1000 条上限时在列表顶部说明，不再请求超出的页
+    var total by rememberSaveable(query, index) { mutableIntStateOf(0) }
+    val pager = rememberPager("search-repo:$query:$index", fetchPage = { p, force ->
+        val result = try {
+            GitHub.searchRepos(query, sorts[index].first, p, force)
+        } catch (e: ApiException) {
+            // 超出上限的页会被服务端以 422 拒绝：给出明确说明，而不是通用的加载失败
+            if (e.code == 422 && p > 1) throw ApiException(422, tr("GitHub 搜索最多返回 1000 条结果，请缩小关键词或使用筛选")) else throw e
+        }
+        PagerPage(
+            result.items,
+            hasMore = searchHasNextPage(p, GitHub.PER, result.totalCount),
+            totalPages = searchTotalPages(GitHub.PER, result.totalCount),
+        ) { total = result.totalCount }
+    })
     PagedList(pager, state = state, empty = tr("没有找到匹配的仓库"), emptyIcon = R.drawable.oc_repo, header = {
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(tr("仓库"), Modifier.weight(1f), fontSize = 13.sp, color = g.fgMuted)
-                Dropdown(sorts[sort].second, sorts.map { it.second }, { sort = it }, active = sort != 0)
+                Dropdown(sorts[index].second, sorts.map { it.second }, onSort, active = index != 0)
             }
             HDivider()
         }
+        if (total > GITHUB_SEARCH_RESULT_CAP) item {
+            Text(
+                tr("GitHub 搜索最多返回 1000 条结果，请缩小关键词或使用筛选"),
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), color = g.attention, fontSize = 12.sp,
+            )
+        }
     }) { RepoItem(it) }
+}
+
+/** Issue / PR 搜索的排序名称，与 [IssueSearchSort] 的 key 对应 */
+private fun issueSortLabel(key: String): String = when (key) {
+    "created" -> tr("最近创建")
+    "updated" -> tr("最近更新")
+    "comments" -> tr("评论最多")
+    "reactions" -> tr("反应最多")
+    "interactions" -> tr("互动最多")
+    else -> key
 }
 
 @Composable
@@ -377,13 +428,26 @@ private fun CodeResults(query: String, state: LazyListState) {
 
 /** Issue / PR 结果：复用现有 IssueItem，点击进入详情 */
 @Composable
-private fun IssueResults(query: String, pulls: Boolean, state: LazyListState) {
+private fun IssueResults(query: String, pulls: Boolean, state: LazyListState, sort: Int, onSort: (Int) -> Unit) {
     val nav = LocalNav.current
-    val pager = rememberPager("search-${if (pulls) "pr" else "issue"}:$query") { p, _ ->
-        GitHub.searchIssues(query, p, if (pulls) "updated" else "created", "desc").items
+    val g = Gh.c
+    val keys = IssueSearchSort.keys(pulls)
+    val index = sort.coerceIn(0, keys.lastIndex)
+    val pager = rememberPager("search-${if (pulls) "pr" else "issue"}:$query:$index") { p, _ ->
+        GitHub.searchIssues(query, p, keys[index], "desc").items
     }
     PagedList(pager, state = state, itemKey = { it.id }, empty = trf("没有找到匹配的{0}", if (pulls) " PR" else " Issue"),
-        emptyIcon = if (pulls) R.drawable.oc_git_pull_request else R.drawable.oc_issue_opened) { issue ->
+        emptyIcon = if (pulls) R.drawable.oc_git_pull_request else R.drawable.oc_issue_opened,
+        header = {
+            item {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(SearchType.labels[if (pulls) SearchType.PR else SearchType.ISSUE], Modifier.weight(1f), fontSize = 13.sp, color = g.fgMuted)
+                    Dropdown(issueSortLabel(keys[index]), keys.map { issueSortLabel(it) }, onSort, active = index != 0)
+                }
+                HDivider()
+            }
+        },
+    ) { issue ->
         val repo = issue.repositoryUrl?.substringAfter("/repos/") ?: ""
         IssueItem(issue, repoName = repo) {
             val (o, r) = repo.split('/').let { it[0] to it.getOrElse(1) { "" } }
@@ -403,11 +467,9 @@ internal fun SearchFilterDialog(type: Int, initial: SearchFilters, onApply: (Sea
     FilterSheet(
         trf("筛选 · {0}", SearchType.labels[type]), tr("条件之间为「并且」，应用后立即收窄结果"), tr("关闭筛选"), onDismiss,
         footer = {
-            GhButton(tr("重置"), Modifier.weight(1f), enabled = f.hasActive(type)) { f = f.cleared(type) }
-            GhButton(tr("取消"), Modifier.weight(1f)) { onDismiss() }
-            GhButton(trc("应用", "action") + if (f.activeCount(type) > 0) " · ${f.activeCount(type)}" else "", Modifier.weight(1.3f), primary = true) {
-                onApply(f)
-            }
+            TextButton(onClick = { f = f.cleared(type) }, enabled = f.hasActive(type)) { Text(tr("重置")) }
+            TextButton(onClick = { onDismiss() }) { Text(tr("取消")) }
+            GhButton(trc("应用", "action") + if (f.activeCount(type) > 0) " · ${f.activeCount(type)}" else "", primary = true) { onApply(f) }
         },
     ) {
         FilterGroup(tr("范围")) {
@@ -473,16 +535,32 @@ private fun FilterGroup(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun FilterField(label: String, value: String, onChange: (String) -> Unit, placeholder: String) {
-    GhField(value, onChange, label, placeholder = placeholder, labelAbove = true)
+    OutlinedTextField(
+        value, onChange, Modifier.fillMaxWidth(),
+        label = { Text(label) }, placeholder = { Text(placeholder) }, singleLine = true,
+    )
 }
 
-/** 一行标签 + 下拉，输入类字段和枚举类字段用同一套视觉结构 */
+/** 标签 + 下拉：标准的只读输入框加菜单，选中值显示在框里 */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PickerRow(label: String, value: String, options: List<String>, onSelect: (Int) -> Unit, active: Boolean) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.weight(1f), fontSize = 14.sp, color = Gh.c.fg)
-        // 读屏和测试能按字段名找到下拉，而不是只读到当前值
-        Dropdown(value, options, onSelect, Modifier.semantics { contentDescription = "$label：$value" }, active = active)
+private fun PickerRow(label: String, value: String, options: List<String>, onSelect: (Int) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            singleLine = true,
+            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEachIndexed { i, text ->
+                DropdownMenuItem(text = { Text(text) }, onClick = { onSelect(i); expanded = false })
+            }
+        }
     }
 }
 
@@ -491,14 +569,14 @@ private fun LanguagePicker(value: String, onSelect: (String) -> Unit) {
     // 语言候选太多，用下拉而不是平铺 chips；用 language:xxx 输入了列表外的语言时也如实显示
     val custom = value.isNotBlank() && value !in SEARCH_LANGUAGES
     val options = listOf(tr("不限")) + (if (custom) listOf(value) else emptyList()) + SEARCH_LANGUAGES
-    PickerRow(tr("语言"), if (value.isBlank()) tr("不限") else value, options, { onSelect(if (it == 0) "" else options[it]) }, value.isNotBlank())
+    PickerRow(tr("语言"), if (value.isBlank()) tr("不限") else value, options) { onSelect(if (it == 0) "" else options[it]) }
 }
 
 /** 数量阈值用下拉，避免七八个胶囊平铺把弹层撑得又长又密 */
 @Composable
 private fun NumberPicker(label: String, value: Int, options: List<Int>, unit: String = tr("以上"), onSelect: (Int) -> Unit) {
     val texts = options.map { if (it == 0) tr("不限") else "$it $unit" }
-    PickerRow(label, texts[options.indexOf(value).coerceAtLeast(0)], listOf(tr("不限")) + texts.drop(1), { onSelect(if (it == 0) 0 else options[it]) }, value > 0)
+    PickerRow(label, texts[options.indexOf(value).coerceAtLeast(0)], listOf(tr("不限")) + texts.drop(1)) { onSelect(if (it == 0) 0 else options[it]) }
 }
 
 private val SearchFiltersSaver = androidx.compose.runtime.saveable.listSaver<SearchFilters, Any>(

@@ -73,7 +73,7 @@ internal object MobileApprovalProtocol {
 /** Uses a separately imported mobile-auth credential and never inherits API mirrors or the current login. */
 object MobileApproval {
     private const val PREFS = "mobile_approval"
-    private val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS)
+    private val client = OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector()).connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS).callTimeout(20, TimeUnit.SECONDS)
         .followRedirects(false).build()
     private const val STATUS_QUERY = """query MobileAuthRequests {

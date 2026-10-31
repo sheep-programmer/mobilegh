@@ -81,7 +81,7 @@ class LoginFlowTest {
         assertNull(flow.device)
     }
 
-    @Test fun consecutiveTimeoutsKeepReducingPollingFrequencyUntilExpiry() = runBlocking {
+    @Test fun consecutiveTimeoutsBackOffToCapUntilExpiry() = runBlocking {
         var time = 0L
         var polls = 0
         val delays = mutableListOf<Long>()
@@ -95,8 +95,11 @@ class LoginFlowTest {
         })
         flow.authorize()
         awaitCondition { !flow.busy }
-        assertEquals(listOf(5_000L, 10_000L, 20_000L, 40_000L, 80_000L, 160_000L, 320_000L, 365_000L), delays)
-        assertEquals(7, polls)
+        // 退避先翻倍，封顶 30 秒；最后一次等待到授权码过期为止
+        assertEquals(listOf(5_000L, 10_000L, 20_000L), delays.take(3))
+        assertTrue(delays.subList(3, delays.size - 1).all { it == 30_000L })
+        assertTrue(delays.last() in 1L..30_000L)
+        assertEquals(delays.size - 1, polls)
         assertEquals(1_000_000L, time)
         assertEquals("授权码已过期，请重新开始", flow.error)
     }

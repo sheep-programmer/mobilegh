@@ -1,8 +1,6 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,7 +24,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,6 +36,7 @@ import com.mobilegh.data.Release
 import com.mobilegh.data.releaseAssetDownloadUrl
 import com.mobilegh.data.repoArchiveDownloadUrl
 import com.mobilegh.data.Repo
+import com.mobilegh.data.Invitation
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Loader
@@ -58,7 +56,6 @@ import com.mobilegh.ui.components.rememberDraft
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.foundation.text.selection.SelectionContainer
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.BarChart
 import com.mobilegh.ui.components.Card
@@ -96,12 +93,14 @@ import com.mobilegh.ui.components.fmtDateTime
 import com.mobilegh.ui.components.relTime
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.toast
+import com.mobilegh.ui.components.TypeToConfirmDialog
 import com.mobilegh.ui.theme.Gh
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trc
 import com.mobilegh.i18n.trf
+import com.mobilegh.ui.components.CompactSearchField
 
 // ======================= Releases =======================
 
@@ -146,22 +145,25 @@ private fun DeleteReleaseDialog(owner: String, name: String, r: Release, onDismi
     val entry = LocalEntry.current
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    GhDialog(
-        tr("删除 Release"), onDismiss = { if (!busy) onDismiss() },
-        confirm = if (busy) tr("删除中…") else tr("删除"), danger = true, confirmEnabled = !busy,
+    val label = r.name?.takeIf { it.isNotBlank() } ?: r.tagName
+    // 删除会连同资源文件一起移除，要求输入标签名确认
+    TypeToConfirmDialog(
+        title = tr("删除 Release"), expected = r.tagName, ignoreCase = false,
+        hint = tr("输入下面的标签名以确认："), fieldLabel = tr("标签名"), confirm = tr("删除"),
+        busy = busy, onDismiss = onDismiss,
         onConfirm = {
             busy = true
             error = null
             entry.act({ busy = false; error = it }) {
                 GitHub.deleteRelease(owner, name, r.id)
                 RepoWrite.changed(owner, name)
-                ctx.toast(trf("已删除 {0}", r.name?.takeIf { it.isNotBlank() } ?: r.tagName))
+                ctx.toast(trf("已删除 {0}", label))
                 onDeleted()
             }
         },
     ) {
         Column {
-            Text(trf("确定删除 {0} 吗？发布说明和上传的资源文件会一并删除，且无法恢复。", r.name?.takeIf { it.isNotBlank() } ?: r.tagName), fontSize = 14.sp, color = g.fg)
+            Text(trf("确定删除 {0} 吗？发布说明和上传的资源文件会一并删除，且无法恢复。", label), fontSize = 14.sp, color = g.fg)
             Spacer(Modifier.height(6.dp))
             Text(trf("标签 {0} 不会被删除。", r.tagName), fontSize = 13.sp, color = g.fgMuted)
             error?.let { InlineError(it) }
@@ -275,13 +277,25 @@ private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean,
 
 private class ReleaseSeed(val repo: Repo, val release: Release?, val latestId: Long?, val tags: List<String>)
 
+/** 读取仓库的全部标签名：标签选择器和「标签是否已存在」都要基于完整列表。GitHub 每页最多 100 个，不足一页即末页。 */
+private suspend fun allTagNames(owner: String, name: String, force: Boolean): List<String> {
+    val all = ArrayList<String>()
+    var page = 1
+    while (true) {
+        val batch = GitHub.tags(owner, name, page, force)
+        all += batch.map { it.name }
+        if (batch.size < 100) return all
+        page++
+    }
+}
+
 @Composable
 fun EditReleaseScreen(owner: String, name: String, releaseId: Long?) {
     val seed = rememberLoader("seed") { f ->
         val repo = GitHub.repo(owner, name, f)
         val release = releaseId?.let { GitHub.release(owner, name, it) }
         val latest = runCatching { GitHub.latestRelease(owner, name, true)?.id }.getOrNull()
-        val tags = runCatching { GitHub.tags(owner, name, 1, f).map { it.name } }.getOrDefault(emptyList())
+        val tags = runCatching { allTagNames(owner, name, f) }.getOrDefault(emptyList())
         ReleaseSeed(repo, release, latest, tags)
     }
     Page(if (releaseId == null) tr("新建 Release") else tr("编辑 Release"), subtitle = "$owner/$name") { pad ->
@@ -415,7 +429,7 @@ private fun ReleaseForm(owner: String, name: String, seed: ReleaseSeed, modifier
         var q by remember { mutableStateOf("") }
         GhDialog(tr("选择标签"), onDismiss = { pickTag = false }) {
             Column {
-                GhField(q, { q = it }, tr("筛选"))
+                CompactSearchField(q, { q = it }, tr("筛选"))
                 Spacer(Modifier.height(8.dp))
                 val list = seed.tags.filter { it.contains(q, true) }
                 LazyColumn(Modifier.heightIn(max = 360.dp)) {
@@ -579,6 +593,9 @@ private fun SettingsForm(r: Repo, reload: () -> Unit) {
     var branch by rememberSaveable(r.id) { mutableStateOf(r.defaultBranch) }
     var saving by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
+    // 「允许 Fork」开关待确认的目标值；确认后才真正提交
+    var forkTarget by remember { mutableStateOf(false) }
+    var deleteBusy by remember { mutableStateOf(false) }
     val o = r.owner.login
 
     fun patch(msg: String, vararg kv: Pair<String, Any>) {
@@ -587,6 +604,23 @@ private fun SettingsForm(r: Repo, reload: () -> Unit) {
                 kv.forEach { (k, v) -> put(k, if (v is Boolean) JsonPrimitive(v) else JsonPrimitive(v.toString())) }
             })
             ctx.toast(msg)
+        }
+    }
+
+    fun saveBasics() {
+        saving = true
+        entry.act({ saving = false; ctx.toast(it) }) {
+            val updated = GitHub.updateRepo(o, r.name, buildJsonObject {
+                put("name", JsonPrimitive(newName.trim()))
+                put("description", JsonPrimitive(desc))
+                put("homepage", JsonPrimitive(home))
+                put("default_branch", JsonPrimitive(branch.trim()))
+            })
+            val list = topics.split(',', '，', ' ').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+            if (list != r.topics) GitHub.setTopics(o, updated.name, list)
+            saving = false
+            ctx.toast(tr("已保存"))
+            if (updated.name != r.name) nav.popToRoot().also { nav.push(Screen.Repo(o, updated.name)) } else reload()
         }
     }
 
@@ -599,20 +633,8 @@ private fun SettingsForm(r: Repo, reload: () -> Unit) {
             GhField(topics, { topics = it }, tr("Topics（逗号分隔）"))
             GhField(branch, { branch = it }, tr("默认分支"))
             GhButton(tr("保存修改"), Modifier.fillMaxWidth(), primary = true, enabled = !saving) {
-                saving = true
-                entry.act({ saving = false; ctx.toast(it) }) {
-                    val updated = GitHub.updateRepo(o, r.name, buildJsonObject {
-                        put("name", JsonPrimitive(newName.trim()))
-                        put("description", JsonPrimitive(desc))
-                        put("homepage", JsonPrimitive(home))
-                        put("default_branch", JsonPrimitive(branch.trim()))
-                    })
-                    val list = topics.split(',', '，', ' ').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
-                    if (list != r.topics) GitHub.setTopics(o, updated.name, list)
-                    saving = false
-                    ctx.toast(tr("已保存"))
-                    if (updated.name != r.name) nav.popToRoot().also { nav.push(Screen.Repo(o, updated.name)) } else reload()
-                }
+                // 改名会改变仓库地址，先确认；其余字段直接保存
+                if (newName.trim() != r.name) confirm = "rename" else saveBasics()
             }
         }
         SectionTitle(tr("功能"))
@@ -621,7 +643,7 @@ private fun SettingsForm(r: Repo, reload: () -> Unit) {
         SwitchRow("Projects", null, r.hasProjects) { patch(tr("已更新"), "has_projects" to it) }
         SwitchRow("Discussions", null, r.hasDiscussions) { patch(tr("已更新"), "has_discussions" to it) }
         SwitchRow(tr("模板仓库"), tr("允许他人以此仓库为模板创建新仓库"), r.isTemplate) { patch(tr("已更新"), "is_template" to it) }
-        SwitchRow(tr("允许 Fork"), tr("仅对私有仓库/组织仓库有效"), r.allowForking) { patch(tr("已更新"), "allow_forking" to it) }
+        SwitchRow(tr("允许 Fork"), tr("仅对私有仓库/组织仓库有效"), r.allowForking) { forkTarget = it; confirm = "forking" }
 
         SectionTitle(tr("危险操作"))
         Card(Modifier.padding(horizontal = 16.dp)) {
@@ -639,43 +661,60 @@ private fun SettingsForm(r: Repo, reload: () -> Unit) {
         "visibility" -> GhDialog(tr("更改可见性"), { confirm = null }, confirm = tr("确认"), danger = true, onConfirm = {
             confirm = null
             patch(tr("可见性已更改"), "private" to !r.isPrivate)
-        }) { Text(trf("确定要把 {0} 设为{1}吗？", r.fullName, if (r.isPrivate) tr("公开") else tr("私有")), color = g.fg) }
+        }) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(trf("确定要把 {0} 设为{1}吗？", r.fullName, if (r.isPrivate) tr("公开") else tr("私有")), color = g.fg)
+                Text(
+                    if (r.isPrivate) tr("改为公开后，任何人都能看到此仓库的代码、Issues 和 PR；已被看到或抓取的内容无法收回。")
+                    else tr("改为私有后，未被授予权限的人将无法访问此仓库，已有的公开链接会失效。"),
+                    color = g.fgMuted, fontSize = 13.sp,
+                )
+            }
+        }
         "archive" -> GhDialog(if (r.archived) tr("取消归档") else tr("归档仓库"), { confirm = null }, confirm = tr("确认"), danger = true, onConfirm = {
             confirm = null
             patch(if (r.archived) tr("已取消归档") else tr("已归档"), "archived" to !r.archived)
         }) { Text(if (r.archived) tr("取消归档后仓库将恢复可写。") else tr("归档后，Issues、PR、代码等都将变为只读。"), color = g.fg) }
-        "delete" -> {
-            var typed by remember { mutableStateOf("") }
-            // 仓库名大小写在 GitHub 上不敏感；容忍首尾空格，避免键盘误输入导致按钮永远不亮
-            GhDialog(tr("删除仓库"), { confirm = null }, confirm = tr("我了解后果，删除此仓库"), danger = true,
-                confirmEnabled = typed.trim().equals(r.fullName, ignoreCase = true), onConfirm = {
-                confirm = null
-                entry.act({ ctx.toast(if (it.contains("403") || it.contains("404") || it.contains("admin", true)) tr("删除失败：Token 需要 delete_repo 权限；重新登录或新建 Token 勾选该权限后再试") else it) }) {
+        "rename" -> GhDialog(tr("重命名仓库？"), { confirm = null }, confirm = tr("确认改名"), danger = true, confirmEnabled = !saving, onConfirm = {
+            confirm = null
+            saveBasics()
+        }) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(trf("仓库将从 {0} 改名为 {1}。", r.name, newName.trim()), color = g.fg)
+                Text(tr("改名后仓库地址会变化（旧地址通常会跳转），本地克隆的远程地址、徽章和 Pages 地址需要手动更新。"), color = g.fgMuted, fontSize = 13.sp)
+            }
+        }
+        "forking" -> GhDialog(tr("更改 Fork 权限？"), { confirm = null }, confirm = tr("确认"), danger = true, onConfirm = {
+            confirm = null
+            patch(tr("已更新"), "allow_forking" to forkTarget)
+        }) {
+            Text(
+                if (forkTarget) tr("开启后，有访问权限的人可以 Fork 此仓库，Fork 出的副本不再受此仓库的权限约束。")
+                else tr("关闭后，其他人无法再 Fork 此仓库；对私有仓库关闭 Fork 时，GitHub 可能删除已有的 Fork。"),
+                color = g.fg,
+            )
+        }
+        "delete" -> TypeToConfirmDialog(
+            title = tr("删除仓库"), expected = r.fullName, ignoreCase = true,
+            hint = tr("输入下面的仓库全名以确认（可长按选择或复制）："), fieldLabel = tr("仓库全名"),
+            confirm = tr("我了解后果，删除此仓库"), busy = deleteBusy,
+            onDismiss = { confirm = null },
+            onConfirm = {
+                deleteBusy = true
+                entry.act({
+                    deleteBusy = false
+                    confirm = null
+                    ctx.toast(if (it.contains("403") || it.contains("404") || it.contains("admin", true)) tr("删除失败：Token 需要 delete_repo 权限；重新登录或新建 Token 勾选该权限后再试") else it)
+                }) {
                     GitHub.deleteRepo(o, r.name)
+                    deleteBusy = false
+                    confirm = null
                     ctx.toast(trf("已删除 {0}", r.fullName))
                     nav.popToRoot()
                 }
-            }) {
-                Column {
-                    Text(trf("这将永久删除 {0} 的代码、Issues、PR、Wiki 等全部内容。", r.fullName), color = g.fg, fontSize = 14.sp)
-                    Spacer(Modifier.height(10.dp))
-                    Text(tr("输入下面的仓库全名以确认（可长按选择或复制）："), color = g.fgMuted, fontSize = 13.sp)
-                    Spacer(Modifier.height(6.dp))
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(g.canvasSubtle)
-                            .padding(start = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        SelectionContainer(Modifier.weight(1f)) {
-                            Text(r.fullName, color = g.fg, fontSize = 14.sp,
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
-                        }
-                        TextLink(tr("复制")) { ctx.copy(r.fullName) }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    GhField(typed, { typed = it }, tr("仓库全名"), placeholder = r.fullName)
-                }
-            }
+            },
+        ) {
+            Text(trf("这将永久删除 {0} 的代码、Issues、PR、Wiki 等全部内容。", r.fullName), color = g.fg, fontSize = 14.sp)
         }
     }
 }
@@ -703,6 +742,7 @@ fun CollaboratorsScreen(owner: String, name: String) {
     val pending = rememberLoader("pending") { runCatching { GitHub.pendingInvites(owner, name, it) }.getOrDefault(emptyList()) }
     var adding by remember { mutableStateOf(false) }
     var removing by remember { mutableStateOf<String?>(null) }
+    var cancelingInvite by remember { mutableStateOf<Invitation?>(null) }
     fun reload() { collabs.load(true); pending.load(true) }
     Page(tr("协作者"), subtitle = "$owner/$name", actions = { OcButton(R.drawable.oc_plus, { adding = true }) }) { pad ->
         LoadBox(collabs, Modifier.padding(pad).fillMaxSize()) { list ->
@@ -718,7 +758,7 @@ fun CollaboratorsScreen(owner: String, name: String) {
                                 Text(i.invitee?.login ?: tr("邮箱邀请"), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(trf("权限：{0} · {1}", permZh(i.permissions), if (i.expired) tr("已过期") else relTime(i.createdAt)), fontSize = 12.sp, color = if (i.expired) g.attention else g.fgMuted)
                             }
-                            GhButton(tr("撤销"), danger = true) { entry.act({ ctx.toast(it) }, ::reload) { GitHub.cancelInvite(owner, name, i.id) } }
+                            GhButton(tr("撤销"), danger = true) { cancelingInvite = i }
                         }
                     }
                 }
@@ -761,6 +801,18 @@ fun CollaboratorsScreen(owner: String, name: String) {
         GhDialog(tr("移除协作者"), { removing = null }, confirm = tr("移除"), danger = true, onConfirm = {
             removing = null
             entry.act({ ctx.toast(it) }, ::reload) { GitHub.removeCollaborator(owner, name, u) }
-        }) { Text(trf("确定将 {0} 从 {1}/{2} 移除吗？", u, owner, name), color = g.fg) }
+        }) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(trf("确定将 {0} 从 {1}/{2} 移除吗？", u, owner, name), color = g.fg)
+                Text(tr("移除后对方将立即失去此仓库的访问权限。"), color = g.fgMuted, fontSize = 13.sp)
+            }
+        }
+    }
+    cancelingInvite?.let { inv ->
+        val target = inv.invitee?.login ?: tr("该邮箱地址")
+        GhDialog(tr("撤销邀请？"), { cancelingInvite = null }, confirm = tr("撤销"), danger = true, onConfirm = {
+            cancelingInvite = null
+            entry.act({ ctx.toast(it) }, ::reload) { GitHub.cancelInvite(owner, name, inv.id) }
+        }) { Text(trf("撤销后，对 {0} 的邀请立即失效，需要重新发送才能协作。", target), color = g.fg) }
     }
 }

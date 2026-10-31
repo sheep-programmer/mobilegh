@@ -10,9 +10,21 @@ import java.security.MessageDigest
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 
+/** 草稿里的一个元数据选项（标签 / 指派人 / 里程碑），保存显示所需的信息，避免恢复后颜色或头像丢失 */
 @Serializable
-data class DraftValue(val title: String = "", val body: String = "", val category: String? = null) {
-    val empty: Boolean get() = title.isBlank() && body.isBlank()
+data class DraftOption(val key: String, val label: String, val color: String? = null, val avatar: String? = null)
+
+@Serializable
+data class DraftValue(
+    val title: String = "",
+    val body: String = "",
+    val category: String? = null,
+    /** 仅新建 Issue 使用：标签、指派人、里程碑 */
+    val labels: List<DraftOption> = emptyList(),
+    val assignees: List<DraftOption> = emptyList(),
+    val milestone: DraftOption? = null,
+) {
+    val empty: Boolean get() = title.isBlank() && body.isBlank() && labels.isEmpty() && assignees.isEmpty() && milestone == null
 }
 
 class DraftStore internal constructor(private val storage: LocalRecordStorage) {
@@ -29,6 +41,7 @@ class DraftStore internal constructor(private val storage: LocalRecordStorage) {
     }
     fun save(login: String, context: String, value: DraftValue) {
         require(value.title.length <= 1024 && value.body.length <= 65_536) { tr("草稿太长，无法保存在本机") }
+        require(value.labels.size <= 100 && value.assignees.size <= 100) { tr("草稿太长，无法保存在本机") }
         if (value.empty) clear(login, context) else storage.write(key(login, context), json.encodeToString(value))
     }
     fun clear(login: String, context: String) = storage.remove(key(login, context))

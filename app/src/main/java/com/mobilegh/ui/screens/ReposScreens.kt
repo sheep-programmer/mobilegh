@@ -20,13 +20,16 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
@@ -40,6 +43,7 @@ import com.mobilegh.data.Session
 import com.mobilegh.nav.act
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
+import com.mobilegh.nav.Pager
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
 import com.mobilegh.nav.Screen
@@ -62,6 +66,7 @@ import com.mobilegh.ui.components.FilterSheet
 import com.mobilegh.ui.components.CompactSearchField
 import com.mobilegh.ui.components.FieldAction
 import com.mobilegh.ui.components.GhButton
+import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.Loading
@@ -80,14 +85,32 @@ import com.mobilegh.ui.components.UserItem
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
+import kotlinx.coroutines.flow.first
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Button
 
 internal val SORTS get() = listOf("pushed" to tr("最近推送"), "updated" to tr("最近更新"), "full_name" to tr("名称"), "created" to tr("创建时间"))
+
+/** 关键词筛选时最多读取的仓库条数；超过后停止翻页并提示，避免一次搜索拉完整个账号的仓库 */
+internal const val REPO_FILTER_LOAD_LIMIT = 1000
+
+/**
+ * 通知页与邀请页共用的「已处理邀请」集合：key 为 `r{id}`（仓库邀请）或 `o{login}`（组织邀请）。
+ * 只删除以 [prefix] 开头、且已不在服务端列表里的 key：服务端仍列出的保留隐藏，直到确认消失。
+ */
+internal fun pruneHiddenInvites(hidden: Set<String>, prefix: String, live: Set<String>): Set<String> =
+    hidden.filterTo(HashSet()) { !it.startsWith(prefix) || it in live }
+
+/** 已处理邀请集合随 rememberSaveable 保存，切换 Tab 或重建页面后仍然隐藏 */
+private val InviteHiddenSaver = listSaver<Set<String>, Any>(
+    save = { it.toList() },
+    restore = { it.filterIsInstance<String>().toSet() },
+)
 
 /** Repositories available to the signed-in account, including collaborators and organizations. */
 @Composable
 fun ReposTab() {
     val nav = LocalNav.current
-    val g = Gh.c
     val filters = listOf(tr("全部") to "owner,collaborator,organization_member", tr("我的") to "owner", tr("协作") to "collaborator", tr("组织") to "organization_member")
     val vis = listOf("all" to tr("全部可见性"), "public" to tr("公开"), "private" to tr("私有"))
     var filter by rememberSaveable { mutableIntStateOf(0) }
@@ -105,7 +128,16 @@ fun ReposTab() {
     }
     val state = rememberLazyListState()
     com.mobilegh.nav.OnTabReselect(Tab.Repos) { state.animateScrollToItem(0) }
-    LaunchedEffect(query, key) { if (query.isNotBlank() && filter != 3) pager.loadAll() }
+    // 关键词变化、清空或离开页面时，停掉仍在进行的全量加载（已加载的条目保留，之后可从断点继续）
+    DisposableEffect(pager) { onDispose { pager.cancelLoadAll() } }
+    LaunchedEffect(pager, query) {
+        pager.cancelLoadAll()
+        if (query.isNotBlank() && filter != 3) {
+            // 普通翻页进行中时不会启动分块加载，先等这一页结束；每块取回后立即显示，达到上限后停止并由 truncated 提示
+            snapshotFlow { pager.loading }.first { !it }
+            pager.loadChunked(REPO_FILTER_LOAD_LIMIT)
+        }
+    }
     var sheet by rememberSaveable { mutableStateOf(false) }
     // 非默认的排序、可见性、Fork、组织都以可撤销标签展示，一眼能看出当前列表被什么收窄
     val active = buildList {
@@ -149,13 +181,15 @@ fun ReposTab() {
                         SORTS[sort].first, query.trim(), hideForks, directory.data?.warnings.orEmpty(), Modifier.weight(1f), directory::refresh)
                 }
             } else {
+                if (query.isNotBlank()) RepoFilterStatus(pager)
+                // 关键词筛选时关闭自动翻页：达到上限后只能通过底部“加载更多”继续，不会无限读取
                 PagedList(pager, Modifier.weight(1f), state = state, empty = tr("没有匹配的仓库"), emptyIcon = R.drawable.oc_repo,
                     emptyAction = if (query.isNotBlank() || hideForks || visibility != 0 || filter != 0) tr("清除筛选") else tr("新建仓库"),
                     onEmptyAction = {
                         if (query.isNotBlank() || hideForks || visibility != 0 || filter != 0) {
                             query = ""; hideForks = false; visibility = 0; filter = 0
                         } else nav.push(Screen.CreateRepo)
-                    }, itemKey = { it.id }, itemFilter = {
+                    }, autoLoad = query.isBlank(), itemKey = { it.id }, itemFilter = {
                     (visibility == 0 || (visibility == 2) == it.isPrivate) && (!hideForks || !it.fork) &&
                         (query.isBlank() || it.fullName.contains(query.trim(), true) || it.description?.contains(query.trim(), true) == true)
                 }) { RepoItem(it) }
@@ -174,6 +208,42 @@ fun ReposTab() {
     )
 }
 
+/**
+ * 关键词筛选时的加载状态条：进行中显示已检索数量并可停止；失败时保留已加载结果并可重试；
+ * 停止后可继续；达到 [REPO_FILTER_LOAD_LIMIT] 上限时提示结果可能不完整。
+ */
+@Composable
+private fun RepoFilterStatus(pager: Pager<*>) {
+    val g = Gh.c
+    val loaded = pager.items.size
+    val failure = pager.error
+    when {
+        pager.fullScanning -> FilterStatusLine(
+            trf("已检索 {0} 个仓库，正在加载更多…", loaded), g.fgMuted, tr("停止"), pager::cancelLoadAll,
+        )
+        failure != null && loaded > 0 -> FilterStatusLine(
+            trf("已检索 {0} 个仓库，加载中断：{1}", loaded, failure), g.attention, tr("重试"), pager::retry,
+        )
+        pager.truncated -> FilterStatusLine(
+            trf("仅筛选前 {0} 个仓库，结果可能不完整", REPO_FILTER_LOAD_LIMIT), g.attention, null, {},
+        )
+        loaded > 0 && !pager.loading && !pager.end && failure == null -> FilterStatusLine(
+            trf("已检索 {0} 个仓库，已停止", loaded), g.fgMuted, tr("继续加载"), { pager.loadChunked(REPO_FILTER_LOAD_LIMIT) },
+        )
+    }
+}
+
+@Composable
+private fun FilterStatusLine(text: String, color: Color, action: String?, onAction: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, Modifier.weight(1f), color = color, fontSize = 12.sp)
+        if (action != null) TextButton(onClick = onAction) { Text(action, fontSize = 13.sp) }
+    }
+}
+
 /** 仓库列表的排序与筛选：选项即时生效，背后的列表同步更新 */
 @Composable
 private fun ReposFilterSheet(
@@ -188,8 +258,8 @@ private fun ReposFilterSheet(
     FilterSheet(
         tr("排序与筛选"), tr("选择后立即生效"), tr("关闭筛选"), onDismiss,
         footer = {
-            GhButton(tr("重置"), Modifier.weight(1f), enabled = canReset) { onReset() }
-            GhButton(tr("完成"), Modifier.weight(1f), primary = true) { onDismiss() }
+            TextButton(onClick = onReset, enabled = canReset) { Text(tr("重置")) }
+            GhButton(tr("完成"), primary = true) { onDismiss() }
         },
     ) {
         FilterCard(null) {
@@ -335,7 +405,14 @@ internal fun InvitationBlock() {
     val ctx = rememberCtx()
     val repoInv = rememberLoader("rinv") { GitHub.repoInvitations(it) }
     val orgInv = rememberLoader("oinv") { runCatching { GitHub.orgInvitations(it) }.getOrDefault(emptyList()) }
-    var hidden by remember { mutableStateOf(setOf<String>()) }
+    // 已接受 / 已拒绝的邀请先隐藏；服务端刷新后不再列出的，再从隐藏集合里移除
+    var hidden by rememberSaveable(stateSaver = InviteHiddenSaver) { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(repoInv.data) {
+        repoInv.data?.let { list -> hidden = pruneHiddenInvites(hidden, "r", list.mapTo(HashSet()) { "r${it.id}" }) }
+    }
+    LaunchedEffect(orgInv.data) {
+        orgInv.data?.let { list -> hidden = pruneHiddenInvites(hidden, "o", list.mapTo(HashSet()) { "o${it.organization.login}" }) }
+    }
     val orgs = orgInv.data.orEmpty().filter { "o${it.organization.login}" !in hidden }
     val repos = repoInv.data.orEmpty().filter { "r${it.id}" !in hidden }
     if (orgs.isEmpty() && repos.isEmpty()) return
@@ -344,7 +421,7 @@ internal fun InvitationBlock() {
         orgs.forEach { m ->
             OrgInviteRow(m) {
                 hidden = hidden + "o${m.organization.login}"
-                entry.act({ ctx.toast(it); hidden = hidden - "o${m.organization.login}" }) {
+                entry.act({ ctx.toast(it); hidden = hidden - "o${m.organization.login}" }, onDone = { orgInv.refreshSilently() }) {
                     GitHub.acceptOrg(m.organization.login)
                     ctx.toast(trf("已加入 {0}", m.organization.login))
                 }
@@ -355,14 +432,16 @@ internal fun InvitationBlock() {
                 inv,
                 onAccept = {
                     hidden = hidden + "r${inv.id}"
-                    entry.act({ ctx.toast(it); hidden = hidden - "r${inv.id}" }) {
+                    entry.act({ ctx.toast(it); hidden = hidden - "r${inv.id}" }, onDone = { repoInv.refreshSilently() }) {
                         GitHub.acceptInvitation(inv.id)
                         ctx.toast(tr("已接受，现在可以在「仓库 → 协作的」中找到它"))
                     }
                 },
                 onDecline = {
                     hidden = hidden + "r${inv.id}"
-                    entry.act({ ctx.toast(it); hidden = hidden - "r${inv.id}" }) { GitHub.declineInvitation(inv.id) }
+                    entry.act({ ctx.toast(it); hidden = hidden - "r${inv.id}" }, onDone = { repoInv.refreshSilently() }) {
+                        GitHub.declineInvitation(inv.id)
+                    }
                 },
                 onOpen = { nav.push(Screen.Repo(inv.repository.owner.login, inv.repository.name)) },
             )
@@ -379,7 +458,14 @@ fun InvitationsScreen() {
     val ctx = rememberCtx()
     val repoInv = rememberLoader("rinv") { GitHub.repoInvitations(it) }
     val orgInv = rememberLoader("oinv") { runCatching { GitHub.orgInvitations(it) }.getOrDefault(emptyList()) }
-    var hidden by remember { mutableStateOf(setOf<String>()) }
+    // 与通知页的邀请区一致：已处理的邀请随页面状态保存，服务端刷新后再清理
+    var hidden by rememberSaveable(stateSaver = InviteHiddenSaver) { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(repoInv.data) {
+        repoInv.data?.let { list -> hidden = pruneHiddenInvites(hidden, "r", list.mapTo(HashSet()) { "r${it.id}" }) }
+    }
+    LaunchedEffect(orgInv.data) {
+        orgInv.data?.let { list -> hidden = pruneHiddenInvites(hidden, "o", list.mapTo(HashSet()) { "o${it.organization.login}" }) }
+    }
     Page(tr("待处理邀请")) { pad ->
         val list = repoInv.data
         when {
@@ -392,7 +478,10 @@ fun InvitationsScreen() {
                         item { SectionTitle(tr("组织邀请")) }
                         boxedItems(orgs) { m -> OrgInviteRow(m) {
                             hidden = hidden + "o${m.organization.login}"
-                            entry.act({ ctx.toast(it) }) { GitHub.acceptOrg(m.organization.login); ctx.toast(trf("已加入 {0}", m.organization.login)) }
+                            entry.act({ ctx.toast(it); hidden = hidden - "o${m.organization.login}" }, onDone = { orgInv.refreshSilently() }) {
+                                GitHub.acceptOrg(m.organization.login)
+                                ctx.toast(trf("已加入 {0}", m.organization.login))
+                            }
                         } }
                     }
                     item { SectionTitle(tr("仓库协作邀请")) }
@@ -403,14 +492,16 @@ fun InvitationsScreen() {
                             inv,
                             onAccept = {
                                 hidden = hidden + "r${inv.id}"
-                                entry.act({ ctx.toast(it); hidden = hidden - "r${inv.id}" }) {
+                                entry.act({ ctx.toast(it); hidden = hidden - "r${inv.id}" }, onDone = { repoInv.refreshSilently() }) {
                                     GitHub.acceptInvitation(inv.id)
                                     ctx.toast(tr("已接受，现在可以在「仓库 → 协作的」中找到它"))
                                 }
                             },
                             onDecline = {
                                 hidden = hidden + "r${inv.id}"
-                                entry.act({ ctx.toast(it); hidden = hidden - "r${inv.id}" }) { GitHub.declineInvitation(inv.id) }
+                                entry.act({ ctx.toast(it); hidden = hidden - "r${inv.id}" }, onDone = { repoInv.refreshSilently() }) {
+                                    GitHub.declineInvitation(inv.id)
+                                }
                             },
                             onOpen = { nav.push(Screen.Repo(inv.repository.owner.login, inv.repository.name)) },
                         )
@@ -430,6 +521,11 @@ fun InvitationsScreen() {
 @Composable
 private fun RepoInviteRow(inv: Invitation, onAccept: () -> Unit, onDecline: () -> Unit, onOpen: () -> Unit) {
     val g = Gh.c
+    var askDecline by remember { mutableStateOf(false) }
+    if (askDecline) GhDialog(tr("拒绝仓库邀请？"), { askDecline = false }, confirm = tr("拒绝"), danger = true, onConfirm = {
+        askDecline = false
+        onDecline()
+    }) { Text(trf("拒绝后，对 {0} 的这次邀请将作废，需要对方重新邀请才能协作。", inv.repository.fullName), color = g.fg) }
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Avatar(inv.inviter?.avatarUrl, 32.dp)
@@ -443,7 +539,7 @@ private fun RepoInviteRow(inv: Invitation, onAccept: () -> Unit, onDecline: () -
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             GhButton(tr("接受"), primary = true, enabled = !inv.expired, onClick = onAccept)
-            GhButton(tr("拒绝"), danger = true, onClick = onDecline)
+            GhButton(tr("拒绝"), danger = true, onClick = { askDecline = true })
             GhButton(tr("查看"), onClick = onOpen)
         }
     }

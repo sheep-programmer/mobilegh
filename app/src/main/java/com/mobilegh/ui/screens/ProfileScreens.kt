@@ -20,11 +20,14 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +61,7 @@ import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.ErrorState
 import com.mobilegh.ui.components.EventItem
 import com.mobilegh.ui.components.GhButton
+import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.Heatmap
 import com.mobilegh.ui.components.IconText
@@ -76,6 +80,7 @@ import com.mobilegh.ui.components.RegisterScrollTop
 import com.mobilegh.ui.components.RepoItem
 import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.StatCell
+import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.UserItem
 import com.mobilegh.ui.components.VisibilityBadge
 import com.mobilegh.ui.components.parseInstant
@@ -90,6 +95,7 @@ import com.mobilegh.ui.components.share
 import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.components.MdText
 import com.mobilegh.ui.theme.Gh
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
@@ -141,8 +147,9 @@ fun ContributionBody(state: ContribState, full: Boolean) {
                 Spacer(Modifier.height(8.dp))
                 HDivider()
                 Row(Modifier.fillMaxWidth()) {
-                    StatCell("${st.current}", tr("当前连续·天"), Modifier.weight(1f))
-                    StatCell("${st.longest}", tr("最长连续·天"), Modifier.weight(1f))
+                    // 读作「当前连续 N 天」：标签是类别，数值带单位
+                    StatCell(trf("{0} 天", st.current), tr("当前连续"), Modifier.weight(1f))
+                    StatCell(trf("{0} 天", st.longest), tr("最长连续"), Modifier.weight(1f))
                     StatCell("${st.activeDays}", tr("活跃天数"), Modifier.weight(1f))
                     StatCell("${st.best?.contributionCount ?: 0}", tr("单日最高"), Modifier.weight(1f))
                 }
@@ -154,7 +161,7 @@ fun ContributionBody(state: ContribState, full: Boolean) {
                         Text(tr("贡献构成"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = g.fg)
                         Spacer(Modifier.height(4.dp))
                         RatioRow(tr("提交 Commits"), c.totalCommitContributions, total, g.success)
-                        RatioRow(tr("拉取请求 PR"), c.totalPullRequestContributions, total, g.accent)
+                        RatioRow(tr("拉取请求 Pull Requests"), c.totalPullRequestContributions, total, g.accent)
                         RatioRow(tr("代码审查 Review"), c.totalPullRequestReviewContributions, total, g.done)
                         RatioRow(tr("议题 Issues"), c.totalIssueContributions, total, g.attention)
                         RatioRow(tr("新建仓库"), c.totalRepositoryContributions, total, g.fgMuted)
@@ -225,9 +232,18 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
     val pinned = rememberLoader("pinned:$login") { runCatching { GitHub.pinned(login) }.getOrDefault(emptyList()) }
     val orgs = rememberLoader("orgs:$login") { if (isSelf) GitHub.myOrgs(it) else GitHub.userOrgs(login, it) }
     val following = retain("following:$login") { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(login) {
-        if (!isSelf && following.value == null) following.value = runCatching { GitHub.isFollowing(login) }.getOrNull()
+    // 状态查询失败要记下来并给出重试；LaunchedEffect 只在登录名变化时跑一次，否则关注按钮会一直禁用
+    val followFailed = retain("following-failed:$login") { mutableStateOf(false) }
+    var followRetry by remember(login) { mutableIntStateOf(0) }
+    LaunchedEffect(login, followRetry) {
+        if (!isSelf && following.value == null) {
+            try {
+                following.value = GitHub.isFollowing(login)
+                followFailed.value = false
+            } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Exception) { followFailed.value = true }
+        }
     }
+    var showOrgs by remember(login) { mutableStateOf(false) }
     val state = rememberLazyListState()
     if (me) com.mobilegh.nav.OnTabReselect(Tab.Me) { state.animateScrollToItem(0) }
 
@@ -251,14 +267,16 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
             else -> PullToRefreshBox(user.refreshing, { user.refresh(); contrib.refresh(); pinned.refresh(); orgs.refresh() }, Modifier.padding(pad)) {
                 RegisterScrollTop(state)
                 LazyColumn(Modifier.fillMaxSize(), state = state) {
-                    item { ProfileHeader(u, isSelf, following.value) { on ->
+                    item { ProfileHeader(u, isSelf, following.value, followFailed.value, onRetryFollow = { followFailed.value = false; followRetry++ }) { on ->
                         following.value = on
                         entry.act({ following.value = !on; ctx.toast(it) }) { GitHub.follow(login, on) }
                     } }
                     val orgList = orgs.data.orEmpty()
                     if (orgList.isNotEmpty()) item {
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            orgList.forEach { o -> Box(Modifier.clickable { nav.push(Screen.Org(o.login)) }) { Avatar(o.avatarUrl, 32.dp, square = true) } }
+                            orgList.forEach { o ->
+                                Box(Modifier.minimumInteractiveComponentSize().clickable { nav.push(Screen.Org(o.login)) }) { Avatar(o.avatarUrl, 32.dp, square = true) }
+                            }
                         }
                     }
                     item { AchievementsStrip(login, self = isSelf) }
@@ -279,12 +297,17 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
                             MenuRow(R.drawable.oc_checklist, tr("Star 列表"), g.done) { nav.push(Screen.StarLists(login)) }
                             MenuRow(R.drawable.oc_table, tr("项目"), g.success) { nav.push(Screen.Projects(ProjectOwnerKind.User, login)) }
                             MenuRow(R.drawable.oc_organization, tr("组织"), g.severe, count = orgList.size.takeIf { it > 0 }) {
-                                if (isSelf) nav.push(Screen.Orgs) else orgList.firstOrNull()?.let { nav.push(Screen.Org(it.login)) }
+                                when (orgRowTarget(isSelf, orgList.size)) {
+                                    OrgRowTarget.MyOrgs -> nav.push(Screen.Orgs)
+                                    OrgRowTarget.Single -> nav.push(Screen.Org(orgList.first().login))
+                                    // 多个或没有时打开列表弹窗（没有时显示空状态），不再静默无反应
+                                    OrgRowTarget.List -> { showOrgs = true }
+                                }
                             }
                             MenuRow(R.drawable.oc_code_square, "Gists", g.sponsors, count = u.publicGists + (u.privateGists ?: 0)) {
                                 nav.push(Screen.Gists(if (isSelf) null else login))
                             }
-                            MenuRow(R.drawable.oc_pulse, tr("公开动态"), g.accent) { nav.push(Screen.Activity(login)) }
+                            MenuRow(R.drawable.oc_pulse, tr("动态"), g.accent) { nav.push(Screen.Activity(login)) }
                             if (isSelf) {
                                 MenuRow(R.drawable.oc_mail, tr("待处理邀请"), g.done) { nav.push(Screen.Invitations) }
                                 MenuRow(R.drawable.oc_gear, tr("设置"), g.fgMuted) { nav.push(Screen.Settings) }
@@ -307,6 +330,32 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
             }
         }
     }
+    if (showOrgs) GhDialog(tr("组织"), { showOrgs = false }) {
+        val list = orgs.data.orEmpty()
+        Column {
+            if (list.isEmpty()) Text(tr("暂无公开组织"), color = g.fgMuted, fontSize = 13.sp)
+            list.forEach { o ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { showOrgs = false; nav.push(Screen.Org(o.login)) }.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Avatar(o.avatarUrl, 32.dp, square = true)
+                    Spacer(Modifier.width(12.dp))
+                    Text(o.login, color = g.fg, fontSize = 15.sp)
+                }
+            }
+        }
+    }
+}
+
+/** 其他用户主页的「组织」行去向：自己的组织走组织页，只有一个直接进入，多个或没有则弹出列表 */
+enum class OrgRowTarget { MyOrgs, Single, List }
+
+/** 纯逻辑：根据是否本人与组织数量决定组织行的行为 */
+fun orgRowTarget(isSelf: Boolean, orgCount: Int): OrgRowTarget = when {
+    isSelf -> OrgRowTarget.MyOrgs
+    orgCount == 1 -> OrgRowTarget.Single
+    else -> OrgRowTarget.List
 }
 
 @Composable
@@ -318,7 +367,9 @@ private fun Info(k: String, v: String) {
 }
 
 @Composable
-private fun ProfileHeader(u: User, isSelf: Boolean, following: Boolean?, onFollow: (Boolean) -> Unit) {
+private fun ProfileHeader(
+    u: User, isSelf: Boolean, following: Boolean?, followFailed: Boolean, onRetryFollow: () -> Unit, onFollow: (Boolean) -> Unit,
+) {
     val g = Gh.c
     val nav = LocalNav.current
     val ctx = rememberCtx()
@@ -353,15 +404,23 @@ private fun ProfileHeader(u: User, isSelf: Boolean, following: Boolean?, onFollo
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Oc2(R.drawable.oc_people)
-            Text(fmtCount(u.followers), fontWeight = FontWeight.SemiBold, color = g.fg, fontSize = 14.sp, modifier = Modifier.clickable { nav.push(Screen.Users(UserKind.Followers, u.login)) })
+            // 计数是可点的小文字，扩展到 48dp 的触摸区域
+            Text(fmtCount(u.followers), Modifier.minimumInteractiveComponentSize().clickable { nav.push(Screen.Users(UserKind.Followers, u.login)) },
+                fontWeight = FontWeight.SemiBold, color = g.fg, fontSize = 14.sp)
             Text(tr(" 关注者 · "), color = g.fgMuted, fontSize = 14.sp)
-            Text(fmtCount(u.following), fontWeight = FontWeight.SemiBold, color = g.fg, fontSize = 14.sp, modifier = Modifier.clickable { nav.push(Screen.Users(UserKind.Following, u.login)) })
+            Text(fmtCount(u.following), Modifier.minimumInteractiveComponentSize().clickable { nav.push(Screen.Users(UserKind.Following, u.login)) },
+                fontWeight = FontWeight.SemiBold, color = g.fg, fontSize = 14.sp)
             Text(tr(" 关注中"), color = g.fgMuted, fontSize = 14.sp)
         }
         if (!isSelf) {
             Spacer(Modifier.height(12.dp))
             if (following == true) GhButton(tr("取消关注"), Modifier.fillMaxWidth()) { onFollow(false) }
-            else GhButton(tr("关注"), Modifier.fillMaxWidth(), primary = true, enabled = following != null) { onFollow(true) }
+            // 状态未知时：查询中禁用；查询失败则允许直接关注（PUT 是幂等的，已关注时也只会确认），并提供重试
+            else GhButton(tr("关注"), Modifier.fillMaxWidth(), primary = true, enabled = following != null || followFailed) { onFollow(true) }
+            if (following == null && followFailed) Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(tr("关注状态读取失败"), Modifier.weight(1f), fontSize = 13.sp, color = g.fgMuted)
+                TextLink(tr("重试"), onClick = onRetryFollow)
+            }
         }
     }
 }
@@ -511,10 +570,12 @@ fun ActivityScreen(login: String) {
             }
             HDivider()
             PagedList(
-                pager, empty = tr("最近 90 天没有公开动态"),
+                pager, empty = tr("最近 90 天没有动态"),
                 itemKey = { it.id },
                 // 按发生时间倒序严格排列；没有时间的事件放到最后
                 itemSort = compareByDescending<Event> { parseInstant(it.createdAt)?.toEpochMilli() ?: Long.MIN_VALUE },
+                // 非「全部」分类是本地过滤：关闭自动翻页，避免稀有分类连续拉取空页；底部保留「加载更多」
+                autoLoad = cat == com.mobilegh.ui.components.EventCat.All,
                 itemFilter = { cat == com.mobilegh.ui.components.EventCat.All || com.mobilegh.ui.components.eventCat(it) == cat },
             ) { EventItem(it) }
         }

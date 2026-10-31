@@ -110,23 +110,51 @@ fun AuthenticatorScreen(onBack: (() -> Unit)? = null) {
 /** 编辑框里待保存的预填密钥（扫码导入时先存到这里） */
 private var editingSecret by mutableStateOf<String?>(null)
 
+/** GitHub 用户名：字母、数字和连字符，最多 39 个字符 */
+private val LOGIN_PATTERN = Regex("[A-Za-z0-9][A-Za-z0-9-]{0,38}")
+
+/**
+ * 添加验证器的草稿检查：返回保存按钮不可用的原因（第一个需要处理的问题），全部通过时返回 null。
+ * 界面据此说明「为什么不能保存」，而不是只把按钮置灰。
+ */
+internal fun authenticatorDraftProblem(login: String, secret: String): String? = when {
+    login.isBlank() -> tr("请填写 GitHub 用户名")
+    !login.matches(LOGIN_PATTERN) -> tr("用户名只能包含字母、数字和连字符，最多 39 个字符")
+    secret.isBlank() -> tr("请粘贴密钥或 otpauth 链接")
+    !Totp.isValid(secret) -> tr("密钥格式无效，仅支持 GitHub 的 SHA1 / 6 位 / 30 秒 TOTP。")
+    else -> null
+}
+
+/** otpauth 链接标签里的账号名（如 GitHub:用户名）；不是可解析的链接时为 null */
+private fun accountFromLink(text: String): String? = runCatching { Totp.parseOtpAuth(text)?.account }.getOrNull()
+
 @Composable
 private fun AddAuthenticatorDialog(initialSecret: String?, onDismiss: () -> Unit, onSaved: () -> Unit) {
     val g = Gh.c
-    var login by remember { mutableStateOf(Session.login.orEmpty()) }
     var secret by remember(initialSecret) { mutableStateOf(initialSecret.orEmpty()) }
+    // 链接标签里的账号名优先，否则用当前登录账号；无论哪种都由用户确认后再保存
+    var login by remember(initialSecret) { mutableStateOf(accountFromLink(initialSecret.orEmpty()) ?: Session.login.orEmpty()) }
     var verifyInput by remember { mutableStateOf("") }
     var verifyResult by remember { mutableStateOf<Boolean?>(null) }
-    val valid = login.matches(Regex("[A-Za-z0-9][A-Za-z0-9-]{0,38}")) && Totp.isValid(secret)
+    val problem = authenticatorDraftProblem(login, secret)
     val normalized = remember(secret) { runCatching { Totp.normalize(secret) }.getOrNull() }
-    GhDialog(tr("添加验证器"), onDismiss, confirm = tr("保存"), confirmEnabled = valid, onConfirm = {
+    GhDialog(tr("添加验证器"), onDismiss, confirm = tr("保存"), confirmEnabled = problem == null, onConfirm = {
         Session.setTotpSecret(login, secret)
         onSaved()
     }) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(tr("请确认这个验证器属于哪个 GitHub 账号。"), color = g.fgMuted, fontSize = 13.sp)
             GhField(login, { login = it.trim() }, tr("GitHub 用户名"))
-            GhField(secret, { secret = it; verifyResult = null }, tr("密钥或 otpauth 链接"), visualTransformation = PasswordVisualTransformation())
-            if (secret.isNotBlank() && !Totp.isValid(secret)) Text(tr("密钥格式无效，仅支持 GitHub 的 SHA1 / 6 位 / 30 秒 TOTP。"), color = g.danger, fontSize = 12.sp)
+            GhField(secret, { value ->
+                secret = value
+                verifyResult = null
+                accountFromLink(value)?.let { login = it }
+            }, tr("密钥或 otpauth 链接"), visualTransformation = PasswordVisualTransformation())
+            // 密钥框是密码样式看不到内容，用末四位让用户核对扫到的是哪一个密钥
+            if (normalized != null && Totp.isValid(normalized)) {
+                Text(trf("密钥末四位：{0}，请与 GitHub 页面核对。", normalized.takeLast(4)), color = g.fgMuted, fontSize = 13.sp)
+            }
+            problem?.let { Text(it, color = g.attention, fontSize = 13.sp) }
             if (normalized != null && Totp.isValid(normalized)) {
                 Text(tr("自检：输入 GitHub 网页当前要求的六位码，确认两端一致。"), color = g.fgMuted, fontSize = 13.sp)
                 GhField(verifyInput, { verifyInput = it.filter(Char::isDigit).take(6) }, tr("六位验证码"),

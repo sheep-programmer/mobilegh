@@ -24,8 +24,12 @@ import androidx.compose.ui.text.withStyle
 import com.mobilegh.data.BuiltinShortcut
 import com.mobilegh.data.FavoriteRepo
 import com.mobilegh.data.HomeLayout
+import com.mobilegh.data.HomePrefs
 import com.mobilegh.data.SavedSearch
+import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.MenuIcon
+import com.mobilegh.ui.components.rememberCtx
+import com.mobilegh.ui.components.toast
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,25 +54,44 @@ import com.mobilegh.ui.components.fmtCount
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Arrangement
 
 /** 首页顶部的个人信息条，点击进入「我的」 */
 @Composable
 fun HomeProfile(login: String, user: User?, avatar: String?, onClick: () -> Unit) {
     val g = Gh.c
-    Row(
+    Column(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Avatar(user?.avatarUrl ?: avatar, 40.dp)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(user?.name?.takeIf { it.isNotBlank() } ?: login, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(
-                if (user == null) "@$login" else trf("@{0} · {1} 仓库 · {2} 关注者", login, fmtCount(user.publicRepos + (user.ownedPrivateRepos ?: 0)), fmtCount(user.followers)),
-                fontSize = 13.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
+        // 上面只放姓名，避免长名字被截断
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Avatar(user?.avatarUrl ?: avatar, 40.dp)
+            Spacer(Modifier.width(12.dp))
+            Text(user?.name?.takeIf { it.isNotBlank() } ?: login, Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Oc(R.drawable.oc_chevron_right, g.fgMuted, 16.dp)
         }
-        Oc(R.drawable.oc_chevron_right, g.fgMuted, 16.dp)
+        // 用户名与统计放在头像下面单独一块，每项之间用间距分开
+        Spacer(Modifier.height(8.dp))
+        Text("@$login", fontSize = 13.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (user != null) {
+            Spacer(Modifier.height(6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                HomeStat(fmtCount(user.publicRepos + (user.ownedPrivateRepos ?: 0)), tr("仓库"))
+                HomeStat(fmtCount(user.followers), tr("关注者"))
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeStat(value: String, label: String) {
+    val g = Gh.c
+    Row(verticalAlignment = Alignment.Bottom) {
+        Text(value, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+        Spacer(Modifier.width(4.dp))
+        Text(label, fontSize = 13.sp, color = g.fgMuted)
     }
 }
 
@@ -84,11 +107,11 @@ fun homeShortcuts(
     val g = Gh.c
     return listOf(
         HomeShortcut(R.drawable.oc_issue_opened, "Issues", g.success, onIssues, BuiltinShortcut.Issues.id),
-        HomeShortcut(R.drawable.oc_git_pull_request, "PR", g.accent, onPulls, BuiltinShortcut.Pulls.id),
+        HomeShortcut(R.drawable.oc_git_pull_request, "Pull Requests", g.accent, onPulls, BuiltinShortcut.Pulls.id),
         HomeShortcut(R.drawable.oc_repo, tr("仓库"), g.fgMuted, onRepos, BuiltinShortcut.Repos.id),
         HomeShortcut(R.drawable.oc_organization, tr("组织"), g.severe, onOrgs, BuiltinShortcut.Orgs.id),
         HomeShortcut(R.drawable.oc_star_fill, tr("已 Star"), g.attention, onStars, BuiltinShortcut.Stars.id),
-        HomeShortcut(R.drawable.oc_checklist, tr("列表"), g.done, onLists, BuiltinShortcut.Lists.id),
+        HomeShortcut(R.drawable.oc_checklist, tr("Star 列表"), g.done, onLists, BuiltinShortcut.Lists.id),
         HomeShortcut(R.drawable.oc_code_square, "Gists", g.sponsors, onGists, BuiltinShortcut.Gists.id),
         HomeShortcut(R.drawable.oc_history, tr("最近浏览"), g.accent, onRecent, BuiltinShortcut.Recent.id),
     )
@@ -182,9 +205,9 @@ fun HomeInviteBanner(count: Int, onClick: () -> Unit) {
     }
 }
 
-/** 收藏列表的横向预览：[shown] 已按首页的搜索/排序处理，[total] 是列表总数（用于「管理列表」副标题） */
+/** Star 列表的横向预览：[shown] 已按首页的搜索/排序处理，[total] 是列表总数（用于「管理列表」副标题） */
 @Composable
-fun HomeLists(shown: List<GitHubStarList>?, total: Int, error: String?, onList: (GitHubStarList) -> Unit, onAll: () -> Unit, onRetry: () -> Unit) {
+fun HomeLists(shown: List<GitHubStarList>?, total: Int, error: String?, onList: (GitHubStarList) -> Unit, onAll: () -> Unit, onCreate: () -> Unit, onRetry: () -> Unit) {
     val g = Gh.c
     when {
         shown == null && error != null -> Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -205,7 +228,9 @@ fun HomeLists(shown: List<GitHubStarList>?, total: Int, error: String?, onList: 
                     trf("打开列表 {0}", list.name),
                 ) { onList(list) }
             }
-            ListTile(R.drawable.oc_plus, if (total == 0) tr("新建列表") else tr("管理列表"), if (total == 0) tr("整理喜欢的仓库") else trf("{0} 个列表", total), tr("打开收藏列表"), muted = true, onClick = onAll)
+            // 没有列表时直接打开新建弹窗；已有列表时进入列表页管理
+            if (total == 0) ListTile(R.drawable.oc_plus, tr("新建列表"), tr("整理喜欢的仓库"), tr("新建列表"), muted = true, onClick = onCreate)
+            else ListTile(R.drawable.oc_plus, tr("管理列表"), trf("{0} 个列表", total), tr("打开 Star 列表"), muted = true, onClick = onAll)
         }
     }
 }
@@ -229,34 +254,82 @@ private fun ListTile(@DrawableRes icon: Int, title: String, subtitle: String, de
     }
 }
 
-/** 贡献卡片底部的成就行：缩略徽章 + 数量 */
+/** 成就行的显示状态；[count] 为 null 表示徽章列表尚未读到 */
+enum class AchievementRowState { Loading, Empty, Badges, Error }
+
+/** 纯逻辑：由徽章数量和是否出错决定成就行显示什么（有数据时优先于错误） */
+fun achievementRowState(count: Int?, hasError: Boolean): AchievementRowState = when {
+    count == null && hasError -> AchievementRowState.Error
+    count == null -> AchievementRowState.Loading
+    count == 0 -> AchievementRowState.Empty
+    else -> AchievementRowState.Badges
+}
+
+/** 贡献卡片底部的成就行：缩略徽章 + 数量；重试是独立的可聚焦控件，不放进整行的合并描述里 */
 @Composable
 fun HomeAchievementsRow(badges: List<Achievement>?, error: String?, onOpen: () -> Unit, onRetry: () -> Unit) {
     val g = Gh.c
+    val state = achievementRowState(badges?.size, error != null)
+    val status = when (state) {
+        AchievementRowState.Badges -> trf("{0} 个徽章", badges?.size ?: 0)
+        AchievementRowState.Empty -> tr("暂无公开徽章")
+        AchievementRowState.Error -> tr("暂时无法读取")
+        AchievementRowState.Loading -> null
+    }
+    val description = listOfNotNull(tr("打开我的成就"), status).joinToString("，")
     Row(
-        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onOpen)
-            .semantics(mergeDescendants = true) { contentDescription = tr("打开我的成就") }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Oc(R.drawable.oc_verified, g.done, 16.dp)
-        Spacer(Modifier.width(8.dp))
-        Text(tr("成就"), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
-        Spacer(Modifier.width(10.dp))
-        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            when {
-                !badges.isNullOrEmpty() -> badges.take(5).forEach { b ->
-                    NetImage(b.imageUrl, Modifier.size(26.dp), contentScale = ContentScale.Fit, placeholder = false)
+        Row(
+            Modifier.weight(1f).clickable(role = Role.Button, onClick = onOpen)
+                .semantics(mergeDescendants = true) { contentDescription = description },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Oc(R.drawable.oc_verified, g.done, 16.dp)
+            Spacer(Modifier.width(8.dp))
+            Text(tr("成就"), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+            Spacer(Modifier.width(10.dp))
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                when (state) {
+                    AchievementRowState.Badges -> badges.orEmpty().take(5).forEach { b ->
+                        NetImage(b.imageUrl, Modifier.size(26.dp), contentScale = ContentScale.Fit, placeholder = false)
+                    }
+                    AchievementRowState.Empty -> Text(tr("暂无公开徽章"), fontSize = 13.sp, color = g.fgMuted)
+                    AchievementRowState.Error -> Text(tr("暂时无法读取"), fontSize = 13.sp, color = g.fgMuted)
+                    AchievementRowState.Loading -> Unit
                 }
-                badges != null -> Text(tr("暂无公开徽章"), fontSize = 13.sp, color = g.fgMuted)
-                error != null -> Text(tr("暂时无法读取"), fontSize = 13.sp, color = g.fgMuted)
             }
+            if (state == AchievementRowState.Badges) Text(status.orEmpty(), fontSize = 13.sp, color = g.fgMuted)
+            Spacer(Modifier.width(4.dp))
+            Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
         }
-        when {
-            !badges.isNullOrEmpty() -> Text(trf("{0} 个徽章", badges.size), fontSize = 13.sp, color = g.fgMuted)
-            badges == null && error != null -> TextLink(tr("重试"), onClick = onRetry)
-        }
-        Spacer(Modifier.width(4.dp))
-        Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
+        if (state == AchievementRowState.Error) TextLink(tr("重试"), onClick = onRetry)
+    }
+}
+
+/** 移出首页收藏前的确认；收藏仓库本身不受影响 */
+@Composable
+fun ConfirmRemoveFavoriteDialog(repo: FavoriteRepo, onDismiss: () -> Unit) {
+    val g = Gh.c
+    GhDialog(tr("移出首页收藏？"), onDismiss, confirm = tr("移出"), danger = true, onConfirm = {
+        HomePrefs.removeFavorite(repo)
+        onDismiss()
+    }) {
+        Text(trf("「{0} / {1}」会从首页收藏中移除，仓库本身不受影响。", repo.owner, repo.name), color = g.fg)
+    }
+}
+
+/** 删除保存的搜索前的确认 */
+@Composable
+fun ConfirmDeleteSearchDialog(search: SavedSearch, onDismiss: () -> Unit) {
+    val g = Gh.c
+    val ctx = rememberCtx()
+    GhDialog(tr("删除保存的搜索？"), onDismiss, confirm = tr("删除"), danger = true, onConfirm = {
+        HomePrefs.removeSearch(search.id)
+        ctx.toast(trf("已删除「{0}」", search.name))
+        onDismiss()
+    }) {
+        Text(trf("「{0}」会从首页「我的工作」中移除。", search.name), color = g.fg)
     }
 }

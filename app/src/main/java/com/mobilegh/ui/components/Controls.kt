@@ -28,6 +28,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -52,30 +53,25 @@ import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 
 /** 可横向滑动的筛选标签 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun Chips(options: List<String>, selected: Int, modifier: Modifier = Modifier, enabled: Boolean = true, onSelect: (Int) -> Unit) {
-    val g = Gh.c
+    // 与筛选页一致：标准筛选胶囊，选中项填充色，整行可横向滑动
     Row(
-        modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         options.forEachIndexed { i, s ->
-            val sel = i == selected
-            Text(
-                s,
-                Modifier
-                    .background(if (sel) g.accentSubtle else g.canvas, RoundedCornerShape(50))
-                    .border(1.dp, if (sel) g.accent.copy(alpha = 0.6f) else g.border, RoundedCornerShape(50))
-                    // 涟漪要裁进胶囊形状，否则点击效果是越界的矩形
-                    .clip(RoundedCornerShape(50))
-                    .clickable(enabled = enabled) { onSelect(i) }
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
-                fontSize = 13.sp,
-                fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (!enabled) g.fgMuted else if (sel) g.accent else g.fg,
-            )
+            FilterChip(selected = i == selected, onClick = { onSelect(i) }, enabled = enabled, label = { Text(s) })
         }
     }
 }
@@ -102,24 +98,13 @@ fun Dropdown(label: String, options: List<String>, onSelect: (Int) -> Unit, modi
 /** 与 [Dropdown] 外观一致的按钮，点按后由调用方决定打开什么（如选择弹窗） */
 @Composable
 fun DropdownButton(label: String, modifier: Modifier = Modifier, active: Boolean = false, menu: @Composable () -> Unit = {}, enabled: Boolean = true, onClick: () -> Unit) {
-    val g = Gh.c
-    Row(
-        modifier
-            // 放在横向滚动行里时宽度无上限，weight 会把标签压成 0 宽只剩箭头；先按内容定宽，空间不够时仍会被约束截断
-            .width(IntrinsicSize.Max)
-            // 和搜索框、筛选按钮同为 44dp，并排时高度一致
-            .heightIn(min = 44.dp)
-            .border(1.dp, if (active) g.accent.copy(alpha = 0.6f) else g.border, RoundedCornerShape(6.dp))
-            .background(if (active) g.accentSubtle else g.btnBg, RoundedCornerShape(6.dp))
-            .clip(RoundedCornerShape(6.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, Modifier.weight(1f, fill = false), fontSize = 13.sp, color = if (active) g.accent else g.fg,
-            fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.width(4.dp))
-        Oc(R.drawable.oc_chevron_down, if (active) g.accent else g.fgMuted, 12.dp)
+    // 与筛选胶囊一致：标准 FilterChip 加向下箭头，菜单锚定在胶囊上
+    Box(modifier) {
+        FilterChip(
+            selected = active, onClick = onClick, enabled = enabled,
+            label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            trailingIcon = { Oc(R.drawable.oc_chevron_down, LocalContentColor.current, 14.dp) },
+        )
         menu()
     }
 }
@@ -178,7 +163,7 @@ fun GhField(
             visualTransformation = visualTransformation,
             leadingIcon = leading,
             trailingIcon = trailing,
-            shape = RoundedCornerShape(6.dp),
+            shape = OutlinedTextFieldDefaults.shape,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = g.accent,
                 unfocusedBorderColor = g.border,
@@ -222,19 +207,17 @@ fun SwitchRow(title: String, desc: String? = null, checked: Boolean, enabled: Bo
 }
 
 /** 分段切换（如 GitHub / 本机），选中项为实底 */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun Segmented(options: List<String>, selected: Int, modifier: Modifier = Modifier, enabled: Boolean = true, onSelect: (Int) -> Unit) {
-    val g = Gh.c
-    Row(modifier.selectableGroup().background(g.canvasSubtle, RoundedCornerShape(8.dp)).border(1.dp, g.borderMuted, RoundedCornerShape(8.dp)).padding(3.dp)) {
+    // 与筛选页一致：标准分段按钮，选中项填充色
+    SingleChoiceSegmentedButtonRow(modifier.fillMaxWidth()) {
         options.forEachIndexed { i, label ->
-            val sel = i == selected
-            Box(
-                Modifier.weight(1f).clip(RoundedCornerShape(6.dp))
-                    .then(if (sel) Modifier.background(g.canvas, RoundedCornerShape(6.dp)).border(1.dp, g.border, RoundedCornerShape(6.dp)) else Modifier)
-                    .selectable(selected = sel, enabled = enabled, role = Role.Tab) { if (!sel) onSelect(i) }
-                    .heightIn(min = 48.dp).padding(horizontal = 6.dp, vertical = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) { Text(label, fontSize = 14.sp, fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal, color = if (sel) g.fg else g.fgMuted) }
+            SegmentedButton(
+                selected = i == selected, onClick = { onSelect(i) }, enabled = enabled,
+                shape = SegmentedButtonDefaults.itemShape(index = i, count = options.size),
+                label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            )
         }
     }
 }

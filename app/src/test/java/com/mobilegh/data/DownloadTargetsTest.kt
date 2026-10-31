@@ -11,6 +11,7 @@ class DownloadTargetsTest {
     private val direct = CdnNode("direct", "直连 GitHub", NodeType.Direct, "")
     private val nodeA = CdnNode("a", "节点 A", NodeType.Prefix, "https://a.example/")
     private val nodeB = CdnNode("b", "节点 B", NodeType.Prefix, "https://b.example/")
+    private val nodeC = CdnNode("c", "节点 C", NodeType.Prefix, "https://c.example/")
     private val jsdelivr = CdnNode("jsd", "jsDelivr", NodeType.JsDelivr, "https://cdn.jsdelivr.net")
     private val url = "https://github.com/me/app/releases/download/v1/app.apk"
 
@@ -19,7 +20,8 @@ class DownloadTargetsTest {
         latency: Map<String, Long> = emptyMap(),
         failed: Set<String> = emptySet(),
         preferred: String = "a",
-    ) = orderDownloadTargets(candidates, url, latency, failed, preferred, direct).map { it.nodeId }
+        speeds: Map<String, Long> = emptyMap(),
+    ) = orderDownloadTargets(candidates, url, latency, failed, preferred, direct, speeds).map { it.nodeId }
 
     @Test fun directIsAlwaysTheLastResort() {
         assertEquals(listOf("a", "direct"), order(listOf(nodeA)))
@@ -45,6 +47,35 @@ class DownloadTargetsTest {
     @Test fun untestedNodesComeAfterTestedOnes() {
         // preferred 指向一个不存在的节点时，排序完全由测速结果决定：测过的优先，没测过的排后面
         assertEquals(listOf("a", "b", "direct"), order(listOf(nodeA, nodeB), latency = mapOf("a" to 200L), preferred = "x"))
+    }
+
+    @Test fun measuredThroughputBeatsLatency() {
+        // a 延迟最低但实测很慢，b 延迟高却跑得快：按实测速度排，b 在前
+        assertEquals(
+            listOf("b", "a", "direct"),
+            order(listOf(nodeA, nodeB), latency = mapOf("a" to 40L, "b" to 600L), speeds = mapOf("a" to 60_000L, "b" to 2_000_000L), preferred = "x"),
+        )
+    }
+
+    @Test fun measuredThroughputOutranksTheLastSuccessfulNode() {
+        assertEquals(
+            listOf("b", "a", "direct"),
+            order(listOf(nodeA, nodeB), speeds = mapOf("a" to 60_000L, "b" to 2_000_000L), preferred = "a"),
+        )
+    }
+
+    @Test fun unmeasuredNodesFallBackToLatencyAfterMeasuredOnes() {
+        assertEquals(
+            listOf("a", "c", "b", "direct"),
+            order(listOf(nodeA, nodeB, nodeC), latency = mapOf("b" to 900L, "c" to 100L), speeds = mapOf("a" to 1_000_000L), preferred = "x"),
+        )
+    }
+
+    @Test fun failedNodeStaysLastEvenWhenItWasFastest() {
+        assertEquals(
+            listOf("b", "a", "direct"),
+            order(listOf(nodeA, nodeB), failed = setOf("a"), speeds = mapOf("a" to 5_000_000L, "b" to 100_000L)),
+        )
     }
 
     @Test fun prefixNodeKeepsTheOriginalUrlAsItsPath() {

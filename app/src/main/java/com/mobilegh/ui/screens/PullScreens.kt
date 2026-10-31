@@ -51,8 +51,11 @@ import com.mobilegh.data.GitHub
 import com.mobilegh.data.ReviewComment
 import com.mobilegh.data.Suggestion
 import com.mobilegh.data.Session
+import com.mobilegh.data.DraftValue
 import com.mobilegh.data.ThreadAccess
 import com.mobilegh.data.splitSuggestions
+import com.mobilegh.ui.components.DraftBinding
+import com.mobilegh.ui.components.rememberDraft
 import com.mobilegh.nav.Links
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
@@ -366,15 +369,31 @@ private fun CommentComposer(
     val g = Gh.c
     val ctx = rememberCtx()
     val entry = LocalEntry.current
-    var body by remember { mutableStateOf(TextFieldValue(target.edit?.body.orEmpty())) }
+    // 新评论与回复按位置保存草稿（关闭后再打开仍在）；编辑已有评论不写草稿，以服务器上的原文为准
+    val draftKey = when {
+        target.replyTo != null -> "review-reply:${owner.lowercase()}/${name.lowercase()}:$number:${target.replyTo.id}"
+        else -> "review-new:${owner.lowercase()}/${name.lowercase()}:$number:${target.path}:${target.line ?: "file"}:${target.side}"
+    }
+    val draft = rememberDraft(draftKey)
+    val isEdit = target.edit != null
+    val initialText = target.edit?.body.orEmpty()
+    var body by remember { mutableStateOf(TextFieldValue(if (isEdit) initialText else draft.initial.body)) }
     var sending by remember { mutableStateOf(false) }
+    var confirmDiscard by remember { mutableStateOf(false) }
     val line = target.line
     val canSuggest = target.replyTo == null && line != null && target.side != "LEFT" && !target.preview.isNullOrEmpty()
+    fun requestDismiss() {
+        if (sending) return
+        // 草稿会保留，直接关闭；编辑已有内容时若有改动，先确认是否放弃
+        if (isEdit && isUnsavedChange(initialText, body.text)) confirmDiscard = true else onDismiss()
+    }
 
     fun submit() {
         val text = body.text
         if (text.isBlank() || sending) return
         sending = true
+        val submitted = DraftValue(body = text)
+        if (!isEdit) draft.update(submitted)
         entry.act({
             sending = false
             ctx.toast(it)
@@ -385,14 +404,21 @@ private fun CommentComposer(
                 else -> {
                     val sha = commitId
                     if (sha.isNullOrBlank()) throw ApiException(400, tr("PR 信息尚未加载完成，请稍后重试"))
-                    GitHub.addReviewComment(owner, name, number, text, sha, target.path, line, target.side)
+                    // 新的行内评论先进入当前用户的待提交审查，提交审查后才对所有人可见
+                    GitHub.addPendingReviewComment(owner, name, number, text, sha, target.path, line, target.side)
                 }
             }
+            // 服务器确认后才清除草稿
+            if (!isEdit) draft.submitted(submitted)
             sending = false
             onDone()
         }
     }
 
+    if (confirmDiscard) DiscardChangesDialog(
+        onKeep = { confirmDiscard = false },
+        onDiscard = { confirmDiscard = false; onDismiss() },
+    )
     GhDialog(
         when {
             target.edit != null -> tr("编辑评论")
@@ -401,7 +427,7 @@ private fun CommentComposer(
             target.side == "LEFT" -> trf("评论删除的第 {0} 行", line)
             else -> trf("评论第 {0} 行", line)
         },
-        onDismiss,
+        { requestDismiss() },
         confirm = if (sending) tr("发送中…") else tr("发表评论"),
         confirmEnabled = body.text.isNotBlank() && !sending,
         onConfirm = { submit() },
@@ -419,6 +445,7 @@ private fun CommentComposer(
             }
             Spacer(Modifier.height(8.dp))
             MarkdownEditor(body, { body = it }, placeholder = tr("发表评论（支持 Markdown）"), contextRepo = "$owner/$name", minLines = 4)
+            if (!isEdit) DraftBinding(draft, DraftValue(body = body.text))
             if (canSuggest) {
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -434,6 +461,25 @@ private fun CommentComposer(
                 }
             }
         }
+    }
+}
+
+/** 待提交审查的提示行：行内评论尚未发布，可在这里放弃整份待提交审查 */
+@Composable
+fun PendingReviewLine(commentCount: Int, onDiscard: () -> Unit) {
+    val g = Gh.c
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(trf("你有 {0} 条待提交的行内评论", commentCount), fontSize = 13.sp, color = g.attention)
+        Spacer(Modifier.width(8.dp))
+        TextLink(tr("放弃待提交审查"), color = g.danger, onClick = onDiscard)
+    }
+}
+
+/** 放弃待提交审查的确认：尚未提交的行内评论会一并删除 */
+@Composable
+fun DiscardPendingReviewDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    GhDialog(tr("放弃待提交审查"), onDismiss, confirm = tr("放弃"), danger = true, onConfirm = onConfirm) {
+        Text(tr("放弃后，尚未提交的行内评论会一并删除，无法恢复。"), color = Gh.c.fg)
     }
 }
 
@@ -468,11 +514,14 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
             if (e is ApiException && e.code == 404) emptyList() else throw e
         }
     }
+    // 当前用户的待提交审查（读取失败时不显示提示行）
+    val pending = rememberLoader("pending-review") { GitHub.pendingReview(owner, name, number) }
     val collapsed = retain("collapsed") { mutableStateMapOf<String, Boolean>() }
     val expandedThreads = retain("thread-expanded") { mutableStateMapOf<Long, Boolean>() }
     var target by remember { mutableStateOf<CommentTarget?>(null) }
     var applying by remember { mutableStateOf<Pair<ReviewThread, String>?>(null) }
     var deleting by remember { mutableStateOf<ReviewComment?>(null) }
+    var discardingPending by remember { mutableStateOf(false) }
     val headSha = pr.data?.head?.sha
     val viewed = remember(Session.viewedRevision, Session.login) { Session.viewedFiles(owner, name, number) }
     val threads = remember(comments.data) { groupReviewThreads(comments.data.orEmpty()) }
@@ -531,6 +580,10 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
                             Spacer(Modifier.height(4.dp))
                             InlineError(trf("行内评论加载失败：{0}", comments.error)) { reloadComments() }
                         }
+                        pending.data?.let { p ->
+                            Spacer(Modifier.height(6.dp))
+                            PendingReviewLine(p.commentCount) { discardingPending = true }
+                        }
                     }
                     HDivider()
                 }
@@ -569,27 +622,34 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
     target?.let { t ->
         CommentComposer(owner, name, number, headSha, t, { target = null }) {
             target = null
-            ctx.toast(if (t.edit != null) tr("已保存") else tr("评论已发表"))
+            ctx.toast(
+                when {
+                    t.edit != null -> tr("已保存")
+                    t.replyTo != null -> tr("评论已发表")
+                    else -> tr("已加入待提交审查")
+                },
+            )
             reloadComments()
+            pending.load(true)
         }
     }
     applying?.let { (t, text) ->
         val line = t.line
         GhDialog(
-            tr("应用建议"), { applying = null }, confirm = tr("发表建议"),
+            tr("应用建议"), { applying = null }, confirm = tr("加入待提交审查"),
             confirmEnabled = headSha != null && line != null,
             onConfirm = {
                 applying = null
                 val sha = headSha
-                if (sha != null && line != null) entry.act({ ctx.toast(it) }, ::reloadComments) {
-                    GitHub.addReviewComment(owner, name, number, "```suggestion\n$text\n```", sha, t.path, line, t.side, t.startLine, t.side)
-                    ctx.toast(tr("建议已发表"))
+                if (sha != null && line != null) entry.act({ ctx.toast(it) }, { reloadComments(); pending.load(true) }) {
+                    GitHub.addPendingReviewComment(owner, name, number, "```suggestion\n$text\n```", sha, t.path, line, t.side, t.startLine, t.side)
+                    ctx.toast(tr("建议已加入待提交审查"))
                 }
             },
         ) {
             Column {
                 Text(
-                    tr("将以你的名义在同一位置发表这条建议，PR 作者可在 GitHub 上一键提交。"),
+                    tr("这条建议会加入你的待提交审查，提交审查后 PR 作者可在 GitHub 上一键应用。"),
                     fontSize = 13.sp, color = g.fg,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -603,6 +663,16 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
             entry.act({ ctx.toast(it) }, ::reloadComments) { GitHub.deleteReviewComment(owner, name, c.id); ctx.toast(tr("已删除")) }
         }) { Text(tr("删除后无法恢复。"), color = g.fg) }
     }
+    if (discardingPending) DiscardPendingReviewDialog(
+        onDismiss = { discardingPending = false },
+        onConfirm = {
+            discardingPending = false
+            entry.act({ ctx.toast(it) }, { reloadComments(); pending.load(true) }) {
+                GitHub.discardPendingReview(owner, name, number)
+                ctx.toast(tr("已放弃待提交审查"))
+            }
+        },
+    )
 }
 
 /** 单个文件的 diff：标题（含「已查看」）+ 行内评论 + 行 */

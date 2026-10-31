@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
+import com.mobilegh.data.DraftOption
 import com.mobilegh.data.DraftValue
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.IssueTemplate
@@ -37,6 +38,7 @@ import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.act
 import com.mobilegh.nav.rememberLoader
+import com.mobilegh.nav.refreshRetained
 import com.mobilegh.nav.retain
 import com.mobilegh.ui.components.DraftBinding
 import com.mobilegh.ui.components.GhButton
@@ -61,11 +63,30 @@ import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 
 /** 新建 Issue 时选中的元数据；milestone 的 key 是里程碑编号 */
-private data class NewIssueMeta(
+internal data class NewIssueMeta(
     val labels: List<MetaOpt> = emptyList(),
     val assignees: List<MetaOpt> = emptyList(),
     val milestone: MetaOpt? = null,
 )
+
+/** 标题、正文与元数据组成的草稿：既是持久化内容，也用于判断是否有未提交的输入 */
+internal fun newIssueDraft(title: String, body: String, meta: NewIssueMeta): DraftValue = DraftValue(
+    title = title,
+    body = body,
+    labels = meta.labels.map { it.toDraftOption() },
+    assignees = meta.assignees.map { it.toDraftOption() },
+    milestone = meta.milestone?.toDraftOption(),
+)
+
+/** 从草稿恢复元数据（颜色、头像随草稿一起保存） */
+internal fun DraftValue.toNewIssueMeta(): NewIssueMeta = NewIssueMeta(
+    labels = labels.map { it.toMetaOpt() },
+    assignees = assignees.map { it.toMetaOpt() },
+    milestone = milestone?.toMetaOpt(),
+)
+
+private fun MetaOpt.toDraftOption() = DraftOption(key = key, label = label, color = color, avatar = avatar)
+private fun DraftOption.toMetaOpt() = MetaOpt(key = key, label = label, avatar = avatar, color = color)
 
 /** 选择器中「空白 Issue」对应的 key */
 private const val BLANK = ""
@@ -83,10 +104,11 @@ fun NewIssueScreen(owner: String, name: String) {
     var title by rememberSaveable { mutableStateOf(draft.initial.title) }
     var body by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(draft.initial.body)) }
     // 有未提交的草稿时直接回到编辑，不再弹模板选择
-    var picked by rememberSaveable { mutableStateOf<String?>(if (draft.initial.title.isNotBlank() || draft.initial.body.isNotBlank()) BLANK else null) }
+    var picked by rememberSaveable { mutableStateOf<String?>(if (!draft.initial.empty) BLANK else null) }
     // 「更换模板」前所用的模板，选回同一个时保留已填写的内容
     var lastPicked by rememberSaveable { mutableStateOf<String?>(null) }
-    var meta by retain("new-issue-meta") { mutableStateOf(NewIssueMeta()) }
+    // 元数据随草稿保存：页面重开或进程被回收后仍能恢复标签、指派人与里程碑
+    var meta by retain("new-issue-meta") { mutableStateOf(draft.initial.toNewIssueMeta()) }
     var editing by remember { mutableStateOf<String?>(null) }
     var confirmTemplate by remember { mutableStateOf<IssueTemplate?>(null) }
     var busy by remember { mutableStateOf(false) }
@@ -120,7 +142,8 @@ fun NewIssueScreen(owner: String, name: String) {
             picked == null && set == null && templates.error == null -> Loading(Modifier.padding(pad).fillMaxSize())
             chooser -> TemplateChooser(set!!, Modifier.padding(pad)) { t ->
                 val key = t?.file ?: BLANK
-                val dirty = title.isNotBlank() || body.text.isNotBlank()
+                // 标题、正文或任一元数据有内容都算已填写，套用模板前需要确认
+                val dirty = !newIssueDraft(title, body.text, meta).empty
                 when {
                     key == lastPicked -> picked = key
                     dirty -> confirmTemplate = t ?: IssueTemplate(BLANK, "")
@@ -142,13 +165,15 @@ fun NewIssueScreen(owner: String, name: String) {
                     body, { body = it }, placeholder = tr("描述（支持 Markdown）"), contextRepo = "$owner/$name", minLines = 8,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
-                DraftBinding(draft, DraftValue(title, body.text))
+                DraftBinding(draft, newIssueDraft(title, body.text, meta))
                 Spacer(Modifier.height(12.dp))
                 MetaRows(
                     labels = meta.labels.map { it.label to it.color.orEmpty() },
                     assignees = meta.assignees.map { it.label to it.avatar },
                     milestone = meta.milestone?.label,
-                ) { editing = it }
+                    // 明确没有写入权限时不让打开选择器（只读，不显示铅笔）；权限未知时仍可编辑
+                    onEdit = if (canSetMeta == false) null else ({ kind: String -> editing = kind }),
+                )
                 Text(
                     when (canSetMeta) {
                         false -> tr("你没有该仓库的写入权限：GitHub 会静默忽略标签、指派人和里程碑，只创建标题和正文。")
@@ -161,7 +186,7 @@ fun NewIssueScreen(owner: String, name: String) {
                 Spacer(Modifier.height(12.dp))
                 GhButton(tr("提交"), Modifier.padding(horizontal = 16.dp).fillMaxWidth(), primary = true, enabled = title.isNotBlank() && !busy) {
                     busy = true
-                    val submitted = DraftValue(title, body.text)
+                    val submitted = newIssueDraft(title, body.text, meta)
                     val m = meta
                     draft.update(submitted)
                     entry.act({ busy = false; ctx.toast(it) }) {
@@ -172,6 +197,8 @@ fun NewIssueScreen(owner: String, name: String) {
                             milestone = m.milestone?.key?.toIntOrNull(),
                         )
                         draft.submitted(submitted)
+                        // 新 Issue 会出现在列表里：已打开的列表页要刷新
+                        nav.refreshRetained { s -> s is Screen.Issues && s.owner.equals(owner, true) && s.name.equals(name, true) }
                         nav.replace(Screen.IssueDetail(owner, name, i.number, false))
                     }
                 }

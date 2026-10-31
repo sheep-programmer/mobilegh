@@ -56,8 +56,6 @@ import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.rememberPager
 import com.mobilegh.ui.components.Chips
-import com.mobilegh.ui.components.Dropdown
-import com.mobilegh.ui.components.DropdownButton
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.HDivider
@@ -74,6 +72,14 @@ import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.delay
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.LocalContentColor
+import com.mobilegh.ui.components.CompactSearchField
+import com.mobilegh.ui.components.FieldAction
 
 /** 保存的搜索图标 key → Octicon */
 @DrawableRes
@@ -128,34 +134,72 @@ fun IssueFilterBar(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Str
                 onChange(query.copy(involves = kinds[it]))
             }
         }
-        GhField(
+        // 与仓库、搜索页一致：全圆角胶囊搜索框
+        CompactSearchField(
             input, { input = it }, trf("搜索 {0}", noun),
             Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
-            placeholder = tr("标题、正文或评论中的关键词"),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            keyboardActions = KeyboardActions(onSearch = { onChange(query.copy(text = input.trim())) }),
-            trailing = if (input.isNotEmpty()) ({ OcButton(R.drawable.oc_x, { input = ""; onChange(query.copy(text = "")) }, g.fgMuted) }) else null,
+            hint = tr("标题、正文或评论中的关键词"),
+            onSearch = { onChange(query.copy(text = input.trim())) },
+            trailing = if (input.isNotEmpty()) ({ FieldAction(R.drawable.oc_x, tr("清空关键词")) { input = ""; onChange(query.copy(text = "")) } }) else null,
         )
-        Chips(IssueStateFilter.entries.map { it.label }, IssueStateFilter.entries.indexOf(query.state)) { onChange(query.copy(state = IssueStateFilter.entries[it])) }
+        // 状态用标准的筛选胶囊，一排平铺，选中项高亮
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            IssueStateFilter.entries.forEach { st ->
+                FilterChip(selected = query.state == st, onClick = { onChange(query.copy(state = st)) }, label = { Text(st.label) })
+            }
+        }
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Dropdown(trf("排序：{0}", query.sort.label), IssueSort.entries.map { it.label }, { onChange(query.copy(sort = IssueSort.entries[it])) }, active = query.sort != IssueSort.Newest)
+            // 固定选项的字段点开即下拉菜单；作者、指派人、标签、里程碑需要仓库候选项，点开是选择弹窗
+            FilterMenuChip(
+                label = trf("排序：{0}", query.sort.label),
+                description = trf("{0}：{1}", tr("排序"), query.sort.label),
+                selected = query.sort != IssueSort.Newest,
+                options = IssueSort.entries.map { it.label },
+            ) { onChange(query.copy(sort = IssueSort.entries[it])) }
             if (owner != null && name != null) {
-                DropdownButton(query.author?.let { trf("作者：{0}", it) } ?: tr("作者"), active = query.author != null) { dialog = FilterDialog.Author }
-                DropdownButton(query.assignee?.let { trf("指派人：{0}", it) } ?: tr("指派人"), active = query.assignee != null) { dialog = FilterDialog.Assignee }
-                DropdownButton(if (query.labels.isEmpty()) tr("标签") else trf("标签 · {0}", query.labels.size), active = query.labels.isNotEmpty()) { dialog = FilterDialog.Labels }
-                DropdownButton(query.milestone?.let { trf("里程碑：{0}", it) } ?: tr("里程碑"), active = query.milestone != null) { dialog = FilterDialog.Milestone }
+                FilterValueChip(
+                    label = query.author?.let { trf("作者：{0}", it) } ?: tr("作者"),
+                    description = trf("{0}：{1}", tr("作者"), query.author ?: tr("不限")),
+                    selected = query.author != null,
+                ) { dialog = FilterDialog.Author }
+                FilterValueChip(
+                    label = query.assignee?.let { trf("指派人：{0}", it) } ?: tr("指派人"),
+                    description = trf("{0}：{1}", tr("指派人"), query.assignee ?: tr("不限")),
+                    selected = query.assignee != null,
+                ) { dialog = FilterDialog.Assignee }
+                FilterValueChip(
+                    label = if (query.labels.isEmpty()) tr("标签") else trf("标签 · {0}", query.labels.size),
+                    description = trf("{0}：{1}", tr("标签"), if (query.labels.isEmpty()) tr("不限") else trf("已选 {0} 项", query.labels.size)),
+                    selected = query.labels.isNotEmpty(),
+                ) { dialog = FilterDialog.Labels }
+                FilterValueChip(
+                    label = query.milestone?.let { trf("里程碑：{0}", it) } ?: tr("里程碑"),
+                    description = trf("{0}：{1}", tr("里程碑"), query.milestone ?: tr("不限")),
+                    selected = query.milestone != null,
+                ) { dialog = FilterDialog.Milestone }
             }
             if (query.pulls) {
                 val reviews = listOf<ReviewFilter?>(null) + ReviewFilter.entries
-                Dropdown(query.review?.label ?: tr("评审状态"), reviews.map { it?.label ?: tr("不限") }, { onChange(query.copy(review = reviews[it])) }, active = query.review != null)
+                FilterMenuChip(
+                    label = query.review?.label ?: tr("评审状态"),
+                    description = trf("{0}：{1}", tr("评审状态"), query.review?.label ?: tr("不限")),
+                    selected = query.review != null,
+                    options = reviews.map { it?.label ?: tr("不限") },
+                ) { onChange(query.copy(review = reviews[it])) }
                 val drafts = listOf(null, true, false)
-                Dropdown(
-                    when (query.draft) { true -> tr("仅草稿"); false -> tr("排除草稿"); null -> tr("草稿") },
-                    listOf(tr("不限"), tr("仅草稿"), tr("排除草稿")), { onChange(query.copy(draft = drafts[it])) }, active = query.draft != null,
-                )
+                val draftLabel = when (query.draft) { true -> tr("仅草稿"); false -> tr("排除草稿"); null -> tr("草稿") }
+                FilterMenuChip(
+                    label = draftLabel,
+                    description = trf("{0}：{1}", tr("草稿"), if (query.draft == null) tr("不限") else draftLabel),
+                    selected = query.draft != null,
+                    options = listOf(tr("不限"), tr("仅草稿"), tr("排除草稿")),
+                ) { onChange(query.copy(draft = drafts[it])) }
             }
         }
         ActiveFilters(query, onChange)
@@ -171,7 +215,11 @@ fun IssueFilterBar(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Str
             "assignees", owner, name, tr("按指派人筛选"), listOfNotNull(query.assignee), { dialog = null },
             single = true, noneLabel = tr("不限"), freeText = true,
         ) { onChange(query.copy(assignee = it.firstOrNull()?.key)) }
-        FilterDialog.Labels -> MetaPicker("labels", owner, name, tr("按标签筛选"), query.labels, { dialog = null }, single = false) {
+        FilterDialog.Labels -> MetaPicker(
+            "labels", owner, name, tr("按标签筛选"), query.labels, { dialog = null }, single = false,
+            maxSelect = IssueQuery.MAX_LABELS, limitNote = trf("最多可同时筛选 {0} 个标签", IssueQuery.MAX_LABELS),
+        ) {
+            // 选择时已在界面上限制数量，这里的 take 只是兜底
             onChange(query.copy(labels = it.map { o -> o.key }.take(IssueQuery.MAX_LABELS)))
         }
         FilterDialog.Milestone -> MetaPicker(
@@ -180,6 +228,59 @@ fun IssueFilterBar(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Str
         ) { onChange(query.copy(milestone = it.firstOrNull()?.key)) }
         null -> {}
     }
+}
+
+/**
+ * 筛选胶囊：标准 FilterChip 加向下箭头。description 为无障碍描述（字段名 + 当前值）。
+ * menu 与胶囊同在一个 Box 里，所以菜单锚定在这个胶囊上。
+ */
+@Composable
+private fun FilterValueChip(
+    label: String,
+    description: String,
+    selected: Boolean,
+    menu: @Composable () -> Unit = {},
+    onClick: () -> Unit,
+) {
+    Box {
+        FilterChip(
+            selected = selected,
+            onClick = onClick,
+            label = { Text(label, maxLines = 1) },
+            trailingIcon = { Oc(R.drawable.oc_chevron_down, LocalContentColor.current, 14.dp) },
+            modifier = Modifier.semantics { contentDescription = description },
+        )
+        menu()
+    }
+}
+
+/** 点按展开固定选项的筛选胶囊，选中后回调选项下标；菜单锚定在胶囊上 */
+@Composable
+private fun FilterMenuChip(
+    label: String,
+    description: String,
+    selected: Boolean,
+    options: List<String>,
+    onSelect: (Int) -> Unit,
+) {
+    val g = Gh.c
+    var open by remember { mutableStateOf(false) }
+    FilterValueChip(
+        label = label,
+        description = description,
+        selected = selected,
+        menu = {
+            DropdownMenu(open, { open = false }, containerColor = g.canvas) {
+                options.forEachIndexed { i, s ->
+                    DropdownMenuItem(
+                        text = { Text(s, color = g.fg) },
+                        onClick = { open = false; onSelect(i) },
+                    )
+                }
+            }
+        },
+        onClick = { open = true },
+    )
 }
 
 /** 已生效筛选：每个都可单独移除，末尾是「清除筛选」 */
@@ -195,21 +296,17 @@ private fun ActiveFilters(query: IssueQuery, onChange: (IssueQuery) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(6.dp),
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
+        // 每个生效条件是可点掉的输入胶囊，末尾是标准的文字按钮
         active.forEach { f ->
-            Row(
-                Modifier.clip(RoundedCornerShape(50)).background(g.accentSubtle)
-                    .border(1.dp, g.accent.copy(alpha = 0.6f), RoundedCornerShape(50))
-                    .clickable(role = Role.Button) { onChange(query.without(f)) }
-                    .semantics(mergeDescendants = true) { contentDescription = trf("移除筛选：{0}", f.text) }
-                    .padding(start = 10.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(f.text, fontSize = 12.sp, color = g.accent, fontWeight = FontWeight.Medium, maxLines = 1)
-                Spacer(Modifier.width(4.dp))
-                Oc(R.drawable.oc_x, g.accent, 12.dp)
-            }
+            InputChip(
+                selected = true,
+                onClick = { onChange(query.without(f)) },
+                label = { Text(f.text, maxLines = 1) },
+                trailingIcon = { Oc(R.drawable.oc_x, LocalContentColor.current, 14.dp) },
+                modifier = Modifier.semantics { contentDescription = trf("移除筛选：{0}", f.text) },
+            )
         }
-        TextLink(tr("清除筛选")) { onChange(query.cleared()) }
+        TextButton(onClick = { onChange(query.cleared()) }) { Text(tr("清除筛选")) }
     }
 }
 

@@ -41,11 +41,10 @@ fun CodeSearchScreen(owner: String, name: String) {
     }
     Page(tr("仓库代码搜索"), subtitle = "$owner/$name") { pad ->
         Column(Modifier.padding(pad)) {
-            GhField(input, { input = it }, tr("搜索代码内容"), Modifier.padding(12.dp),
-                placeholder = tr("函数名、类名或文字，支持 language: 与 path:"),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { submit() }),
-                trailing = { OcButton(R.drawable.oc_search, { submit() }) })
+            CompactSearchField(input, { input = it }, tr("搜索代码内容"), Modifier.padding(12.dp),
+                hint = tr("函数名、类名或文字，支持 language: 与 path:"),
+                onSearch = { submit() },
+                trailing = { FieldAction(R.drawable.oc_search, tr("搜索代码内容")) { submit() } })
             if (query.isBlank()) EmptyState(tr("输入关键词搜索该仓库的默认分支"), R.drawable.oc_search)
             else CodeSearchResults(CodeReading.searchQuery(query, owner, name))
         }
@@ -91,8 +90,21 @@ fun FileFinderScreen(owner: String, name: String, ref: String?) {
     Page(tr("查找文件"), subtitle = "$owner/$name · ${ref ?: tr("默认分支")}") { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             GhField(input, { input = it }, tr("输入文件名或路径"), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), placeholder = tr("如 README 或 src Main"))
-            LoadBox(index, Modifier.weight(1f)) { data ->
-                Column {
+            val data = index.data
+            if (data == null) {
+                // 整棵文件树是一次递归请求，大仓库会慢：先给进度，并允许直接按目录浏览，不必等它读完
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                    if (index.error != null) InlineError(index.error!!) { index.refresh() }
+                    else {
+                        Text(tr("正在读取仓库文件树…（大仓库需要几秒）"), fontSize = 12.sp, color = Gh.c.fgMuted)
+                        Loading(Modifier.fillMaxWidth().height(40.dp))
+                    }
+                    GhButton(tr("先浏览目录"), Modifier.fillMaxWidth().padding(top = 4.dp), icon = R.drawable.oc_file_directory) {
+                        nav.push(Screen.Files(owner, name, "", ref))
+                    }
+                }
+            } else {
+                Column(Modifier.weight(1f)) {
                     Text(trf("{0} 个匹配路径 · {1}", matches.count, data.commit.take(7)), Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
                     if (data.truncated) Text(tr("仓库很大，GitHub 只返回了部分路径；未找到时可继续按目录浏览"), Modifier.padding(horizontal = 16.dp), color = Gh.c.attention, fontSize = 12.sp)
                     if (matches.count > matches.entries.size) Text(trf("显示前 {0} 项，请继续输入以缩小范围", matches.entries.size), Modifier.padding(horizontal = 16.dp), color = Gh.c.fgMuted, fontSize = 12.sp)

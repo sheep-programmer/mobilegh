@@ -177,7 +177,6 @@ GitHub 授权失效，请重新登录	GitHub authorization expired, please sign 
 同名文件已存在，请重试	A file with the same name already exists, please try again
 存储设备不可用	The storage device is unavailable
 无法写入文件，请检查下载目录	Cannot write the file, check the download folder
-下载失败，请检查网络后重试（	Download failed, check the network and try again (
 草稿超过读取上限	The draft exceeds the read limit
 草稿太长，无法保存在本机	The draft is too long to save locally
 草稿读取失败，原数据已保留：{0}	Failed to read the draft, the original data is kept: {0}
@@ -534,7 +533,6 @@ GitHub 列表字段 {0} 不完整，请刷新	The {0} field of the GitHub list i
 此内容需要 GitHub 网页登录；这里只读取公开内容	This content needs a GitHub web sign-in; only public content is read here
 GitHub 返回了无法识别的网页	GitHub returned a page that cannot be recognized
 GitHub 网页超过读取上限	The GitHub web page exceeds the read limit
-数据解析失败：{0}	Data parsing failed: {0}
 Pager 缺少数据源	Pager has no data source
 账号已切换，请重新打开页面	The account changed, reopen the page
 账号已切换，旧账号的操作结果不再更新当前页面	The account changed, results of the previous account no longer update this page
@@ -622,7 +620,6 @@ MobileGH 已锁定	MobileGH is locked
 本地文件不存在或无法删除	The local file does not exist or cannot be deleted
 从记录中移除	Remove from history
 清空下载记录	Clear download history
-是否同时删除已下载到手机的文件？删除后无法恢复。正在下载的任务会取消。	Also delete the downloaded files on the phone? This cannot be undone. Tasks in progress will be canceled.
 已清空 {0} 条记录，删除 {1} 个文件	Cleared {0} records and deleted {1} files
 同时删除文件	Delete files too
 已清空 {0} 条记录，文件保留在「下载」文件夹	Cleared {0} records, files remain in the Downloads folder
@@ -782,7 +779,6 @@ GitHub 验证已批准	GitHub verification approved
 保存中…	Saving…
 保存	Save
 网络设置已保存，请重试登录或刷新页面	Network settings saved, retry signing in or refresh the page
-公开内容加速不能加速登录。这里配置 App 请求使用的代理，GitHub 地址与 HTTPS 校验保持不变。	Public-content acceleration cannot speed up sign-in. Configure here the proxy the app uses for requests; GitHub addresses and HTTPS checks stay unchanged.
 代理主机	Proxy host
 127.0.0.1 或局域网 IP	127.0.0.1 or a LAN IP
 代理端口	Proxy port
@@ -793,8 +789,6 @@ GitHub 验证已批准	GitHub verification approved
 连接检查失败	Connection check failed
 系统网络设置	System network settings
 无法打开系统网络设置	Cannot open system network settings
-检查连接只访问官方站点，不发送 Token；连通不代表授权成功。此设置不影响外部浏览器、系统下载器和推送长连接，它们仍需系统代理 / VPN。	The check only visits official sites and sends no token; reachability does not mean authorization will succeed. This setting does not affect the external browser, the system download manager or the push long connection, which still need the system proxy / VPN.
-连接代理	Connection proxy
 GitHub Mobile 批准	GitHub Mobile approval
 已安装	Installed
 无法打开	Cannot open
@@ -886,7 +880,6 @@ GitHub 列表仓库读取不完整，请刷新	GitHub list repository reading is
 查看公开的 GitHub 列表。	View public GitHub lists.
 搜索列表	Search lists
 名称或描述	Name or description
-暂无 GitHub 列表，创建一个来整理 Stars。	No GitHub lists yet, create one to organize your Stars.
 {0} 还没有公开的 GitHub 列表	{0} has no public GitHub lists yet
 没有匹配的列表	No matching lists
 {0} · 已加载 {1} / {2}	{0} · loaded {1} / {2}
@@ -1018,7 +1011,6 @@ GitHub 比较接口最多返回 300 个文件，此列表可能不完整。	GitH
 基准（旧）	Base (old)
 交换基准与目标	Swap base and target
 目标（新）	Target (new)
-左边是旧版本，右边是新版本	Old version on the left, new version on the right
 输入提交 SHA	Enter a commit SHA
 选择{0}	Choose {0}
 两个版本内容相同	The two versions are identical
@@ -1357,7 +1349,6 @@ Fork 到我的 Gist	Fork to my gists
 创建于 {0} · {1} · {2} 个文件	Created {0} · {1} · {2} files
 还没有评论，在下方发表第一条评论	No comments yet, post the first one below
 复制内容	Copy content
-评论较多，在浏览器查看全部	There are many comments, view them all in the browser
 将永久删除这个 Gist 及其全部文件、评论和修订历史，无法恢复。	This permanently deletes the gist with all its files, comments and revision history, and cannot be undone.
 放弃	Discard
 尚未创建的 Gist 内容不会保存。	Gist content that has not been created will not be saved.
@@ -1407,7 +1398,6 @@ Gist 已创建	Gist created
 已删除「{0}」	Deleted "{0}"
 隐藏	Hide
 显示	Show
-在 Issue / PR 列表设置好筛选后，也可以从右上角菜单选择「保存到首页…」。	After setting filters on an Issue / PR list, you can also choose "Save to Home…" from the top-right menu.
 收藏仓库	Pinned repositories
 在仓库页右上角菜单选择「加入首页收藏」，常用仓库就会出现在首页。	Choose "Pin to Home" in the top-right menu of a repository page and frequently used repositories appear on Home.
 也可以在首页长按收藏的仓库来调整。	You can also long-press a pinned repository on Home to adjust it.
@@ -1420,7 +1410,6 @@ Gist 已创建	Gist created
 不填仓库时，搜索与你相关的内容	Leave the repository empty to search content related to you
 关键词（可选）	Keywords (optional)
 支持 label:bug 等搜索限定词	Search qualifiers such as label:bug are supported
-@{0} · {1} 仓库 · {2} 关注者	@{0} · {1} repositories · {2} followers
 已 Star	Starred
 列表	Lists
 打开仓库	Open repository
@@ -1437,16 +1426,13 @@ Gist 已创建	Gist created
 管理列表	Manage lists
 整理喜欢的仓库	Organize repositories you like
 {0} 个列表	{0} lists
-打开收藏列表	Open starred lists
 打开我的成就	Open my achievements
 暂无公开徽章	No public badges yet
 暂时无法读取	Cannot be read right now
 {0} 个徽章	{0} badges
-关注一些开发者或 star 一些仓库后，这里会显示动态	Activity shows up here after you follow some developers or star some repositories
 去探索	Explore
 所有快捷入口都已隐藏，点「编辑」可重新显示	All shortcuts are hidden, tap "Edit" to show them again
 收藏列表	Starred lists
-搜索收藏列表	Search starred lists
 贡献	Contributions
 详情	Details
 我的 Pull Requests	My pull requests
@@ -1650,7 +1636,6 @@ GitHub 通知设置	GitHub notification settings
 API 反向代理（高级）	API reverse proxy (advanced)
 已恢复官方 API	Restored the official API
 已启用 API 代理	API proxy enabled
-所有 API 请求（包括你的 Token）都会经过该地址。只填写你自己部署的代理（如 Cloudflare Worker 反代 api.github.com），切勿使用来路不明的公共代理。留空则使用官方 api.github.com。	All API requests (including your token) go through this address. Only enter a proxy you deployed yourself (such as a Cloudflare Worker proxying api.github.com), never an unknown public proxy. Leave it empty to use the official api.github.com.
 代理地址	Proxy address
 账号	Accounts
 当前	Current
@@ -1739,7 +1724,6 @@ CI 活动	CI activity
 已完成 · 待同步	Done · pending sync
 已完成 · {0}	Done · {0}
 撤销	Undo
-已完成列表只保留在本机本次会话（GitHub 接口不提供已完成通知的查询）	The Done list is kept only on this device for this session (GitHub's API cannot list completed notifications)
 还没有已完成的通知	No completed notifications yet
 本机通知状态保存失败	Failed to save the local notification state
 已完成「{0}」	Marked "{0}" done
@@ -1789,13 +1773,10 @@ CI 活动	CI activity
 更换授权	Change authorization
 {0} 年	{0}
 {0} {1} 次贡献	{0} {1} contributions
-当前连续·天	Current streak · days
-最长连续·天	Longest streak · days
 活跃天数	Active days
 单日最高	Best day
 贡献构成	Contribution breakdown
 提交 Commits	Commits
-拉取请求 PR	Pull requests
 代码审查 Review	Code review
 议题 Issues	Issues
 新建仓库	New repositories
@@ -1819,7 +1800,6 @@ CI 活动	CI activity
 贡献活动	Contribution activity
 置顶	Pinned
 项目	Projects
-公开动态	Public activity
 待处理邀请	Pending invitations
 账号信息	Account info
 套餐	Plan
@@ -1840,7 +1820,6 @@ CI 活动	CI activity
 关注中	Following
 Star 用户	Stargazers
 Watch 用户	Watchers
-最近 90 天没有公开动态	No public activity in the last 90 days
 此仓库没有关联的项目	This repository has no linked projects
 暂无可见的项目	No visible projects
 {0} 个条目	{0} items
@@ -1912,9 +1891,6 @@ PR 信息尚未加载完成，请稍后重试	The PR information has not finishe
 已标记为已解决	Marked as resolved
 已重新打开	Reopened
 评论已发表	Comment posted
-发表建议	Post suggestion
-建议已发表	Suggestion posted
-将以你的名义在同一位置发表这条建议，PR 作者可在 GitHub 上一键提交。	This posts the suggestion in your name at the same place, and the PR author can commit it in one tap on GitHub.
 查看文件	View file
 评论此文件	Comment on this file
 复制文件路径	Copy file path
@@ -2290,6 +2266,268 @@ GitHub 只返回前一部分 Star	GitHub only returned the first part of the Sta
 没有未读通知	No unread notifications
 已隐藏通知详情，点按打开应用	Notification details are hidden, tap to open the app
 ## 带语境的条目：「中文|语境」，同一个中文词在不同位置的不同译法
+还没有本机列表	No local lists yet
+{0} 个本机列表	{0} local lists
+共收纳 {0} 条仓库记录	{0} repository entries in total
+用列表给 Stars 分门别类，列表会同步到 GitHub。	Organize your stars into lists; lists sync to GitHub.
+{0} 个公开 · {1} 个私有	{0} public · {1} private
+下载中 · {0}	Downloading · {0}
+回到顶部	Back to top
+{0} 个 Fork	{0} forks
+{0} 人关注	{0} watching
+GitHub 不为这个仓库提供贡献者列表（仓库过大）。可在「提交」里按作者筛选。	GitHub does not provide a contributor list for this repository (too large). You can filter by author under Commits.
+GitHub 处理贡献者列表超时，请稍后重试	GitHub timed out building the contributor list. Please try again later
+提交数据格式无效	Invalid commit data format
+下载速度过慢	Download too slow
+无效的成就标识	Invalid achievement ID
+成就详情加载失败 ({0})	Failed to load achievement details ({0})
+保存到本机	Save to device
+倍数 x{0}	Multiplier x{0}
+解锁历史	Unlock history
+说明加载失败：{0}	Failed to load description: {0}
+搜索登录名或姓名	Search by login or name
+已加载的贡献者中没有匹配项	No loaded contributors match
+在整个仓库中查找 @{0}	Search the whole repository for @{0}
+未关联账号的贡献者无法查询周趋势。	Weekly trends can't be queried for contributors without a linked account.
+收起周趋势	Hide weekly trend
+展开查看最近一年的周趋势	Show weekly trend for the past year
+提交很多，只取到了最近的一部分；较早的周显示为缺失。	Too many commits; only the most recent part was loaded. Earlier weeks are shown as missing.
+正在加载最近一年的周趋势…	Loading the past year's weekly trend…
+默认分支上没有这个作者的提交。	No commits from this author on the default branch.
+默认分支共 {0} 次提交	{0} commits on the default branch
+正在查找…	Searching…
+放大	Zoom in
+删除本地文件？	Delete local file?
+只删除手机上的「{0}」，GitHub 上的内容不受影响，删除后无法恢复。	Only the copy "{0}" on this phone is deleted. Content on GitHub is not affected, and this cannot be undone.
+取消运行？	Cancel run?
+取消后本次运行会停止，已完成的步骤不会回滚，之后只能重新运行。	Cancelling stops this run. Completed steps are not rolled back, and the run can only be re-run afterwards.
+输入下面的分支名以确认：	Type the branch name below to confirm:
+删除 Gist 中的文件？	Delete files from this Gist?
+保存并删除	Save and delete
+保存后这些文件将从 Gist 中删除：{0}。	After saving, these files will be removed from the Gist: {0}.
+输入下面的标签名以确认：	Type the tag name below to confirm:
+标签名	Tag name
+改为公开后，任何人都能看到此仓库的代码、Issues 和 PR；已被看到或抓取的内容无法收回。	After making it public, anyone can see this repository's code, issues and PRs. Content already seen or scraped cannot be taken back.
+改为私有后，未被授予权限的人将无法访问此仓库，已有的公开链接会失效。	After making it private, people without permission cannot access this repository, and existing public links will stop working.
+重命名仓库？	Rename repository?
+确认改名	Rename
+仓库将从 {0} 改名为 {1}。	The repository will be renamed from {0} to {1}.
+改名后仓库地址会变化（旧地址通常会跳转），本地克隆的远程地址、徽章和 Pages 地址需要手动更新。	The repository address will change (the old address usually redirects). Local clone remotes, badges and Pages URLs must be updated manually.
+更改 Fork 权限？	Change fork permission?
+开启后，有访问权限的人可以 Fork 此仓库，Fork 出的副本不再受此仓库的权限约束。	After enabling, people with access can fork this repository. Forks are no longer bound by this repository's permissions.
+关闭后，其他人无法再 Fork 此仓库；对私有仓库关闭 Fork 时，GitHub 可能删除已有的 Fork。	After disabling, others cannot fork this repository. When forking is disabled on a private repository, GitHub may delete existing forks.
+移除后对方将立即失去此仓库的访问权限。	After removal, they immediately lose access to this repository.
+该邮箱地址	this email address
+撤销邀请？	Revoke invitation?
+撤销后，对 {0} 的邀请立即失效，需要重新发送才能协作。	After revoking, the invitation to {0} becomes invalid immediately. It must be sent again before they can collaborate.
+拒绝仓库邀请？	Decline repository invitation?
+拒绝后，对 {0} 的这次邀请将作废，需要对方重新邀请才能协作。	After declining, the invitation to {0} is void. The owner must invite you again before you can collaborate.
+全部完成	Mark all as done
+在浏览器中打开	Open in browser
+星标	Star
+取消星标	Unstar
+发送	Send
+运行	Run
+暂无贡献数据	No contribution data
+柱状图，合计 {0}{2}，最高 {1}{2}（{3}），范围 {4} 至 {5}	Bar chart, total {0}{2}, peak {1}{2} ({3}), range {4} to {5}
+柱状图，合计 {0}{2}，最高 {1}{2}	Bar chart, total {0}{2}, peak {1}{2}
+折线图，{0}合计 {1}，{0}峰值 {2}，{3}峰值 {4}，范围 {5} 至 {6}	Line chart, {0} total {1}, {0} peak {2}, {3} peak {4}, range {5} to {6}
+折线图，{0}合计 {1}，{0}峰值 {2}，{3}峰值 {4}	Line chart, {0} total {1}, {0} peak {2}, {3} peak {4}
+贡献热力图，{0} 至 {1}，共 {2} 次贡献，{3} 天有贡献，最多 {4} 次（{5}）	Contribution heatmap, {0} to {1}, {2} contributions, {3} active days, most {4} on {5}
+贡献热力图，{0} 至 {1}，共 {2} 次贡献，{3} 天有贡献	Contribution heatmap, {0} to {1}, {2} contributions, {3} active days
+下载中断且无法续传，请重新下载	Download was interrupted and cannot resume. Please download again
+数据传输中断，请检查网络后重试	Data transfer was interrupted. Check your network and try again
+需要登录 GitHub 后才能下载	Sign in to GitHub to download
+网络代理需要认证，请检查代理设置	The network proxy requires authentication. Check your proxy settings
+请求过于频繁，请稍后重试	Too many requests. Try again later
+该资源因法律原因无法下载	This resource cannot be downloaded for legal reasons
+服务器暂时不可用，请稍后重试	The server is temporarily unavailable. Try again later
+下载失败，请检查网络后重试	Download failed. Check your network and try again
+系统错误码 	System error code 
+下载速度过慢，系统仍在继续；可取消或更换节点	Download is very slow, but the system is still going. You can cancel or switch node
+连接 GitHub 没有响应，系统仍在重试；可取消后重新下载	GitHub is not responding, and the system is still retrying. You can cancel and download again
+节点无响应，系统仍在重试；可取消或更换节点	Node is not responding, and the system is still retrying. You can cancel or switch node
+文件已不在	File no longer present
+仅 Wi-Fi 下载	Download over Wi-Fi only
+开启后新的下载不使用移动数据；已经在进行中的任务不受影响	When on, new downloads do not use mobile data. Downloads already in progress are not affected
+较早的 {0} 条记录已移出列表（最多保留 {1} 条），本地文件不受影响	{0} older records have been removed from the list (up to {1} are kept). Local files are not affected
+文件已被移动或删除，可以重新下载	The file was moved or deleted. You can download it again
+下载中 {0} · 排队 {1}	Downloading {0} · Queued {1}
+已取消：已{0} {1} 条，{2} 条未处理，{3} 条失败	Canceled: {0} {1} done, {2} not processed, {3} failed
+将忽略「{0}」。之后即使被 @ 也不再收到该线程的通知；可在该条目的菜单中「恢复订阅」撤销。	Ignore "{0}"? You will no longer get notifications from this thread, even when mentioned. Undo with "Restore subscription" in the item menu.
+已完成的通知保存在本机，最多 500 条；GitHub 接口不提供已完成通知的查询	Completed notifications are kept on this device, up to 500 items. The GitHub API does not provide a way to query completed notifications.
+恢复默认入口？	Restore default shortcuts?
+删除保存的搜索？	Delete saved search?
+离开后，未保存的资料修改会丢失。	Unsaved profile changes will be lost if you leave.
+首页入口的顺序和显示开关会回到默认设置。	The order and visibility of Home shortcuts will return to the defaults.
+删除搜索 {0}	Delete saved search {0}
+移出首页收藏 {0}	Remove {0} from Home pins
+名称不能超过 {0} 个字符	The name can be at most {0} characters
+个人简介不能超过 {0} 个字符	The bio can be at most {0} characters
+最近 90 天没有动态	No activity in the last 90 days
+在 Issues / Pull Requests 列表设置好筛选后，也可以从右上角菜单选择「保存到首页…」。	After setting filters in an Issues / Pull Requests list, choose "Save to Home…" from the top-right menu.
+拉取请求 Pull Requests	Pull Requests
+「{0}」会从首页「我的工作」中移除。	"{0}" will be removed from "My work" on Home.
+{0} 天	{0} days
+「{0} / {1}」会从首页收藏中移除，仓库本身不受影响。	"{0} / {1}" will be removed from Home pins. The repository itself is not affected.
+当前连续	Current streak
+最长连续	Longest streak
+查看全部贡献	View all contributions
+暂无公开组织	No public organizations
+关注状态读取失败	Could not load follow status
+恢复	Restore
+移出	Remove
+移出首页收藏？	Remove from Home pins?
+赞	Thumbs up
+踩	Thumbs down
+大笑	Laugh
+庆祝	Hooray
+困惑	Confused
+爱心	Heart
+火箭	Rocket
+眼睛	Eyes
+添加回应	Add reaction
+未保存的内容将丢失。	Unsaved content will be lost.
+最多可同时筛选 {0} 个标签	You can filter by up to {0} labels at once
+加粗	Bold
+斜体	Italic
+删除线	Strikethrough
+行内代码	Inline code
+链接	Link
+引用	Quote
+无序列表	Bulleted list
+有序列表	Numbered list
+任务列表	Task list
+提及用户	Mention user
+关闭 Pull Request？	Close pull request?
+关闭后仍可在网页或 App 中重新开启。	You can reopen it later on the web or in the app.
+重新开启 Pull Request？	Reopen pull request?
+重新开启后会再次出现在开放列表中。	Once reopened, it will appear in the open list again.
+关闭 Issue？	Close issue?
+重新开启 Issue？	Reopen issue?
+复制检出命令	Copy checkout command
+检出命令已复制	Checkout command copied
+处理中…	Processing…
+地址中不能包含空格	The address must not contain spaces
+地址格式无效	Invalid address format
+地址缺少域名或 IP	The address is missing a domain name or IP
+地址中不能包含账号信息	The address must not include account information
+无法开始 GitHub 授权，请重试	Could not start GitHub authorization, please try again
+{0} 秒后自动重试	Retrying automatically in {0} seconds
+应用网络代理	App network proxy
+作用于 App 内的 API、登录与授权、推送连接，以及私有仓库的下载；不影响公开文件的系统下载器（DownloadManager）。加速节点另行设置，不影响登录。	Applies to the app's API, sign-in and authorization, push connection, and private repository downloads. It does not affect the system download manager (DownloadManager) used for public files. Acceleration nodes are set separately and do not affect sign-in.
+外部浏览器和系统下载器不受此设置影响，它们仍需系统代理 / VPN。	External browsers and the system downloader are not affected by this setting. They still need the system proxy / VPN.
+加速节点	Acceleration nodes
+应用网络代理只作用于 App 内的 API、登录与授权请求，不影响加速节点，也不影响系统下载器。	The app network proxy only applies to API and sign-in/authorization requests inside the app. It does not affect acceleration nodes or the system downloader.
+设置备份	Settings backup
+导出设置（复制 JSON）	Export settings (copy JSON)
+导入设置（粘贴 JSON）	Import settings (paste JSON)
+导入设置	Import settings
+设置已复制到剪贴板	Settings copied to clipboard
+包含：应用网络代理、API 反向代理地址、加速节点选择、自定义加速节点，以及应用锁开关（仅供参考，导入不会改变它）。	Included: app network proxy, API reverse proxy address, acceleration node choice, custom acceleration nodes, and the app lock switch (for reference only; importing does not change it).
+不包含：GitHub Token、两步验证的验证器密钥、应用锁的验证信息。这些只保存在本机，不会出现在备份文件里。	Not included: GitHub tokens, two-step verification authenticator secrets, and app lock verification data. These stay on this device and are not written to the backup file.
+确认导入	Confirm import
+导入中…	Importing…
+导入	Import
+设置内容无效	Invalid settings content
+设置 JSON	Settings JSON
+粘贴之前导出的设置内容	Paste previously exported settings content
+从剪贴板粘贴	Paste from clipboard
+剪贴板里没有文字	There is no text on the clipboard
+将写入以下设置：	The following settings will be written:
+应用网络代理：{0}	App network proxy: {0}
+加速节点：{0}	Acceleration nodes: {0}
+自定义加速节点：{0} 个	Custom acceleration nodes: {0}
+API 反向代理：官方	API reverse proxy: official
+API 反向代理：{0}	API reverse proxy: {0}
+API 反向代理会收到你的 Token。请确认这是你自己部署的地址，再点击导入。	The API reverse proxy will receive your token. Confirm it is an address you deployed yourself before importing.
+应用锁不会通过导入改变，请在本机设置。	Importing does not change the app lock. Set it on this device.
+返回修改	Back to edit
+设置已导入	Settings imported
+导入失败	Import failed
+所有 API 请求（包括你的 Token）都会经过该地址，必须是 https:// 开头的地址。只填写你自己部署的代理（如 Cloudflare Worker 反代 api.github.com），切勿使用来路不明的公共代理。留空则使用官方 api.github.com。	All API requests (including your token) go through this address and it must start with https://. Only enter a proxy you deployed yourself (for example a Cloudflare Worker reverse proxy for api.github.com). Never use an unknown public proxy. Leave it blank to use the official api.github.com.
+用户名只能包含字母、数字和连字符，最多 39 个字符	Username may only contain letters, digits and hyphens, up to 39 characters
+请填写 GitHub 用户名	Enter a GitHub username
+请粘贴密钥或 otpauth 链接	Paste the secret or otpauth link
+请确认这个验证器属于哪个 GitHub 账号。	Confirm which GitHub account this authenticator belongs to.
+密钥末四位：{0}，请与 GitHub 页面核对。	Last four characters of the secret: {0}. Check them against the GitHub page.
+不是有效的设置内容（需要 JSON 对象）	Not valid settings content (a JSON object is required)
+设置内容的结构不正确	The structure of the settings content is incorrect
+不认识的设置项：{0}	Unknown setting: {0}
+自定义节点的格式不正确	The custom node format is incorrect
+设置内容的字段类型不正确	Field types in the settings content are incorrect
+这不是 MobileGH 的设置文件	This is not a MobileGH settings file
+设置文件版本无效，或来自更新的应用版本	Invalid settings file version, or it comes from a newer app version
+未知的代理模式：{0}	Unknown proxy mode: {0}
+加速模式无效：{0}	Invalid acceleration mode: {0}
+手动选择的节点标识过长	The manually selected node ID is too long
+自定义节点最多 {0} 个	Up to {0} custom nodes
+自定义节点名称过长	Custom node name is too long
+查看原始文件	View raw file
+跳到行…	Jump to line…
+跳到行	Jump to line
+跳转	Jump
+行号	Line number
+输入 1 到 {0} 之间的行号	Enter a line number from 1 to {0}
+已复制带行号的链接	Copied the permalink with the line number
+超长行（{0} 字符）	Very long line ({0} characters)
+查看完整行	View full line
+无法打开此链接	This link cannot be opened
+先浏览目录	Browse directory first
+正在读取仓库文件树…（大仓库需要几秒）	Reading the repository file tree… (large repositories take a few seconds)
+已加载 {0} 个，继续读取…	Loaded {0}, continuing…
+个人简介	Bio
+检查连接只访问官方站点，不发送 Token；连通不代表授权成功。外部浏览器和系统下载器不受此设置影响，它们仍需系统代理 / VPN。	Checking connectivity only contacts official sites and sends no token; reachable does not mean authorization succeeded. External browsers and the system downloader are not affected by this setting; they still need the system proxy or VPN.
+正在{0}…	In progress: {0}…
+恢复订阅	Resubscribe
+已恢复订阅	Subscription restored
+已将 {0} 的通知标为已读	Marked notifications for {0} as read
+仅已加载的 {0} 条	Only the {0} loaded items
+取消按仓库分组	Ungroup by repository
+忽略此线程？	Ignore this thread?
+目录	Contents
+最近创建	Recently created
+评论最多	Most commented
+反应最多	Most reactions
+互动最多	Most interactions
+是否同时删除已下载到手机的文件？删除后无法恢复。正在下载或排队中的任务会保留。	Also delete the files already saved to the phone? This cannot be undone. Downloads in progress or queued are kept.
+点按查看	Tap to view
+关闭提示	Dismiss notice
+暂停	Pause
+已暂停	Paused
+同时下载最多 {0} 个，前面的完成后自动开始	Up to {0} downloads run at once. Queued ones start when earlier ones finish.
+同时下载已满，已加入排队：	Download limit reached, queued: 
+标为已读失败：{0}	Failed to mark as read: {0}
+登录地址不能包含查询参数或 # 片段	The login address must not include a query or # fragment
+登录地址只填写域名，不能包含路径	Enter only the domain for the login address; it must not include a path
+登录地址	Login address
+登录地址（高级）	Login address (advanced)
+恢复默认	Restore default
+已恢复默认登录地址	Restored the default login address
+已启用自定义登录地址	Custom login address enabled
+PR 状态读取失败：{0}	PR status failed to load: {0}
+审查通过	Approved
+需要修改	Changes requested
+待审查	Review required
+CI 成功	CI passed
+CI 失败	CI failed
+CI 进行中	CI running
+CI 无	No CI
+你有 {0} 条待提交的行内评论	You have {0} pending inline comment(s)
+放弃待提交审查	Discard pending review
+放弃后，尚未提交的行内评论会一并删除，无法恢复。	Discarding removes unsubmitted inline comments and cannot be undone.
+已加入待提交审查	Added to pending review
+加入待提交审查	Add to pending review
+这条建议会加入你的待提交审查，提交审查后 PR 作者可在 GitHub 上一键应用。	This suggestion will be added to your pending review. After you submit the review, the PR author can apply it on GitHub.
+建议已加入待提交审查	Suggestion added to pending review
+已放弃待提交审查	Pending review discarded
+展开全文	Show full README
+搜索 Star 列表	Search Star lists
+打开 Star 列表	Open Star lists
+{0} Star	{0} stars
+关注一些开发者或 Star 一些仓库后，这里会显示动态	Activity shows up here after you follow some developers or Star some repositories
+仅作用于设备登录的授权请求，其他 API 请求不受影响。网页授权（数字审批）固定使用 github.com，因为它需要应用密钥。必须是 https:// 开头、只填写域名的地址，如你自己部署的反向代理。登录过程会经过该地址，切勿填写来路不明的地址。留空或恢复默认则使用 github.com。	Applies only to device sign-in requests; other API requests are unaffected. Web approval (digital approval) always uses github.com because it needs the app secret. Must start with https:// and contain only a domain, such as your own reverse proxy. Sign-in goes through this address, so never enter an unknown one. Leave empty or restore default to use github.com.
+
 开启|event	opened
 关闭|event	closed
 编辑|event	edited
@@ -2310,13 +2548,55 @@ GitHub 只返回前一部分 Star	GitHub only returned the first part of the Sta
 克隆|stat	Clones
 提交|cat	Commits
 发布|cat	Releases
-还没有本机列表	No local lists yet
-{0} 个本机列表	{0} local lists
-共收纳 {0} 条仓库记录	{0} repository entries in total
-用列表给 Stars 分门别类，列表会同步到 GitHub。	Organize your stars into lists; lists sync to GitHub.
-{0} 个公开 · {1} 个私有	{0} public · {1} private
-下载中 · {0}	Downloading · {0}
-回到顶部	Back to top
-{0} 星标	{0} stars
-{0} 个 Fork	{0} forks
-{0} 人关注	{0} watching
+贡献者很多，已按累计提交排名分页加载；向下滚动可加载更多，搜索时会继续检索其余贡献者。展开某人可查看最近一年的周趋势。	Many contributors: loaded page by page in cumulative-commit order. Scroll to load more; searching continues through the rest. Expand a person to see their weekly trend for the past year.
+第 {0} 页加载失败：{1}	Page {0} failed to load: {1}
+仍在检索其余贡献者，匹配项会陆续出现。	Still searching the remaining contributors; matches will appear gradually.
+可以输入完整登录名，在整个仓库中查找。	Enter a full login to search the whole repository.
+已检索 {0} 人，找到 {1} 位	Searched {0} people, found {1}
+停止检索	Stop searching
+已检索全部 {0} 人，找到 {1} 位	Searched all {0} people, found {1}
+已停止检索：已检索 {0} 人，找到 {1} 位	Search stopped: searched {0} people, found {1}
+继续检索	Continue searching
+正在加载更多贡献者…	Loading more contributors…
+加载更多贡献者（已加载 {0} 人）	Load more contributors (loaded {0})
+已检索 {0} 个仓库，正在加载更多…	Searched {0} repositories, loading more…
+停止	Stop
+已检索 {0} 个仓库，加载中断：{1}	Searched {0} repositories, loading interrupted: {1}
+仅筛选前 {0} 个仓库，结果可能不完整	Only the first {0} repositories were filtered; results may be incomplete
+已检索 {0} 个仓库，已停止	Searched {0} repositories, stopped
+继续加载	Continue loading
+GitHub 搜索最多返回 1000 条结果，请缩小关键词或使用筛选	GitHub search returns at most 1000 results. Narrow the keywords or use filters.
+最近没有推送记录	No recent pushes
+{0} 推送了 {1} 个提交到{2} {3}	{0} pushed {1} commit(s) to {2} {3}
+{0} 的上一个提交	Parent of {0}
+数据格式异常，请稍后重试	Unexpected data format. Please try again later
+倒序，点按改为正序	Descending, tap for ascending
+正序，点按改为倒序	Ascending, tap for descending
+拉取鲨鱼	Pull Shark
+快枪手	Quickdraw
+银河大脑	Galaxy Brain
+星光熠熠	Starstruck
+结对高手	Pair Extraordinaire
+公开赞助者	Public Sponsor
+北极代码库贡献者	Arctic Code Vault Contributor
+真情流露	Heart On Your Sleeve
+开源达人	Open Sourcerer
+开发者计划成员	Developer Program Member
+{0} 的拉取请求已被合并。	{0} has opened pull requests that have been merged.
+{0}已解锁	{0} unlocked
+首次解锁 {0}	First unlocked {0}
+第 {0} 个已合并的拉取请求	Pull request #{0} merged
+白金级	Platinum
+钻石级	Diamond
+旧版下载记录已失效，请重新下载	The old download record is no longer valid. Please download again.
+应用已重启，已暂停，可以继续下载	The app restarted and the download is paused. You can resume it.
+无法保存到「下载」文件夹，请检查存储空间后重试	Could not save to the Downloads folder. Check storage and try again.
+文件不存在或已被删除	The file does not exist or was deleted.
+请求太频繁，请稍后重试	Too many requests. Please try again later.
+网络中断，可以点击重试从断点继续	Network interrupted. Tap retry to continue from where it stopped.
+无法创建下载文件	Could not create the download file.
+无法写入下载文件	Could not write the download file.
+正在下载	Downloading
+共 {0} 个文件	{0} files
+下载进度	Download progress
+，从断点续传	, resuming from where it stopped

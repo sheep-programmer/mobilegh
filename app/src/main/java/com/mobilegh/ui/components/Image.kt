@@ -30,6 +30,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -119,6 +121,8 @@ fun NetImage(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
     placeholder: Boolean = true,
+    /** 读屏描述。为空时不挂语义，和原来一样；挂在外层容器上，加载完成前也能读到 */
+    contentDescription: String? = null,
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
     val maxDim = maxOf(size.width, size.height).takeIf { it > 0 }?.coerceIn(64, 2048)
@@ -133,7 +137,9 @@ fun NetImage(
             }
         }
     }
-    Box(modifier.onSizeChanged { size = it }) {
+    val desc = contentDescription
+    val semanticsModifier = if (desc != null) Modifier.semantics { this.contentDescription = desc } else Modifier
+    Box(modifier.onSizeChanged { size = it }.then(semanticsModifier)) {
         Box(if (placeholder && bmp == null) Modifier.matchParentSize().background(Gh.c.neutralMuted) else Modifier.matchParentSize()) {
             bmp?.let { Image(it, null, Modifier.matchParentSize(), contentScale = contentScale) }
         }
@@ -141,12 +147,13 @@ fun NetImage(
 }
 
 @Composable
-fun Avatar(url: String?, size: Dp, modifier: Modifier = Modifier, square: Boolean = false) {
+fun Avatar(url: String?, size: Dp, modifier: Modifier = Modifier, square: Boolean = false, contentDescription: String? = null) {
     val px = with(LocalDensity.current) { size.roundToPx() }.coerceAtLeast(40)
     val shape = if (square) RoundedCornerShape(size / 5) else CircleShape
     NetImage(
         url?.takeIf { it.isNotBlank() }?.let { sizedAvatar(it, px) },
         modifier.size(size).clip(shape).border(1.dp, Gh.c.borderMuted, shape),
+        contentDescription = contentDescription,
     )
 }
 

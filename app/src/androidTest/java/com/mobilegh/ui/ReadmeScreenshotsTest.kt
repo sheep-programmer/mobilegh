@@ -54,6 +54,12 @@ import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.time.Instant
+import com.mobilegh.i18n.tr
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import com.mobilegh.ui.screens.AchievementsScreen
+import com.mobilegh.data.Web
 
 /**
  * 生成 README 用的截图。全部数据都是本机虚构的测试账号（mona / octocat / hubot），
@@ -98,9 +104,32 @@ class ReadmeScreenshotsTest {
 
     private val patch = """@@ -1,7 +1,9 @@\n package app\n \n-import old.Thing\n+import new.Thing\n+import new.Other\n \n fun main() {\n-    println(\"old value that is quite long and wraps around\")\n+    println(\"hello\")\n+    run()\n }"""
 
+    private val sampleCode = "package demo\n\nfun main() {\n    println(\"hello, commit\")\n}\n"
+    private val sampleJobLog = listOf(
+        "2026-10-31T03:00:00.1000000Z ##[group]Run ./gradlew assembleDebug",
+        "2026-10-31T03:00:00.2000000Z ##[endgroup]",
+        "2026-10-31T03:00:01.0000000Z [command]/usr/bin/bash -e gradlew assembleDebug",
+        "2026-10-31T03:00:02.0000000Z > Task :app:compileDebugKotlin",
+        "2026-10-31T03:00:05.0000000Z w: FilterBar.kt uses a deprecated API",
+        "2026-10-31T03:00:06.0000000Z ##[warning]Gradle reports a deprecation",
+        "2026-10-31T03:00:07.0000000Z e: ActionsScreens.kt: unresolved reference",
+        "2026-10-31T03:00:07.5000000Z ##[error]Process completed with exit code 1.",
+    ).joinToString("\n")
+    private val sampleReadme = "# demo\n\nHello **world**, a [rendered](https://github.com) README.\n"
+
     private fun route(method: String, path: String, accept: String?, body: String): String {
         val p = path
         return when {
+            // 文件内容：原始地址（raw 主机）与 contents 接口的 raw 形式都返回原文；README 的 html 形式返回渲染结果
+            // 原始地址可能经镜像（如 jsDelivr 的 /gh/owner/repo@ref/ 路径），所以只按文件名结尾匹配
+            p.endsWith("/src/Main.kt") -> sampleCode
+            p == "/repos/mona/mobilegh/contents/README.md" ->
+                if (accept?.contains("html") == true) "<h1>demo</h1><p>Hello <strong>world</strong>, a <a href=\"https://github.com\">rendered</a> README.</p>" else sampleReadme
+            p.endsWith("/README.md") -> sampleReadme
+            p == "/repos/mona/mobilegh/contents/src/Main.kt" -> sampleCode
+            // 作业日志：带时间戳的原始文本，页面里按分组、命令、警告、错误分别着色
+            p.contains("/actions/jobs/") && p.endsWith("/logs") -> sampleJobLog
+            p == "/repos/mona/mobilegh/events" -> """[{"id":"1","type":"PushEvent","actor":{"login":"mona","avatar_url":"https://avatars.githubusercontent.com/u/1?v=4"},"repo":{"name":"mona/mobilegh"},"payload":{"ref":"refs/heads/feature/login","head":"abcdef1234567","size":3,"commits":[{"sha":"111","message":"older change"},{"sha":"abcdef1234567","message":"Fix login redirect"}]},"created_at":"${ago(3)}"},{"id":"2","type":"PushEvent","actor":{"login":"hubot","avatar_url":"https://avatars.githubusercontent.com/u/2?v=4"},"repo":{"name":"mona/mobilegh"},"payload":{"ref":"refs/heads/main","head":"fedcba9876543","size":1,"commits":[{"sha":"fedcba9876543","message":"Bump version"}]},"created_at":"${ago(9)}"}]"""
             p == "/user" -> user("mona", "Mona Lisa")
             p == "/graphql" -> if (body.contains("MobileGHLists(")) listsGraphql() else graphql()
             p.startsWith("/user/repos") || p.endsWith("/repos") -> "[${repos.joinToString(",")}]"
@@ -195,8 +224,9 @@ class ReadmeScreenshotsTest {
         val fake = OkHttpClient.Builder().addInterceptor { chain ->
             val req = chain.request()
             val url = req.url
-            val resp = if (url.host.contains("avatars")) {
-                val seed = url.pathSegments.lastOrNull()?.toIntOrNull() ?: 0
+            // 头像与成就徽章图都返回测试用的 PNG（徽章路径不是数字，用路径哈希作为颜色种子）
+            val resp = if (url.host.contains("avatars") || url.encodedPath.endsWith(".png")) {
+                val seed = url.pathSegments.lastOrNull()?.toIntOrNull() ?: url.encodedPath.hashCode()
                 Response.Builder().body(avatar(seed).toResponseBody("image/png".toMediaType()))
             } else {
                 val buf = okio.Buffer().also { req.body?.writeTo(it) }.readUtf8()
@@ -233,7 +263,13 @@ class ReadmeScreenshotsTest {
     /** 底部弹层是单独的窗口，compose 的根节点截不到；整屏截图再裁掉状态栏 */
     private fun saveScreen(name: String) {
         compose.waitForIdle()
-        val shot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        // 模拟器负载高时 takeScreenshot 会返回 null，短暂等待后重试
+        var shot: Bitmap? = null
+        repeat(5) {
+            if (shot == null) shot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+            if (shot == null) Thread.sleep(500)
+        }
+        shot!!
         val top = (24 * compose.activity.resources.displayMetrics.density).toInt()
         val bmp = Bitmap.createBitmap(shot, 0, top, shot.width, shot.height - top)
         val dir = File(compose.activity.cacheDir, "readme/$lang").apply { mkdirs() }
@@ -274,6 +310,9 @@ class ReadmeScreenshotsTest {
         n.tab = Tab.Repos
         compose.setContent { MobileGhTheme { AppRoot(n) } }
         Thread.sleep(2500)
+        // 首次进入仓库页可能弹出「启用 GitHub 数字审批」提示，先关掉，否则会挡住筛选面板
+        val cancel = compose.onAllNodesWithText(if (lang == "en") "Cancel" else "取消").fetchSemanticsNodes()
+        if (cancel.isNotEmpty()) { compose.onAllNodesWithText(if (lang == "en") "Cancel" else "取消")[0].performClick(); Thread.sleep(800) }
         compose.onNodeWithContentDescription(if (lang == "en") "Filter" else "筛选").performClick()
         Thread.sleep(1500)
         saveScreen("13-repos-filter")
@@ -340,5 +379,197 @@ class ReadmeScreenshotsTest {
         compose.setContent { MobileGhTheme { CompositionLocalProvider(LocalNav provides n, LocalEntry provides n.root) { StarListsScreen("mona") } } }
         Thread.sleep(2500)
         save("12-star-overview")
+    }
+
+    /** 搜索页直接渲染（不经过 AppRoot），用于截图搜索栏、类型标签和空态 */
+    /** 从提交详情点进代码文件：应该是语法高亮的源码，不是渲染后的 README */
+    @Test fun fileCode() = shot("18-file-code") { it.push(Screen.FileView("mona", "mobilegh", "src/Main.kt", "abc123")) }
+    /** 同一个提交里的 README：应该渲染成文档 */
+    @Test fun fileReadme() = shot("19-file-readme") { it.push(Screen.FileView("mona", "mobilegh", "README.md", "abc123")) }
+    /** Action 作业日志：终端样式（深色底、等宽、分组/命令/错误着色） */
+    @Test fun jobLog() = shot("20-job-log") { it.push(Screen.JobLog("mona", "mobilegh", 1L, "build")) }
+    /** 同一份日志的深色主题版本：终端配色应跟随应用的明暗主题 */
+    @Test fun jobLogDark() {
+        compose.runOnUiThread { Session.themeMode = 2 }
+        shot("21-job-log-dark") { it.push(Screen.JobLog("mona", "mobilegh", 1L, "build")) }
+    }
+    /** Issue 列表：顶部的状态胶囊与生效条件 */
+    @Test fun issues() = shot("22-issues") { it.push(Screen.Issues("mona", "mobilegh", false)) }
+    /** 仓库最近推送：谁推到了哪个分支 */
+    @Test fun pushes() = shot("23-pushes") { it.push(Screen.Pushes("mona", "mobilegh")) }
+    /** 点开一条推送：看到这次推送的提交与文件改动 */
+    @Test fun pushDetail() = shot("24-push-detail", after = {
+        compose.onAllNodesWithText("mona 推送了 3 个提交到分支 feature/login")[0].performClick()
+        Thread.sleep(1500)
+        compose.waitForIdle()
+    }) { it.push(Screen.Pushes("mona", "mobilegh")) }
+    /** 逐页巡检：依次打开应用里的每个页面并截图，用于检查各页风格是否统一（输出 sweep/<序号-名称>.png） */
+    @Test fun sweepAllScreens() {
+        val screens = listOf<Pair<String, Screen>>(
+            "repo-files" to Screen.Files("mona", "mobilegh", "", null),
+            "file-finder" to Screen.FileFinder("mona", "mobilegh", null),
+            "code-search" to Screen.CodeSearch("mona", "mobilegh"),
+            "search" to Screen.Search(0, ""),
+            "blame" to Screen.Blame("mona", "mobilegh", "src/Main.kt", null),
+            "edit-file" to Screen.EditFile("mona", "mobilegh", null, "src/Main.kt"),
+            "upload" to Screen.UploadFiles("mona", "mobilegh", null),
+            "new-pull" to Screen.NewPull("mona", "mobilegh", "feature/login", "main"),
+            "edit-release" to Screen.EditRelease("mona", "mobilegh"),
+            "run-workflow" to Screen.RunWorkflow("mona", "mobilegh", 1L, ".github/workflows/ci.yml", "CI"),
+            "recent-repos" to Screen.RecentRepositories,
+            "search-history" to Screen.SearchHistory,
+            "edit-profile" to Screen.EditProfile,
+            "commit" to Screen.CommitDetail("mona", "mobilegh", "b7c9443a1f2e3d4c5b6a79880a1b2c3d4e5f6071"),
+            "issues-pr" to Screen.Issues("mona", "mobilegh", true),
+            "issue-new" to Screen.NewIssue("mona", "mobilegh"),
+            "pr-checks" to Screen.PullChecks("mona", "mobilegh", 7, "abcdef1234567"),
+            "pr-files" to Screen.PullFiles("mona", "mobilegh", 7),
+            "actions" to Screen.Actions("mona", "mobilegh"),
+            "run-detail" to Screen.RunDetail("mona", "mobilegh", 1L),
+            "releases" to Screen.Releases("mona", "mobilegh"),
+            "branches" to Screen.Branches("mona", "mobilegh"),
+            "insights" to Screen.Insights("mona", "mobilegh"),
+            "contributors" to Screen.Contributors("mona", "mobilegh"),
+            "discussions" to Screen.Discussions("mona", "mobilegh"),
+            "discussion" to Screen.DiscussionDetail("mona", "mobilegh", 3),
+            "repo-settings" to Screen.RepoSettings("mona", "mobilegh"),
+            "projects-user" to Screen.Projects(com.mobilegh.data.ProjectOwnerKind.User, "mona"),
+            "project" to Screen.ProjectDetail("PVT_1", "Roadmap"),
+            "collaborators" to Screen.Collaborators("mona", "mobilegh"),
+            "profile" to Screen.Profile("mona"),
+            "org" to Screen.Org("hubot"),
+            "users" to Screen.Users(com.mobilegh.nav.UserKind.Followers, "mona"),
+            "repos-owned" to Screen.Repos(com.mobilegh.nav.RepoKind.User, "mona"),
+            "orgs" to Screen.Orgs,
+            "invitations" to Screen.Invitations,
+            "gists" to Screen.Gists("mona"),
+            "gist-detail" to Screen.GistDetail("g1"),
+            "gist-editor" to Screen.GistEditor(),
+            "activity" to Screen.Activity("mona"),
+            "star-lists" to Screen.StarLists("mona"),
+            "achievements" to Screen.Achievements("mona"),
+            "settings" to Screen.Settings,
+            "logs" to Screen.Logs,
+            "authenticator" to Screen.Authenticator,
+            "org-diagnostics" to Screen.OrgDiagnostics,
+            "create-repo" to Screen.CreateRepo,
+            "login" to Screen.Login,
+            "my-issues" to Screen.MyIssues(false),
+            "home-customize" to Screen.HomeCustomize,
+        )
+        val n = Navigator().also { nav = it }
+        compose.setContent { MobileGhTheme { AppRoot(n) } }
+        Thread.sleep(2000)
+        screens.forEachIndexed { i, (name, screen) ->
+            compose.runOnUiThread { n.push(screen) }
+            Thread.sleep(1800)
+            compose.waitForIdle()
+            val dir = File(compose.activity.cacheDir, "sweep").apply { mkdirs() }
+            val bmp = compose.onAllNodes(isRoot())[0].captureToImage().asAndroidBitmap()
+            File(dir, "%02d-%s.png".format(i + 1, name)).outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            compose.runOnUiThread { n.popToRoot() }
+            Thread.sleep(600)
+        }
+    }
+
+    /** 成就：假的个人主页与详情片段，截取成就列表、点开后的徽章动效（中途）与详情弹窗 */
+    @Test fun achievementDetailFlow() {
+        val profile = """<html><body><div>
+            <a href="/mona?tab=achievements&achievement=pull-shark"><img data-hovercard-type="achievement" alt="Achievement: Pull Shark" src="https://github.githubassets.com/assets/pull-shark-bronze-abc123.png" width="64"><span class="Label achievement-tier-label">x2</span></a>
+            <a href="/mona?tab=achievements&achievement=quickdraw"><img data-hovercard-type="achievement" alt="Achievement: Quickdraw" src="https://github.githubassets.com/assets/quickdraw-default-abc123.png" width="64"></a>
+            <a href="/mona?tab=achievements&achievement=starstruck"><img data-hovercard-type="achievement" alt="Achievement: Starstruck" src="https://github.githubassets.com/assets/starstruck-silver-abc123.png" width="64"></a>
+            </div></body></html>"""
+        val detail = """<div class="d-flex flex-column"><div class="tmp-p-3">
+            <div><div class="d-flex"><h3>Pull Shark</h3><span class="Label achievement-tier-label achievement-tier-label--bronze">x2</span></div>
+            <div class="mt-1">@mona opened pull requests that have been merged.</div></div>
+            <div class="border-top achievement-history"><h4>History</h4>
+            <div class="TimelineItem"><div>Bronze unlocked · First unlocked 2026-01-17 01:43:49 UTC</div></div>
+            <div class="TimelineItem"><div>2nd pull request merged octo/repo#1</div></div>
+            </div></div></div>"""
+        val fake = OkHttpClient.Builder().addInterceptor { chain ->
+            val req = chain.request()
+            val path = req.url.encodedPath
+            val (code, type, body) = when {
+                path == "/mona" -> Triple(200, "text/html; charset=utf-8", profile)
+                path == "/users/mona/achievements/pull-shark/detail" -> Triple(200, "text/html; charset=utf-8", detail)
+                else -> Triple(404, "text/plain", "Not Found")
+            }
+            Response.Builder().request(req).protocol(Protocol.HTTP_1_1).code(code).message("OK")
+                .body(body.toResponseBody(type.toMediaType())).build()
+        }.build()
+        Web.transport = fake
+        try {
+            val n = Navigator().also { nav = it }
+            compose.setContent {
+                MobileGhTheme { CompositionLocalProvider(LocalNav provides n, LocalEntry provides n.root) {
+                    AchievementsScreen("mona")
+                } }
+            }
+            Thread.sleep(2000)
+            compose.waitForIdle()
+            saveScreen("25-achievements")
+            compose.onNodeWithContentDescription("拉取鲨鱼，铜级，x2").performClick()
+            // 动效进行中截一张，再截动效结束后的弹窗
+            // 不能用 saveScreen：它会 waitForIdle，等于等动画结束。这里直接截屏，抓到转动中的画面
+            // 连续抓取动效过程中的几帧（每帧约 80ms），保存为 flip-00..07
+            val frameDir = File(compose.activity.cacheDir, "readme/$lang").apply { mkdirs() }
+            // 等弹窗真正出现（徽章开始转动）后再抓帧
+            compose.waitUntil(timeoutMillis = 5_000) { compose.onAllNodesWithText("倍数 x2").fetchSemanticsNodes().isNotEmpty() }
+            repeat(8) { i ->
+                Thread.sleep(80)
+                InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+                    ?.let { frame -> File(frameDir, "26-flip-%02d.png".format(i)).outputStream().use { frame.compress(Bitmap.CompressFormat.PNG, 100, it) } }
+            }
+            Thread.sleep(1600)
+            compose.waitForIdle()
+            saveScreen("27-achievement-dialog")
+        } finally {
+            Web.transport = null
+        }
+    }
+    @Test fun searchHome() {
+        val n = Navigator().also { nav = it }
+        compose.setContent {
+            MobileGhTheme { CompositionLocalProvider(LocalNav provides n, LocalEntry provides n.root) {
+                com.mobilegh.ui.screens.SearchScreen(0, "")
+            } }
+        }
+        Thread.sleep(1500)
+        saveScreen("15-search-home")
+    }
+    /** 搜索结果页：带关键词直接渲染，结果来自假 API */
+    @Test fun searchResults() {
+        val n = Navigator().also { nav = it }
+        compose.setContent {
+            MobileGhTheme { CompositionLocalProvider(LocalNav provides n, LocalEntry provides n.root) {
+                com.mobilegh.ui.screens.SearchScreen(0, "compose")
+            } }
+        }
+        Thread.sleep(2500)
+        saveScreen("16-search-results")
+    }
+    /** 共享筛选组件的样张：筛选按钮（带数量）、生效条件胶囊、分段选择、普通胶囊 */
+    @Test fun filterComponents() {
+        compose.setContent {
+            MobileGhTheme {
+                androidx.compose.foundation.layout.Column(
+                    androidx.compose.ui.Modifier.padding(16.dp),
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(20.dp),
+                ) {
+                    androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        com.mobilegh.ui.components.FilterEntry(0) {}
+                        androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.width(16.dp))
+                        com.mobilegh.ui.components.FilterEntry(3) {}
+                    }
+                    com.mobilegh.ui.components.ActiveFilterChips(
+                        listOf("stars" to "最少 Star 100", "lang" to "语言 Kotlin", "topic" to "Topic android"), {}, {},
+                    )
+                    com.mobilegh.ui.components.ChoicePicker(tr("状态"), listOf(tr("不限"), tr("开放"), tr("已关闭")), 1) {}
+                    com.mobilegh.ui.components.ChoicePicker(tr("可见性"), listOf(tr("全部"), tr("公开"), tr("私有"), tr("隐藏 Fork")), 2) {}
+                }
+            }
+        }
+        Thread.sleep(800)
+        saveScreen("17-filter-components")
     }
 }

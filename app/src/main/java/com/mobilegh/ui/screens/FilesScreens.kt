@@ -1,6 +1,17 @@
 package com.mobilegh.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.runtime.LaunchedEffect
+import com.mobilegh.nav.Loader
+import com.mobilegh.nav.retain
+import com.mobilegh.ui.components.CompactSearchField
+import com.mobilegh.ui.components.FieldAction
+import com.mobilegh.ui.components.LineFocus
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +48,7 @@ import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.act
 import com.mobilegh.ui.components.GhDialog
+import com.mobilegh.ui.components.TypeToConfirmDialog
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.toast
 import com.mobilegh.nav.Screen
@@ -91,7 +103,8 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
     val g = Gh.c
     val ctx = rememberCtx()
     val items = rememberLoader("dir") { f -> GitHub.contents(owner, name, path, ref, f).sortedWith(compareBy({ it.type != "dir" }, { it.name.lowercase() })) }
-    val last = rememberLoader("last") { GitHub.commits(owner, name, ref, path.ifEmpty { null }, 1, it).firstOrNull() }
+    // 目录顶部的「最后提交」一行只在列表出来后才请求（见下方 LoadBox 内），不和目录列表抢同一批请求
+    val last = retain("last") { e -> Loader(e.scope) { f -> GitHub.commits(owner, name, ref, path.ifEmpty { null }, 1, f).firstOrNull() } }
     val canPush = rememberLoader("can-push") { GitHub.repo(owner, name, it).let { r -> r.permissions?.push == true && !r.archived } }
     OnRepoChanged(owner, name) { items.refresh(); last.refresh() }
     Page(
@@ -112,6 +125,8 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
         },
     ) { pad ->
         LoadBox(items, Modifier.padding(pad).fillMaxSize()) { list ->
+            // 列表已显示，再请求最后提交；失败或已有数据时不重复请求
+            LaunchedEffect(Unit) { if (last.data == null && !last.loading) last.load() }
             val hasLast = last.data != null
             val hasUp = path.isNotEmpty()
             val total = (if (hasLast) 1 else 0) + (if (hasUp) 1 else 0) + list.size
@@ -178,14 +193,28 @@ private sealed interface FileBody {
     data object Binary : FileBody
 }
 
+/** 跳到行的输入校验：只接受 1 到 [total] 之间的整数，其余返回 null（对话框的确认按钮据此禁用）。 */
+internal fun parseJumpLine(input: String, total: Int): Int? =
+    input.trim().toIntOrNull()?.takeIf { it in 1..total }
+
+/** 分支 / 标签的筛选：空关键词全部保留，否则不区分大小写地做子串匹配。 */
+internal fun refMatches(name: String, query: String): Boolean =
+    query.isBlank() || name.contains(query.trim(), ignoreCase = true)
+
+/** 某一行的永久链接（用于长按行号复制），锚点格式与 GitHub 网页一致。 */
+internal fun blobPermalink(owner: String, name: String, ref: String?, path: String, line: Int): String =
+    "https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/${com.mobilegh.data.Api.encodePath(path)}#L$line"
+
 @Composable
-fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
+fun FileViewScreen(owner: String, name: String, path: String, ref: String?, lines: IntRange? = null) {
     val nav = LocalNav.current
     val ctx = rememberCtx()
     val g = Gh.c
     val sc = syntaxColors(g)
     val e = ext(path)
     val rawUrl = "https://raw.githubusercontent.com/$owner/$name/${ref ?: "HEAD"}/${com.mobilegh.data.Api.encodePath(path)}"
+    // 私有仓库的 raw 地址需要令牌，浏览器里打不开；改用 github.com 的 /raw/ 入口，靠网页登录态访问
+    val rawWebUrl = "https://github.com/$owner/$name/raw/${ref ?: "HEAD"}/${com.mobilegh.data.Api.encodePath(path)}"
     val body = rememberLoader("file:${g.dark}") { force ->
         when {
             e in IMAGE_EXT -> FileBody.Image
@@ -202,6 +231,9 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
         }
     }
     var mdSource by rememberSaveable { mutableStateOf(false) }
+    // 当前高亮并滚动到的行：来自链接里的 #L 锚点，或「跳到行」；每次定位都是新对象
+    var focus by remember(lines) { mutableStateOf(lines?.let { LineFocus(it) }) }
+    var jumpOpen by remember { mutableStateOf(false) }
     val source = rememberLoader("src:$mdSource:${g.dark}") { force ->
         if (!mdSource) null else GitHub.fileRaw(owner, name, path, ref, force).let { t -> t to withContext(Dispatchers.Default) { highlightLines(t, "x.txt", sc) } }
     }
@@ -224,11 +256,17 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
             val b = body.data
             // 没有推送权限时编辑页只能提示去网页 Fork，不如直接不给入口（与「删除文件」一致）
             val editable = canPush && ((b is FileBody.Code && b.text.length <= RepoWrite.MAX_EDIT_BYTES) || b is FileBody.Html)
+            // Markdown 的渲染与源码切换直接放在右上角：渲染时显示「源码」图标，源码时显示「渲染」图标
+            if (b is FileBody.Html) OcButton(
+                if (mdSource) R.drawable.oc_book else R.drawable.oc_code,
+                { mdSource = !mdSource },
+                description = if (mdSource) tr("查看渲染") else tr("查看源码"),
+            )
             if (editable) OcButton(R.drawable.oc_pencil, { nav.push(Screen.EditFile(owner, name, ref, path)) })
             MoreMenu(buildList {
                 if (editable) add(MenuAction(tr("编辑文件")) { nav.push(Screen.EditFile(owner, name, ref, path)) })
                 if (b is FileBody.Code) add(MenuAction(tr("复制全部内容")) { ctx.copy(b.text) })
-                if (b is FileBody.Html) add(MenuAction(if (mdSource) tr("查看渲染") else tr("查看源码")) { mdSource = !mdSource })
+                if (b is FileBody.Code) add(MenuAction(tr("跳到行…")) { jumpOpen = true })
                 add(MenuAction(if (Session.codeWrap) tr("关闭自动换行") else tr("自动换行")) { Session.toggleWrap() })
                 // 代码、图片、Markdown 以前都没有下载入口（只有二进制页有按钮），现在统一放到「更多」
                 if (downloadReady) add(MenuAction(tr("下载")) {
@@ -238,6 +276,7 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
                 add(MenuAction(tr("逐行归因（Blame）")) { nav.push(Screen.Blame(owner, name, path, ref)) })
                 add(MenuAction(tr("复制路径")) { ctx.copy(path) })
                 add(MenuAction(tr("分享链接")) { ctx.share("https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/$path") })
+                add(MenuAction(tr("查看原始文件")) { ctx.openBrowser(if (downloadPrivate) rawWebUrl else rawUrl) })
                 add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/$path") })
                 if (canPush) add(MenuAction(tr("删除文件"), danger = true) { deleting = true })
             })
@@ -251,7 +290,12 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
                         if (b.text.length > 400_000) Pill(tr("过大，仅显示前 400KB"), g.attention)
                     }
                     HDivider()
-                    CodeView(b.lines, Session.codeWrap)
+                    CodeView(
+                        b.lines, Session.codeWrap,
+                        focus = focus,
+                        // 长按行号复制带 #L 锚点的永久链接
+                        onLineLongPress = { n -> ctx.copy(blobPermalink(owner, name, ref, path, n), tr("已复制带行号的链接")) },
+                    )
                 }
                 is FileBody.Html -> if (mdSource) {
                     val s = source.data
@@ -278,18 +322,48 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?) {
             }
         }
     }
+    if (jumpOpen) {
+        JumpToLineDialog(total = (body.data as? FileBody.Code)?.lines?.size ?: 0, onDismiss = { jumpOpen = false }) { line ->
+            focus = LineFocus(line..line)
+            jumpOpen = false
+        }
+    }
 }
 
+/** 「跳到行」：输入行号后滚动到该行并高亮。 */
+@Composable
+private fun JumpToLineDialog(total: Int, onDismiss: () -> Unit, onJump: (Int) -> Unit) {
+    var input by rememberSaveable { mutableStateOf("") }
+    val line = parseJumpLine(input, total)
+    GhDialog(
+        tr("跳到行"), onDismiss = onDismiss, confirm = tr("跳转"),
+        confirmEnabled = line != null,
+        onConfirm = { line?.let(onJump) },
+    ) {
+        GhField(
+            input, { input = it.filter(Char::isDigit) }, tr("行号"),
+            placeholder = trf("输入 1 到 {0} 之间的行号", total),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+        )
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun BranchesScreen(owner: String, name: String) {
     val nav = LocalNav.current
     val ctx = rememberCtx()
     val g = Gh.c
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var q by rememberSaveable { mutableStateOf("") }
     val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
     val branches = com.mobilegh.nav.rememberPager("branches", 100) { p, f -> GitHub.branches(owner, name, p, f) }
     val tags = com.mobilegh.nav.rememberPager("tags", 100) { p, f -> GitHub.tags(owner, name, p, f) }
     OnRepoChanged(owner, name) { branches.refresh(); tags.refresh() }
+    // 筛选只作用于已加载的条目：有关键词时把剩余页全部读完，否则结果会漏掉后面页的分支。
+    // 出错后不自动重试（error 不为空时跳过），避免失败的请求被循环触发。
+    LaunchedEffect(q, branches.loading) { if (q.isNotBlank() && !branches.loading && branches.error == null) branches.loadAll() }
+    LaunchedEffect(q, tags.loading) { if (q.isNotBlank() && !tags.loading && tags.error == null) tags.loadAll() }
     val r = repo.data
     val canPush = r?.permissions?.push == true && !r.archived
     // 新建分支的来源；null 表示弹窗关闭
@@ -304,16 +378,25 @@ fun BranchesScreen(owner: String, name: String) {
         Column(Modifier.padding(pad)) {
             Chips(listOf(tr("分支"), trc("标签", "git")), tab) { tab = it }
             HDivider()
+            CompactSearchField(
+                q, { q = it }, tr("筛选"), Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                trailing = if (q.isEmpty()) null else { { FieldAction(R.drawable.oc_x, tr("清空筛选关键词")) { q = "" } } },
+            )
             if (tab == 0) {
-                com.mobilegh.ui.components.PagedList(branches) { b ->
+                com.mobilegh.ui.components.PagedList(
+                    branches, itemFilter = { refMatches(it.name, q) }, autoLoad = q.isBlank(), filteredEmpty = tr("无匹配结果"),
+                ) { b ->
                     val isDefault = b.name == r?.defaultBranch
                     Row(
-                        Modifier.fillMaxWidth().clickable { nav.push(Screen.Files(owner, name, "", b.name)) }.padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
+                        // 长按显示完整分支名：名字过长时即使折成两行也可能被截断
+                        Modifier.fillMaxWidth()
+                            .combinedClickable(onClick = { nav.push(Screen.Files(owner, name, "", b.name)) }, onLongClick = { ctx.toast(b.name) })
+                            .padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Oc(R.drawable.oc_git_branch, g.fgMuted)
                         Spacer(Modifier.width(10.dp))
-                        Text(b.name, color = g.fg, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(b.name, color = g.fg, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
                         if (isDefault) { Spacer(Modifier.width(6.dp)); Pill(tr("默认"), g.accent) }
                         if (b.protected) {
                             Spacer(Modifier.width(6.dp))
@@ -338,7 +421,9 @@ fun BranchesScreen(owner: String, name: String) {
                     }
                 }
             } else {
-                com.mobilegh.ui.components.PagedList(tags, empty = tr("没有标签")) { t ->
+                com.mobilegh.ui.components.PagedList(
+                    tags, empty = tr("没有标签"), itemFilter = { refMatches(it.name, q) }, autoLoad = q.isBlank(), filteredEmpty = tr("无匹配结果"),
+                ) { t ->
                     Row(
                         Modifier.fillMaxWidth().clickable { nav.push(Screen.Files(owner, name, "", t.name)) }.padding(start = 16.dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -419,9 +504,11 @@ internal fun DeleteBranchDialog(owner: String, name: String, b: com.mobilegh.dat
     val entry = LocalEntry.current
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    GhDialog(
-        tr("删除分支"), onDismiss = { if (!busy) onDismiss() },
-        confirm = if (busy) tr("删除中…") else tr("删除"), danger = true, confirmEnabled = !busy,
+    // 删除分支会关闭以它为来源的 PR，要求输入分支名确认
+    TypeToConfirmDialog(
+        title = tr("删除分支"), expected = b.name, ignoreCase = false,
+        hint = tr("输入下面的分支名以确认："), fieldLabel = tr("分支名称"), confirm = tr("删除"),
+        busy = busy, onDismiss = onDismiss,
         onConfirm = {
             busy = true
             error = null

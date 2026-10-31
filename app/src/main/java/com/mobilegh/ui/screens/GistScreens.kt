@@ -408,6 +408,7 @@ fun GistEditorScreen(id: String?) {
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var confirmLeave by remember { mutableStateOf(false) }
+    var askRemoval by remember { mutableStateOf(false) }
     val dirty = state.ready && !busy && (
         if (id == null) state.description.isNotBlank() || state.files.any { it.filename.isNotBlank() || it.content.isNotBlank() }
         else gistPatchPayload(state.originalDescription, state.description, state.files, state.removed) != null
@@ -427,6 +428,35 @@ fun GistEditorScreen(id: String?) {
         LoadBox(source, Modifier.padding(pad).fillMaxSize()) { loaded ->
             LaunchedEffect(loaded) { state.init(loaded.firstOrNull()) }
             if (!state.ready) return@LoadBox
+            // 保存逻辑抽成函数：删除已有文件时先经过确认弹窗，确认后调用同一段提交代码
+            fun submit() {
+                error = null
+                if (id == null) {
+                    val payload = runCatching { gistCreatePayload(state.description, state.public, state.files) }
+                        .getOrElse { error = it.message; return }
+                    busy = true
+                    entry.write<Gist>({ busy = false; error = it }, { created ->
+                        busy = false
+                        ctx.toast(tr("Gist 已创建"))
+                        nav.refreshGistLists()
+                        nav.replace(Screen.GistDetail(created.id))
+                    }) { GitHub.createGist(payload) }
+                } else {
+                    val payload = gistPatchPayload(state.originalDescription, state.description, state.files, state.removed)
+                    if (payload == null) {
+                        ctx.toast(tr("没有修改"))
+                        nav.pop()
+                        return
+                    }
+                    busy = true
+                    entry.write<Gist>({ busy = false; error = it }, {
+                        busy = false
+                        ctx.toast(tr("已保存"))
+                        nav.refreshRetained { s -> s == Screen.GistDetail(id) || s is Screen.Gists }
+                        nav.pop()
+                    }) { GitHub.editGist(id, payload) }
+                }
+            }
             val validation = gistFilesError(state.files, state.removed)
             Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
                 GhField(
@@ -480,33 +510,12 @@ fun GistEditorScreen(id: String?) {
                     Modifier.padding(horizontal = 16.dp).fillMaxWidth(), primary = true,
                     enabled = !busy && validation == null && Session.token != null,
                 ) {
-                    error = null
-                    if (id == null) {
-                        val payload = runCatching { gistCreatePayload(state.description, state.public, state.files) }
-                            .getOrElse { error = it.message; return@GhButton }
-                        busy = true
-                        entry.write<Gist>({ busy = false; error = it }, { created ->
-                            busy = false
-                            ctx.toast(tr("Gist 已创建"))
-                            nav.refreshGistLists()
-                            nav.replace(Screen.GistDetail(created.id))
-                        }) { GitHub.createGist(payload) }
-                    } else {
-                        val payload = gistPatchPayload(state.originalDescription, state.description, state.files, state.removed)
-                        if (payload == null) {
-                            ctx.toast(tr("没有修改"))
-                            nav.pop()
-                            return@GhButton
-                        }
-                        busy = true
-                        entry.write<Gist>({ busy = false; error = it }, {
-                            busy = false
-                            ctx.toast(tr("已保存"))
-                            nav.refreshRetained { s -> s == Screen.GistDetail(id) || s is Screen.Gists }
-                            nav.pop()
-                        }) { GitHub.editGist(id, payload) }
-                    }
+                    if (id != null && state.removed.isNotEmpty()) { askRemoval = true } else { submit() }
                 }
+                if (askRemoval) GhDialog(tr("删除 Gist 中的文件？"), { askRemoval = false }, confirm = tr("保存并删除"), danger = true, onConfirm = {
+                    askRemoval = false
+                    submit()
+                }) { Text(trf("保存后这些文件将从 Gist 中删除：{0}。", state.removed.joinToString("、")), color = g.fg) }
                 Spacer(Modifier.height(24.dp))
             }
         }

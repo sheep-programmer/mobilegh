@@ -94,6 +94,7 @@ import kotlinx.coroutines.withContext
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trc
 import com.mobilegh.i18n.trf
+import com.mobilegh.ui.components.CompactSearchField
 
 /** One retained pager per connection; filter changes replace its window and cancel old requests. */
 internal class DiscussionCursorPager<T>(
@@ -237,7 +238,7 @@ fun DiscussionsScreen(
                                 GhButton(tr("新讨论"), enabled = allowed && categories.items.isNotEmpty()) { composing = true }
                             }
                             CursorFooter(categories, tr("加载更多分类"), tr("分类"))
-                            GhField(query, { query = it }, tr("搜索已加载讨论"))
+                            CompactSearchField(query, { query = it }, tr("搜索已加载讨论"))
                             Text(trf("搜索标题、作者、分类和编号 · 已加载 {0}/{1}", discussions.items.size, discussions.totalCount), color = g.fgMuted, fontSize = 12.sp)
                             if (!allowed) Text(if (repo.archived) tr("仓库已归档，仅可阅读") else tr("当前账号仅可阅读讨论"), color = g.fgMuted, fontSize = 12.sp)
                         }

@@ -63,7 +63,7 @@ class ScrollTopAndPillTest {
     @Test fun downloadPillCanBeDraggedButStaysOnScreen() {
         compose.setContent {
             MobileGhTheme {
-                Box(Modifier.fillMaxSize()) { DownloadPill(3) {} }
+                Box(Modifier.fillMaxSize()) { DownloadPill(3, 0) {} }
             }
         }
         val pill = compose.onNodeWithText("下载中 · 3")

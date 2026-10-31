@@ -20,12 +20,20 @@ import com.mobilegh.i18n.trf
 
 internal object ApprovalOAuthProtocol {
     const val CLIENT_ID = "3f8b8834a91f0caad392"
+    /** 网页授权固定走 github.com：授权码只能在发起它的站点兑换，且兑换时携带应用密钥，不能发给可配置的站点 */
+    const val GITHUB_BASE = "https://github.com"
     const val REDIRECT = "github://com.github.android/oauth"
     private val random = SecureRandom()
     fun randomString() = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also(random::nextBytes))
     fun challenge(verifier: String) = Base64.getUrlEncoder().withoutPadding()
         .encodeToString(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray(Charsets.US_ASCII)))
-    fun callback(url: String, expectedState: String): String {
+    /** 网页授权地址，默认 https://github.com/login/oauth/authorize */
+    fun authorizeUrl(base: String = ApprovalOAuthProtocol.GITHUB_BASE): String = Net.loginEndpoint("/login/oauth/authorize", base)
+
+    /** 兑换授权码的地址，默认 https://github.com/login/oauth/access_token */
+    fun tokenUrl(base: String = ApprovalOAuthProtocol.GITHUB_BASE): String = Net.loginEndpoint("/login/oauth/access_token", base)
+
+    fun callback(url: String, expectedState: String, base: String = ApprovalOAuthProtocol.GITHUB_BASE): String {
         val uri = URI(url)
         require(uri.scheme == "github" && uri.rawAuthority == "com.github.android" && uri.path == "/oauth" && uri.fragment == null) { tr("授权回调地址无效") }
         val pairs = uri.rawQuery.orEmpty().split('&').filter { it.isNotEmpty() }.map {
@@ -34,7 +42,9 @@ internal object ApprovalOAuthProtocol {
         }
         require(pairs.map { it.first }.distinct().size == pairs.size) { tr("授权回调参数无效") }
         val params = pairs.toMap()
-        require(params["iss"] == null || params["iss"] == "https://github.com/login/oauth") { tr("授权提供方不匹配") }
+        // iss 必须是登录站点同源的 /login/oauth，例如 https://github.com/login/oauth
+        val issuer = params["iss"]
+        require(issuer == null || Net.isLoginUrl(issuer, "/login/oauth", base)) { tr("授权提供方不匹配") }
         require(MessageDigest.isEqual(params["state"].orEmpty().toByteArray(), expectedState.toByteArray())) { tr("授权请求不匹配，请重新开始") }
         check(params["error"] == null) { tr("GitHub 授权已取消") }
         return params["code"]?.takeIf { it.isNotBlank() } ?: error(tr("GitHub 未返回授权码"))
@@ -63,7 +73,7 @@ object MobileApprovalOAuth {
     private var issued: Triple<String, String, Set<String>?>? = null
     private var initiatingGeneration: Int? = null
     private var operation = 0
-    private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
+    private val client = OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector()).connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(25, TimeUnit.SECONDS).callTimeout(30, TimeUnit.SECONDS).followRedirects(false).build()
 
     fun begin(context: Context, purpose: ApprovalOAuthPurpose = ApprovalOAuthPurpose.ApprovalOnly): String {
@@ -74,15 +84,18 @@ object MobileApprovalOAuth {
         initiatingGeneration = Session.generation
         val verifier = ApprovalOAuthProtocol.randomString()
         val state = ApprovalOAuthProtocol.randomString()
+        // 登录站点随本次授权一起保存：中途切换登录地址，兑换授权码时仍用发起授权的站点
+        val base = ApprovalOAuthProtocol.GITHUB_BASE
         val pending = buildJsonObject { put("state", state); put("verifier", verifier)
-            put("createdAt", System.currentTimeMillis()); put("login", Session.login.orEmpty()); put("purpose", purpose.name) }
+            put("createdAt", System.currentTimeMillis()); put("login", Session.login.orEmpty()); put("purpose", purpose.name)
+            put("loginBase", base) }
         check(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString("pending", Crypto.encrypt(pending.toString())).commit()) { tr("无法保存授权请求") }
         mutableState.value = ApprovalSetupState(busy = true, waitingForBrowser = true)
         val values = listOf("client_id" to ApprovalOAuthProtocol.CLIENT_ID, "redirect_uri" to ApprovalOAuthProtocol.REDIRECT,
             "scope" to DeviceAuth.SCOPES, "state" to state,
             "code_challenge" to ApprovalOAuthProtocol.challenge(verifier), "code_challenge_method" to "S256")
-        return "https://github.com/login/oauth/authorize?" + values.joinToString("&") { (k, v) -> "$k=${URLEncoder.encode(v, "UTF-8")}" }
+        return ApprovalOAuthProtocol.authorizeUrl(base) + "?" + values.joinToString("&") { (k, v) -> "$k=${URLEncoder.encode(v, "UTF-8")}" }
     }
 
     fun handles(url: String): Boolean = runCatching {
@@ -106,7 +119,9 @@ object MobileApprovalOAuth {
                 }
                 val pending = Api.plain.parseToJsonElement(Crypto.decrypt(encrypted)).jsonObject
                 check(System.currentTimeMillis() - pending.getValue("createdAt").jsonPrimitive.long in 0..900_000) { tr("授权请求已过期") }
-                val code = ApprovalOAuthProtocol.callback(url, pending.getValue("state").jsonPrimitive.content)
+                // 旧版本保存的请求没有 loginBase，回退为 github.com
+                val base = pending["loginBase"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() } ?: ApprovalOAuthProtocol.GITHUB_BASE
+                val code = ApprovalOAuthProtocol.callback(url, pending.getValue("state").jsonPrimitive.content, base)
                 val purpose = pending["purpose"]?.jsonPrimitive?.content?.let { value -> ApprovalOAuthPurpose.entries.firstOrNull { it.name == value } }
                     ?: ApprovalOAuthPurpose.ApprovalOnly
                 val startingLogin = pending.getValue("login").jsonPrimitive.content.takeIf { it.isNotBlank() }
@@ -118,7 +133,7 @@ object MobileApprovalOAuth {
                 stage = "token"
                 AppLog.info("2fa_setup", tr("开始完成 GitHub 授权"))
                 val (token, grantedScopes) = issued?.takeIf { it.first == url }?.let { it.second to it.third }
-                    ?: exchange(code, pending.getValue("verifier").jsonPrimitive.content).also { issued = Triple(url, it.first, it.second) }
+                    ?: exchange(code, pending.getValue("verifier").jsonPrimitive.content, base).also { issued = Triple(url, it.first, it.second) }
                 checkSession()
                 val user = MobileApproval.user(token)
                 checkSession()
@@ -161,11 +176,11 @@ object MobileApprovalOAuth {
     }
 
     /** 返回 Token 与 GitHub 实际授予的权限范围（兑换响应的 scope 字段，可能缺省） */
-    private suspend fun exchange(code: String, verifier: String): Pair<String, Set<String>?> {
+    private suspend fun exchange(code: String, verifier: String, base: String): Pair<String, Set<String>?> {
         val form = FormBody.Builder().add("client_id", ApprovalOAuthProtocol.CLIENT_ID).add("client_secret", CLIENT_SECRET)
             .add("code", code).add("code_verifier", verifier)
             .add("redirect_uri", ApprovalOAuthProtocol.REDIRECT).build()
-        val request = Request.Builder().url("https://github.com/login/oauth/access_token")
+        val request = Request.Builder().url(ApprovalOAuthProtocol.tokenUrl(base))
             .header("Accept", "application/json").header("User-Agent", "MobileGH").post(form).build()
         var attempt = 1
         while (true) {

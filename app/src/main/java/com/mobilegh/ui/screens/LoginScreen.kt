@@ -61,6 +61,8 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
     var help by remember { mutableStateOf(false) }
     var networkSettings by remember { mutableStateOf(false) }
     var authenticator by remember { mutableStateOf(false) }
+    // 开始 GitHub 授权失败（例如无法保存授权请求）时的提示，原先会被静默吞掉
+    var approvalStartError by remember { mutableStateOf<String?>(null) }
     var showUpdate by remember { mutableStateOf(false) }
     var logs by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
@@ -92,6 +94,7 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
     val busy = flow.busy
     val device = flow.device
     var remaining by remember { mutableIntStateOf(0) }
+    var retryIn by remember { mutableIntStateOf(0) }
 
     BackHandler(device != null) { flow.cancel() }
     BackHandler(logs) { logs = false }
@@ -103,7 +106,9 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
         runCatching { ctx.openBrowser(device.verificationUri) }
             .onFailure { flow.notice = trf("浏览器未能打开，请手动访问 {0}", device.verificationUri) }
         while (isActive) {
-            remaining = ((flow.deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0) / 1000).toInt()
+            val nowMs = SystemClock.elapsedRealtime()
+            remaining = ((flow.deadline - nowMs).coerceAtLeast(0) / 1000).toInt()
+            retryIn = retrySecondsLeft(flow.retryAt, nowMs)
             delay(1000)
         }
     }
@@ -171,8 +176,12 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
                         Text(tr("登录后自动启用数字审批，验证请求会弹窗并通知你。"), color = g.fgMuted, fontSize = 14.sp)
                         GhButton(tr("继续"), Modifier.fillMaxWidth(), primary = true,
                             enabled = !busy && !approvalSetup.busy, icon = R.drawable.oc_mark_github) {
-                            runCatching { MobileApprovalOAuth.begin(ctx, if (reauthorizing) ApprovalOAuthPurpose.Reauthorize else ApprovalOAuthPurpose.SignIn) }.onSuccess { ctx.openBrowser(it) }
+                            approvalStartError = null
+                            runCatching { MobileApprovalOAuth.begin(ctx, if (reauthorizing) ApprovalOAuthPurpose.Reauthorize else ApprovalOAuthPurpose.SignIn) }
+                                .onSuccess { ctx.openBrowser(it) }
+                                .onFailure { approvalStartError = it.message?.takeIf { m -> m.isNotBlank() } ?: tr("无法开始 GitHub 授权，请重试") }
                         }
+                        approvalStartError?.let { InlineError(it) }
                         if (approvalSetup.busy) {
                             Text(approvalSetup.notice ?: if (approvalSetup.waitingForBrowser) tr("正在等待 GitHub 授权") else tr("正在自动启用数字审批…"), color = g.fgMuted, fontSize = 13.sp)
                             if (approvalSetup.waitingForBrowser) TextLink(tr("取消授权")) { MobileApprovalOAuth.cancel(ctx) }
@@ -201,6 +210,7 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
                         Text(if (flow.confirming) tr("GitHub 已授权，正在连接账号") else tr("等待 GitHub 授权"), color = g.fgMuted, fontSize = 13.sp)
                     }
                     flow.notice?.let { Text(it, color = g.fgMuted, fontSize = 13.sp) }
+                    if (retryIn > 0) Text(trf("{0} 秒后自动重试", retryIn), color = g.fgMuted, fontSize = 13.sp)
                     TextLink(tr("取消")) { flow.cancel() }
                 }
             }
@@ -256,7 +266,7 @@ private fun LoginMenuPage(
             }
             SectionTitle(tr("连接"))
             MenuGroup {
-                MenuRow(R.drawable.oc_globe, tr("网络连接"), g.success, value = AppNetwork.config.mode.label, onClick = onNetwork)
+                MenuRow(R.drawable.oc_globe, tr("应用网络代理"), g.success, value = AppNetwork.config.mode.label, onClick = onNetwork)
                 MenuRow(R.drawable.oc_shield_lock, tr("两步验证与数字批准"), g.done, onClick = onAuthenticator)
             }
             SectionTitle(tr("帮助"))

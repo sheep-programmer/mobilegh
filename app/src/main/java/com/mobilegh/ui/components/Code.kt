@@ -1,6 +1,18 @@
 package com.mobilegh.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontWeight
+import com.mobilegh.i18n.trf
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
@@ -66,23 +78,51 @@ private val LUA_KW = "and break do else elseif end false for function goto if in
 private val RB_KW = "alias and begin break case class def defined do else elsif end ensure false for if in module next nil not or redo rescue retry return self super then true undef unless until when while yield require attr_accessor puts".split(" ").toSet()
 private val YAML_KW = setOf("true", "false", "null", "yes", "no", "on", "off")
 
+// 语言表只建一次：每行 diff 都会调用 langOf，不能每次重新分配扩展名集合
+private val DOCKER_KW = SH_KW + setOf("from", "run", "cmd", "copy", "add", "env", "workdir", "expose", "entrypoint", "arg", "label", "volume", "user")
+private val CSS_KW = setOf("important", "media", "import", "keyframes", "from", "to", "include", "mixin", "extend", "if", "else", "each")
+private val C_EXT = setOf("kt", "kts", "java", "js", "mjs", "cjs", "jsx", "ts", "tsx", "go", "rs", "c", "h", "cc", "cpp", "hpp", "cxx", "cs", "swift", "m", "mm", "dart", "scala", "groovy", "gradle", "php", "zig", "v", "sol", "vue", "svelte", "proto", "glsl", "cu")
+private val PY_EXT = setOf("py", "pyi", "pyw")
+private val RB_EXT = setOf("rb", "rake", "gemspec")
+private val SH_EXT = setOf("sh", "bash", "zsh", "fish", "ps1", "bat", "cmd", "env", "conf", "ini", "cfg", "properties", "toml", "r", "pl", "nix", "tf", "hcl")
+private val YAML_EXT = setOf("yml", "yaml")
+private val JSON_EXT = setOf("json", "jsonc", "json5", "ipynb", "lock")
+private val MARKUP_EXT = setOf("xml", "html", "htm", "xhtml", "svg", "plist", "vue", "xaml", "csproj", "storyboard")
+private val SQL_EXT = setOf("sql")
+private val LUA_EXT = setOf("lua")
+private val CSS_EXT = setOf("css", "scss", "less", "sass")
+private val DOCKER_LANG = Lang(Fam.Sh, DOCKER_KW)
+private val SH_LANG = Lang(Fam.Sh, SH_KW)
+private val C_LANG = Lang(Fam.C, C_KW)
+private val PY_LANG = Lang(Fam.Py, PY_KW)
+private val RB_LANG = Lang(Fam.Py, RB_KW)
+private val YAML_LANG = Lang(Fam.Yaml, YAML_KW)
+private val JSON_LANG = Lang(Fam.Json, emptySet())
+private val MARKUP_LANG = Lang(Fam.Markup, emptySet())
+private val SQL_LANG = Lang(Fam.Sql, SQL_KW)
+private val LUA_LANG = Lang(Fam.Lua, LUA_KW)
+private val CSS_LANG = Lang(Fam.C, CSS_KW)
+private val PLAIN_LANG = Lang(Fam.Plain, emptySet())
+/** 用 # 作注释的语言族（与 highlightLines 中的判断共用） */
+private val HASH_COMMENT_FAMS = setOf(Fam.Py, Fam.Sh, Fam.Yaml)
+
 private fun langOf(file: String): Lang {
     val name = file.substringAfterLast('/').lowercase()
     val ext = name.substringAfterLast('.', "")
     return when {
-        name == "dockerfile" || ext == "dockerfile" -> Lang(Fam.Sh, SH_KW + setOf("from", "run", "cmd", "copy", "add", "env", "workdir", "expose", "entrypoint", "arg", "label", "volume", "user"))
-        name == "makefile" || ext == "mk" -> Lang(Fam.Sh, SH_KW)
-        ext in setOf("kt", "kts", "java", "js", "mjs", "cjs", "jsx", "ts", "tsx", "go", "rs", "c", "h", "cc", "cpp", "hpp", "cxx", "cs", "swift", "m", "mm", "dart", "scala", "groovy", "gradle", "php", "zig", "v", "sol", "vue", "svelte", "proto", "glsl", "cu") -> Lang(Fam.C, C_KW)
-        ext in setOf("py", "pyi", "pyw") -> Lang(Fam.Py, PY_KW)
-        ext in setOf("rb", "rake", "gemspec") -> Lang(Fam.Py, RB_KW)
-        ext in setOf("sh", "bash", "zsh", "fish", "ps1", "bat", "cmd", "env", "conf", "ini", "cfg", "properties", "toml", "r", "pl", "nix", "tf", "hcl") -> Lang(Fam.Sh, SH_KW)
-        ext in setOf("yml", "yaml") -> Lang(Fam.Yaml, YAML_KW)
-        ext in setOf("json", "jsonc", "json5", "ipynb", "lock") -> Lang(Fam.Json, emptySet())
-        ext in setOf("xml", "html", "htm", "xhtml", "svg", "plist", "vue", "xaml", "csproj", "storyboard") -> Lang(Fam.Markup, emptySet())
-        ext in setOf("sql") -> Lang(Fam.Sql, SQL_KW)
-        ext in setOf("lua") -> Lang(Fam.Lua, LUA_KW)
-        ext in setOf("css", "scss", "less", "sass") -> Lang(Fam.C, setOf("important", "media", "import", "keyframes", "from", "to", "include", "mixin", "extend", "if", "else", "each"))
-        else -> Lang(Fam.Plain, emptySet())
+        name == "dockerfile" || ext == "dockerfile" -> DOCKER_LANG
+        name == "makefile" || ext == "mk" -> SH_LANG
+        ext in C_EXT -> C_LANG
+        ext in PY_EXT -> PY_LANG
+        ext in RB_EXT -> RB_LANG
+        ext in SH_EXT -> SH_LANG
+        ext in YAML_EXT -> YAML_LANG
+        ext in JSON_EXT -> JSON_LANG
+        ext in MARKUP_EXT -> MARKUP_LANG
+        ext in SQL_EXT -> SQL_LANG
+        ext in LUA_EXT -> LUA_LANG
+        ext in CSS_EXT -> CSS_LANG
+        else -> PLAIN_LANG
     }
 }
 
@@ -104,7 +144,7 @@ fun highlightLines(text: String, file: String, sc: SyntaxColors): List<Annotated
     val attr = SpanStyle(color = sc.attr)
     val n = src.length
     var i = 0
-    val hashComment = lang.fam in setOf(Fam.Py, Fam.Sh, Fam.Yaml)
+    val hashComment = lang.fam in HASH_COMMENT_FAMS
     val slashComment = lang.fam == Fam.C || lang.fam == Fam.Json
     val dashComment = lang.fam == Fam.Sql || lang.fam == Fam.Lua
 
@@ -230,33 +270,72 @@ private fun lineStartSpaces(s: String, i: Int): Boolean {
     return true
 }
 
-/** 代码查看：行号 + 高亮 + 可选自动换行 */
+/** 单行超过这个字符数时只显示前一段，完整内容由「查看完整行」打开；横向宽度也以它为上限。 */
+const val LONG_LINE_CHARS = 2000
+
+/** 一次定位（跳到行、链接里的 #L 锚点）。每次定位都是新对象，同一行再次定位也会重新滚动。 */
+class LineFocus(val range: IntRange)
+
+/**
+ * 代码查看：行号 + 高亮 + 可选自动换行。
+ * [focus] 非空时滚动到该范围的第一行，并把范围内的行染上底色；长按行号回调 [onLineLongPress]（参数为行号，从 1 开始）。
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun CodeView(lines: List<AnnotatedString>, wrap: Boolean, modifier: Modifier = Modifier) {
+fun CodeView(
+    lines: List<AnnotatedString>,
+    wrap: Boolean,
+    modifier: Modifier = Modifier,
+    focus: LineFocus? = null,
+    onLineLongPress: ((Int) -> Unit)? = null,
+) {
     val g = Gh.c
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val charW = remember(measurer) { measurer.measure("0", CodeStyle).size.width }
     val gutterChars = lines.size.toString().length
     val gutter = with(density) { (charW * gutterChars).toDp() } + 20.dp
-    val maxChars = remember(lines) { lines.maxOfOrNull { it.length } ?: 0 }
+    val maxChars = remember(lines) { minOf(lines.maxOfOrNull { it.length } ?: 0, LONG_LINE_CHARS) }
     val contentW = with(density) { (charW * (maxChars + 2)).toDp() } + gutter + 16.dp
     val hs = rememberScrollState()
+    val listState = rememberLazyListState()
+    var fullLine by remember { mutableStateOf<String?>(null) }
+    val target = focus?.range
+    LaunchedEffect(focus) {
+        focus?.let { listState.animateScrollToItem((it.range.first - 1).coerceIn(0, (lines.size - 1).coerceAtLeast(0))) }
+    }
     Box(modifier.fillMaxSize().then(if (wrap) Modifier else Modifier.horizontalScroll(hs))) {
         SelectionContainer {
-            LazyColumn(if (wrap) Modifier.fillMaxSize() else Modifier.width(contentW).fillMaxSize()) {
+            LazyColumn(state = listState, modifier = if (wrap) Modifier.fillMaxSize() else Modifier.width(contentW).fillMaxSize()) {
                 itemsIndexed(lines) { idx, line ->
-                    Row(Modifier.fillMaxWidth()) {
+                    val number = idx + 1
+                    val marked = target != null && number in target
+                    val long = line.length > LONG_LINE_CHARS
+                    Row(Modifier.fillMaxWidth().background(if (marked) g.accent.copy(alpha = 0.15f) else Color.Transparent)) {
+                        val gutterMod = Modifier.width(gutter).padding(end = 12.dp)
                         Text(
-                            (idx + 1).toString(), Modifier.width(gutter).padding(end = 12.dp),
+                            number.toString(),
+                            if (onLineLongPress != null) gutterMod.combinedClickable(onClick = {}, onLongClick = { onLineLongPress(number) }) else gutterMod,
                             style = CodeStyle, color = g.fgMuted.copy(alpha = 0.7f), textAlign = TextAlign.End,
                         )
-                        Text(line, style = CodeStyle, color = g.fg, softWrap = wrap, modifier = Modifier.padding(end = 12.dp))
+                        Column(Modifier.padding(end = 12.dp)) {
+                            Text(if (long) line.subSequence(0, LONG_LINE_CHARS) else line, style = CodeStyle, color = g.fg, softWrap = wrap)
+                            if (long) Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(trf("超长行（{0} 字符）", line.length), color = g.fgMuted, fontSize = 12.sp)
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    tr("查看完整行"), color = g.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.clickable { fullLine = line.text }.padding(vertical = 4.dp),
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
+    // 复用 Html.kt 里的全屏代码查看：不换行、可横向和纵向滚动
+    fullLine?.let { code -> CodeZoomDialog(code) { fullLine = null } }
 }
 
 // ============ Diff ============
@@ -414,10 +493,10 @@ fun DiffRow(d: DiffLine, g: GhColors, file: String = "", onLineClick: (() -> Uni
             Modifier.width(14.dp), style = CodeStyle,
             color = when (d.kind) { '+' -> g.success; '-' -> g.danger; else -> g.fgMuted },
         )
-        val code = if (d.kind == '@' || d.kind == '\\' || file.isBlank()) {
-            AnnotatedString(d.text)
-        } else {
-            highlightLines(d.text, file, syntaxColors(g)).firstOrNull() ?: AnnotatedString(d.text)
+        // 每行只高亮一次：语言由文件名决定，颜色只随深浅色变化，重组时直接复用结果
+        val code = remember(d.text, d.kind, file, g.dark) {
+            if (d.kind == '@' || d.kind == '\\' || file.isBlank()) AnnotatedString(d.text)
+            else highlightLines(d.text, file, syntaxColors(g)).firstOrNull() ?: AnnotatedString(d.text)
         }
         Text(
             code,

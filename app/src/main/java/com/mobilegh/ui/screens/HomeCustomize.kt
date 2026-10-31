@@ -28,11 +28,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
+import com.mobilegh.data.FavoriteRepo
 import com.mobilegh.data.HomeLayout
 import com.mobilegh.data.HomePrefs
 import com.mobilegh.data.Involvement
 import com.mobilegh.data.IssueQuery
 import com.mobilegh.data.IssueStateFilter
+import com.mobilegh.data.SavedSearch
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.GhDialog
@@ -58,9 +60,12 @@ import com.mobilegh.i18n.trf
 fun HomeCustomizeScreen() {
     val g = Gh.c
     val nav = LocalNav.current
-    val ctx = rememberCtx()
     val layout = HomePrefs.layout()
     var creating by remember { mutableStateOf(false) }
+    // 删除、移出、恢复默认都先弹确认框，避免误触后无法撤回
+    var pendingSearch by remember { mutableStateOf<SavedSearch?>(null) }
+    var pendingFavorite by remember { mutableStateOf<FavoriteRepo?>(null) }
+    var confirmReset by remember { mutableStateOf(false) }
     // 复用首页的图标、名称与颜色，保证这里看到的和首页一致
     val builtins = homeShortcuts({}, {}, {}, {}, {}, {}, {}, {}).associateBy { it.id }
 
@@ -71,7 +76,7 @@ fun HomeCustomizeScreen() {
             MoreMenu(
                 listOf(
                     MenuAction(tr("新建保存的搜索")) { creating = true },
-                    MenuAction(tr("恢复默认入口")) { HomePrefs.resetShortcuts(); ctx.toast(tr("已恢复默认入口")) },
+                    MenuAction(tr("恢复默认入口")) { confirmReset = true },
                 ),
             )
         },
@@ -96,10 +101,7 @@ fun HomeCustomizeScreen() {
                         canDown = i < slots.lastIndex,
                         onMove = { d -> HomePrefs.moveShortcut(i, d) },
                     ) {
-                        if (search != null) OcButton(R.drawable.oc_trash, {
-                            HomePrefs.removeSearch(search.id)
-                            ctx.toast(trf("已删除「{0}」", search.name))
-                        }, g.fgMuted)
+                        if (search != null) OcButton(R.drawable.oc_trash, { pendingSearch = search }, g.fgMuted, description = trf("删除搜索 {0}", search.name))
                         Switch(
                             slot.visible, { HomePrefs.setShortcutVisible(slot.id, it) },
                             Modifier.semantics { contentDescription = (if (slot.visible) tr("隐藏") else tr("显示")) + s.label },
@@ -111,7 +113,7 @@ fun HomeCustomizeScreen() {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 TextLink(tr("新建保存的搜索")) { creating = true }
             }
-            Hint(tr("在 Issue / PR 列表设置好筛选后，也可以从右上角菜单选择「保存到首页…」。"))
+            Hint(tr("在 Issues / Pull Requests 列表设置好筛选后，也可以从右上角菜单选择「保存到首页…」。"))
 
             SectionTitle(tr("收藏仓库"))
             if (layout.favorites.isEmpty()) {
@@ -127,7 +129,7 @@ fun HomeCustomizeScreen() {
                             canUp = i > 0, canDown = i < layout.favorites.lastIndex,
                             onMove = { d -> HomePrefs.moveFavorite(i, d) },
                         ) {
-                            OcButton(R.drawable.oc_trash, { HomePrefs.removeFavorite(f) }, g.fgMuted)
+                            OcButton(R.drawable.oc_trash, { pendingFavorite = f }, g.fgMuted, description = trf("移出首页收藏 {0}", "${f.owner} / ${f.name}"))
                         }
                     }
                 }
@@ -136,7 +138,27 @@ fun HomeCustomizeScreen() {
         }
     }
     if (creating) NewSavedSearchDialog { creating = false }
+    if (confirmReset) ConfirmResetShortcutsDialog { confirmReset = false }
+    pendingSearch?.let { search -> ConfirmDeleteSearchDialog(search) { pendingSearch = null } }
+    pendingFavorite?.let { repo -> ConfirmRemoveFavoriteDialog(repo) { pendingFavorite = null } }
 }
+
+/** 恢复默认入口前的确认：只重置入口的顺序和显示开关，不删除保存的搜索和收藏仓库 */
+@Composable
+private fun ConfirmResetShortcutsDialog(onDismiss: () -> Unit) {
+    val g = Gh.c
+    val ctx = rememberCtx()
+    GhDialog(tr("恢复默认入口？"), onDismiss, confirm = tr("恢复"), onConfirm = {
+        HomePrefs.resetShortcuts()
+        ctx.toast(tr("已恢复默认入口"))
+        onDismiss()
+    }) {
+        Text(tr("首页入口的顺序和显示开关会回到默认设置。"), color = g.fg)
+    }
+}
+
+/** 纯逻辑：名称（去掉首尾空白后）超出上限的字数，0 表示合法。提示文字与保存按钮共用这一个判断 */
+fun savedSearchNameOverflow(name: String, max: Int = HomeLayout.MAX_NAME): Int = (name.trim().length - max).coerceAtLeast(0)
 
 @Composable
 private fun Hint(text: String) {
@@ -166,8 +188,8 @@ private fun EditRow(
             Text(title, fontSize = 14.sp, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (desc != null) Text(desc, fontSize = 12.sp, lineHeight = 16.sp, color = g.fgMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        Row(Modifier.semantics { contentDescription = trf("上移{0}", title) }) { OcButton(R.drawable.oc_arrow_up, { onMove(-1) }, g.fgMuted, canUp) }
-        Row(Modifier.semantics { contentDescription = trf("下移{0}", title) }) { OcButton(R.drawable.oc_arrow_down, { onMove(1) }, g.fgMuted, canDown) }
+        OcButton(R.drawable.oc_arrow_up, { onMove(-1) }, g.fgMuted, canUp, description = trf("上移{0}", title))
+        OcButton(R.drawable.oc_arrow_down, { onMove(1) }, g.fgMuted, canDown, description = trf("下移{0}", title))
         trailing()
     }
 }
@@ -197,7 +219,8 @@ private fun NewSavedSearchDialog(onDismiss: () -> Unit) {
         text = text,
         involves = if (repoText.isEmpty()) involves.takeIf { it in kinds } ?: Involvement.Created else null,
     ).normalized()
-    val valid = name.isNotBlank() && name.trim().length <= HomeLayout.MAX_NAME && repoOk
+    val nameOver = savedSearchNameOverflow(name)
+    val valid = name.isNotBlank() && nameOver == 0 && repoOk
 
     GhDialog(tr("新建保存的搜索"), onDismiss, confirm = tr("保存"), confirmEnabled = valid, onConfirm = {
         runCatching { HomePrefs.addSearch(name, icon, query) ?: error(tr("请先登录")) }
@@ -206,7 +229,13 @@ private fun NewSavedSearchDialog(onDismiss: () -> Unit) {
     }) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             GhField(name, { name = it.take(HomeLayout.MAX_NAME + 8) }, tr("名称"))
-            Spacer(Modifier.height(10.dp))
+            // 字数计数；超出上限时写明原因，保存按钮同时禁用
+            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (nameOver > 0) Text(trf("名称不能超过 {0} 个字符", HomeLayout.MAX_NAME), Modifier.weight(1f), fontSize = 12.sp, color = g.danger)
+                else Spacer(Modifier.weight(1f))
+                Text("${name.trim().length}/${HomeLayout.MAX_NAME}", fontSize = 12.sp, color = if (nameOver > 0) g.danger else g.fgMuted)
+            }
+            Spacer(Modifier.height(6.dp))
             Segmented(listOf("Issues", "Pull Requests"), if (pulls) 1 else 0) {
                 pulls = it == 1
                 if (icon == "issue" || icon == "pr") icon = if (pulls) "pr" else "issue"

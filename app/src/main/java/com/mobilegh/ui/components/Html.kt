@@ -1,26 +1,51 @@
 package com.mobilegh.ui.components
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.mobilegh.R
 import com.mobilegh.data.AppLog
 import com.mobilegh.data.ImageFetch
 import com.mobilegh.data.MediaProxy
@@ -47,6 +72,53 @@ internal fun maxViewHeightPx(widthPx: Int): Int = when {
 internal fun htmlMaxHeightDp(density: Float, widthPx: Int): Int =
     (maxViewHeightPx(widthPx) / density).toInt()
 
+/** JS 回报的内容高度（CSS 像素，等同 dp）夹在 [24, maxDp] 之间：未加载时至少 24dp，异常高度不超过上限。 */
+internal fun htmlContentHeightDp(reportedPx: Int, maxDp: Int): Int = reportedPx.coerceIn(24, maxDp)
+
+/** 请求 HtmlView 滚到某个标题锚点。每次请求都是新对象，同一个标题再次点击也会生效。 */
+class HtmlAnchorRequest(val anchor: String)
+
+/** README 目录的一项：标题层级、文字，以及页内锚点（去掉 GitHub 加的 user-content- 前缀）。 */
+data class ReadmeHeading(val level: Int, val text: String, val anchor: String)
+
+private val headingTag = Regex("(?is)<h([1-6])\\b[^>]*>(.*?)</h\\1\\s*>")
+private val headingAnchor = Regex("""(?<![\w-])id="(?:user-content-)?([^"]+)"""")
+private val htmlTagRegex = Regex("<[^>]+>")
+private val spaceRun = Regex("\\s+")
+
+/**
+ * 从 GitHub 渲染好的 README HTML 字符串里取出标题，给「目录」用。只读标题标签和锚点，不改动 README 的渲染。
+ * 没有锚点的标题无法跳转，直接跳过；文字去掉标签并还原常见实体。
+ */
+internal fun readmeHeadings(html: String): List<ReadmeHeading> =
+    headingTag.findAll(html).mapNotNull { m ->
+        val anchor = headingAnchor.find(m.value)?.groupValues?.get(1) ?: return@mapNotNull null
+        val text = unescapeBasicEntities(htmlTagRegex.replace(m.groupValues[2], "")).replace(spaceRun, " ").trim()
+        if (text.isEmpty()) null else ReadmeHeading(m.groupValues[1].toInt(), text, anchor)
+    }.toList()
+
+/** 还原标题里最常见的实体；&amp; 放在最后，避免把 &amp;lt; 连续还原两次。 */
+private fun unescapeBasicEntities(s: String): String = s
+    .replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
+    .replace("&#39;", "'").replace("&#x27;", "'").replace("&amp;", "&")
+
+/** 滚动到锚点的脚本：找到标题后经 Bridge.a 把位置交给原生列表，与点击页内锚点走同一条路径。 */
+internal fun headingScrollScript(anchor: String): String =
+    "(function(){var id=${jsStringLiteral(anchor)};" +
+        "var t=document.getElementById('user-content-'+id)||document.getElementById(id);" +
+        "if(t){Bridge.a(Math.round(t.getBoundingClientRect().top+window.scrollY));}})();"
+
+/** 外部链接的分类：网页在浏览器打开，mailto / tel 交给系统应用，其余不支持。 */
+internal enum class ExternalLinkKind { Web, Mail, Phone, Other }
+
+internal fun externalLinkKind(url: String): ExternalLinkKind =
+    when (url.substringBefore(':', "").lowercase()) {
+        "http", "https" -> ExternalLinkKind.Web
+        "mailto" -> ExternalLinkKind.Mail
+        "tel" -> ExternalLinkKind.Phone
+        else -> ExternalLinkKind.Other
+    }
+
 /**
  * 渲染 GitHub 返回的 HTML（README、Issue、Release 等），使用 GitHub 的 markdown 样式。
  * WebView 高度随内容自适应，放在可滚动容器中使用。
@@ -58,6 +130,14 @@ fun HtmlView(
     modifier: Modifier = Modifier,
     baseUrl: String = "https://github.com/",
     onAnchor: ((Int) -> Unit)? = null,
+    /** 非空时滚动到该标题（目录点击）；结果经 onAnchor 交给外层列表定位 */
+    anchorRequest: HtmlAnchorRequest? = null,
+    /**
+     * 为 true 时 WebView 按完整内容高度布局，不受父级最大高度约束（requiredHeight）。
+     * 父级若要折叠，应在外层 clipToBounds 裁剪；这样 WebView 自身没有可滚动的范围，不会出现内部滚动。
+     * 为 false 时高度仍受父级约束（Modifier.height），其他调用方行为不变。
+     */
+    fullHeight: Boolean = false,
 ) {
     val nav = LocalNav.current
     val dark = Gh.c.dark
@@ -72,6 +152,12 @@ fun HtmlView(
     val doc = remember(html, dark) { wrapHtml(html, dark) }
     // 在 AndroidView 释放已脱离视图树的实例后销毁，避免提前 destroy 仍附着的 WebView。
     val webRef = remember { arrayOfNulls<WebView>(1) }
+    /** 代码块「放大」：非空时弹出全屏代码视图 */
+    val codeZoom = remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(anchorRequest) {
+        val req = anchorRequest ?: return@LaunchedEffect
+        webRef[0]?.evaluateJavascript(headingScrollScript(req.anchor), null)
+    }
     AndroidView(
         factory = { c ->
             WebView(c).apply {
@@ -110,6 +196,14 @@ fun HtmlView(
                     /** 点击视频：交给原生全屏播放器（倍速、拖动、保存），WebView 自带的播放器做不到 */
                     @JavascriptInterface
                     fun video(src: String) = post { if (webRef[0] === this@apply) VideoViewer.open(src) }
+
+                    /** 代码块「复制」：代码文本作为参数传入，不拼进 JS 源码 */
+                    @JavascriptInterface
+                    fun copyCode(text: String) = post { if (webRef[0] === this@apply) c.copy(text) }
+
+                    /** 代码块「放大」：全屏查看，横向、纵向都能滚动 */
+                    @JavascriptInterface
+                    fun zoomCode(text: String) = post { if (webRef[0] === this@apply) codeZoom.value = text }
                 }, "Bridge")
                 webViewClient = GhWebClient(c, nav)
             }
@@ -131,8 +225,54 @@ fun HtmlView(
         modifier = modifier
             .fillMaxWidth()
             .onSizeChanged { if (it.width != measuredWidth) measuredWidth = it.width }
-            .height(height.coerceIn(24, maxHeight).dp),
+            // Modifier.height 会把高度夹进父级的最大约束；折叠的 README 父级上限只有 480dp，WebView 会被压低并内部滚动。
+            // fullHeight 时改用 requiredHeight，忽略父级约束，由外层裁剪。
+            .then(
+                htmlContentHeightDp(height, maxHeight).dp.let { h ->
+                    if (fullHeight) Modifier.requiredHeight(h) else Modifier.height(h)
+                },
+            ),
     )
+    codeZoom.value?.let { code -> CodeZoomDialog(code) { codeZoom.value = null } }
+}
+
+/** 代码块全屏查看：不换行，整块代码可横向、纵向滚动；顶部可直接复制全部代码。代码视图的「查看完整行」也复用它。 */
+@Composable
+internal fun CodeZoomDialog(code: String, onDismiss: () -> Unit) {
+    val ctx = rememberCtx()
+    val g = Gh.c
+    val vertical = rememberScrollState()
+    val horizontal = rememberScrollState()
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Column(Modifier.fillMaxSize().background(g.canvas).statusBarsPadding().navigationBarsPadding()) {
+            Row(
+                Modifier.fillMaxWidth().background(g.canvasSubtle).padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OcButton(R.drawable.oc_x, onDismiss, g.fg)
+                Text(
+                    tr("代码"), color = g.fg, fontSize = 15.sp,
+                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+                )
+                OcButton(R.drawable.oc_copy, { ctx.copy(code) }, g.fg)
+            }
+            HDivider()
+            Box(
+                Modifier.weight(1f).fillMaxWidth()
+                    .verticalScroll(vertical)
+                    .horizontalScroll(horizontal)
+                    .padding(16.dp),
+            ) {
+                Text(
+                    code, color = g.fg, fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp, lineHeight = 19.sp, softWrap = false,
+                )
+            }
+        }
+    }
 }
 
 class GhWebClient(private val ctx: Context, private val nav: Navigator) : WebViewClient() {
@@ -146,8 +286,24 @@ class GhWebClient(private val ctx: Context, private val nav: Navigator) : WebVie
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val url = request.url.toString()
         Links.route(url)?.let { nav.pushLink(it); return true }
-        if (url.startsWith("http")) ctx.openBrowser(url)
+        when (externalLinkKind(url)) {
+            ExternalLinkKind.Web -> ctx.openBrowser(url)
+            ExternalLinkKind.Mail, ExternalLinkKind.Phone -> openSystemLink(url)
+            ExternalLinkKind.Other -> ctx.toast(tr("无法打开此链接"))
+        }
         return true
+    }
+
+    /** mailto 交给邮件应用（ACTION_SENDTO），tel 交给拨号盘（ACTION_DIAL，不需要通话权限）；没有可处理的应用时提示。 */
+    private fun openSystemLink(url: String) {
+        val action = if (externalLinkKind(url) == ExternalLinkKind.Phone) Intent.ACTION_DIAL else Intent.ACTION_SENDTO
+        val intent = Intent(action, Uri.parse(url))
+        if (ctx !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            ctx.startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            ctx.toast(tr("无法打开此链接"))
+        }
     }
 
     /**
@@ -190,6 +346,27 @@ class GhWebClient(private val ctx: Context, private val nav: Navigator) : WebVie
 
 fun escapeHtml(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
+/**
+ * 把任意文本转成可直接写进 JS 源码的双引号字面量。除 JSON 字符串规则外，
+ * 还转义 < > & 和行分隔符，避免文本里的 </script> 提前结束脚本。
+ */
+internal fun jsStringLiteral(s: String): String {
+    val sb = StringBuilder(s.length + 2).append('"')
+    for (ch in s) {
+        when {
+            ch == '"' -> sb.append("\\\"")
+            ch == '\\' -> sb.append("\\\\")
+            ch == '\n' -> sb.append("\\n")
+            ch == '\r' -> sb.append("\\r")
+            ch == '\t' -> sb.append("\\t")
+            ch < ' ' || ch == '<' || ch == '>' || ch == '&' || ch == '\u2028' || ch == '\u2029' ->
+                sb.append("\\u").append(ch.code.toString(16).padStart(4, '0'))
+            else -> sb.append(ch)
+        }
+    }
+    return sb.append('"').toString()
+}
+
 fun wrapHtml(body: String, dark: Boolean): String = """
 <!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
@@ -198,6 +375,20 @@ fun wrapHtml(body: String, dark: Boolean): String = """
 <script>
 (function(){
   var c=document.getElementById('c');
+  // 代码块：外面包一层相对定位的容器，右上角放「复制」「放大」按钮。
+  // 按钮文字由 jsStringLiteral 转义后注入；代码文本只在点击时作为 Bridge 参数传给原生，不拼进脚本。
+  var CB={copy:${jsStringLiteral(tr("复制"))},zoom:${jsStringLiteral(tr("放大"))}};
+  var tool=function(label,fn){var b=document.createElement('button');b.type='button';b.className='cb-btn';b.textContent=label;
+    b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();fn();});return b;};
+  document.querySelectorAll('pre').forEach(function(p){
+    var w=document.createElement('div');w.className='cb-wrap';
+    p.parentNode.insertBefore(w,p);w.appendChild(p);
+    var code=function(){return p.textContent.replace(/\n$/,'');};
+    var t=document.createElement('div');t.className='cb-tools';
+    t.appendChild(tool(CB.copy,function(){try{Bridge.copyCode(code());}catch(x){}}));
+    t.appendChild(tool(CB.zoom,function(){try{Bridge.zoomCode(code());}catch(x){}}));
+    w.appendChild(t);
+  });
   // ResizeObserver 每次布局都会回调；高度没变就不往原生层报，否则每次重排都打一条日志
   var last=-1;
   // 内容高度 = 容器盒子与所有子元素底边的最大值：绝对定位、负边距等溢出的图片也要算进去，否则会被裁掉一半
@@ -273,6 +464,10 @@ code,tt{padding:.2em .4em;margin:0;font-size:85%;white-space:break-spaces;backgr
 pre{padding:14px;overflow:auto;font-size:85%;line-height:1.45;background:var(--subtle);border-radius:6px;word-wrap:normal;}
 pre code,pre tt{padding:0;margin:0;background:transparent;border:0;white-space:pre;font-size:100%;}
 .highlight{margin-bottom:14px;}.highlight pre{margin-bottom:0;}
+.cb-wrap{position:relative;margin:0 0 14px;}.cb-wrap>pre{margin:0;}
+.cb-tools{position:absolute;top:6px;right:6px;display:flex;gap:4px;z-index:1;}
+.cb-btn{font:500 12px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans",Helvetica,Arial,sans-serif;padding:3px 8px;margin:0;border:1px solid var(--border);border-radius:6px;background:var(--canvas);color:var(--muted);cursor:pointer;}
+.cb-btn:active{color:var(--fg);background:var(--subtle);}
 kbd{display:inline-block;padding:3px 5px;font-size:11px;line-height:10px;color:var(--fg);vertical-align:middle;background:var(--subtle);border:1px solid var(--border);border-bottom-color:var(--border);border-radius:6px;box-shadow:inset 0 -1px 0 var(--border);}
 table{border-spacing:0;border-collapse:collapse;display:block;width:max-content;max-width:100%;overflow:auto;}
 table th{font-weight:600;}

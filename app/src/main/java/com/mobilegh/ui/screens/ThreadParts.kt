@@ -37,6 +37,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
@@ -59,6 +61,7 @@ import com.mobilegh.ui.components.HtmlView
 import com.mobilegh.ui.components.LabelChip
 import com.mobilegh.ui.components.MarkdownEditor
 import com.mobilegh.ui.components.MarkdownPreview
+import com.mobilegh.ui.components.MentionSuggestions
 import com.mobilegh.ui.components.MarkdownToolbar
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.DraftBinding
@@ -79,11 +82,25 @@ import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.launch
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
+import com.mobilegh.ui.components.CompactSearchField
 
 val REACTIONS = listOf(
     "+1" to "👍", "-1" to "👎", "laugh" to "😄", "hooray" to "🎉",
     "confused" to "😕", "heart" to "❤️", "rocket" to "🚀", "eyes" to "👀",
 )
+
+/** 表情的文字说明，供无障碍朗读（按钮只有 emoji 时 TalkBack 读不出含义） */
+fun reactionLabel(key: String): String = when (key) {
+    "+1" -> tr("赞")
+    "-1" -> tr("踩")
+    "laugh" -> tr("大笑")
+    "hooray" -> tr("庆祝")
+    "confused" -> tr("困惑")
+    "heart" -> tr("爱心")
+    "rocket" -> tr("火箭")
+    "eyes" -> tr("眼睛")
+    else -> key
+}
 
 /**
  * 表情栏：已有的表情显示计数（点按切换自己的表态），「+」展开全部 8 种表情。
@@ -133,6 +150,7 @@ fun ReactionBar(initial: Reactions?, modifier: Modifier = Modifier, onToggle: su
                 val on = mine[k] == true
                 Row(
                     Modifier.clickable(enabled = pending[k] != true) { toggle(k) }
+                        .semantics(mergeDescendants = true) { contentDescription = reactionLabel(k) }
                         .background(if (on) g.accentSubtle else g.canvas, RoundedCornerShape(14.dp))
                         .border(1.dp, if (on) g.accent else g.border, RoundedCornerShape(14.dp))
                         .padding(horizontal = 9.dp, vertical = 4.dp),
@@ -145,6 +163,7 @@ fun ReactionBar(initial: Reactions?, modifier: Modifier = Modifier, onToggle: su
             }
             Box(
                 Modifier.clickable { picking = !picking }
+                    .semantics { contentDescription = tr("添加回应") }
                     .background(if (picking) g.canvasSubtle else g.canvas, RoundedCornerShape(14.dp))
                     .border(1.dp, g.border, RoundedCornerShape(14.dp))
                     .padding(horizontal = 10.dp, vertical = 4.dp),
@@ -168,6 +187,7 @@ fun ReactionBar(initial: Reactions?, modifier: Modifier = Modifier, onToggle: su
                 REACTIONS.forEach { (k, e) ->
                     Box(
                         Modifier.size(36.dp).clickable(enabled = pending[k] != true) { toggle(k) }
+                            .semantics { contentDescription = reactionLabel(k) }
                             .background(if (mine[k] == true) g.accentSubtle else androidx.compose.ui.graphics.Color.Transparent, RoundedCornerShape(8.dp)),
                         contentAlignment = Alignment.Center,
                     ) { Text(e, fontSize = 20.sp) }
@@ -376,6 +396,8 @@ private fun MetaOptionList(
     noneLabel: String,
     filter: String = "",
     enabled: Boolean = true,
+    /** 多选时最多可选的个数；已达上限后未选中的选项不可再选，而不是静默丢弃 */
+    maxSelect: Int? = null,
 ) {
     val g = Gh.c
     val opts = state.options?.filter { filter.isBlank() || it.label.contains(filter.trim(), true) }
@@ -401,9 +423,11 @@ private fun MetaOptionList(
                     if (single) { selected.clear(); selected.add(o.key) }
                     else if (on) selected.remove(o.key) else selected.add(o.key)
                 }
-                Row(Modifier.fillMaxWidth().clickable(enabled = enabled) { flip() }, verticalAlignment = Alignment.CenterVertically) {
+                val locked = optionLocked(single, selected.size, on, maxSelect)
+                val itemEnabled = enabled && !locked
+                Row(Modifier.fillMaxWidth().clickable(enabled = itemEnabled) { flip() }, verticalAlignment = Alignment.CenterVertically) {
                     if (single) RadioButton(on, { flip() }, enabled = enabled, colors = RadioButtonDefaults.colors(selectedColor = g.btnPrimary))
-                    else Checkbox(on, { flip() }, enabled = enabled, colors = CheckboxDefaults.colors(checkedColor = g.btnPrimary))
+                    else Checkbox(on, { flip() }, enabled = itemEnabled, colors = CheckboxDefaults.colors(checkedColor = g.btnPrimary))
                     if (o.avatar != null) { Avatar(o.avatar, 22.dp); Spacer(Modifier.width(8.dp)) }
                     if (o.color != null) LabelChip(o.label, o.color) else Text(o.label, color = g.fg, fontSize = 14.sp)
                 }
@@ -465,7 +489,15 @@ fun MetaDialog(kind: String, owner: String, name: String, number: Int, issue: Is
             }
         }
     }) {
-        MetaOptionList(kind, state, selected, single, tr("无里程碑"), enabled = !saving)
+        var filter by remember { mutableStateOf("") }
+        Column {
+            // 选项较多时（超过 8 个）与列表筛选一样提供筛选框，方便在详情页找到标签 / 指派人
+            if ((state.options?.size ?: 0) > 8) {
+                CompactSearchField(filter, { filter = it }, tr("筛选"))
+                Spacer(Modifier.height(8.dp))
+            }
+            MetaOptionList(kind, state, selected, single, tr("无里程碑"), filter = filter, enabled = !saving)
+        }
     }
 }
 
@@ -485,6 +517,9 @@ fun MetaPicker(
     noneLabel: String = tr("无"),
     freeText: Boolean = false,
     milestoneByTitle: Boolean = false,
+    /** 多选上限：达到后其余选项禁用，并在框内显示 [limitNote] */
+    maxSelect: Int? = null,
+    limitNote: String? = null,
     onPick: (List<MetaOpt>) -> Unit,
 ) {
     val g = Gh.c
@@ -508,8 +543,11 @@ fun MetaPicker(
                 )
                 Spacer(Modifier.height(8.dp))
             }
+            if (maxSelect != null && limitNote != null) {
+                Text(limitNote, color = g.fgMuted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp))
+            }
             if (state.error != null && freeText) Text(tr("候选列表读取失败，仍可直接输入用户名"), color = g.fgMuted, fontSize = 12.sp)
-            else MetaOptionList(kind, state, selected, single, noneLabel, text.removePrefix("@"))
+            else MetaOptionList(kind, state, selected, single, noneLabel, text.removePrefix("@"), maxSelect = maxSelect)
         }
     }
 }
@@ -527,8 +565,15 @@ fun EditDialog(
 ) {
     var title by remember { mutableStateOf(initialTitle.orEmpty()) }
     var body by remember { mutableStateOf(TextFieldValue(initialBody)) }
+    var confirmDiscard by remember { mutableStateOf(false) }
+    // 编辑已有内容不写草稿（服务器上的原文才是准的，草稿会过期）：有未保存的改动时先确认
+    val dirty = isUnsavedChange(initialBody, body.text) || (initialTitle != null && isUnsavedChange(initialTitle, title))
+    fun requestDismiss() {
+        if (busy) return
+        if (dirty) confirmDiscard = true else onDismiss()
+    }
     GhDialog(
-        heading, { if (!busy) onDismiss() }, confirm = if (busy) tr("保存中…") else tr("保存"),
+        heading, { requestDismiss() }, confirm = if (busy) tr("保存中…") else tr("保存"),
         confirmEnabled = !busy && body.text.isNotBlank() && (initialTitle == null || title.isNotBlank()),
         onConfirm = { onSave(title.trim(), body.text) },
     ) {
@@ -538,6 +583,18 @@ fun EditDialog(
             }
             MarkdownEditor(body, { if (!busy) body = it }, contextRepo = contextRepo, minLines = 6, modifier = Modifier.padding(top = if (initialTitle != null) 8.dp else 0.dp))
         }
+    }
+    if (confirmDiscard) DiscardChangesDialog(
+        onKeep = { confirmDiscard = false },
+        onDiscard = { confirmDiscard = false; onDismiss() },
+    )
+}
+
+/** 关闭带未保存内容的对话框前的确认：「放弃」会丢失输入，「取消」回到编辑 */
+@Composable
+fun DiscardChangesDialog(onKeep: () -> Unit, onDiscard: () -> Unit) {
+    GhDialog(tr("放弃修改？"), onKeep, confirm = tr("放弃"), danger = true, onConfirm = onDiscard) {
+        Text(tr("未保存的内容将丢失。"), color = Gh.c.fg)
     }
 }
 
@@ -561,6 +618,7 @@ fun CommentComposerBar(
     Column(Modifier.background(g.header).navigationBarsPadding().imePadding()) {
         HDivider()
         MarkdownToolbar(value, onValueChange, preview, onPreviewChange, Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+        if (!preview) MentionSuggestions(value, onValueChange, contextRepo, Modifier.padding(horizontal = 8.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             if (preview) {
                 Box(Modifier.weight(1f).heightIn(min = 44.dp, max = 200.dp).verticalScroll(rememberScrollState())) {
@@ -608,6 +666,13 @@ internal suspend fun updateReviewers(
 /** Reconcile the optimistic count with the server's final toggle state. */
 internal fun settledReactionCount(before: Int, wasMine: Boolean, isMine: Boolean): Int =
     (before + if (isMine) { if (wasMine) 0 else 1 } else -1).coerceAtLeast(0)
+
+/** 多选已达上限时，未选中的选项不可再选（单选从不锁定） */
+internal fun optionLocked(single: Boolean, selectedCount: Int, isSelected: Boolean, maxSelect: Int?): Boolean =
+    !single && maxSelect != null && !isSelected && selectedCount >= maxSelect
+
+/** 有未保存的输入需要确认：内容非空且与打开时不同 */
+internal fun isUnsavedChange(initial: String, current: String): Boolean = current.isNotBlank() && current != initial
 
 /** Quoting must never replace a comment that the user has already composed. */
 internal fun appendQuotedReply(current: String, login: String?, text: String?): String {

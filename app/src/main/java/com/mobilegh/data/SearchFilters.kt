@@ -1,6 +1,8 @@
 package com.mobilegh.data
 
 import java.time.LocalDate
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 
@@ -27,8 +29,9 @@ private fun searchValue(value: String): String = value.trim().replace("\\", "").
 
 /**
  * 结构化搜索条件。各类型只使用自己相关的字段，切换类型时互不干扰。
- * 构造出的查询串由 [SearchQuery] 负责，便于单元测试。
+ * 构造出的查询串由 [SearchQuery] 负责，便于单元测试；编码成历史记录的文本见 [SearchFilterCodec]。
  */
+@Serializable
 data class SearchFilters(
     // 仓库（各类型各自的语言字段，切换类型时互不影响）
     val repoOwner: String = "",
@@ -251,4 +254,29 @@ object SearchQuery {
         SearchType.CODE -> text.isNotBlank()
         else -> text.isNotBlank() || f.hasActive(type)
     }
+}
+
+/**
+ * 搜索历史中保存结构化筛选的编码（JSON 文本）。关键词单独保存为纯文本，不混入筛选。
+ * 解码失败（旧记录、损坏数据）返回 null，调用方退回为无筛选。
+ */
+object SearchFilterCodec {
+    private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
+
+    fun encode(filters: SearchFilters): String = json.encodeToString(SearchFilters.serializer(), filters)
+
+    fun decode(text: String?): SearchFilters? {
+        if (text.isNullOrBlank()) return null
+        return runCatching { json.decodeFromString(SearchFilters.serializer(), text) }.getOrNull()
+    }
+}
+
+/**
+ * Issue / PR 搜索的排序字段（GitHub search 的 `sort` 参数）。第一项为该类型的默认排序，
+ * 顺序：issue 默认按创建时间，PR 默认按更新时间（与原先固定的排序一致）。
+ */
+object IssueSearchSort {
+    fun keys(pulls: Boolean): List<String> =
+        if (pulls) listOf("updated", "created", "comments", "reactions", "interactions")
+        else listOf("created", "updated", "comments", "reactions", "interactions")
 }

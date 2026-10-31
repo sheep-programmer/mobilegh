@@ -74,7 +74,7 @@ internal object MobilePushRegistration {
         Charsets.UTF_8,
     )
     private val random = SecureRandom()
-    private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
+    private val client = OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector()).connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(25, TimeUnit.SECONDS).callTimeout(30, TimeUnit.SECONDS).followRedirects(false).build()
 
     suspend fun register(): JsonObject {

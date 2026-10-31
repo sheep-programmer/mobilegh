@@ -39,7 +39,7 @@ fun NetworkSettingsDialog(onDismiss: () -> Unit) {
     fun draft() = NetworkProxy(mode, host, port.toIntOrNull() ?: 0).validated()
     fun changed() { error = null; results = emptyList() }
 
-    GhDialog(tr("网络连接"), { if (!saving) onDismiss() }, confirm = if (saving) tr("保存中…") else tr("保存"), confirmEnabled = !checking && !saving, onConfirm = {
+    GhDialog(tr("应用网络代理"), { if (!saving) onDismiss() }, confirm = if (saving) tr("保存中…") else tr("保存"), confirmEnabled = !checking && !saving, onConfirm = {
         val value = try { draft() } catch (e: Exception) {
             error = e.message; return@GhDialog
         }
@@ -56,7 +56,8 @@ fun NetworkSettingsDialog(onDismiss: () -> Unit) {
         }
     }) {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(tr("公开内容加速不能加速登录。这里配置 App 请求使用的代理，GitHub 地址与 HTTPS 校验保持不变。"), color = g.fgMuted, fontSize = 13.sp)
+            // 与「加速节点」是两件事：这里只改变 App 自己发出的请求走哪条线路
+            Text(tr("作用于 App 内的 API、登录与授权、推送连接，以及私有仓库的下载；不影响公开文件的系统下载器（DownloadManager）。加速节点另行设置，不影响登录。"), color = g.fgMuted, fontSize = 12.sp)
             ProxyMode.entries.forEach { option ->
                 RadioRow(mode == option, option.label, enabled = !checking && !saving) {
                     mode = option; changed()
@@ -94,7 +95,7 @@ fun NetworkSettingsDialog(onDismiss: () -> Unit) {
                 Text("${it.label}：${it.message}", color = if (it.reachable) g.success else g.danger, fontSize = 13.sp)
             }
             error?.let { InlineError(it) }
-            Text(tr("检查连接只访问官方站点，不发送 Token；连通不代表授权成功。此设置不影响外部浏览器、系统下载器和推送长连接，它们仍需系统代理 / VPN。"), color = g.fgMuted, fontSize = 12.sp)
+            Text(tr("检查连接只访问官方站点，不发送 Token；连通不代表授权成功。外部浏览器和系统下载器不受此设置影响，它们仍需系统代理 / VPN。"), color = g.fgMuted, fontSize = 12.sp)
         }
     }
 }
@@ -102,6 +103,6 @@ fun NetworkSettingsDialog(onDismiss: () -> Unit) {
 @Composable
 fun NetworkSettingsRow() {
     var open by remember { mutableStateOf(false) }
-    MenuRow(com.mobilegh.R.drawable.oc_globe, tr("连接代理"), value = AppNetwork.config.mode.label, onClick = { open = true })
+    MenuRow(com.mobilegh.R.drawable.oc_globe, tr("应用网络代理"), value = AppNetwork.config.mode.label, onClick = { open = true })
     if (open) NetworkSettingsDialog { open = false }
 }

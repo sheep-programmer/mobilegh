@@ -39,6 +39,10 @@ import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 
 /**
  * 排序项：[value] 是 REST/GraphQL 的排序键，[descending] 是选到这一项时的默认方向。
@@ -113,22 +117,13 @@ internal fun SearchBox(
 /** 正序 / 倒序切换：和排序字段配合，避免每个字段在菜单里列两遍 */
 @Composable
 internal fun DirectionButton(descending: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
-    val g = Gh.c
-    Row(
-        Modifier
-            // 和同行的搜索框同为 44dp，否则「倒序」会比搜索框矮一截
-            .heightIn(min = 44.dp)
-            .border(1.dp, g.border, RoundedCornerShape(6.dp))
-            .background(g.btnBg, RoundedCornerShape(6.dp))
-            .clip(RoundedCornerShape(6.dp))
-            .clickable(enabled = enabled, onClickLabel = if (descending) tr("改为正序") else tr("改为倒序"), onClick = onClick)
-            .padding(horizontal = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Oc(if (descending) R.drawable.oc_arrow_down else R.drawable.oc_arrow_up, g.fgMuted, 12.dp)
-        Spacer(Modifier.width(4.dp))
-        Text(if (descending) tr("倒序") else tr("正序"), fontSize = 13.sp, color = if (enabled) g.fg else g.fgMuted, fontWeight = FontWeight.Medium, maxLines = 1)
-    }
+    // 与排序胶囊同款：标准筛选胶囊，箭头表示方向；点按切换正序 / 倒序
+    FilterChip(
+        selected = false, onClick = onClick, enabled = enabled,
+        label = { Text(if (descending) tr("倒序") else tr("正序")) },
+        leadingIcon = { Oc(if (descending) R.drawable.oc_arrow_down else R.drawable.oc_arrow_up, LocalContentColor.current, 14.dp) },
+        modifier = Modifier.semantics { contentDescription = if (descending) tr("倒序，点按改为正序") else tr("正序，点按改为倒序") },
+    )
 }
 
 /** 排序下拉 + 正序/倒序按钮：星标页、列表目录、列表详情共用一行同样的控件 */

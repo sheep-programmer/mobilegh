@@ -16,25 +16,31 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
+import com.mobilegh.data.FavoriteRepo
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.HomePrefs
 import com.mobilegh.data.Involvement
 import com.mobilegh.data.IssueQuery
 import com.mobilegh.data.Session
+import com.mobilegh.data.StarListAccount
 import com.mobilegh.data.UserLists
 import com.mobilegh.data.Web
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.RepoKind
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.Tab
+import com.mobilegh.nav.friendly
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
 import com.mobilegh.nav.retain
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MenuGroup
@@ -92,6 +98,13 @@ fun HomeScreen() {
         ),
     ) { nav.push(savedSearchScreen(it.query)) }
     com.mobilegh.nav.OnTabReselect(Tab.Home) { state.animateScrollToItem(0) }
+    // 首页「新建列表」直接在这里弹出创建框，不跳转到列表页
+    var creatingList by remember { mutableStateOf(false) }
+    var creatingBusy by remember { mutableStateOf(false) }
+    var creatingError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    // 移出首页收藏前先确认
+    var pendingFavorite by remember { mutableStateOf<FavoriteRepo?>(null) }
 
     Page(
         tr("首页"), back = false, contentWindowInsets = WindowInsets(0),
@@ -102,9 +115,11 @@ fun HomeScreen() {
     ) { pad ->
         PagedList(
             feed, Modifier.padding(pad).fillMaxSize(), state,
-            empty = tr("关注一些开发者或 star 一些仓库后，这里会显示动态"),
+            empty = tr("关注一些开发者或 Star 一些仓库后，这里会显示动态"),
             emptyIcon = R.drawable.oc_pulse, emptyAction = tr("去探索"), onEmptyAction = { nav.select(Tab.Explore) },
             onRefresh = { me.refresh(); invites.refresh(); contrib.refresh(); lists.refresh(); badges.refresh() },
+            // 非「全部」分类是本地过滤，关闭自动翻页，避免稀有分类连续拉取空页；底部保留「加载更多」
+            autoLoad = cat == EventCat.All,
             itemFilter = { cat == EventCat.All || eventCat(it) == cat },
             itemKey = { it.id },
             header = {
@@ -127,13 +142,25 @@ fun HomeScreen() {
                                     f, canUp = i > 0, canDown = i < layout.favorites.lastIndex,
                                     onOpen = { nav.push(Screen.Repo(f.owner, f.name)) },
                                     onMove = { d -> HomePrefs.moveFavorite(i, d) },
-                                    onRemove = { HomePrefs.removeFavorite(f) },
+                                    onRemove = { pendingFavorite = f },
                                 )
                             }
                         }
                     }
                 }
-                item { SectionTitle(tr("收藏列表")) { TextLink(tr("全部")) { nav.push(Screen.StarLists(login)) } } }
+                // 贡献详情在「我的」页的贡献活动区块里，所以按钮文字如实写成查看全部贡献
+                item { SectionTitle(tr("贡献")) { TextLink(tr("查看全部贡献")) { nav.select(Tab.Me) } } }
+                item {
+                    Card(Modifier.padding(horizontal = 16.dp)) {
+                        Column {
+                            ContributionBody(contrib, full = false)
+                            HDivider()
+                            HomeAchievementsRow(badges.data, badges.error, onOpen = { nav.push(Screen.Achievements(login)) }, onRetry = { badges.load(true) })
+                        }
+                    }
+                }
+                // 这里列的是 GitHub Star 列表（与「我的」里的 Star 列表是同一批），不是首页的收藏仓库
+                item { SectionTitle(tr("Star 列表")) { TextLink(tr("全部")) { nav.push(Screen.StarLists(login)) } } }
                 item {
                     // 首页和列表页共用搜索/排序状态，两处看到的顺序一致
                     val listBrowser = rememberSharedListBrowser("home-lists:$login")
@@ -141,7 +168,7 @@ fun HomeScreen() {
                         SearchBox(
                             listBrowser.input, listBrowser.query, { listBrowser.input = it },
                             { listBrowser.apply() }, { listBrowser.clear() },
-                            tr("搜索收藏列表"), tr("名称或描述"),
+                            tr("搜索 Star 列表"), tr("名称或描述"),
                             Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                         )
                         SortBar(
@@ -152,18 +179,9 @@ fun HomeScreen() {
                             lists.data?.let { listBrowser.shown(it) }, lists.data?.size ?: 0, lists.error,
                             onList = { nav.push(Screen.StarLists(login, it.id)) },
                             onAll = { nav.push(Screen.StarLists(login)) },
+                            onCreate = { creatingList = true },
                             onRetry = { lists.load(true) },
                         )
-                    }
-                }
-                item { SectionTitle(tr("贡献")) { TextLink(tr("详情")) { nav.select(Tab.Me) } } }
-                item {
-                    Card(Modifier.padding(horizontal = 16.dp)) {
-                        Column {
-                            ContributionBody(contrib, full = false)
-                            HDivider()
-                            HomeAchievementsRow(badges.data, badges.error, onOpen = { nav.push(Screen.Achievements(login)) }, onRetry = { badges.load(true) })
-                        }
                     }
                 }
                 item { SectionTitle(tr("动态")) }
@@ -173,6 +191,20 @@ fun HomeScreen() {
             },
         ) { EventItem(it) }
     }
+    if (creatingList) GitHubListEditor(null, creatingBusy, creatingError, onDismiss = {
+        if (!creatingBusy) { creatingList = false; creatingError = null }
+    }) { name, description, privateList ->
+        creatingBusy = true
+        creatingError = null
+        scope.launch {
+            try {
+                UserLists.create(StarListAccount(login, Session.generation), name, description, privateList)
+                creatingList = false
+            } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Exception) { creatingError = failure.friendly() }
+            finally { creatingBusy = false }
+        }
+    }
+    pendingFavorite?.let { repo -> ConfirmRemoveFavoriteDialog(repo) { pendingFavorite = null } }
 }
 
 /** 我的 Issues / PR（官方网页的 github.com/issues 页面） */
@@ -196,5 +228,5 @@ fun MyIssuesScreen(pulls: Boolean, preset: IssueQuery? = null) {
             IssueResults(q, { query.value = it.normalized() }, null, null)
         }
     }
-    if (saving) SaveSearchDialog(q, "${q.involves?.label ?: ""}${if (pulls) " PR" else " Issues"}".trim()) { saving = false }
+    if (saving) SaveSearchDialog(q, "${q.involves?.label ?: ""}${if (pulls) " Pull Requests" else " Issues"}".trim()) { saving = false }
 }

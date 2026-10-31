@@ -1,6 +1,7 @@
 package com.mobilegh.ui
 
 import android.app.Activity
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -26,9 +27,13 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.SaveableStateHolder
@@ -38,6 +43,9 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.mobilegh.R
 import com.mobilegh.data.AppLock
 import com.mobilegh.data.GitHub
@@ -57,10 +65,26 @@ import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.screens.*
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
+import kotlinx.coroutines.launch
 
+/**
+ * 未读数用 StateFlow 保存，界面在组合里用 collectAsState 读取。
+ * 不用 mutableIntStateOf：它在第一次访问时才创建，若第一次访问发生在组合快照里，其他快照读取会报「快照读取」错误。
+ */
 object Badges {
-    var unread by androidx.compose.runtime.mutableIntStateOf(0)
+    private val flow = kotlinx.coroutines.flow.MutableStateFlow(0)
+    val unreadFlow: kotlinx.coroutines.flow.StateFlow<Int> get() = flow
+    var unread: Int
+        get() = flow.value
+        set(value) { flow.value = value }
 }
+
+/** 未读数两次拉取之间的最短间隔 */
+internal const val BADGE_REFRESH_MIN_INTERVAL_MS = 60_000L
+
+/** 距离上一次拉取开始是否已满足最短间隔；从未拉取过（[lastStartedMs] 为 null）时需要拉取。 */
+internal fun badgeRefreshDue(lastStartedMs: Long?, nowMs: Long, minIntervalMs: Long = BADGE_REFRESH_MIN_INTERVAL_MS): Boolean =
+    lastStartedMs == null || nowMs - lastStartedMs >= minIntervalMs
 
 @Composable
 fun AppRoot(nav: Navigator) {
@@ -113,14 +137,27 @@ private fun Main(nav: Navigator) {
         ids.filter { it !in alive }.forEach { holder.removeState(it); ids.remove(it) }
         ids.addAll(alive)
     }
-    // 启动时拉取未读通知数
-    LaunchedEffect(Unit) {
-        runCatching {
-            val login = Session.login
-            val list = GitHub.notifications(false, false, 1, true)
-            Badges.unread = list.count { it.unread }
-            if (login != null && login == Session.login) com.mobilegh.data.WidgetStore.saveInbox(login, list, list.size >= GitHub.PER)
+    // 未读通知数：启动和每次回到前台时刷新（否则在其他页面读过通知后，角标会一直停在旧数字），60 秒内只拉取一次
+    val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var lastBadgeFetch by remember { mutableStateOf<Long?>(null) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event != Lifecycle.Event.ON_RESUME) return@LifecycleEventObserver
+            val now = SystemClock.elapsedRealtime()
+            if (!badgeRefreshDue(lastBadgeFetch, now)) return@LifecycleEventObserver
+            lastBadgeFetch = now
+            scope.launch {
+                runCatching {
+                    val login = Session.login
+                    val list = GitHub.notifications(false, false, 1, true)
+                    Badges.unread = list.count { it.unread }
+                    if (login != null && login == Session.login) com.mobilegh.data.WidgetStore.saveInbox(login, list, list.size >= GitHub.PER)
+                }
+            }
         }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     // Token 被 GitHub 判定失效（账号登录的授权过期等）：引导重新登录
     if (Session.authExpired && nav.stack.lastOrNull()?.screen !in listOf(Screen.Login, Screen.Reauthorize)) {
@@ -194,6 +231,7 @@ private fun Main(nav: Navigator) {
 @Composable
 private fun RootNavigationBar(nav: Navigator) {
     val g = Gh.c
+    val unread by Badges.unreadFlow.collectAsState()
     Column {
         HDivider()
         NavigationBar(containerColor = g.header, tonalElevation = androidx.compose.ui.unit.Dp.Hairline) {
@@ -210,8 +248,8 @@ private fun RootNavigationBar(nav: Navigator) {
                     selected = sel,
                     onClick = { nav.select(t) },
                     icon = {
-                        if (t == Tab.Notifications && Badges.unread > 0) {
-                            BadgedBox(badge = { Badge(containerColor = g.accent) { Text(if (Badges.unread > 99) "99+" else "${Badges.unread}", fontSize = 9.sp) } }) {
+                        if (t == Tab.Notifications && unread > 0) {
+                            BadgedBox(badge = { Badge(containerColor = g.accent) { Text(if (unread > 99) "99+" else "$unread", fontSize = 9.sp) } }) {
                                 Oc(icon, if (sel) g.fg else g.fgMuted, 22.dp)
                             }
                         } else {
@@ -254,7 +292,7 @@ private fun ScreenHost(s: Screen) {
         Screen.Root -> {}
         is Screen.Repo -> RepoScreen(s.owner, s.name)
         is Screen.Files -> FilesScreen(s.owner, s.name, s.path, s.ref)
-        is Screen.FileView -> FileViewScreen(s.owner, s.name, s.path, s.ref)
+        is Screen.FileView -> FileViewScreen(s.owner, s.name, s.path, s.ref, s.lines)
         is Screen.FileFinder -> FileFinderScreen(s.owner, s.name, s.ref)
         is Screen.CodeSearch -> CodeSearchScreen(s.owner, s.name)
         is Screen.Search -> SearchScreen(s.type, s.query)
@@ -279,6 +317,7 @@ private fun ScreenHost(s: Screen) {
         is Screen.RunDetail -> RunDetailScreen(s.owner, s.name, s.runId)
         is Screen.JobLog -> JobLogScreen(s.owner, s.name, s.jobId, s.title)
         is Screen.Releases -> ReleasesScreen(s.owner, s.name)
+        is Screen.Pushes -> PushesScreen(s.owner, s.name)
         is Screen.Branches -> BranchesScreen(s.owner, s.name)
         is Screen.Insights -> InsightsScreen(s.owner, s.name)
         is Screen.Contributors -> ContributorsScreen(s.owner, s.name)

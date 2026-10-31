@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.mobilegh.data.ApiException
@@ -17,6 +18,23 @@ import kotlinx.coroutines.launch
 import java.io.IOException
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
+
+/** 网络中断后两次重试之间的等待上限：再长用户会以为应用卡住了 */
+internal const val LOGIN_RETRY_CAP_MS = 30_000L
+
+/**
+ * 网络失败后、下一次轮询前的等待：在上一次等待的基础上翻倍，但不短于正常轮询间隔，也不超过 [capMs]。
+ * 原先没有上限，连续 5 次失败后会静默约 5 分钟。
+ */
+internal fun nextRetryDelayMs(intervalMs: Long, previousMs: Long, capMs: Long = LOGIN_RETRY_CAP_MS): Long =
+    maxOf(intervalMs, minOf(previousMs * 2, capMs))
+
+/** 距离重试时刻还剩几秒（向上取整，不为负）；[retryAtMs] 为 0 表示没有等待中的重试。 */
+internal fun retrySecondsLeft(retryAtMs: Long, nowMs: Long): Int {
+    if (retryAtMs <= 0L) return 0
+    val left = (retryAtMs - nowMs).coerceAtLeast(0L)
+    return ((left + 999L) / 1000L).toInt()
+}
 
 /** Retained by the navigation entry, so configuration changes do not restart OAuth. */
 internal class LoginFlow(
@@ -40,6 +58,9 @@ internal class LoginFlow(
     var notice by mutableStateOf<String?>(null)
     var deadline = 0L
         private set
+    /** 网络中断后下一次轮询的时刻（与 [now] 同一时间基准），界面据此显示倒计时；0 表示没有等待中的重试 */
+    var retryAt by mutableLongStateOf(0L)
+        private set
     private var job: Job? = null
     private var generation = 0
 
@@ -51,6 +72,7 @@ internal class LoginFlow(
         confirming = false
         busy = false
         notice = null
+        retryAt = 0L
         error = null
     }
 
@@ -77,12 +99,14 @@ internal class LoginFlow(
                 currentCoroutineContext().ensureActive()
                 if (!e.retryable()) throw e
                 // Network failures never replace the device code or extend its lifetime.
-                nextDelay = maxOf(interval, nextDelay.coerceAtMost(Long.MAX_VALUE / 2) * 2)
+                nextDelay = nextRetryDelayMs(interval, nextDelay)
+                retryAt = now() + nextDelay
                 notice = tr("连接中断，正在等待重试，授权有效期不变")
                 continue
             }
             currentCoroutineContext().ensureActive()
             notice = null
+            retryAt = 0L
             nextDelay = interval
             when (result) {
                 is DevicePoll.Authorized -> {
@@ -140,6 +164,7 @@ internal class LoginFlow(
                     confirming = false
                     busy = false
                     notice = null
+                    retryAt = 0L
                 }
             }
         }

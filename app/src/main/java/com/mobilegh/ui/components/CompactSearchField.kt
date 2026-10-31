@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,7 +62,8 @@ fun CompactSearchField(
 ) {
     val g = Gh.c
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(8.dp)
+    // 与搜索页的搜索框一致：全圆角胶囊
+    val shape = RoundedCornerShape(28.dp)
     Row(
         modifier.fillMaxWidth().heightIn(min = 44.dp).clip(shape)
             .background(if (focused) g.canvas else g.canvasSubtle, shape)
@@ -93,11 +95,11 @@ fun CompactSearchField(
     }
 }
 
-/** 搜索栏尾部的小图标按钮（40dp 点击区，圆形波纹） */
+/** 搜索栏尾部的小图标按钮（圆形波纹 40dp，点击区至少 48dp） */
 @Composable
 fun FieldAction(@DrawableRes icon: Int, description: String, tint: Color = Gh.c.fgMuted, onClick: () -> Unit) {
     Box(
-        Modifier.size(40.dp).clip(RoundedCornerShape(50))
+        Modifier.minimumInteractiveComponentSize().size(40.dp).clip(RoundedCornerShape(50))
             .clickable(role = Role.Button, onClick = onClick)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 仅 debug 构建：信任本地测试服务器（10.0.2.2）的自签名证书，用于下载的端到端测试。release 不包含此配置。 -->
+<network-security-config>
+    <base-config>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/test_ca" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

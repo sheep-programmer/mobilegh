@@ -101,7 +101,8 @@ object Net {
     fun init(ctx: Context) {
         prefs = ctx.getSharedPreferences("net", Context.MODE_PRIVATE)
         mode = prefs.getInt("mode", 0)
-        apiProxy = prefs.getString("api", "") ?: ""
+        // 旧版本可能保存过 http:// 地址：Token 不能再发往明文地址，校验不过就回退官方 API
+        apiProxy = prefs.getString("api", "")?.takeIf { apiProxyError(it) == null } ?: ""
         lastTest = prefs.getLong("lastTest", 0)
         // 先恢复自定义节点，否则下面校验 id 时会把自定义节点误判成已下线
         prefs.getString("custom", null)?.let {
@@ -114,12 +115,97 @@ object Net {
         prefs.getString("latency", null)?.let {
             runCatching { latency.putAll(Api.plain.decodeFromString(MapSerializer(String.serializer(), Long.serializer()), it)) }
         }
+        prefs.getString("speeds", null)?.let {
+            runCatching { speeds.putAll(Api.plain.decodeFromString(MapSerializer(String.serializer(), Long.serializer()), it)) }
+        }
     }
 
     // ---------------- API 地址 ----------------
 
     val apiBase: String get() = apiProxy.trim().trimEnd('/').ifEmpty { "https://api.github.com" }
     val apiHost: String get() = runCatching { URI(apiBase).host }.getOrNull() ?: "api.github.com"
+
+    /**
+     * API 反向代理地址的校验：返回中文错误，合法（含留空，表示官方地址）返回 null。
+     *
+     * 与 [addCustom] 的加速节点规则一致（必须是 https://），再加上必须有域名、不能带账号信息。
+     * Token 会直接发给这个地址，所以 http:// 一律拒绝。
+     */
+    fun apiProxyError(input: String): String? {
+        val url = input.trim()
+        if (url.isEmpty()) return null
+        if (!url.startsWith("https://")) return tr("地址必须以 https:// 开头")
+        if (url.any { it.isWhitespace() }) return tr("地址中不能包含空格")
+        val uri = runCatching { URI(url) }.getOrNull() ?: return tr("地址格式无效")
+        if (uri.host.isNullOrBlank()) return tr("地址缺少域名或 IP")
+        if (uri.rawUserInfo != null) return tr("地址中不能包含账号信息")
+        return null
+    }
+
+    // ---------------- 登录地址 ----------------
+
+    /** 登录（设备授权、网页授权）默认站点；与 API 反向代理互相独立 */
+    const val DEFAULT_LOGIN_BASE = "https://github.com"
+    private var loginOverride by mutableStateOf("")
+    private var loginOverrideLoaded = false
+
+    /** 用户保存的登录地址原文，留空表示默认。首次读取时从 prefs 加载，存储值无效则回退为默认 */
+    val loginProxy: String get() {
+        ensureLoginOverride()
+        return loginOverride
+    }
+
+    /** 登录请求实际使用的站点（无末尾斜杠），默认 https://github.com */
+    val loginBase: String get() = loginProxy.trim().trimEnd('/').ifEmpty { DEFAULT_LOGIN_BASE }
+
+    private fun ensureLoginOverride() {
+        if (loginOverrideLoaded || !::prefs.isInitialized) return
+        loginOverrideLoaded = true
+        val saved = prefs.getString("login", "").orEmpty()
+        loginOverride = if (loginProxyError(saved) == null) saved.trim() else ""
+    }
+
+    /**
+     * 登录地址的校验：返回中文错误，合法（含留空，表示默认 github.com）返回 null。
+     * 规则与 [apiProxyError] 一致（https://、有域名、无账号信息、无空格），
+     * 另外登录站点只接受域名（可带端口），不允许路径、查询参数和片段。
+     */
+    fun loginProxyError(input: String): String? {
+        val url = input.trim()
+        if (url.isEmpty()) return null
+        if (!url.startsWith("https://")) return tr("地址必须以 https:// 开头")
+        if (url.any { it.isWhitespace() }) return tr("地址中不能包含空格")
+        val uri = runCatching { URI(url) }.getOrNull() ?: return tr("地址格式无效")
+        if (uri.host.isNullOrBlank()) return tr("地址缺少域名或 IP")
+        if (uri.rawUserInfo != null) return tr("地址中不能包含账号信息")
+        if (uri.rawQuery != null || uri.rawFragment != null) return tr("登录地址不能包含查询参数或 # 片段")
+        if (!uri.rawPath.isNullOrEmpty() && uri.rawPath != "/") return tr("登录地址只填写域名，不能包含路径")
+        return null
+    }
+
+    /** 保存登录地址；传入空白即恢复默认 github.com */
+    fun setLogin(url: String) {
+        loginProxyError(url)?.let { throw IllegalArgumentException(it) }
+        loginOverride = url.trim()
+        loginOverrideLoaded = true
+        prefs.edit().putString("login", loginOverride).apply()
+    }
+
+    /** 登录站点上的端点，如 loginEndpoint("/login/device/code") → https://github.com/login/device/code */
+    fun loginEndpoint(path: String, base: String = loginBase): String = base + path
+
+    /**
+     * 上游返回的地址（设备授权的 verification_uri、授权回调的 iss）是否正好指向 [base] 站点上的 [path]：
+     * scheme 为 https，host（忽略大小写）与端口一致，路径完全等于 [path]，且不带查询参数、片段或账号信息。
+     */
+    fun isLoginUrl(candidate: String, path: String, base: String = loginBase): Boolean {
+        val uri = runCatching { URI(candidate) }.getOrNull() ?: return false
+        val origin = runCatching { URI(base) }.getOrNull() ?: return false
+        fun port(u: URI) = if (u.port == -1) 443 else u.port
+        return uri.scheme.equals("https", ignoreCase = true) && origin.host != null &&
+            uri.host.equals(origin.host, ignoreCase = true) && port(uri) == port(origin) &&
+            uri.rawPath == path && uri.rawQuery == null && uri.rawFragment == null && uri.rawUserInfo == null
+    }
 
     // ---------------- 节点选择 ----------------
 
@@ -147,6 +233,18 @@ object Net {
     fun markDownloadOk(id: String) { downloadOkId = id; downloadFailed.remove(id) }
     fun markDownloadFail(id: String) { downloadFailed.add(id); if (downloadOkId == id) downloadOkId = null }
 
+    /** 节点的实测下载速度（字节/秒），来自完成的下载；排序时比延迟更能反映真实可用的带宽 */
+    private val speeds = mutableStateMapOf<String, Long>()
+
+    /** 记录一次成功下载的实测速度，和之前的记录取平均，避免单次偶然快或慢就改变排序 */
+    fun recordDownloadSpeed(id: String, bytesPerSec: Long) {
+        val previous = speeds[id]
+        speeds[id] = if (previous == null) bytesPerSec else (previous + bytesPerSec) / 2
+        prefs.edit()
+            .putString("speeds", Api.plain.encodeToString(MapSerializer(String.serializer(), Long.serializer()), speeds.toMap()))
+            .apply()
+    }
+
     /**
      * 下载候选地址：按节点顺序排列，第一个失败就自动换下一个，直连 GitHub 永远兜底。
      *
@@ -156,7 +254,7 @@ object Net {
         if (mode == 2 || !isGithubDownload(url)) return listOf(DownloadTarget(DIRECT.id, DIRECT.name, url))
         val preferred = dlNode()
         val candidates = if (mode == 1) listOf(preferred) else nodes
-        return orderDownloadTargets(candidates, url, latency, downloadFailed, downloadOkId ?: preferred.id)
+        return orderDownloadTargets(candidates, url, latency, downloadFailed, downloadOkId ?: preferred.id, speeds = speeds)
     }
 
     fun markPrivate(fullName: String) {
@@ -338,7 +436,13 @@ object Net {
 
     fun changeMode(m: Int) { mode = m; prefs.edit().putInt("mode", m).apply() }
     fun setManual(id: String) { manualId = id; mode = 1; prefs.edit().putString("manual", id).putInt("mode", 1).apply() }
-    fun setApi(url: String) { apiProxy = url.trim(); prefs.edit().putString("api", apiProxy).apply(); Api.clearCache() }
+    /** 保存 API 反向代理地址；不合法时抛出带中文说明的异常（界面会先校验，这里是最后一道保护） */
+    fun setApi(url: String) {
+        apiProxyError(url)?.let { throw IllegalArgumentException(it) }
+        apiProxy = url.trim()
+        prefs.edit().putString("api", apiProxy).apply()
+        Api.clearCache()
+    }
 
     fun addCustom(name: String, base: String): Boolean {
         val b = base.trim().let { if (it.endsWith("/")) it else "$it/" }
@@ -360,12 +464,14 @@ object Net {
 
     // ---------------- 测速 ----------------
 
+    // 与其它客户端一样经 routed() 登记：代理设置变化时 AppNetwork 会清空它的空闲连接，测速不会沿用旧线路
     private val testClient by lazy {
-        OkHttpClient.Builder()
+        OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector())
             .callTimeout(6, TimeUnit.SECONDS)
             .connectTimeout(5, TimeUnit.SECONDS)
             .retryOnConnectionFailure(false)
             .build()
+            .routed()
     }
 
     private fun testUrl(n: CdnNode): String = when (n.type) {
@@ -494,8 +600,10 @@ fun privateDownloadAccept(url: String): String =
     else "application/octet-stream"
 
 /**
- * 下载地址按节点排序：上次成功的 → 当前选中的 → 测速快的 → 未测速的 → 失败过的，
+ * 下载地址按节点排序：有实测下载速度的（快的在前）→ 上次成功的 → 测速延迟低的 → 未测速的 → 失败过的，
  * 直连 GitHub 永远排在最后兜底。
+ *
+ * 实测速度比延迟更能反映下载能跑多快，所以只要测过速度，就排在只有延迟数据的节点前面。
  *
  * 只有转发类（Prefix）节点能代理 Release 资源和源码包：jsDelivr 不提供这些文件，
  * 直连节点不需要改写地址。
@@ -507,10 +615,13 @@ fun orderDownloadTargets(
     failedNodes: Set<String>,
     preferredId: String,
     direct: CdnNode = CdnNode("direct", tr("直连 GitHub"), NodeType.Direct, ""),
+    speeds: Map<String, Long> = emptyMap(),
 ): List<DownloadTarget> {
     val ordered = candidates.filter { it.type == NodeType.Prefix }.sortedWith(
         compareBy<CdnNode>(
             { it.id in failedNodes },
+            { speeds[it.id] == null },
+            { -(speeds[it.id] ?: 0L) },
             { it.id != preferredId },
             { latency[it.id]?.takeIf { l -> l >= 0 } ?: Long.MAX_VALUE },
         ),

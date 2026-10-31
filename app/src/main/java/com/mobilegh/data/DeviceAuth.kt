@@ -60,16 +60,28 @@ object DeviceAuth {
             append(tr("。请到「设置 → 重新登录，获取新授权」补齐权限后再试"))
         }
     }
-    private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
+    private val client = OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector()).connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(25, TimeUnit.SECONDS).callTimeout(30, TimeUnit.SECONDS).build()
 
+    /** 设备授权码地址，默认 https://github.com/login/device/code */
+    internal fun deviceCodeUrl(base: String = Net.loginBase): String = Net.loginEndpoint("/login/device/code", base)
+
+    /** 设备令牌与刷新令牌地址，默认 https://github.com/login/oauth/access_token */
+    internal fun accessTokenUrl(base: String = Net.loginBase): String = Net.loginEndpoint("/login/oauth/access_token", base)
+
+    /** 发起授权时使用的登录站点：轮询必须发往同一站点，不能因为设置被改掉而转发到别处 */
+    private var pendingBase: String? = null
+
     suspend fun start(clientId: String): DeviceAuthorization {
-        return decodeAuthorization(post("/login/device/code", "client_id" to clientId, "scope" to SCOPES))
+        val base = Net.loginBase
+        pendingBase = base
+        return decodeAuthorization(post(deviceCodeUrl(base), "client_id" to clientId, "scope" to SCOPES), base)
     }
 
-    internal fun decodeAuthorization(r: JsonObject): DeviceAuthorization {
+    /** verification_uri 必须与登录站点同源且路径为 /login/device，默认即 https://github.com/login/device */
+    internal fun decodeAuthorization(r: JsonObject, base: String = Net.loginBase): DeviceAuthorization {
         val uri = r.str("verification_uri") ?: error(tr("GitHub 未返回授权地址"))
-        require(uri == "https://github.com/login/device") { tr("GitHub 返回了未知的授权地址") }
+        require(Net.isLoginUrl(uri, "/login/device", base)) { tr("GitHub 返回了未知的授权地址") }
         val expires = r.str("expires_in")?.toIntOrNull()?.takeIf { it > 0 }
             ?: error(tr("GitHub 未返回有效的授权期限"))
         return DeviceAuthorization(
@@ -81,13 +93,13 @@ object DeviceAuth {
     }
 
     suspend fun poll(clientId: String, code: String): DevicePoll = decodePoll(post(
-        "/login/oauth/access_token", "client_id" to clientId, "device_code" to code,
+        accessTokenUrl(pendingBase ?: Net.loginBase), "client_id" to clientId, "device_code" to code,
         "grant_type" to "urn:ietf:params:oauth:grant-type:device_code",
     ))
 
     /** GitHub documents the client-secret exception for tokens issued by the device flow. */
     suspend fun refresh(clientId: String, refreshToken: String): DevicePoll = decodePoll(post(
-        "/login/oauth/access_token", "client_id" to clientId, "refresh_token" to refreshToken,
+        accessTokenUrl(), "client_id" to clientId, "refresh_token" to refreshToken,
         "grant_type" to "refresh_token",
     ))
 
@@ -106,9 +118,9 @@ object DeviceAuth {
         }
     }
 
-    private suspend fun post(path: String, vararg fields: Pair<String, String>): JsonObject {
+    private suspend fun post(url: String, vararg fields: Pair<String, String>): JsonObject {
         val body = FormBody.Builder().apply { fields.forEach { add(it.first, it.second) } }.build()
-        val request = Request.Builder().url("https://github.com$path").post(body)
+        val request = Request.Builder().url(url).post(body)
             .header("Accept", "application/json").header("User-Agent", "MobileGH").build()
         return withContext(Dispatchers.IO) {
             client.routed().newCall(request).await().use { r ->

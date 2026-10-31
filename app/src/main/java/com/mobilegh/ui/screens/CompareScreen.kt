@@ -55,7 +55,6 @@ import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.StatCell
 import com.mobilegh.ui.components.emptyItem
 import com.mobilegh.ui.components.openBrowser
-import com.mobilegh.ui.components.parsePatch
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.theme.Gh
@@ -85,7 +84,7 @@ fun CompareScreen(owner: String, name: String, initialBase: String = "HEAD~1", i
     var deleting by remember { mutableStateOf<Branch?>(null) }
     val compare = rememberLoader("compare:$base:$head") { force ->
         val c = Compare.load(owner, name, base, head, force = force)
-        c to c.files.distinctBy { it.filename }.map { f -> ParsedFile(f, f.patch?.let(::parsePatch).orEmpty()) }
+        c to c.files.distinctBy { it.filename }.map { f -> ParsedFile(f) }
     }
     val collapsed = remember(base, head) { mutableStateMapOf<String, Boolean>() }
     val r = repo.data
@@ -143,6 +142,13 @@ fun CompareScreen(owner: String, name: String, initialBase: String = "HEAD~1", i
     }
 }
 
+/** 推送的基准是「某提交的上一个提交」（SHA^）时显示成可读文字；长 SHA 缩短到 7 位。 */
+private fun refDisplayName(ref: String): String = when {
+    ref.endsWith("^") -> trf("{0} 的上一个提交", ref.dropLast(1).take(7))
+    isShaRef(ref) && ref.length > 12 -> ref.take(7)
+    else -> ref
+}
+
 private fun isShaRef(ref: String) = ref.length >= 7 && ref.all { it in "0123456789abcdefABCDEF" }
 
 /** 顶部：基准 / 目标 两行合在一张卡片里，右侧一个交换按钮 */
@@ -157,7 +163,8 @@ private fun RefPickerCard(base: String, head: String, onBase: () -> Unit, onHead
                 RefLine(tr("目标（新）"), head, onHead)
             }
             Box(
-                Modifier.padding(end = 10.dp).size(36.dp).clip(CircleShape).clickable(onClickLabel = tr("交换基准与目标"), onClick = onSwap),
+                // 触摸区域至少 48dp，和其他可点按的行一致
+                Modifier.padding(end = 10.dp).size(48.dp).clip(CircleShape).clickable(onClickLabel = tr("交换基准与目标"), onClick = onSwap),
                 contentAlignment = Alignment.Center,
             ) { Oc(R.drawable.oc_arrow_switch, g.fgMuted, 18.dp) }
         }
@@ -167,7 +174,7 @@ private fun RefPickerCard(base: String, head: String, onBase: () -> Unit, onHead
 @Composable
 private fun RefLine(label: String, ref: String, onClick: () -> Unit) {
     val g = Gh.c
-    val isSha = isShaRef(ref)
+    val isSha = isShaRef(ref.removeSuffix("^"))
     Row(
         Modifier.fillMaxWidth().clickable(onClickLabel = trf("选择{0}", label), onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -178,7 +185,7 @@ private fun RefLine(label: String, ref: String, onClick: () -> Unit) {
                 Oc(if (isSha) R.drawable.oc_git_commit else R.drawable.oc_git_branch, g.fgMuted, 14.dp)
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    if (isSha && ref.length > 12) ref.take(7) else ref,
+                    refDisplayName(ref),
                     Modifier.weight(1f), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = g.fg,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )

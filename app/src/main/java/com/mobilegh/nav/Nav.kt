@@ -18,79 +18,86 @@ import com.mobilegh.data.IssueQuery
 import com.mobilegh.data.Session
 import com.mobilegh.data.ProjectOwnerKind
 import com.mobilegh.i18n.tr
+import kotlinx.serialization.Serializable
 
-/** 所有页面。使用轻量的自定义导航栈，无需 navigation 库，也无需参数序列化。 */
+/**
+ * 所有页面。使用轻量的自定义导航栈，无需 navigation 库。
+ * 可序列化：进程被回收后，导航栈由 [NavRestore] 写入 SavedStateHandle 并恢复。
+ */
+@Serializable
 sealed interface Screen {
-    data object Root : Screen
-    data class Repo(val owner: String, val name: String) : Screen
-    data class Files(val owner: String, val name: String, val path: String, val ref: String?) : Screen
-    data class FileView(val owner: String, val name: String, val path: String, val ref: String?) : Screen
-    data class FileFinder(val owner: String, val name: String, val ref: String?) : Screen
-    data class CodeSearch(val owner: String, val name: String) : Screen
+    @Serializable data object Root : Screen
+    @Serializable data class Repo(val owner: String, val name: String) : Screen
+    @Serializable data class Files(val owner: String, val name: String, val path: String, val ref: String?) : Screen
+    @Serializable data class FileView(val owner: String, val name: String, val path: String, val ref: String?, @Serializable(with = IntRangeSerializer::class) val lines: IntRange? = null) : Screen
+    @Serializable data class FileFinder(val owner: String, val name: String, val ref: String?) : Screen
+    @Serializable data class CodeSearch(val owner: String, val name: String) : Screen
     /** 独立搜索页：类型、关键词与组合筛选都在其中 */
-    data class Search(val type: Int = 0, val query: String = "") : Screen
-    data class Blame(val owner: String, val name: String, val path: String, val ref: String?) : Screen
+    @Serializable data class Search(val type: Int = 0, val query: String = "") : Screen
+    @Serializable data class Blame(val owner: String, val name: String, val path: String, val ref: String?) : Screen
     /** path == null 表示在 dir 目录下新建文件 */
-    data class EditFile(val owner: String, val name: String, val ref: String?, val path: String?, val dir: String = "") : Screen
+    @Serializable data class EditFile(val owner: String, val name: String, val ref: String?, val path: String?, val dir: String = "") : Screen
     /** 上传文件（夹）：用完整 git 流程写成一次提交并推送到分支；path 是当前浏览的目录 */
-    data class UploadFiles(val owner: String, val name: String, val ref: String?, val path: String = "") : Screen
-    data class NewPull(val owner: String, val name: String, val head: String, val base: String, val title: String = "", val body: String = "") : Screen
+    @Serializable data class UploadFiles(val owner: String, val name: String, val ref: String?, val path: String = "") : Screen
+    @Serializable data class NewPull(val owner: String, val name: String, val head: String, val base: String, val title: String = "", val body: String = "") : Screen
     /** releaseId == null 表示新建 */
-    data class EditRelease(val owner: String, val name: String, val releaseId: Long? = null) : Screen
-    data class RunWorkflow(val owner: String, val name: String, val workflowId: Long, val path: String, val title: String, val ref: String? = null) : Screen
-    data object RecentRepositories : Screen
-    data object SearchHistory : Screen
-    data object EditProfile : Screen
-    data class Commits(val owner: String, val name: String, val ref: String?, val path: String? = null,
+    @Serializable data class EditRelease(val owner: String, val name: String, val releaseId: Long? = null) : Screen
+    @Serializable data class RunWorkflow(val owner: String, val name: String, val workflowId: Long, val path: String, val title: String, val ref: String? = null) : Screen
+    @Serializable data object RecentRepositories : Screen
+    @Serializable data object SearchHistory : Screen
+    @Serializable data object EditProfile : Screen
+    @Serializable data class Commits(val owner: String, val name: String, val ref: String?, val path: String? = null,
         val author: String? = null, val since: String? = null, val until: String? = null) : Screen
-    data class CommitDetail(val owner: String, val name: String, val sha: String) : Screen
-    data class Compare(val owner: String, val name: String, val base: String = "HEAD~1", val head: String = "HEAD") : Screen
+    @Serializable data class CommitDetail(val owner: String, val name: String, val sha: String) : Screen
+    @Serializable data class Compare(val owner: String, val name: String, val base: String = "HEAD~1", val head: String = "HEAD") : Screen
     /** preset：从首页保存的搜索打开时带入的筛选条件 */
-    data class Issues(val owner: String, val name: String, val pulls: Boolean, val preset: IssueQuery? = null) : Screen
-    data class IssueDetail(val owner: String, val name: String, val number: Int, val isPull: Boolean) : Screen
-    data class PullFiles(val owner: String, val name: String, val number: Int) : Screen
-    data class PullChecks(val owner: String, val name: String, val number: Int, val sha: String) : Screen
-    data class NewIssue(val owner: String, val name: String) : Screen
-    data class Actions(val owner: String, val name: String) : Screen
-    data class RunDetail(val owner: String, val name: String, val runId: Long) : Screen
-    data class JobLog(val owner: String, val name: String, val jobId: Long, val title: String) : Screen
-    data class Releases(val owner: String, val name: String) : Screen
-    data class Branches(val owner: String, val name: String) : Screen
-    data class Insights(val owner: String, val name: String) : Screen
-    data class Contributors(val owner: String, val name: String) : Screen
-    data class Discussions(val owner: String, val name: String) : Screen
-    data class DiscussionDetail(val owner: String, val name: String, val number: Int) : Screen
-    data class RepoSettings(val owner: String, val name: String) : Screen
+    @Serializable data class Issues(val owner: String, val name: String, val pulls: Boolean, val preset: IssueQuery? = null) : Screen
+    @Serializable data class IssueDetail(val owner: String, val name: String, val number: Int, val isPull: Boolean) : Screen
+    @Serializable data class PullFiles(val owner: String, val name: String, val number: Int) : Screen
+    @Serializable data class PullChecks(val owner: String, val name: String, val number: Int, val sha: String) : Screen
+    @Serializable data class NewIssue(val owner: String, val name: String) : Screen
+    @Serializable data class Actions(val owner: String, val name: String) : Screen
+    @Serializable data class RunDetail(val owner: String, val name: String, val runId: Long) : Screen
+    @Serializable data class JobLog(val owner: String, val name: String, val jobId: Long, val title: String) : Screen
+    @Serializable data class Releases(val owner: String, val name: String) : Screen
+    /** 仓库最近的推送记录：谁推送到了哪个分支 */
+    @Serializable data class Pushes(val owner: String, val name: String) : Screen
+    @Serializable data class Branches(val owner: String, val name: String) : Screen
+    @Serializable data class Insights(val owner: String, val name: String) : Screen
+    @Serializable data class Contributors(val owner: String, val name: String) : Screen
+    @Serializable data class Discussions(val owner: String, val name: String) : Screen
+    @Serializable data class DiscussionDetail(val owner: String, val name: String, val number: Int) : Screen
+    @Serializable data class RepoSettings(val owner: String, val name: String) : Screen
     /** 用户/组织/仓库的 Projects 列表；kind 为 Repo 时 login 是仓库 owner，name 是仓库名 */
-    data class Projects(val kind: ProjectOwnerKind, val login: String, val name: String = "") : Screen
-    data class ProjectDetail(val id: String, val title: String) : Screen
-    data class Collaborators(val owner: String, val name: String) : Screen
-    data class Profile(val login: String) : Screen
-    data class Org(val login: String) : Screen
-    data class Users(val kind: UserKind, val a: String, val b: String = "") : Screen
-    data class Repos(val kind: RepoKind, val login: String = "", val name: String = "") : Screen
-    data object Orgs : Screen
-    data object Invitations : Screen
-    data class Gists(val login: String?) : Screen
-    data class GistDetail(val id: String) : Screen
+    @Serializable data class Projects(val kind: ProjectOwnerKind, val login: String, val name: String = "") : Screen
+    @Serializable data class ProjectDetail(val id: String, val title: String) : Screen
+    @Serializable data class Collaborators(val owner: String, val name: String) : Screen
+    @Serializable data class Profile(val login: String) : Screen
+    @Serializable data class Org(val login: String) : Screen
+    @Serializable data class Users(val kind: UserKind, val a: String, val b: String = "") : Screen
+    @Serializable data class Repos(val kind: RepoKind, val login: String = "", val name: String = "") : Screen
+    @Serializable data object Orgs : Screen
+    @Serializable data object Invitations : Screen
+    @Serializable data class Gists(val login: String?) : Screen
+    @Serializable data class GistDetail(val id: String) : Screen
     /** id == null 表示新建 */
-    data class GistEditor(val id: String? = null) : Screen
-    data class Activity(val login: String) : Screen
-    data class StarLists(val login: String, val initialListId: String? = null, val local: Boolean = false) : Screen
-    data class Achievements(val login: String) : Screen
-    data object Settings : Screen
-    data object Logs : Screen
-    data object Authenticator : Screen
-    data object OrgDiagnostics : Screen
-    data object CreateRepo : Screen
-    data object Login : Screen
-    data object Reauthorize : Screen
-    data class MyIssues(val pulls: Boolean, val preset: IssueQuery? = null) : Screen
-    data object HomeCustomize : Screen
+    @Serializable data class GistEditor(val id: String? = null) : Screen
+    @Serializable data class Activity(val login: String) : Screen
+    @Serializable data class StarLists(val login: String, val initialListId: String? = null, val local: Boolean = false) : Screen
+    @Serializable data class Achievements(val login: String) : Screen
+    @Serializable data object Settings : Screen
+    @Serializable data object Logs : Screen
+    @Serializable data object Authenticator : Screen
+    @Serializable data object OrgDiagnostics : Screen
+    @Serializable data object CreateRepo : Screen
+    @Serializable data object Login : Screen
+    @Serializable data object Reauthorize : Screen
+    @Serializable data class MyIssues(val pulls: Boolean, val preset: IssueQuery? = null) : Screen
+    @Serializable data object HomeCustomize : Screen
 }
 
-enum class UserKind { Followers, Following, Stargazers, Watchers, Contributors, Members }
-enum class RepoKind { User, Starred, Org, Forks }
+@Serializable enum class UserKind { Followers, Following, Stargazers, Watchers, Contributors, Members }
+@Serializable enum class RepoKind { User, Starred, Org, Forks }
 
 enum class Tab(private val titleZh: String) { Home("首页"), Repos("仓库"), Notifications("通知"), Explore("探索"), Me("我的");
     val title: String get() = tr(titleZh) }
@@ -145,6 +152,12 @@ class Navigator {
         lastWasPush = false
         stack.forEach { it.dispose() }
         stack.clear()
+    }
+
+    /** 进程重建后恢复 Tab 与栈。只应在刚创建的 Navigator 上调用；不记入浏览历史。 */
+    fun restore(restored: RestoredNav) {
+        tab = restored.tab
+        restored.screens.forEach { stack.add(Entry(it)) }
     }
 
     /**
@@ -213,6 +226,7 @@ internal fun repoHomeOf(screen: Screen): Screen.Repo? = when (screen) {
     is Screen.Actions -> Screen.Repo(screen.owner, screen.name)
     is Screen.RunDetail -> Screen.Repo(screen.owner, screen.name)
     is Screen.Releases -> Screen.Repo(screen.owner, screen.name)
+    is Screen.Pushes -> Screen.Repo(screen.owner, screen.name)
     is Screen.Branches -> Screen.Repo(screen.owner, screen.name)
     is Screen.Insights -> Screen.Repo(screen.owner, screen.name)
     is Screen.Contributors -> Screen.Repo(screen.owner, screen.name)

@@ -365,8 +365,10 @@ object GitHub {
     suspend fun issues(o: String, n: String, state: String, page: Int, force: Boolean, sort: String = "created", direction: String = "desc") =
         Api.get<List<Issue>>("${r(o, n)}/issues?state=$state&sort=$sort&direction=$direction&per_page=$PER&page=$page", force)
     /** sort: created / updated / popularity / long-running */
+    /** 每页读完后在后台补充这一页 PR 的审查与 CI 状态（一页一个 GraphQL 请求，失败不影响列表） */
     suspend fun pulls(o: String, n: String, state: String, page: Int, force: Boolean, sort: String = "updated", direction: String = "desc") =
         Api.get<List<Pull>>("${r(o, n)}/pulls?state=$state&sort=$sort&direction=$direction&per_page=$PER&page=$page", force)
+            .also { PullRequestStatuses.loadPage(o, n, it) }
     suspend fun issue(o: String, n: String, num: Int, force: Boolean) = Api.get<Issue>("${r(o, n)}/issues/$num", force, Api.FULL)
     /** 评论每页 100 条，最多连续读取的页数：超长讨论不会无限拉取，但也不再丢掉第 100 条之后的评论 */
     private const val MAX_COMMENT_PAGES = 10
@@ -402,11 +404,68 @@ object GitHub {
             sha?.takeIf { it.isNotBlank() }?.let { put("sha", it) }
         })
     suspend fun deleteBranch(o: String, n: String, branch: String) = Api.exec("DELETE", "${r(o, n)}/git/refs/heads/${Api.encodePath(branch)}")
-    suspend fun review(o: String, n: String, num: Int, event: String, body: String) =
-        Api.exec("POST", "${r(o, n)}/pulls/$num/reviews", buildJsonObject {
-            put("event", event)
-            if (body.isNotBlank()) put("body", body)
-        })
+    /**
+     * 提交审查：当前用户有待提交审查时提交它（其中的行内评论随之发布）；没有则直接提交一条新审查。
+     */
+    suspend fun submitReview(o: String, n: String, num: Int, event: String, body: String) {
+        val payload = ReviewApi.submitBody(event, body)
+        val pending = findPendingReview(o, n, num, currentLogin())
+        if (pending != null) Api.exec("POST", "${r(o, n)}/pulls/$num/reviews/${pending.id}/events", payload)
+        else Api.exec("POST", "${r(o, n)}/pulls/$num/reviews", payload)
+    }
+
+    // ---------------- 待提交审查（PENDING） ----------------
+    private const val MAX_REVIEW_PAGES = 10
+
+    private suspend fun currentLogin(): String = Session.login ?: viewer(true).login
+
+    /** 当前用户在此 PR 上的 PENDING 审查。GitHub 每人每 PR 只允许一个，所以按登录名找到即可。 */
+    private suspend fun findPendingReview(o: String, n: String, num: Int, login: String): Review? {
+        for (page in 1..MAX_REVIEW_PAGES) {
+            val part = Api.get<List<Review>>("${r(o, n)}/pulls/$num/reviews?per_page=100&page=$page", true, Api.FULL)
+            ReviewApi.findPending(part, login)?.let { return it }
+            if (part.size < 100) break
+        }
+        return null
+    }
+
+    private suspend fun pendingCommentCount(o: String, n: String, num: Int, reviewId: Long): Int {
+        var total = 0
+        for (page in 1..MAX_REVIEW_PAGES) {
+            val part = Api.get<List<ReviewComment>>("${r(o, n)}/pulls/$num/reviews/$reviewId/comments?per_page=100&page=$page", true, Api.FULL)
+            total += part.size
+            if (part.size < 100) break
+        }
+        return total
+    }
+
+    /** 当前用户的待提交审查（含行内评论数）；没有则返回 null */
+    suspend fun pendingReview(o: String, n: String, num: Int): PendingReview? {
+        val review = findPendingReview(o, n, num, currentLogin()) ?: return null
+        return PendingReview(review.id, pendingCommentCount(o, n, num, review.id))
+    }
+
+    /**
+     * 把行内评论加入当前用户的待提交审查；没有待提交审查时先创建一个（不带 event）。
+     * commitId 为用户正在查看的 PR head 提交。回复、编辑、删除仍是即时操作。
+     */
+    suspend fun addPendingReviewComment(
+        o: String, n: String, num: Int, body: String, commitId: String, path: String,
+        line: Int?, side: String = "RIGHT", startLine: Int? = null, startSide: String? = null,
+    ) {
+        val reviewId = findPendingReview(o, n, num, currentLogin())?.id
+            ?: Api.send<Review>("POST", "${r(o, n)}/pulls/$num/reviews", ReviewApi.createBody(commitId)).id
+        Api.send<ReviewComment>(
+            "POST", "${r(o, n)}/pulls/$num/reviews/$reviewId/comments",
+            ReviewApi.commentBody(body, commitId, path, line, side, startLine, startSide),
+        )
+    }
+
+    /** 放弃当前用户的待提交审查，连同其中未发布的行内评论一并删除；没有待提交审查时不做任何事 */
+    suspend fun discardPendingReview(o: String, n: String, num: Int) {
+        val review = findPendingReview(o, n, num, currentLogin()) ?: return
+        Api.exec("DELETE", "${r(o, n)}/pulls/$num/reviews/${review.id}")
+    }
 
     // ---------------- PR 审查意见（行内评论） ----------------
     suspend fun reviewComments(o: String, n: String, num: Int, force: Boolean): List<ReviewComment> {
@@ -456,26 +515,6 @@ object GitHub {
         return map
     }
 
-    /**
-     * 发表行内评论。line 为 null 时是文件级评论（subject_type=file）；
-     * side：RIGHT=新文件的行（新增/上下文），LEFT=旧文件的行（删除）。
-     */
-    suspend fun addReviewComment(
-        o: String, n: String, num: Int, body: String, commitId: String, path: String,
-        line: Int?, side: String = "RIGHT", startLine: Int? = null, startSide: String? = null,
-    ) = Api.send<ReviewComment>("POST", "${r(o, n)}/pulls/$num/comments", buildJsonObject {
-        put("body", body)
-        put("commit_id", commitId)
-        put("path", path)
-        if (line == null) put("subject_type", "file") else {
-            put("line", line)
-            put("side", side)
-            if (startLine != null && startLine < line) {
-                put("start_line", startLine)
-                put("start_side", startSide ?: side)
-            }
-        }
-    })
     suspend fun replyReviewComment(o: String, n: String, num: Int, commentId: Long, body: String) =
         Api.send<ReviewComment>("POST", "${r(o, n)}/pulls/$num/comments/$commentId/replies", buildJsonObject { put("body", body) })
     suspend fun editReviewComment(o: String, n: String, commentId: Long, body: String) =
@@ -502,7 +541,7 @@ object GitHub {
     // ---------------- PR 审查者 ----------------
     /** 可请求审查的人：协作者列表需要推送权限，读不到时退回可指派人列表 */
     suspend fun reviewerCandidates(o: String, n: String): List<Assignable> = try {
-        Api.get<List<Assignable>>("${r(o, n)}/collaborators?per_page=100", true)
+        collectPages(CANDIDATE_PAGE, CANDIDATE_MAX_PAGES) { p -> Api.get<List<Assignable>>("${r(o, n)}/collaborators?per_page=$CANDIDATE_PAGE&page=$p", true) }
     } catch (e: ApiException) {
         if (e.code == 403 || e.code == 404) repoAssignees(o, n) else throw e
     }
@@ -588,8 +627,27 @@ object GitHub {
         return false
     }
 
-    suspend fun repoLabels(o: String, n: String) = Api.get<List<Label>>("${r(o, n)}/labels?per_page=100", true)
-    suspend fun repoAssignees(o: String, n: String) = Api.get<List<Assignable>>("${r(o, n)}/assignees?per_page=100", true)
+    /** 候选项每页 100 条，最多读 [CANDIDATE_MAX_PAGES] 页；超出部分由界面上的筛选框找到 */
+    private const val CANDIDATE_PAGE = 100
+    private const val CANDIDATE_MAX_PAGES = 10
+
+    /** 按页读取直到最后一页（不满一页）或达到 [maxPages] 页 */
+    internal suspend fun <T> collectPages(pageSize: Int, maxPages: Int, load: suspend (page: Int) -> List<T>): List<T> {
+        val all = ArrayList<T>()
+        for (page in 1..maxPages) {
+            val part = load(page)
+            all += part
+            if (part.size < pageSize) break
+        }
+        return all
+    }
+
+    suspend fun repoLabels(o: String, n: String) = collectPages(CANDIDATE_PAGE, CANDIDATE_MAX_PAGES) { p ->
+        Api.get<List<Label>>("${r(o, n)}/labels?per_page=$CANDIDATE_PAGE&page=$p", true)
+    }
+    suspend fun repoAssignees(o: String, n: String) = collectPages(CANDIDATE_PAGE, CANDIDATE_MAX_PAGES) { p ->
+        Api.get<List<Assignable>>("${r(o, n)}/assignees?per_page=$CANDIDATE_PAGE&page=$p", true)
+    }
     suspend fun repoMilestones(o: String, n: String) = Api.get<List<Milestone>>("${r(o, n)}/milestones?state=open&per_page=100", true)
     suspend fun setLabels(o: String, n: String, num: Int, names: List<String>) =
         Api.exec("PUT", "${r(o, n)}/issues/$num/labels", buildJsonObject { put("labels", JsonArray(names.map { JsonPrimitive(it) })) })
@@ -730,11 +788,11 @@ object GitHub {
     suspend fun markAllRead() = Api.exec("PUT", "/notifications", buildJsonObject { put("read", true) })
     /** 取消订阅线程：之后不再收到该会话的通知，直到再次评论或被 @ */
     suspend fun unsubscribeThread(id: String) = Api.exec("DELETE", "/notifications/threads/$id/subscription")
-    /** 忽略线程：即使被 @ 也不再收到该会话的通知 */
-    suspend fun ignoreThread(id: String) = Api.exec("PUT", "/notifications/threads/$id/subscription", buildJsonObject { put("ignored", true) })
 
     // ---------------- 动态 ----------------
     suspend fun received(login: String, page: Int, force: Boolean) = Api.get<List<Event>>("/users/$login/received_events?per_page=$PER&page=$page", force)
+    /** 仓库事件（含 PushEvent），用于查看最近推送到哪些分支、由谁推送。 */
+    suspend fun repoEvents(o: String, n: String, page: Int, force: Boolean) = Api.get<List<Event>>("${r(o, n)}/events?per_page=$PER&page=$page", force)
     suspend fun userEvents(login: String, page: Int, force: Boolean) = Api.get<List<Event>>("/users/$login/events?per_page=$PER&page=$page", force)
 
     /** 组织活动流：比用户 received_events 更准确地覆盖组织仓库的 push、Issue、PR 和 release。 */

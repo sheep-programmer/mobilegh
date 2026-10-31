@@ -12,6 +12,8 @@ data class LocalNotifications(
     val unread: List<String> = emptyList(),
     val done: List<Notification> = emptyList(),
     val known: List<Notification> = emptyList(),
+    /** 本机忽略过的线程 id：GitHub 列表不返回订阅状态，「恢复订阅」只能对这里记录的线程使用 */
+    val ignored: List<String> = emptyList(),
 )
 
 /** GitHub 不提供的通知状态按账号加密保存；未提交的撤销窗口不进入此存储。 */

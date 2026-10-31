@@ -46,7 +46,9 @@ data class ProfileFields(
     fun patch(original: ProfileFields): JsonObject = buildJsonObject {
         fun changed(key: String, value: String, old: String, max: Int) {
             if (value != old) {
-                require(value.length <= max && (key == "bio" || value.none(Char::isISOControl))) { trf("{0} 的内容过长或格式无效", key) }
+                require(value.length <= max && (key == "bio" || value.none(Char::isISOControl))) {
+                    trf("{0} 的内容过长或格式无效", if (key == "bio") tr("个人简介") else key)
+                }
                 put(key, value.trim())
             }
         }

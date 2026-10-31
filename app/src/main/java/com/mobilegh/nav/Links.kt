@@ -20,6 +20,7 @@ object Links {
     private val cloneUrl = Regex("(?i)^(?:git@github\\.com:|ssh://git@github\\.com/)([^\\s]+)$")
     private val shortRepo = Regex("^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$")
     private val markdownLink = Regex("^\\[[^]\\r\\n]*]\\(([^\\s()]+)\\)$")
+    private val lineFragment = Regex("L(\\d{1,7})(?:-L?(\\d{1,7}))?")
     private val linksInText = Regex(
         "(?i)(?<![A-Za-z0-9_./:@?=&%#-])(?:https?://(?:(?:www\\.)?github\\.com|api\\.github\\.com|(?:raw\\.githubusercontent\\.com|gist\\.github\\.com))|(?:(?:www\\.)?github\\.com|api\\.github\\.com|(?:raw\\.githubusercontent\\.com|gist\\.github\\.com))|git@github\\.com:|ssh://git@github\\.com/)/?[^\\s<>\"'`()\\[\\]{}，。；！？、：]+",
     )
@@ -31,11 +32,15 @@ object Links {
     data class InputLink(val url: String, val target: Screen)
 
     fun inputLink(text: String): InputLink? {
-        val full = normalizeInput(text)?.substringBefore('#') ?: return null
+        val raw = normalizeInput(text) ?: return null
+        val full = raw.substringBefore('#')
         // 搜索链接的关键词在查询参数里，要保留；其余链接丢掉 ?tab= 之类的会话参数
         (route(full) as? Screen.Search)?.let { return InputLink(full, it) }
         val url = full.substringBefore('?')
-        return fromInput(url)?.let { InputLink(url, it) }
+        // 片段里的 #L 行号在去掉片段前取出，文件链接需要它定位到具体行
+        return fromInput(url)?.let { screen ->
+            InputLink(url, if (screen is Screen.FileView) screen.copy(lines = lineRange(raw)) else screen)
+        }
     }
 
     fun sharedLink(text: String): InputLink? =
@@ -115,7 +120,7 @@ object Links {
     fun route(url: String): Screen? {
         val (u, segs) = parse(url) ?: return null
         val host = u.host?.lowercase() ?: return null
-        return when (host) {
+        val screen = when (host) {
             "github.com", "www.github.com" -> search(u, segs) ?: web(segs)
             "api.github.com" -> api(segs)
             "raw.githubusercontent.com" ->
@@ -123,6 +128,24 @@ object Links {
             "gist.github.com" -> segs.getOrNull(1)?.let { Screen.GistDetail(it) } ?: segs.getOrNull(0)?.let { Screen.Gists(it) }
             else -> null
         }
+        // 文件链接的 #L 行号只在这里附加：路径解析本身不关心片段
+        return if (screen is Screen.FileView) screen.copy(lines = lineRange(url)) else screen
+    }
+
+    /**
+     * 文件链接的行号锚点：`#L42` 单行，`#L42-L50` 区间（也接受 `#L42-50`）。
+     * 没有行号或格式不对时返回 null；返回的是闭区间，起始行至少为 1。
+     */
+    fun lineRange(url: String): IntRange? {
+        val fragment = runCatching { URI(url.trim()).rawFragment }.getOrNull() ?: return null
+        return parseLineFragment(fragment)
+    }
+
+    internal fun parseLineFragment(fragment: String): IntRange? {
+        val m = lineFragment.matchEntire(fragment) ?: return null
+        val start = m.groupValues[1].toIntOrNull() ?: return null
+        val end = m.groupValues[2].toIntOrNull() ?: start
+        return if (start >= 1 && end >= start) start..end else null
     }
 
     /** github.com/search?q=…&type=… 打开应用内搜索；没有关键词时交给浏览器 */

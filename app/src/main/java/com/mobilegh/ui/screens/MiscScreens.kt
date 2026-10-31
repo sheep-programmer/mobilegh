@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -48,10 +49,16 @@ import com.mobilegh.data.Downloads
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.Net
 import com.mobilegh.data.NodeType
+import com.mobilegh.data.ProxyMode
 import com.mobilegh.data.Session
+import com.mobilegh.data.SettingsBackup
+import com.mobilegh.data.SettingsBackupCodec
+import com.mobilegh.data.SettingsBackupPayload
 import com.mobilegh.data.Totp
 import com.mobilegh.data.Update
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.rememberLoader
@@ -72,6 +79,7 @@ import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.Segmented
 import com.mobilegh.ui.components.SwitchRow
 import com.mobilegh.ui.components.TextLink
+import com.mobilegh.ui.components.copy
 import com.mobilegh.ui.components.openBrowser
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.toast
@@ -162,6 +170,7 @@ fun SettingsScreen() {
     var confirmOut by remember { mutableStateOf(false) }
     var addNode by remember { mutableStateOf(false) }
     var apiDialog by remember { mutableStateOf(false) }
+    var loginDialog by remember { mutableStateOf(false) }
     var showUpdate by remember { mutableStateOf(false) }
 
     androidx.activity.compose.BackHandler(enabled = page != SettingsPage.Home) { page = SettingsPage.Home }
@@ -183,7 +192,7 @@ fun SettingsScreen() {
                     }
                 }
                 SettingsPage.TwoFactor -> TwoFactorSection()
-                SettingsPage.Network -> NetworkSection(onAdd = { addNode = true }, onApi = { apiDialog = true })
+                SettingsPage.Network -> NetworkSection(onAdd = { addNode = true }, onApi = { apiDialog = true }, onLogin = { loginDialog = true })
                 SettingsPage.Quota -> QuotaSection()
                 SettingsPage.Storage -> {
                     SectionTitle(tr("存储"))
@@ -196,6 +205,7 @@ fun SettingsScreen() {
                             ctx.toast(tr("缓存已清除"))
                         }
                     }
+                    SettingsBackupSection()
                 }
                 SettingsPage.About -> {
                     SectionTitle("MobileGH")
@@ -244,17 +254,53 @@ fun SettingsScreen() {
 
     if (apiDialog) {
         var url by remember { mutableStateOf(Net.apiProxy) }
+        var apiError by remember { mutableStateOf<String?>(null) }
         GhDialog(tr("API 反向代理（高级）"), { apiDialog = false }, confirm = tr("保存"), onConfirm = {
+            // Token 会发往这个地址：地址不合法（尤其是 http://）时不保存，原因显示在弹窗里
+            val problem = Net.apiProxyError(url)
+            if (problem != null) { apiError = problem; return@GhDialog }
             apiDialog = false
             Net.setApi(url)
             ctx.toast(if (url.isBlank()) tr("已恢复官方 API") else tr("已启用 API 代理"))
         }) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    tr("所有 API 请求（包括你的 Token）都会经过该地址。只填写你自己部署的代理（如 Cloudflare Worker 反代 api.github.com），切勿使用来路不明的公共代理。留空则使用官方 api.github.com。"),
+                    tr("所有 API 请求（包括你的 Token）都会经过该地址，必须是 https:// 开头的地址。只填写你自己部署的代理（如 Cloudflare Worker 反代 api.github.com），切勿使用来路不明的公共代理。留空则使用官方 api.github.com。"),
                     fontSize = 13.sp, color = g.attention,
                 )
-                GhField(url, { url = it }, tr("代理地址"), placeholder = "https://gh-api.example.workers.dev")
+                GhField(url, { url = it; apiError = null }, tr("代理地址"), placeholder = "https://gh-api.example.workers.dev")
+                apiError?.let { InlineError(it) }
+            }
+        }
+    }
+
+    if (loginDialog) {
+        var url by remember { mutableStateOf(Net.loginProxy) }
+        var loginError by remember { mutableStateOf<String?>(null) }
+        GhDialog(tr("登录地址（高级）"), { loginDialog = false }, confirm = tr("保存"), onConfirm = {
+            // 登录请求会经过该地址：地址不合法时不保存，原因显示在弹窗里
+            val problem = Net.loginProxyError(url)
+            if (problem != null) { loginError = problem; return@GhDialog }
+            loginDialog = false
+            Net.setLogin(url)
+            ctx.toast(if (url.isBlank()) tr("已恢复默认登录地址") else tr("已启用自定义登录地址"))
+        }) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    tr("仅作用于设备登录的授权请求，其他 API 请求不受影响。网页授权（数字审批）固定使用 github.com，因为它需要应用密钥。必须是 https:// 开头、只填写域名的地址，如你自己部署的反向代理。登录过程会经过该地址，切勿填写来路不明的地址。留空或恢复默认则使用 github.com。"),
+                    fontSize = 13.sp, color = g.attention,
+                )
+                GhField(url, { url = it; loginError = null }, tr("登录地址"), placeholder = "https://login.example.workers.dev")
+                loginError?.let { InlineError(it) }
+                Text(
+                    tr("恢复默认"),
+                    Modifier.clickable {
+                        loginDialog = false
+                        Net.setLogin("")
+                        ctx.toast(tr("已恢复默认登录地址"))
+                    }.padding(vertical = 4.dp),
+                    color = g.accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                )
             }
         }
     }
@@ -313,8 +359,11 @@ private fun languageName() = when (com.mobilegh.i18n.I18n.choice) {
     com.mobilegh.i18n.AppLanguage.System -> tr("跟随系统")
 }
 
+/** 加速节点的三种模式：摘要和选项使用同一组文字，避免「自动加速」与「自动（推荐）」对不上 */
+private fun accelerationModeLabels() = listOf(tr("自动（推荐）"), tr("手动选择"), tr("关闭"))
+
 @Composable
-private fun accelerationName() = listOf(tr("自动加速"), tr("手动选择"), tr("已关闭"))[Net.mode.coerceIn(0, 2)]
+private fun accelerationName() = accelerationModeLabels()[Net.mode.coerceIn(0, 2)]
 
 /** 外观与语言：主题、界面语言、代码换行 */
 @Composable
@@ -419,13 +468,13 @@ private fun QuotaSection() {
 }
 
 @Composable
-private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit) {
+private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit, onLogin: () -> Unit) {
     val g = Gh.c
     LaunchedEffect(Unit) {
         // 结果超过 30 分钟则重新测速
         if (System.currentTimeMillis() - Net.lastTest > 30 * 60_000) Net.speedTestAsync()
     }
-    SectionTitle(tr("网络加速")) {
+    SectionTitle(tr("加速节点")) {
         if (Net.testing) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = g.fgMuted)
         else com.mobilegh.ui.components.TextLink(tr("立即测速")) { Net.speedTestAsync() }
     }
@@ -444,7 +493,7 @@ private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit) {
                 fontSize = 12.sp, color = g.fgMuted,
             )
         }
-        val modes = listOf(tr("自动（推荐）"), tr("手动选择"), tr("关闭"))
+        val modes = accelerationModeLabels()
         Dropdown(modes[Net.mode], modes, { Net.changeMode(it) })
     }
     }
@@ -502,7 +551,106 @@ private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit) {
     )
     MenuGroup {
     MenuRow(R.drawable.oc_plus, tr("添加自定义节点"), onClick = onAdd)
+    }
+    // 应用网络代理与加速节点是两件事：这里只管 App 自己的 API / 登录请求走哪条线路
+    SectionTitle(tr("应用网络代理"))
+    MenuGroup {
     com.mobilegh.ui.components.NetworkSettingsRow()
     MenuRow(R.drawable.oc_globe, tr("API 反向代理（高级）"), value = if (Net.apiProxy.isBlank()) tr("官方") else tr("已启用"), onClick = onApi)
+    MenuRow(R.drawable.oc_globe, tr("登录地址"), value = if (Net.loginProxy.isBlank()) tr("官方") else tr("已启用"), onClick = onLogin)
+    }
+    Text(
+        tr("应用网络代理只作用于 App 内的 API、登录与授权请求，不影响加速节点，也不影响系统下载器。"),
+        Modifier.padding(horizontal = 20.dp, vertical = 6.dp), fontSize = 12.sp, lineHeight = 18.sp, color = g.fgMuted,
+    )
+}
+
+/** 设置备份：导出为 JSON（复制到剪贴板）或粘贴导入；明确列出不包含的内容 */
+@Composable
+private fun SettingsBackupSection() {
+    val g = Gh.c
+    val ctx = rememberCtx()
+    var importing by remember { mutableStateOf(false) }
+    SectionTitle(tr("设置备份"))
+    MenuGroup {
+        MenuRow(R.drawable.oc_download, tr("导出设置（复制 JSON）")) { ctx.copy(SettingsBackup.export(), tr("设置已复制到剪贴板")) }
+        MenuRow(R.drawable.oc_sync, tr("导入设置（粘贴 JSON）")) { importing = true }
+    }
+    Text(
+        tr("包含：应用网络代理、API 反向代理地址、加速节点选择、自定义加速节点，以及应用锁开关（仅供参考，导入不会改变它）。") + "\n" +
+            tr("不包含：GitHub Token、两步验证的验证器密钥、应用锁的验证信息。这些只保存在本机，不会出现在备份文件里。"),
+        Modifier.padding(horizontal = 20.dp, vertical = 6.dp), fontSize = 12.sp, lineHeight = 18.sp, color = g.fgMuted,
+    )
+    if (importing) SettingsImportDialog { importing = false }
+}
+
+/** 粘贴设置 JSON 并导入。先校验并给出预览；API 反向代理会收到 Token，单独提醒后才写入。 */
+@Composable
+private fun SettingsImportDialog(onDismiss: () -> Unit) {
+    val g = Gh.c
+    val ctx = rememberCtx()
+    val scope = rememberCoroutineScope()
+    var text by remember { mutableStateOf("") }
+    var preview by remember { mutableStateOf<SettingsBackupPayload?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val payload = preview
+    GhDialog(
+        if (payload == null) tr("导入设置") else tr("确认导入"),
+        { if (!busy) onDismiss() },
+        confirm = when {
+            busy -> tr("导入中…")
+            payload == null -> tr("检查")
+            else -> tr("导入")
+        },
+        confirmEnabled = !busy && (payload != null || text.isNotBlank()),
+        onConfirm = {
+            if (payload == null) {
+                runCatching { SettingsBackupCodec.decode(text) }
+                    .onSuccess { preview = it; error = null }
+                    .onFailure { error = it.message ?: tr("设置内容无效") }
+            } else {
+                busy = true
+                scope.launch {
+                    try {
+                        SettingsBackup.apply(payload)
+                        ctx.toast(tr("设置已导入"))
+                        onDismiss()
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        error = e.message ?: tr("导入失败")
+                        busy = false
+                    }
+                }
+            }
+        },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (payload == null) {
+                GhField(text, { text = it; error = null }, tr("设置 JSON"), singleLine = false, minLines = 5,
+                    placeholder = tr("粘贴之前导出的设置内容"))
+                TextLink(tr("从剪贴板粘贴")) {
+                    val clip = (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                        .primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(ctx)?.toString()
+                    if (clip.isNullOrBlank()) ctx.toast(tr("剪贴板里没有文字")) else { text = clip; error = null }
+                }
+            } else {
+                Text(tr("将写入以下设置："), color = g.fg, fontSize = 14.sp)
+                Text(trf("应用网络代理：{0}", ProxyMode.valueOf(payload.network.mode).label), color = g.fgMuted, fontSize = 13.sp)
+                Text(trf("加速节点：{0}", accelerationModeLabels()[payload.acceleration.mode]), color = g.fgMuted, fontSize = 13.sp)
+                Text(trf("自定义加速节点：{0} 个", payload.customNodes.size), color = g.fgMuted, fontSize = 13.sp)
+                if (payload.apiProxy.isBlank()) {
+                    Text(tr("API 反向代理：官方"), color = g.fgMuted, fontSize = 13.sp)
+                } else {
+                    val host = runCatching { java.net.URI(payload.apiProxy).host }.getOrNull().orEmpty()
+                    Text(trf("API 反向代理：{0}", host), color = g.fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(tr("API 反向代理会收到你的 Token。请确认这是你自己部署的地址，再点击导入。"), color = g.attention, fontSize = 12.sp)
+                }
+                Text(tr("应用锁不会通过导入改变，请在本机设置。"), color = g.fgMuted, fontSize = 12.sp)
+                TextLink(tr("返回修改")) { preview = null }
+            }
+            error?.let { InlineError(it) }
+        }
     }
 }

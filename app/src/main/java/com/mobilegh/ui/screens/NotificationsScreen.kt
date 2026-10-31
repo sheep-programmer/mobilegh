@@ -48,6 +48,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -55,6 +57,8 @@ import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.Notification
+import com.mobilegh.data.ThreadApi
+import java.time.Instant
 import com.mobilegh.data.Session
 import com.mobilegh.nav.Links
 import com.mobilegh.nav.LocalEntry
@@ -179,8 +183,11 @@ internal class NotifState(saved: com.mobilegh.data.LocalNotifications) {
     /** 已完成条目本身，供「已完成」视图使用 */
     val doneItems = mutableStateListOf<Notification>().apply { addAll(saved.done) }
 
-    /** 本机刚取消订阅 / 忽略的线程 */
+    /** 本机刚取消订阅 / 忽略的线程（仅用于显示「已取消订阅」图标） */
     val unsubscribed = mutableStateListOf<String>()
+
+    /** 本机忽略过的线程（持久化）：只有这里的线程才提供「恢复订阅」 */
+    val ignored = mutableStateListOf<String>().apply { addAll(saved.ignored) }
 
     /** 正在等撤销窗口结束的「完成」操作：id -> 撤销所需信息 */
     val pending = mutableStateMapOf<String, Pending>()
@@ -189,7 +196,10 @@ internal class NotifState(saved: com.mobilegh.data.LocalNotifications) {
 
     var busyLabel by mutableStateOf<String?>(null)
     var busyDone by mutableIntStateOf(0)
+    /** 0 表示总数未知（如「全部标为已读」），进度条按不确定状态显示 */
     var busyTotal by mutableIntStateOf(0)
+    /** 用户点了批量操作的「取消」：正在进行的请求会完成，之后的条目不再发起 */
+    var busyCancelRequested by mutableStateOf(false)
 
     class Pending(val wasRead: Boolean, val wasUnread: Boolean) {
         var job: Job? = null
@@ -250,22 +260,47 @@ private fun bumpBadge(delta: Int) {
 private enum class BulkKind(private val labelZh: String) { Done("完成"), Read("标为已读"), Ignore("忽略");
     val label: String get() = tr(labelZh) }
 
-internal class BulkResult(val ok: Int, val failed: Int, val failedIds: List<String>, val firstError: String?)
+/** [skipped] 为取消后未发起请求的条数；它们既不算成功也不算失败 */
+internal class BulkResult(
+    val ok: Int,
+    val failed: Int,
+    val failedIds: List<String>,
+    val firstError: String?,
+    val skipped: Int = 0,
+)
 
 /** 每批同时最多调用多少个接口 */
 private const val BULK_CONCURRENCY = 4
 
-/** 有界并发地逐条调用接口，返回成功/失败数并报告进度 */
-internal suspend fun runBulk(ids: List<String>, onProgress: (Int) -> Unit, run: suspend (String) -> Unit): BulkResult {
+/**
+ * 有界并发地逐条调用接口，返回成功/失败/跳过数并报告进度。
+ * [shouldStop] 在每条真正发起请求前检查（拿到并发许可之后），返回 true 则跳过该条：
+ * 已经发出的请求会正常结束，之后的条目不再发起。
+ */
+internal suspend fun runBulk(
+    ids: List<String>,
+    onProgress: (Int) -> Unit,
+    shouldStop: () -> Boolean = { false },
+    run: suspend (String) -> Unit,
+): BulkResult {
     val sem = Semaphore(BULK_CONCURRENCY)
     var finished = 0
     var firstError: String? = null
+    val succeeded = java.util.concurrent.atomic.AtomicInteger(0)
+    val skipped = java.util.concurrent.atomic.AtomicInteger(0)
     val failures = java.util.Collections.synchronizedList(ArrayList<String>())
     coroutineScope {
         ids.map { id ->
             async {
                 try {
-                    sem.withPermit { run(id) }
+                    sem.withPermit {
+                        if (shouldStop()) {
+                            skipped.incrementAndGet()
+                        } else {
+                            run(id)
+                            succeeded.incrementAndGet()
+                        }
+                    }
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Throwable) {
@@ -278,30 +313,47 @@ internal suspend fun runBulk(ids: List<String>, onProgress: (Int) -> Unit, run: 
             }
         }.awaitAll()
     }
-    return BulkResult(ids.size - failures.size, failures.size, failures.toList(), firstError)
+    return BulkResult(succeeded.get(), failures.size, failures.toList(), firstError, skipped.get())
 }
 
 // ---------------- 小部件 ----------------
 
-/** 批量执行期间的进度条 */
+/**
+ * 批量执行期间的进度条。总数为 0（如「全部标为已读」只有一次请求）时显示不确定进度，
+ * 不显示 0/0；[onCancel] 为空时不显示取消按钮。
+ */
 @Composable
-private fun BulkBanner(label: String, finished: Int, total: Int) {
+private fun BulkBanner(label: String, finished: Int, total: Int, onCancel: (() -> Unit)?) {
     val g = Gh.c
     Column(Modifier.fillMaxWidth().background(g.canvasSubtle).padding(horizontal = 16.dp, vertical = 10.dp)) {
-        Text(trf("正在{0}：{1}/{2}", label, finished, total), fontSize = 12.sp, color = g.fg)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (total <= 0) trf("正在{0}…", label) else trf("正在{0}：{1}/{2}", label, finished, total),
+                Modifier.weight(1f), fontSize = 12.sp, color = g.fg,
+            )
+            if (onCancel != null) TextLink(tr("取消")) { onCancel() }
+        }
         Spacer(Modifier.height(6.dp))
-        LinearProgressIndicator(
-            progress = { if (total == 0) 0f else finished.toFloat() / total },
-            modifier = Modifier.fillMaxWidth().height(4.dp),
-            color = g.accent,
-            trackColor = g.neutralMuted,
-        )
+        if (total <= 0) {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().height(4.dp),
+                color = g.accent,
+                trackColor = g.neutralMuted,
+            )
+        } else {
+            LinearProgressIndicator(
+                progress = { finished.toFloat() / total },
+                modifier = Modifier.fillMaxWidth().height(4.dp),
+                color = g.accent,
+                trackColor = g.neutralMuted,
+            )
+        }
     }
 }
 
-/** 仓库分组头：owner 头像 + 完整仓库名 + 条数 */
+/** 仓库分组头：owner 头像 + 完整仓库名 + 条数；[onMarkRead] 为空时不显示「标为已读」 */
 @Composable
-private fun RepoHeader(list: List<Notification>, onClick: () -> Unit) {
+private fun RepoHeader(list: List<Notification>, onClick: () -> Unit, onMarkRead: (() -> Unit)?) {
     val repo = list.first().repository
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 8.dp),
@@ -315,6 +367,10 @@ private fun RepoHeader(list: List<Notification>, onClick: () -> Unit) {
             modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.width(8.dp))
+        if (onMarkRead != null) {
+            TextLink(tr("标为已读")) { onMarkRead() }
+            Spacer(Modifier.width(8.dp))
+        }
         Counter(list.size)
     }
 }
@@ -362,6 +418,7 @@ private fun NotificationRow(
     onToggleRead: () -> Unit,
     onUnsubscribe: () -> Unit,
     onIgnore: () -> Unit,
+    onRestore: () -> Unit,
 ) {
     val g = Gh.c
     val scope = rememberCoroutineScope()
@@ -407,7 +464,10 @@ private fun NotificationRow(
             // 与类型图标同一水平线：未读点/勾选框的中心对齐到第一行文字
             Box(Modifier.width(34.dp).height(20.dp), contentAlignment = Alignment.Center) {
                 if (selection) CheckMark(selected)
-                else if (unread) Box(Modifier.size(8.dp).background(g.accent, CircleShape))
+                else if (unread) Box(
+                    Modifier.size(8.dp).background(g.accent, CircleShape)
+                        .semantics { contentDescription = tr("未读") },
+                )
             }
             Oc(subjectIcon(n.subject.type), if (unread) g.fg else g.fgMuted, 16.dp, Modifier.padding(top = 2.dp))
             Spacer(Modifier.width(10.dp))
@@ -451,12 +511,14 @@ private fun NotificationRow(
             }
             if (!selection && !busy) {
                 MoreMenu(
-                    listOf(
-                        MenuAction(if (unread) tr("标为已读") else tr("标为未读"), onClick = onToggleRead),
-                        MenuAction(tr("完成"), onClick = onDone),
-                        MenuAction(tr("取消订阅此线程"), onClick = onUnsubscribe),
-                        MenuAction(tr("忽略此线程"), danger = true, onClick = onIgnore),
-                    ),
+                    buildList<MenuAction> {
+                        add(MenuAction(if (unread) tr("标为已读") else tr("标为未读"), onClick = onToggleRead))
+                        add(MenuAction(tr("完成"), onClick = onDone))
+                        add(MenuAction(tr("取消订阅此线程"), onClick = onUnsubscribe))
+                        add(MenuAction(tr("忽略此线程"), danger = true, onClick = onIgnore))
+                        // 只对本机记录为忽略的线程提供恢复：GitHub 列表不返回订阅状态，无法得知其他设备上的忽略
+                        if (n.id in state.ignored) add(MenuAction(tr("恢复订阅"), onClick = onRestore))
+                    },
                     tint = g.fgMuted,
                 )
             }
@@ -503,7 +565,7 @@ private fun DoneView(items: List<Notification>, state: NotifState, onOpen: (Noti
     LazyColumn(Modifier.fillMaxSize(), state = listState) {
         item {
             Text(
-                tr("已完成列表只保留在本机本次会话（GitHub 接口不提供已完成通知的查询）"),
+                tr("已完成的通知保存在本机，最多 500 条；GitHub 接口不提供已完成通知的查询"),
                 fontSize = 11.sp, color = g.fgMuted,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
@@ -546,6 +608,8 @@ fun NotificationsScreen() {
     var selection by rememberSaveable { mutableStateOf(false) }
     var confirmAll by remember { mutableStateOf(false) }
     var askBulk by remember { mutableStateOf<BulkKind?>(null) }
+    // 单条「忽略此线程」先确认，与批量忽略的确认保持一致
+    var askIgnore by remember { mutableStateOf<Notification?>(null) }
     val selected = remember { mutableStateListOf<String>() }
 
     // 放在 Entry 的 bag 里：切到别的 Tab 再回来，本机的已读 / 已完成状态不会丢
@@ -573,7 +637,8 @@ fun NotificationsScreen() {
                 val reads = state.read.filter { it !in pending } + pending.filterValues { it.wasRead }.keys
                 val unreads = state.markedUnread.filter { it !in pending } + pending.filterValues { it.wasUnread }.keys
                 com.mobilegh.data.LocalNotifications(reads.takeLast(5000), unreads.takeLast(5000),
-                    state.doneItems.filter { it.id !in pending }.take(500), state.known.toList())
+                    state.doneItems.filter { it.id !in pending }.take(500), state.known.toList(),
+                    ignored = state.ignored.toList())
             }.collect { saved ->
                 try {
                     kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -711,14 +776,16 @@ fun NotificationsScreen() {
         nav.push(target)
     }
 
+    /** 取消订阅 / 忽略线程。忽略会记入本机（持久化），之后才能「恢复订阅」 */
     fun unsubscribe(ids: List<String>, ignore: Boolean) {
         if (ids.isEmpty() || state.busyLabel != null || ids.any { it in state.writing || it in state.pending }) return
         ids.forEach { state.writing[it] = true }
         entry.scope.launch {
             try {
                 ids.forEach { id ->
-                    if (ignore) GitHub.ignoreThread(id) else GitHub.unsubscribeThread(id)
+                    if (ignore) ThreadApi.ignoreThread(id) else GitHub.unsubscribeThread(id)
                     if (id !in state.unsubscribed) state.unsubscribed.add(id)
+                    if (ignore && id !in state.ignored) state.ignored.add(id)
                 }
                 ctx.toast(if (ignore) tr("已忽略所选线程") else tr("已取消订阅所选线程"))
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -731,7 +798,55 @@ fun NotificationsScreen() {
         }
     }
 
-    /** 批量操作：有界并发逐条调用接口，显示进度与部分失败数 */
+    /** 恢复订阅：只对本机记录为忽略的线程，把忽略标记改回未忽略 */
+    fun restoreThread(id: String) {
+        if (state.busyLabel != null || id in state.writing || id !in state.ignored) return
+        state.writing[id] = true
+        entry.scope.launch {
+            try {
+                ThreadApi.restoreThread(id)
+                state.ignored.remove(id)
+                state.unsubscribed.remove(id)
+                ctx.toast(tr("已恢复订阅"))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                ctx.toast(e.friendly())
+            } finally {
+                state.writing.remove(id)
+            }
+        }
+    }
+
+    /** 仓库分组头的「标为已读」：仓库级接口，截至现在该仓库的通知全部已读（包括未加载的） */
+    fun markRepoRead(list: List<Notification>) {
+        if (list.isEmpty() || state.busyLabel != null) return
+        val repo = list.first().repository
+        val targets = list.distinctBy { it.id }
+        state.busyLabel = tr("标为已读")
+        state.busyDone = 0
+        state.busyTotal = 0
+        entry.scope.launch {
+            try {
+                ThreadApi.markRepoRead(repo.owner.login, repo.name, Instant.now().toString())
+                targets.forEach { n ->
+                    val wasUnread = state.unread(n)
+                    state.markRead(n.id)
+                    if (wasUnread) bumpBadge(-1)
+                }
+                ctx.toast(trf("已将 {0} 的通知标为已读", repo.fullName))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // 服务端失败时本机已读状态不改动，给出明确的失败提示
+                ctx.toast(trf("标为已读失败：{0}", e.friendly()))
+            } finally {
+                state.busyLabel = null
+            }
+        }
+    }
+
+    /** 批量操作：有界并发逐条调用接口，显示进度、可取消，并报告成功 / 跳过 / 失败数 */
     fun runBatch(kind: BulkKind, items: List<Notification>) {
         if (items.isEmpty() || state.busyLabel != null || state.writing.isNotEmpty()) return
         val unique = items.distinctBy { it.id }.filter { it.id !in state.pending }
@@ -741,13 +856,21 @@ fun NotificationsScreen() {
         state.busyLabel = kind.label
         state.busyDone = 0
         state.busyTotal = ids.size
+        state.busyCancelRequested = false
         fun report(res: BulkResult, verb: String) = ctx.toast(
-            if (res.failed == 0) trf("已{0} {1} 条", verb, res.ok)
-            else trf("已{0} {1} 条，{2} 条失败：{3}", verb, res.ok, res.failed, res.firstError ?: ""),
+            when {
+                res.skipped > 0 -> trf("已取消：已{0} {1} 条，{2} 条未处理，{3} 条失败", verb, res.ok, res.skipped, res.failed)
+                res.failed == 0 -> trf("已{0} {1} 条", verb, res.ok)
+                else -> trf("已{0} {1} 条，{2} 条失败：{3}", verb, res.ok, res.failed, res.firstError ?: "")
+            },
         )
         entry.scope.launch {
             try {
-                val res = runBulk(ids, { state.busyDone = it }) { id ->
+                val res = runBulk(
+                    ids,
+                    onProgress = { state.busyDone = it },
+                    shouldStop = { state.busyCancelRequested },
+                ) { id ->
                     val n = byId.getValue(id)
                     when (kind) {
                         BulkKind.Done -> {
@@ -763,14 +886,16 @@ fun NotificationsScreen() {
                             if (wasUnread) bumpBadge(-1)
                         }
                         BulkKind.Ignore -> {
-                            GitHub.ignoreThread(id)
+                            ThreadApi.ignoreThread(id)
                             if (id !in state.unsubscribed) state.unsubscribed.add(id)
+                            if (id !in state.ignored) state.ignored.add(id)
                         }
                     }
                 }
                 report(res, kind.label)
             } finally {
                 state.busyLabel = null
+                state.busyCancelRequested = false
             }
         }
     }
@@ -800,7 +925,7 @@ fun NotificationsScreen() {
         contentWindowInsets = WindowInsets(0),
         subtitle = when {
             doneTab || selection -> null
-            busy -> trf("正在{0}：{1}/{2}", state.busyLabel, state.busyDone, state.busyTotal)
+            busy -> if (state.busyTotal <= 0) trf("正在{0}…", state.busyLabel) else trf("正在{0}：{1}/{2}", state.busyLabel, state.busyDone, state.busyTotal)
             matched.isEmpty() -> null
             filter == 0 -> trf("{0} 条未读", matched.count { state.unread(it) })
             else -> trf("{0} 条", matched.size)
@@ -812,14 +937,18 @@ fun NotificationsScreen() {
                     TextLink(if (all) tr("取消全选") else tr("全选")) {
                         val ids = matched.map { it.id }
                         if (ids.isNotEmpty() && ids.all { it in selected }) selected.removeAll(ids)
-                        else selected.addAll(ids.filterNot { it in selected })
+                        else {
+                            selected.addAll(ids.filterNot { it in selected })
+                            // 全选只作用于已加载的条目：还有未加载的页时明确告知，避免误以为是全部
+                            if (!pager.end && ids.isNotEmpty()) ctx.toast(trf("仅已加载的 {0} 条", ids.size))
+                        }
                     }
                     val canAct = selected.isNotEmpty() && !busy && state.writing.isEmpty()
                     OcButton(R.drawable.oc_eye, {
                         runBatch(BulkKind.Read, visible.filter { it.id in selected })
                         clearSelection()
-                    }, enabled = canAct)
-                    OcButton(R.drawable.oc_check, { askBulk = BulkKind.Done }, enabled = canAct)
+                    }, enabled = canAct, description = tr("标为已读"))
+                    OcButton(R.drawable.oc_check, { askBulk = BulkKind.Done }, enabled = canAct, description = tr("完成"))
                     MoreMenu(
                         listOf(
                             MenuAction(tr("标为已读")) {
@@ -846,8 +975,15 @@ fun NotificationsScreen() {
                 doneTab -> Unit
                 else -> {
                     // 按仓库分组 / 按时间排列
-                    OcButton(R.drawable.oc_repo, { grouped = !grouped }, if (grouped) g.accent else g.fg)
-                    OcButton(R.drawable.oc_checklist, { confirmAll = true }, enabled = !busy && state.writing.isEmpty() && state.pending.isEmpty())
+                    OcButton(
+                        R.drawable.oc_repo, { grouped = !grouped }, if (grouped) g.accent else g.fg,
+                        description = if (grouped) tr("取消按仓库分组") else tr("按仓库分组"),
+                    )
+                    OcButton(
+                        R.drawable.oc_checklist, { confirmAll = true },
+                        enabled = !busy && state.writing.isEmpty() && state.pending.isEmpty(),
+                        description = tr("全部标为已读"),
+                    )
                 }
             }
         },
@@ -895,12 +1031,22 @@ fun NotificationsScreen() {
                         filteredEmpty = if (reason != 0) tr("已加载的通知里没有这个原因") else tr("没有匹配的通知"),
                         groupKey = if (grouped) { n -> n.repository.id } else null,
                         groupHeader = { list ->
-                            RepoHeader(list) { nav.push(Screen.Repo(list.first().repository.owner.login, list.first().repository.name)) }
+                            RepoHeader(
+                                list,
+                                onClick = { nav.push(Screen.Repo(list.first().repository.owner.login, list.first().repository.name)) },
+                                onMarkRead = if (!busy && list.any { state.unread(it) }) ({ markRepoRead(list) }) else null,
+                            )
                         },
                         header = {
                             // 仓库协作邀请和组织邀请不在通知接口里，这里单独合并进来，接受 / 拒绝与「仓库 → 待处理邀请」一致
                             item(key = "invites") { InvitationBlock() }
-                            if (busy) item(key = "bulk") { BulkBanner(state.busyLabel ?: "", state.busyDone, state.busyTotal) }
+                            if (busy) item(key = "bulk") {
+                                BulkBanner(
+                                    state.busyLabel ?: "", state.busyDone, state.busyTotal,
+                                    // 只有逐条的批量操作可以取消；「全部标为已读」等单次请求没有可中断的点
+                                    onCancel = if (state.busyTotal > 0) ({ state.busyCancelRequested = true }) else null,
+                                )
+                            }
                         },
                     ) { n ->
                         NotificationRow(
@@ -915,7 +1061,9 @@ fun NotificationsScreen() {
                             onDone = { finish(n) },
                             onToggleRead = { toggleRead(n) },
                             onUnsubscribe = { unsubscribe(listOf(n.id), false) },
-                            onIgnore = { unsubscribe(listOf(n.id), true) },
+                            // 单条忽略先弹确认，确认后才真正调用接口
+                            onIgnore = { askIgnore = n },
+                            onRestore = { restoreThread(n.id) },
                         )
                     }
                 }
@@ -938,6 +1086,9 @@ fun NotificationsScreen() {
             if (state.busyLabel != null || state.writing.isNotEmpty() || state.pending.isNotEmpty()) return@GhDialog
             confirmAll = false
             state.busyLabel = tr("全部标为已读")
+            // 单次请求没有逐条进度：总数记为 0，进度条显示为不确定状态
+            state.busyDone = 0
+            state.busyTotal = 0
             entry.scope.launch {
                 try {
                     GitHub.markAllRead()
@@ -980,6 +1131,23 @@ fun NotificationsScreen() {
                     color = g.fg,
                 )
             }
+        }
+    }
+
+    askIgnore?.let { target ->
+        GhDialog(
+            tr("忽略此线程？"),
+            onDismiss = { askIgnore = null },
+            confirm = tr("忽略"),
+            onConfirm = {
+                askIgnore = null
+                unsubscribe(listOf(target.id), true)
+            },
+        ) {
+            Text(
+                trf("将忽略「{0}」。之后即使被 @ 也不再收到该线程的通知；可在该条目的菜单中「恢复订阅」撤销。", target.subject.title.take(60)),
+                color = g.fg,
+            )
         }
     }
 }

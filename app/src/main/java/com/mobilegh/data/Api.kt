@@ -68,7 +68,7 @@ object Api {
     private val cache by lazy { Cache(File(cacheDir, "http"), 64L * 1024 * 1024) }
 
     val http: OkHttpClient by lazy {
-        OkHttpClient.Builder()
+        OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector())
             .cache(cache)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)

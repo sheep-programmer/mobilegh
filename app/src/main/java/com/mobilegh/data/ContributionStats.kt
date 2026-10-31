@@ -7,13 +7,17 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
@@ -42,9 +46,15 @@ data class ContributionSnapshot(
     val source: ContributionSource = ContributionSource.Statistics,
     val status: ContributionStatus = ContributionStatus.Ready,
     val message: String? = null,
+    /** True while the contributor list has further pages that have not been loaded yet. */
     val truncated: Boolean = false,
     val loadedAt: Instant = Instant.now(),
+    /** Next /contributors page the screen should request; null when the list is complete. */
+    val nextPage: Int? = null,
 )
+
+/** One page of GET /contributors; [hasNext] comes from the Link header (or a full page when absent). */
+data class ContributorPage(val records: List<ContributionRecord>, val hasNext: Boolean)
 
 enum class ContributionRange(private val labelZh: String, val days: Long? = null) {
     All("全部提交"), Year("最近一年", 365), HalfYear("最近半年", 182),
@@ -220,8 +230,14 @@ fun aggregateContributions(
     )
 }
 
+/** 一年内的每周提交，给大仓库里展开的那一个人用；[truncated] 表示只取到了最近的一部分提交。 */
+data class PersonActivity(val weekly: List<ContributionPoint>, val truncated: Boolean)
+
 /** Bounded, cancellable polling with a separate, paginated cumulative-count fallback. */
 object ContributionStats {
+    /** 超过这个人数，周统计接口太重，直接改用分页的累计提交列表。 */
+    private const val LARGE_REPOSITORY = 200L
+
     /** The repository homepage needs only three cumulative counts, never weekly statistics. */
     suspend fun preview(
         owner: String,
@@ -248,6 +264,28 @@ object ContributionStats {
         pause: suspend (Long) -> Unit = { delay(it) },
     ): ContributionSnapshot {
         val base = "/repos/$owner/$name"
+        // 先用一次很小的请求数人数：周统计接口对 Linux 这类仓库会返回巨大响应或一直超时
+        val probe = request("$base/contributors?anon=1&per_page=1&page=1", force)
+        when {
+            probe.code == 403 && probe.body.contains("too large", ignoreCase = true) -> return ContributionSnapshot(
+                source = ContributionSource.ContributorList, status = ContributionStatus.Unavailable,
+                message = tr("GitHub 不为这个仓库提供贡献者列表（仓库过大）。可在「提交」里按作者筛选。"),
+            )
+            probe.code == 504 -> return ContributionSnapshot(
+                source = ContributionSource.ContributorList, status = ContributionStatus.Unavailable,
+                message = tr("GitHub 处理贡献者列表超时，请稍后重试"),
+            )
+        }
+        if (probe.code == 200 && countFromFirstPage(probe) > LARGE_REPOSITORY) {
+            // Only page 1 now; the screen appends further pages as the user scrolls or searches.
+            val first = fetchContributorPage(base, 1, force, request)
+            return ContributionSnapshot(
+                first.records, ContributionSource.ContributorList,
+                if (first.records.isEmpty()) ContributionStatus.Empty else ContributionStatus.Ready,
+                tr("贡献者很多，已按累计提交排名分页加载；向下滚动可加载更多，搜索时会继续检索其余贡献者。展开某人可查看最近一年的周趋势。"),
+                truncated = first.hasNext, nextPage = if (first.hasNext) 2 else null,
+            )
+        }
         var status = ContributionStatus.Pending
         var message = tr("GitHub 仍在生成周统计，请稍后重试")
         try {
@@ -278,30 +316,102 @@ object ContributionStats {
             message = if (status == ContributionStatus.Pending) tr("GitHub 仍在生成周统计，请稍后重试")
                 else trf("周统计暂不可用：{0}", error.message?.take(180) ?: tr("请求失败"))
         }
-        val records = mutableListOf<ContributionRecord>()
-        var truncated = false
-        try {
-            for (page in 1..5) {
-                val response = request("$base/contributors?anon=1&per_page=100&page=$page", force)
-                if (response.code == 204) break
-                Api.ensureOk(response)
-                if (response.code != 200) throw ApiException(response.code, trf("贡献者列表尚未就绪 ({0})", response.code))
-                val pageRecords = decodeContributors(response.body)
-                records += pageRecords
-                val link = response.headers["Link"]
-                val more = if (link != null) link.contains("rel=\"next\"") else pageRecords.size >= 100
-                if (!more) break
-                if (page == 5) truncated = true
-            }
+        val first = try {
+            fetchContributorPage(base, 1, force, request)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            if (records.isEmpty() && status != ContributionStatus.Pending) throw error
-            truncated = records.isNotEmpty()
+            if (status != ContributionStatus.Pending) throw error
             message += trf("；贡献者列表未完整加载：{0}", error.message?.take(120) ?: tr("请求失败"))
+            return ContributionSnapshot(emptyList(), ContributionSource.ContributorList, status, message)
         }
-        return ContributionSnapshot(records, ContributionSource.ContributorList, status, message, truncated)
+        return ContributionSnapshot(first.records, ContributionSource.ContributorList, status, message,
+            truncated = first.hasNext, nextPage = if (first.hasNext) 2 else null)
     }
+
+    /**
+     * Reads one further page of the cumulative contributor list (anonymous authors included).
+     * The screen calls this lazily: one request at a time, as the user scrolls or searches.
+     */
+    suspend fun contributorPage(
+        owner: String,
+        name: String,
+        page: Int,
+        force: Boolean = false,
+        request: suspend (String, Boolean) -> Resp = { path, refresh -> Api.call("GET", path, force = refresh) },
+    ): ContributorPage = fetchContributorPage("/repos/$owner/$name", page, force, request)
+
+    /** 读取 /contributors 的一页，只有累计提交数；没有上限，由调用方决定要不要继续读下一页。 */
+    private suspend fun fetchContributorPage(
+        base: String,
+        page: Int,
+        force: Boolean,
+        request: suspend (String, Boolean) -> Resp,
+    ): ContributorPage {
+        val response = request("$base/contributors?anon=1&per_page=$CONTRIBUTOR_PAGE_SIZE&page=$page", force)
+        if (response.code == 204) return ContributorPage(emptyList(), hasNext = false)
+        Api.ensureOk(response)
+        if (response.code != 200) throw ApiException(response.code, trf("贡献者列表尚未就绪 ({0})", response.code))
+        val records = decodeContributors(response.body)
+        return ContributorPage(records, hasNext = hasNextContributorPage(response.headers["Link"], records.size))
+    }
+
+    /** per_page=1 时，Link 里 rel="last" 的页码就是总数；没有 Link 头时只可能是 0 或 1 条。 */
+    private fun countFromFirstPage(response: Resp): Long {
+        val last = response.headers["Link"]?.let { Regex("[?&]page=(\\d+)[^>]*>;\\s*rel=\"last\"").find(it) }
+        return last?.groupValues?.get(1)?.toLongOrNull() ?: if (response.body.trim() == "[]") 0L else 1L
+    }
+
+    /** 展开某一位贡献者时调用：只取最近一年的提交（每页 100，最多 3 页），按周数。 */
+    suspend fun personActivity(
+        owner: String,
+        name: String,
+        login: String,
+        force: Boolean = false,
+        request: suspend (String, Boolean) -> Resp = { path, refresh -> Api.call("GET", path, force = refresh) },
+        now: Instant = Instant.now(),
+    ): PersonActivity {
+        val since = now.minus(Duration.ofDays(365)).truncatedTo(ChronoUnit.SECONDS)
+        val counts = mutableMapOf<LocalDate, Long>()
+        var truncated = false
+        for (page in 1..3) {
+            val response = request("/repos/$owner/$name/commits?author=$login&since=$since&per_page=100&page=$page", force)
+            Api.ensureOk(response)
+            val items = Api.json.parseToJsonElement(response.body) as? JsonArray
+                ?: throw IllegalStateException(tr("提交数据格式无效"))
+            items.forEach { item ->
+                val date = item.jsonObject["commit"]?.jsonObject?.get("author")?.jsonObject?.get("date")?.jsonPrimitive?.contentOrNull
+                    ?: return@forEach
+                val week = weekStart(Instant.parse(date).atOffset(ZoneOffset.UTC).toLocalDate())
+                counts[week] = (counts[week] ?: 0L) + 1
+            }
+            if (items.size < 100) break
+            truncated = page == 3
+        }
+        // 截断后，最早那一周及更早的数据可能不完整，显示为缺失，而不是 0
+        val oldest = counts.keys.minOrNull()
+        val currentWeek = weekStart(now.atOffset(ZoneOffset.UTC).toLocalDate())
+        val weekly = (51 downTo 0).map { back ->
+            val start = currentWeek.minusWeeks(back.toLong())
+            ContributionPoint(start, if (truncated && (oldest == null || !start.isAfter(oldest))) null else counts[start] ?: 0L)
+        }
+        return PersonActivity(weekly, truncated)
+    }
+
+    /** 搜索框找不到已加载的人时使用：只用 per_page=1 的 Link 头算出该作者在默认分支上的提交总数。 */
+    suspend fun authorCommits(
+        owner: String,
+        name: String,
+        login: String,
+        force: Boolean = false,
+        request: suspend (String, Boolean) -> Resp = { path, refresh -> Api.call("GET", path, force = refresh) },
+    ): Long {
+        val response = request("/repos/$owner/$name/commits?author=$login&per_page=1&page=1", force)
+        Api.ensureOk(response)
+        return countFromFirstPage(response)
+    }
+
+    private fun weekStart(day: LocalDate): LocalDate = day.minusDays((day.dayOfWeek.value % 7).toLong())
 
     private fun decodeContributors(body: String): List<ContributionRecord> {
         val array = Api.json.parseToJsonElement(body) as? JsonArray

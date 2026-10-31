@@ -17,7 +17,7 @@ internal interface LocalRecordStorage {
 }
 
 @Serializable
-data class SearchHistoryEntry(val query: String, val type: Int = 0)
+data class SearchHistoryEntry(val query: String, val type: Int = 0, val keyword: String = "", val filters: String? = null)
 
 @Serializable
 data class RecentRepository(val owner: String, val name: String) {
@@ -45,8 +45,8 @@ class HistoryStore internal constructor(private val storage: LocalRecordStorage)
             data.repositories.filter { validRepo(it) }.distinctBy { it.fullName.lowercase() }.take(50),
         )
     }
-    fun search(login: String, query: String, type: Int) {
-        val entry = SearchHistoryEntry(query.trim(), type)
+    fun search(login: String, query: String, type: Int, keyword: String = "", filters: String? = null) {
+        val entry = SearchHistoryEntry(query.trim(), type, keyword.trim(), filters)
         if (!validSearch(entry)) return
         val old = read(login)
         save(login, old.copy(searches = (listOf(entry) + old.searches.filterNot { it == entry }).take(20)))
@@ -87,7 +87,7 @@ object History {
         store?.block(login)
         revision++
     }
-    fun search(query: String, type: Int) = change { login -> search(login, query, type) }
+    fun search(query: String, type: Int, keyword: String = "", filters: String? = null) = change { login -> search(login, query, type, keyword, filters) }
     fun removeSearch(entry: SearchHistoryEntry) = change { removeSearch(it, entry) }
     fun clearSearches() = change { clearSearches(it) }
     fun removeRepository(entry: RecentRepository) = change { removeRepository(it, entry) }

@@ -43,8 +43,11 @@ object Web {
     private const val MAX_BADGES = 32
     private const val MAX_LISTS = 100
     private val github = "https://github.com/".toHttpUrl()
-    private val client by lazy {
-        OkHttpClient.Builder()
+    /** 仅供测试替换为假的网络客户端；正常运行时为 null，始终使用默认客户端 */
+    internal var transport: OkHttpClient? = null
+    private val client: OkHttpClient get() = transport ?: defaultClient
+    private val defaultClient by lazy {
+        OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector())
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .callTimeout(30, TimeUnit.SECONDS)

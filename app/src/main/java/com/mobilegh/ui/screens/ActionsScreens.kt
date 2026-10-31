@@ -80,6 +80,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.SpanStyle
 
 @Composable
 fun runVisual(status: String?, conclusion: String?): Pair<Int, Color> {
@@ -221,6 +226,11 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
         }
     }
     fun reload() { run.load(true); jobs.load(true) }
+    var askCancel by remember { mutableStateOf(false) }
+    if (askCancel) GhDialog(tr("取消运行？"), { askCancel = false }, confirm = tr("取消运行"), danger = true, onConfirm = {
+        askCancel = false
+        entry.act({ ctx.toast(it) }) { AppLog.info("actions", tr("取消 Run #") + runId); GitHub.cancelRun(owner, name, runId); ctx.toast(tr("已请求取消")); reload() }
+    }) { Text(tr("取消后本次运行会停止，已完成的步骤不会回滚，之后只能重新运行。"), color = g.fg) }
     Page(
         r?.let { "${it.name} #${it.runNumber}" } ?: tr("运行详情"), subtitle = "$owner/$name",
         actions = {
@@ -265,9 +275,7 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                                     entry.act({ ctx.toast(it) }) { AppLog.info("actions", tr("重跑失败任务 Run #") + runId); GitHub.rerun(owner, name, runId, true); ctx.toast(tr("已重跑失败任务")); delay(2000); reload() }
                                 }
                             } else {
-                                GhButton(tr("取消运行"), danger = true, icon = R.drawable.oc_stop) {
-                                    entry.act({ ctx.toast(it) }) { AppLog.info("actions", tr("取消 Run #") + runId); GitHub.cancelRun(owner, name, runId); ctx.toast(tr("已请求取消")); reload() }
-                                }
+                                GhButton(tr("取消运行"), danger = true, icon = R.drawable.oc_stop) { askCancel = true }
                             }
                         }
                     }
@@ -369,9 +377,24 @@ private val ANSI = Regex("""\u001B\[[0-9;]*[A-Za-z]""")
 
 private data class LogLine(val ts: String, val text: String, val kind: Int) // 0 普通 1 错误 2 警告 3 分组 4 命令 5 通知
 
+/** 终端配色跟随应用主题（即系统的明暗设置）：暗色是深色终端，亮色是浅色终端 */
+private class TerminalPalette(
+    val bg: Color, val bar: Color, val fg: Color, val muted: Color, val prompt: Color,
+    val group: Color, val error: Color, val warning: Color, val notice: Color,
+)
+
+private fun terminalPalette(dark: Boolean) = if (dark) TerminalPalette(
+    bg = Color(0xFF0D1117), bar = Color(0xFF161B22), fg = Color(0xFFE6EDF3), muted = Color(0xFF8B949E),
+    prompt = Color(0xFF7EE787), group = Color(0xFF79C0FF), error = Color(0xFFFF7B72), warning = Color(0xFFE3B341), notice = Color(0xFF58A6FF),
+) else TerminalPalette(
+    bg = Color(0xFFF6F8FA), bar = Color(0xFFEAEEF2), fg = Color(0xFF1F2328), muted = Color(0xFF656D76),
+    prompt = Color(0xFF1A7F37), group = Color(0xFF0969DA), error = Color(0xFFCF222E), warning = Color(0xFF9A6700), notice = Color(0xFF0969DA),
+)
+
 @Composable
 fun JobLogScreen(owner: String, name: String, jobId: Long, title: String) {
     val g = Gh.c
+    val t = terminalPalette(g.dark)
     val ctx = rememberCtx()
     val scope = rememberCoroutineScope()
     val log = rememberLoader("log") {
@@ -415,31 +438,44 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String) {
         LoadBox(log, Modifier.padding(pad).fillMaxSize()) { lines ->
             val shown = if (onlyErrors) lines.filter { it.kind == 1 || it.kind == 2 } else lines
             val hs = rememberScrollState()
-            Box(Modifier.fillMaxSize().background(g.canvasInset).then(if (Session.codeWrap) Modifier else Modifier.horizontalScroll(hs))) {
+            Column(Modifier.fillMaxSize().background(t.bg)) {
+                // 顶部像终端窗口的标题条：三个圆点加作业名
+                Row(Modifier.fillMaxWidth().background(t.bar).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    listOf(0xFFFF5F56, 0xFFFFBD2E, 0xFF27C93F).forEach { c ->
+                        Box(Modifier.size(9.dp).background(Color(c), CircleShape))
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Text(title, color = t.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            Box(Modifier.fillMaxSize().then(if (Session.codeWrap) Modifier else Modifier.horizontalScroll(hs))) {
                 SelectionContainer {
                     RegisterScrollTop(state)
                     LazyColumn(if (Session.codeWrap) Modifier.fillMaxSize() else Modifier.width(2400.dp).fillMaxSize(), state = state) {
                         if (shown.isEmpty()) item { Text(if (onlyErrors) tr("没有错误或警告") else tr("日志为空"), Modifier.padding(16.dp), color = g.fgMuted) }
                         itemsIndexed(shown) { _, l ->
                             val color = when (l.kind) {
-                                1 -> g.danger
-                                2 -> g.attention
-                                3 -> g.fg
-                                4 -> g.accent
-                                5 -> g.accent
-                                else -> g.fg
+                                1 -> t.error
+                                2 -> t.warning
+                                3 -> t.group
+                                4 -> t.prompt
+                                5 -> t.notice
+                                else -> t.fg
                             }
                             Text(
-                                (if (showTs && l.ts.isNotEmpty()) l.ts.substring(11, 19) + "  " else "") + l.text,
+                                buildAnnotatedString {
+                                    if (showTs && l.ts.isNotEmpty()) withStyle(SpanStyle(color = t.muted)) { append(l.ts.substring(11, 19) + "  ") }
+                                    withStyle(SpanStyle(color = color, fontWeight = if (l.kind == 3) FontWeight.SemiBold else null)) { append(l.text) }
+                                },
                                 Modifier.fillMaxWidth()
-                                    .background(if (l.kind == 1) g.dangerSubtle else if (l.kind == 2) g.attentionSubtle else Color.Transparent)
+                                    .background(if (l.kind == 1) t.error.copy(alpha = 0.12f) else if (l.kind == 2) t.warning.copy(alpha = 0.12f) else Color.Transparent)
                                     .padding(horizontal = 10.dp, vertical = 1.dp),
-                                style = CodeStyle, color = color, softWrap = Session.codeWrap,
-                                fontWeight = if (l.kind == 3) FontWeight.SemiBold else null,
+                                style = CodeStyle, softWrap = Session.codeWrap,
                             )
                         }
                     }
                 }
+            }
             }
         }
     }

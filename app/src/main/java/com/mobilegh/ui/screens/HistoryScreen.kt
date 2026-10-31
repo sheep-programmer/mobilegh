@@ -161,8 +161,8 @@ fun RecentRepositoriesScreen() {
     val shown = all.filter { it.fullName.contains(filter.trim(), true) }
     Page(tr("最近浏览"), actions = { if (all.isNotEmpty()) OcButton(R.drawable.oc_trash, { History.clearRepositories() }, description = tr("清空最近浏览")) }) { pad ->
         Column(Modifier.padding(pad).consumeWindowInsets(pad).imePadding().fillMaxSize()) {
-            GhField(filter, { filter = it }, tr("搜索最近浏览的仓库"), Modifier.padding(12.dp), trailing = {
-                if (filter.isNotEmpty()) OcButton(R.drawable.oc_x, { filter = "" }, description = tr("清空最近浏览搜索"))
+            CompactSearchField(filter, { filter = it }, tr("搜索最近浏览的仓库"), Modifier.padding(12.dp), trailing = {
+                if (filter.isNotEmpty()) FieldAction(R.drawable.oc_x, tr("清空最近浏览搜索")) { filter = "" }
             })
             Text(tr("仅保存在本机，按账号区分"), Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
             if (all.isEmpty()) EmptyState(tr("还没有浏览过仓库"), R.drawable.oc_history)

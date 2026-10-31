@@ -148,11 +148,8 @@ private fun StarFeedTab(login: String, isMe: Boolean) {
     val supported by StarredRepos.searchSupported.collectAsState()
     val sortIndex = restoredStarSortIndex(index)
     val searching = query.isNotEmpty() && Session.token != null && supported
+    // 重新进入页面时的刷新策略在 rememberStarFeedPager 里统一处理：未过期则保留已加载的页
     val pager = rememberStarFeedPager(login, isMe, query, sortIndex, descending, supported) { truncated = true }
-    // 只有重新显示的变体才刷新；后台保留的旧搜索和排序不发请求。
-    LaunchedEffect(pager) {
-        if (pager.loadedOnce) pager.refresh()
-    }
     StarSearchControls(
         input = input, query = query, index = sortIndex, descending = descending,
         searching = searching, status = starStatus(query, searching, truncated, pager.items.size),
@@ -261,7 +258,7 @@ private fun rememberStarFeedPager(
         timeFeeds -> StarFeedClient.PAGE_SIZE
         else -> GitHub.STARRED_PER
     }
-    return rememberPager(pagerKey, pageSize, fetchPage = { page, force ->
+    val pager = rememberPager(pagerKey, pageSize, fetchPage = { page, force ->
         when {
             searching -> searchStarPage(login, query, descending, page, cursors, onTruncated)
             timeFeeds -> starTimePage(login, descending, page, cursors, onTruncated)
@@ -271,6 +268,40 @@ private fun rememberStarFeedPager(
             ))
         }
     })
+    rememberPagerFreshness(pager, pagerKey)
+    return pager
+}
+
+/** 星标数据超过这个时间才在重新进入页面时刷新；下拉刷新不受此限制 */
+internal const val STAR_REFRESH_MAX_AGE_MS = 5 * 60_000L
+
+/** 上次加载完成的时间距今是否已超过 [maxAgeMs]（恰好等于时不算过期） */
+internal fun starListNeedsRefresh(loadedAtMs: Long, nowMs: Long, maxAgeMs: Long = STAR_REFRESH_MAX_AGE_MS): Boolean =
+    nowMs - loadedAtMs > maxAgeMs
+
+/** 保存在 Entry 里的「上次加载完成时间」，离开再回来时仍然有效 */
+private class LoadClock {
+    var loadedAtMs = 0L
+    var loadingSeen = false
+}
+
+/**
+ * 重新进入页面时的刷新策略：页面重新组合时，只有数据超过 [STAR_REFRESH_MAX_AGE_MS] 才刷新第一页；
+ * 未过期则保留已加载的页，不清空列表。下拉刷新仍由 PagedList 直接调用 pager.refresh()。
+ * 加载完成（成功）时记录时间：只在 loading 从真变假时更新，避免重新进入时把旧数据当成刚加载的。
+ */
+@Composable
+internal fun rememberPagerFreshness(pager: Pager<*>, key: String) {
+    val clock = retain("$key:loaded-clock") { LoadClock() }
+    LaunchedEffect(pager, pager.loading) {
+        if (clock.loadingSeen && !pager.loading && pager.loadedOnce && pager.error == null) {
+            clock.loadedAtMs = System.currentTimeMillis()
+        }
+        clock.loadingSeen = pager.loading
+    }
+    LaunchedEffect(pager) {
+        if (pager.loadedOnce && starListNeedsRefresh(clock.loadedAtMs, System.currentTimeMillis())) pager.refresh()
+    }
 }
 
 /** 服务端搜索：与官方 App 同一条查询；服务端不认关键字时抛 [StarSearchUnavailable] */
@@ -502,9 +533,6 @@ private fun StarListDetail(
     onBack: () -> Unit,
 ) {
     val entry = LocalEntry.current
-    LaunchedEffect(pager) {
-        if (pager.loadedOnce) pager.refresh()
-    }
     var removing by remember(list?.id) { mutableStateOf(false) }
     var mutationError by remember(list?.id) { mutableStateOf<String?>(null) }
     var input by rememberSaveable(list?.id) { mutableStateOf("") }
@@ -583,7 +611,7 @@ private fun rememberListDetailPager(
     // 游标与 Pager 同 key 保留，避免恢复第 N 页时却拿到一张空游标表。
     val pagerKey = "rl-list:$selectedList:$descending"
     val cursors = retain("$pagerKey:cursors") { HashMap<Int, String?>() }
-    return rememberPager(pagerKey, pageSize = UserListsClient.DETAIL_PAGE_SIZE, fetchPage = { page, _ ->
+    val pager = rememberPager(pagerKey, pageSize = UserListsClient.DETAIL_PAGE_SIZE, fetchPage = { page, _ ->
         val list = lists.data?.firstOrNull { it.id == selectedList }
             ?: return@rememberPager PagerPage(emptyList(), hasMore = false)
         if (page > 1 && cursors[page] == null) return@rememberPager PagerPage(emptyList(), hasMore = false)
@@ -592,4 +620,6 @@ private fun rememberListDetailPager(
             cursors[page + 1] = result.nextCursor
         }
     })
+    rememberPagerFreshness(pager, pagerKey)
+    return pager
 }

@@ -1,6 +1,8 @@
 package com.mobilegh.data
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.ProxyInfo
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -12,9 +14,14 @@ import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Proxy
-import java.util.IdentityHashMap
+import java.net.ProxySelector
+import java.net.SocketAddress
+import java.net.URI
+import java.util.Collections
+import java.util.WeakHashMap
 import java.util.concurrent.TimeUnit
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
@@ -46,7 +53,8 @@ object AppNetwork {
     @Volatile private var current = NetworkProxy()
     var config by mutableStateOf(current)
         private set
-    private val clients = IdentityHashMap<OkHttpClient, OkHttpClient>()
+    /** 经 [routed] 接入的全部客户端（弱引用：客户端被丢弃后自动移除），代理变化时清空它们的空闲连接 */
+    private val clients: MutableSet<OkHttpClient> = Collections.newSetFromMap(WeakHashMap<OkHttpClient, Boolean>())
 
     val description: String get() = if (config.mode == ProxyMode.System) tr("跟随系统代理 / VPN") else "${config.mode.label} · ${config.host}:${config.port}"
 
@@ -71,19 +79,49 @@ object AppNetwork {
     private fun persist(valid: NetworkProxy) {
         check(context.getSharedPreferences("network_transport", Context.MODE_PRIVATE).edit()
             .putString("mode", valid.mode.name).putString("host", valid.host).putInt("port", valid.port).commit()) { tr("无法保存网络设置") }
-        clients.values.forEach { it.connectionPool.evictAll() }
-        clients.clear()
+        // 空闲连接按路由（含代理）复用，这里清掉旧路由的连接，之后的请求只会按新设置建立连接
+        clients.forEach { it.connectionPool.evictAll() }
         current = valid
         AppLog.info("network", trf("传输线路已切换：{0}", valid.mode.label))
     }
 
     @Synchronized
     internal fun client(base: OkHttpClient): OkHttpClient {
-        val selected = current
-        if (selected.mode == ProxyMode.System) return base
-        return clients.getOrPut(base) {
-            base.newBuilder().proxy(selected.proxy()).connectionPool(ConnectionPool()).build()
+        // 所有客户端都带同一个选择器，这里不再单独设置代理，避免两套规则不一致；只登记，供代理变化时清理连接池
+        clients.add(base)
+        return base
+    }
+
+    /**
+     * 所有 OkHttp 客户端共用的代理选择：手动代理优先；「跟随系统」时读取当前网络的系统代理。
+     *
+     * OkHttp 默认只看 JVM 的代理属性，Android 上 Wi-Fi 手动代理和设备全局代理都不会进入其中，
+     * 所以之前即使在系统里设了代理，应用也是直连。VPN 不需要这里处理：它在网络层接管流量。
+     */
+    fun proxySelector(fixed: NetworkProxy? = null): ProxySelector = object : ProxySelector() {
+        // 不在创建时固定设置：Api.http 等客户端可能早于用户修改代理就已创建，必须每次请求时读取当前值
+        override fun select(uri: URI?): List<Proxy> {
+            val value = fixed ?: current
+            if (value.mode != ProxyMode.System) return listOf(value.proxy() ?: Proxy.NO_PROXY)
+            val info = systemProxyInfo()
+            return systemProxies(info?.host, info?.port ?: -1)
         }
+
+        override fun connectFailed(uri: URI?, sa: SocketAddress?, ioe: IOException?) = Unit
+    }
+
+    private fun systemProxyInfo(): ProxyInfo? {
+        if (!::context.isInitialized) return null
+        return runCatching {
+            (context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).defaultProxy
+        }.getOrNull()
+    }
+
+    /** 系统给出了主机和端口时使用它；PAC 自动配置脚本无法在这里执行，只能直连。 */
+    internal fun systemProxies(host: String?, port: Int): List<Proxy> {
+        val name = host?.takeIf { it.isNotBlank() }
+        return if (name != null && port in 1..65535) listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress.createUnresolved(name, port)))
+        else listOf(Proxy.NO_PROXY)
     }
 
     data class Connection(val label: String, val reachable: Boolean, val message: String)
@@ -99,7 +137,7 @@ object AppNetwork {
             tr("Google 设备凭证") to "https://firebaseinstallations.googleapis.com/",
         ).map { (label, url) ->
             async(Dispatchers.IO) {
-                val client = OkHttpClient.Builder().proxy(valid.proxy())
+                val client = OkHttpClient.Builder().proxySelector(proxySelector(valid))
                     .connectTimeout(10, TimeUnit.SECONDS).callTimeout(15, TimeUnit.SECONDS)
                     .followRedirects(false).build()
                 try {

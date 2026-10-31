@@ -14,10 +14,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import com.mobilegh.data.AppLock
 import com.mobilegh.data.Session
 import com.mobilegh.data.Downloads
 import com.mobilegh.nav.Links
+import com.mobilegh.nav.NavRestore
 import com.mobilegh.nav.Navigator
 import com.mobilegh.nav.IncomingLinks
 import com.mobilegh.nav.Tab
@@ -38,9 +41,15 @@ class NavVm(private val state: SavedStateHandle) : ViewModel() {
         if (generation != gen) {
             current.dispose()
             current = Navigator()
+            // 首次创建（包括进程被系统回收后的重建）时恢复上次的导航栈与 Tab；账号切换不恢复
+            if (gen == -1) current.restore(NavRestore.decode(state.get<String>(NavRestore.KEY), Session.login))
             gen = generation
         }
         return current
+    }
+
+    fun saveNav(text: String) {
+        state[NavRestore.KEY] = text
     }
 
     fun receive(url: String) {
@@ -112,6 +121,12 @@ class MainActivity : FragmentActivity() {
         if (savedInstanceState == null) handleIntent(intent)
         setContent {
             val nav = vm.navFor(Session.generation)
+            // 栈或 Tab 变化时写入 SavedStateHandle，进程被系统回收后据此恢复
+            LaunchedEffect(nav) {
+                snapshotFlow { NavRestore.encode(nav.tab, nav.stack.map { it.screen }, Session.login) }
+                    .distinctUntilChanged()
+                    .collect { vm.saveNav(it) }
+            }
             LaunchedEffect(Session.generation, vm.pendingUrl) { vm.openPending(nav) }
             // 登录、切换账号、退出登录后刷新桌面小组件
             LaunchedEffect(Session.generation) { Widgets.update(applicationContext) }

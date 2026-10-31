@@ -91,9 +91,10 @@ import com.mobilegh.i18n.trf
 
 // ---------------- 图标 ----------------
 
+/** [contentDescription] 为空时图标按装饰处理（读屏跳过），与原来的行为一致 */
 @Composable
-fun Oc(@DrawableRes icon: Int, tint: Color = Gh.c.fgMuted, size: Dp = 16.dp, modifier: Modifier = Modifier) {
-    Icon(painterResource(icon), null, modifier.size(size), tint = tint)
+fun Oc(@DrawableRes icon: Int, tint: Color = Gh.c.fgMuted, size: Dp = 16.dp, modifier: Modifier = Modifier, contentDescription: String? = null) {
+    Icon(painterResource(icon), contentDescription, modifier.size(size), tint = tint)
 }
 
 @Composable
@@ -108,6 +109,26 @@ fun OcButton(@DrawableRes icon: Int, onClick: () -> Unit, tint: Color = Gh.c.fg,
         R.drawable.oc_copy -> tr("复制")
         R.drawable.oc_light_bulb -> tr("帮助")
         R.drawable.oc_search -> tr("搜索")
+        R.drawable.oc_eye -> tr("查看")
+        R.drawable.oc_check -> tr("完成")
+        R.drawable.oc_checklist -> tr("全部完成")
+        R.drawable.oc_repo -> tr("仓库")
+        R.drawable.oc_trash -> tr("删除")
+        R.drawable.oc_pencil -> tr("编辑")
+        R.drawable.oc_filter -> tr("筛选")
+        R.drawable.oc_download -> tr("下载")
+        R.drawable.oc_history -> tr("提交历史")
+        R.drawable.oc_git_branch -> tr("分支")
+        R.drawable.oc_file_code -> tr("查看文件")
+        R.drawable.oc_tag -> tr("选择标签")
+        R.drawable.oc_link_external -> tr("在浏览器中打开")
+        R.drawable.oc_shield_lock -> tr("组织访问诊断")
+        R.drawable.oc_star -> tr("星标")
+        R.drawable.oc_star_fill -> tr("取消星标")
+        R.drawable.oc_arrow_up -> tr("上移")
+        R.drawable.oc_arrow_down -> tr("下移")
+        R.drawable.oc_paper_airplane -> tr("发送")
+        R.drawable.oc_play -> tr("运行")
         else -> tr("操作")
     }
     IconButton(onClick = onClick, enabled = enabled) {
@@ -395,7 +416,7 @@ fun GhButton(
         }
         Text(text, fontWeight = FontWeight.Medium, fontSize = 14.sp)
     }
-    val shape = RoundedCornerShape(6.dp)
+    val shape = ButtonDefaults.shape
     val pad = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
     if (onLongClick != null) {
         // Material 的 Button 不支持长按；需要长按的按钮（如 Star 长按加入列表）用 Surface 复刻同款样式
@@ -432,7 +453,8 @@ fun GhButton(
 
 @Composable
 fun TextLink(text: String, color: Color = Gh.c.accent, onClick: () -> Unit) {
-    Text(text, color = color, fontSize = 14.sp, modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 8.dp))
+    // 点击区至少 48dp（minimumInteractiveComponentSize 须放在 clickable 之前），文字外观不变
+    Text(text, color = color, fontSize = 14.sp, modifier = Modifier.minimumInteractiveComponentSize().clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick).padding(horizontal = 6.dp, vertical = 8.dp))
 }
 
 @Composable

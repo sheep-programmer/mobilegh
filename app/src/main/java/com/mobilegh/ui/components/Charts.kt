@@ -25,6 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -43,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.ui.theme.langColor
 import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 @Composable
 fun LangDot(name: String?, hex: String? = null, size: Dp = 10.dp) {
@@ -96,7 +99,8 @@ fun LineChart(
     val style = TextStyle(fontSize = 9.sp, color = g.fgMuted)
     var selected by remember(a, b) { mutableIntStateOf(-1) }
     val leftInset = 28.dp
-    Canvas(modifier.fillMaxWidth().height(160.dp + ChartBubbleSpace).testTag("chart").chartSelectPoints(a.size, leftInset) { selected = it }) {
+    val summary = lineChartSummary(labels, a, b, nameA, nameB)
+    Canvas(modifier.fillMaxWidth().height(160.dp + ChartBubbleSpace).testTag("chart").semantics { contentDescription = summary }.chartSelectPoints(a.size, leftInset) { selected = it }) {
         if (a.isEmpty()) return@Canvas
         // 刻度取 3 的倍数，避免出现 1/0/0/0 这样的重复刻度
         val raw = (a + b).maxOrNull() ?: 0
@@ -156,7 +160,8 @@ fun BarChart(
     val g = Gh.c
     val measurer = rememberTextMeasurer()
     var selected by remember(values) { mutableIntStateOf(-1) }
-    Canvas(modifier.fillMaxWidth().height(height + ChartBubbleSpace).testTag("chart").chartSelect(values.size) { selected = it }) {
+    val summary = barChartSummary(values, labels, unit)
+    Canvas(modifier.fillMaxWidth().height(height + ChartBubbleSpace).testTag("chart").semantics { contentDescription = summary }.chartSelect(values.size) { selected = it }) {
         if (values.isEmpty()) return@Canvas
         val top = ChartBubbleSpace.toPx()
         val chartH = size.height - top
@@ -178,6 +183,41 @@ fun BarChart(
                 (selected + 0.5f) * slot, size.height - barH(v), g.fg, g.canvas,
             )
         } else drawText(measurer, tr("点按或长按柱子查看数值"), Offset(0f, 4.dp.toPx()), TextStyle(fontSize = 10.sp, color = g.fgMuted))
+    }
+}
+
+/**
+ * 柱状图的读屏摘要：合计、最高值（有标签时附上最高值所在的标签）和范围。纯函数，只依赖传入的数据。
+ * [unit] 与 [BarChart] 的后缀相同，拼在数字后面。
+ */
+fun barChartSummary(values: List<Int>, labels: List<String>, unit: String = ""): String {
+    if (values.isEmpty()) return tr("暂无数据")
+    val total = values.sum()
+    val peak = values.maxOrNull() ?: 0
+    val peakLabel = labels.getOrNull(values.indexOf(peak))?.takeIf { it.isNotBlank() }
+    val first = labels.firstOrNull()?.takeIf { it.isNotBlank() }
+    val last = labels.lastOrNull()?.takeIf { it.isNotBlank() }
+    return if (peakLabel != null && first != null && last != null) {
+        trf("柱状图，合计 {0}{2}，最高 {1}{2}（{3}），范围 {4} 至 {5}", total, peak, unit, peakLabel, first, last)
+    } else {
+        trf("柱状图，合计 {0}{2}，最高 {1}{2}", total, peak, unit)
+    }
+}
+
+/**
+ * 双序列折线图的读屏摘要：A 序列合计与峰值、B 序列峰值，以及标签范围。
+ * B 序列（如独立访客）按天相加没有意义，所以只报峰值。纯函数。
+ */
+fun lineChartSummary(labels: List<String>, a: List<Int>, b: List<Int>, nameA: String, nameB: String): String {
+    if (a.isEmpty()) return tr("暂无数据")
+    val peakA = a.maxOrNull() ?: 0
+    val peakB = b.maxOrNull() ?: 0
+    val first = labels.firstOrNull()?.takeIf { it.isNotBlank() }
+    val last = labels.lastOrNull()?.takeIf { it.isNotBlank() }
+    return if (first != null && last != null) {
+        trf("折线图，{0}合计 {1}，{0}峰值 {2}，{3}峰值 {4}，范围 {5} 至 {6}", nameA, a.sum(), peakA, nameB, peakB, first, last)
+    } else {
+        trf("折线图，{0}合计 {1}，{0}峰值 {2}，{3}峰值 {4}", nameA, a.sum(), peakA, nameB, peakB)
     }
 }
 

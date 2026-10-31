@@ -78,6 +78,8 @@ import com.mobilegh.ui.components.ErrorState
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
+import com.mobilegh.ui.components.HDivider
+import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.LoadBox
 import com.mobilegh.ui.components.NetImage
@@ -102,8 +104,8 @@ import com.mobilegh.i18n.trf
 
 @Composable
 fun AchievementsStrip(login: String, self: Boolean) {
-    val ctx = rememberCtx()
     val loader = rememberLoader("ach-public:${login.lowercase(Locale.ROOT)}") { Web.achievements(login, self) }
+    var picked by remember { mutableStateOf<Achievement?>(null) }
     Column {
         SectionTitle(tr("成就"), trailing = { Text(tr("公开主页"), fontSize = 12.sp, color = Gh.c.fgMuted) })
         when {
@@ -121,10 +123,9 @@ fun AchievementsStrip(login: String, self: Boolean) {
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 loader.data!!.forEach { badge ->
-                    AchievementBadge(badge, Modifier.clickable {
-                        ctx.openBrowser("https://github.com/${Api.encodePath(login)}?achievement=${Api.q(badge.slug)}&tab=achievements")
-                    })
+                    AchievementBadge(badge, Modifier.clickable { picked = badge })
                 }
+                picked?.let { badge -> AchievementDetailDialog(badge, login) { picked = null } }
             }
         }
     }
@@ -153,9 +154,7 @@ fun AchievementsScreen(login: String) {
     val ctx = rememberCtx()
     val self = login.equals(Session.login, true)
     val badges = rememberLoader("ach-public:${login.lowercase(Locale.ROOT)}") { Web.achievements(login, self) }
-    fun open(badge: Achievement) {
-        ctx.openBrowser("https://github.com/${Api.encodePath(login)}?achievement=${Api.q(badge.slug)}&tab=achievements")
-    }
+    var picked by remember { mutableStateOf<Achievement?>(null) }
     Page(if (self) tr("我的成就") else tr("成就"), subtitle = login, actions = {
         OcButton(R.drawable.oc_link_external, { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=achievements") })
     }) { pad ->
@@ -168,7 +167,8 @@ fun AchievementsScreen(login: String) {
                 }
                 else item {
                     FlowRow(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalArrangement = Arrangement.spacedBy(24.dp), maxItemsInEachRow = 3) {
-                        data.forEach { badge -> AchievementBadge(badge, Modifier.clickable { open(badge) }) }
+                        data.forEach { badge -> AchievementBadge(badge, Modifier.clickable { picked = badge }) }
+                        picked?.let { badge -> AchievementDetailDialog(badge, login) { picked = null } }
                     }
                 }
             }
@@ -577,11 +577,9 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
                     add(MenuAction(tr("编辑列表")) { editing = selected; editorOpen = true })
                     add(MenuAction(tr("删除列表"), danger = true) { deleting = selected })
                 }
-                add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=stars") })
             })
         } else MoreMenu(listOf(
             MenuAction(tr("刷新")) { if (!saving && !loading) load() },
-            MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=stars") },
         ))
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
@@ -739,6 +737,36 @@ fun GitHubListEditor(list: GitHubStarList?, saving: Boolean, error: String?, onD
             }
             Text(if (privateList) tr("列表将保存在 GitHub，设为私有。") else tr("公开列表会显示在你的 GitHub Stars 页面。"), color = Gh.c.fgMuted, fontSize = 12.sp)
             if (error != null) Text(error, color = Gh.c.danger, fontSize = 12.sp)
+        }
+    }
+}
+
+/** 徽章详情：本地显示徽章图、等级、倍数、说明和解锁历史；网页按钮保留给需要完整页面的时候。 */
+@Composable
+internal fun AchievementDetailDialog(badge: Achievement, login: String, onDismiss: () -> Unit) {
+    val g = Gh.c
+    val ctx = rememberCtx()
+    val tier = when (badge.tier) { "bronze" -> tr("铜级"); "silver" -> tr("银级"); "gold" -> tr("金级"); else -> "" }
+    val detail = rememberLoader("ach-detail:${login.lowercase(Locale.ROOT)}:${badge.slug}") { Web.achievementDetail(login, badge.slug) }
+    GhDialog(badge.name, onDismiss = onDismiss, confirm = tr("关闭"), onConfirm = onDismiss) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            NetImage(badge.imageUrl, Modifier.size(96.dp), contentScale = ContentScale.Fit, placeholder = false)
+            if (tier.isNotEmpty()) Text(tier, fontSize = 14.sp, color = g.fg, fontWeight = FontWeight.SemiBold)
+            if (badge.count > 1) Text(trf("倍数 x{0}", badge.count), fontSize = 13.sp, color = g.fgMuted)
+            val data = detail.data
+            when {
+                data != null -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (data.description.isNotBlank()) Text(data.description, fontSize = 14.sp, color = g.fg)
+                    if (data.history.isNotEmpty()) {
+                        HDivider()
+                        Text(tr("解锁历史"), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = g.fgMuted)
+                        data.history.forEach { Text(it, fontSize = 13.sp, color = g.fg) }
+                    }
+                }
+                detail.error != null -> InlineError(trf("说明加载失败：{0}", detail.error!!), Modifier.fillMaxWidth()) { detail.refresh() }
+                else -> Loading(Modifier.fillMaxWidth().height(48.dp))
+            }
+            GhButton(tr("在浏览器打开"), icon = R.drawable.oc_link_external) { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?achievement=${Api.q(badge.slug)}&tab=achievements") }
         }
     }
 }

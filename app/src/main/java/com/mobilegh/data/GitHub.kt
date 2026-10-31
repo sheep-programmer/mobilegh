@@ -368,8 +368,18 @@ object GitHub {
     suspend fun pulls(o: String, n: String, state: String, page: Int, force: Boolean, sort: String = "updated", direction: String = "desc") =
         Api.get<List<Pull>>("${r(o, n)}/pulls?state=$state&sort=$sort&direction=$direction&per_page=$PER&page=$page", force)
     suspend fun issue(o: String, n: String, num: Int, force: Boolean) = Api.get<Issue>("${r(o, n)}/issues/$num", force, Api.FULL)
-    suspend fun issueComments(o: String, n: String, num: Int, force: Boolean) =
-        Api.get<List<Comment>>("${r(o, n)}/issues/$num/comments?per_page=100", force, Api.FULL)
+    /** 评论每页 100 条，最多连续读取的页数：超长讨论不会无限拉取，但也不再丢掉第 100 条之后的评论 */
+    private const val MAX_COMMENT_PAGES = 10
+
+    suspend fun issueComments(o: String, n: String, num: Int, force: Boolean): List<Comment> {
+        val all = mutableListOf<Comment>()
+        for (page in 1..MAX_COMMENT_PAGES) {
+            val part = Api.get<List<Comment>>("${r(o, n)}/issues/$num/comments?per_page=100&page=$page", force && page == 1, Api.FULL)
+            all += part
+            if (part.size < 100) break
+        }
+        return all
+    }
     suspend fun pull(o: String, n: String, num: Int, force: Boolean) = Api.get<Pull>("${r(o, n)}/pulls/$num", force, Api.FULL)
     suspend fun pullFiles(o: String, n: String, num: Int, page: Int) = Api.get<List<CommitFile>>("${r(o, n)}/pulls/$num/files?per_page=50&page=$page")
     suspend fun pullCommits(o: String, n: String, num: Int) = Api.get<List<Commit>>("${r(o, n)}/pulls/$num/commits?per_page=100")
@@ -766,8 +776,15 @@ object GitHub {
     suspend fun forkGist(id: String) = Api.send<Gist>("POST", "/gists/$id/forks")
 
     /** full+json 带回 body_html；个别情况下缺失时由调用方用 /markdown 补渲染 */
-    suspend fun gistComments(id: String, force: Boolean) =
-        Api.get<List<Comment>>("/gists/$id/comments?per_page=100", force, Api.FULL)
+    suspend fun gistComments(id: String, force: Boolean): List<Comment> {
+        val all = mutableListOf<Comment>()
+        for (page in 1..MAX_COMMENT_PAGES) {
+            val part = Api.get<List<Comment>>("/gists/$id/comments?per_page=100&page=$page", force && page == 1, Api.FULL)
+            all += part
+            if (part.size < 100) break
+        }
+        return all
+    }
 
     suspend fun addGistComment(id: String, body: String) =
         Api.send<Comment>("POST", "/gists/$id/comments", buildJsonObject { put("body", body) })

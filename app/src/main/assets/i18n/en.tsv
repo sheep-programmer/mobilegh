@@ -1257,7 +1257,7 @@ GitHub 未返回贡献者数据	GitHub returned no contributor data
 已取消上传。	Upload canceled.
 提交 {0} 已经生成，但分支更新结果未确认，请先查看分支和提交历史。	Commit {0} was created, but the branch update was not confirmed; check the branch and commit history first.
 GitHub 上还没有产生提交。	No commit has been created on GitHub yet.
-上传文件（夹）	Upload files / folders
+上传文件	Upload files
 清空已选	Clear selection
 不上传的项在列表里标了原因	Reasons for files that are not uploaded are shown in the list
 {0} 项路径重复或无效，已去掉	{0} items with duplicate or invalid paths were removed
@@ -2315,3 +2315,8 @@ GitHub 只返回前一部分 Star	GitHub only returned the first part of the Sta
 共收纳 {0} 条仓库记录	{0} repository entries in total
 用列表给 Stars 分门别类，列表会同步到 GitHub。	Organize your stars into lists; lists sync to GitHub.
 {0} 个公开 · {1} 个私有	{0} public · {1} private
+下载中 · {0}	Downloading · {0}
+回到顶部	Back to top
+{0} 星标	{0} stars
+{0} 个 Fork	{0} forks
+{0} 人关注	{0} watching

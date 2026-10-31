@@ -147,6 +147,22 @@ class Navigator {
         stack.clear()
     }
 
+    /**
+     * 外部链接（通知、搜索、README、Intent）进入仓库内页面：先把仓库主页压到栈底，
+     * 返回键就能回到仓库，和网页版的面包屑一致；不再直接退回首页。
+     */
+    fun pushLink(target: Screen) {
+        repoHomeOf(target)?.let { home -> if (top.screen != home) push(home) }
+        if (top.screen != target) push(target)
+    }
+
+    /** 点仓库名回到仓库主页：如果上一页就是仓库主页则直接返回，否则替换当前页。 */
+    fun toRepoHome(owner: String, name: String) {
+        val home = Screen.Repo(owner, name)
+        val below = stack.getOrNull(stack.lastIndex - 1)?.screen
+        if (below == home) pop() else replace(home)
+    }
+
     fun parentFiles(owner: String, name: String, path: String, ref: String?) {
         val parent = Screen.Files(owner, name, path.substringBeforeLast('/', ""), ref)
         if (stack.dropLast(1).lastOrNull()?.screen == parent) pop() else replace(parent)
@@ -182,4 +198,25 @@ fun OnTabReselect(tab: Tab, block: suspend () -> Unit) {
     androidx.compose.runtime.LaunchedEffect(nav.reselect) {
         if (nav.tab == tab && nav.reselect > baseline) block()
     }
+}
+
+/** 仓库内的页面所属的仓库主页；不属于某个仓库的页面返回 null。 */
+internal fun repoHomeOf(screen: Screen): Screen.Repo? = when (screen) {
+    is Screen.Files -> Screen.Repo(screen.owner, screen.name)
+    is Screen.FileView -> Screen.Repo(screen.owner, screen.name)
+    is Screen.Commits -> Screen.Repo(screen.owner, screen.name)
+    is Screen.CommitDetail -> Screen.Repo(screen.owner, screen.name)
+    is Screen.Compare -> Screen.Repo(screen.owner, screen.name)
+    is Screen.Issues -> Screen.Repo(screen.owner, screen.name)
+    is Screen.IssueDetail -> Screen.Repo(screen.owner, screen.name)
+    is Screen.PullFiles -> Screen.Repo(screen.owner, screen.name)
+    is Screen.Actions -> Screen.Repo(screen.owner, screen.name)
+    is Screen.RunDetail -> Screen.Repo(screen.owner, screen.name)
+    is Screen.Releases -> Screen.Repo(screen.owner, screen.name)
+    is Screen.Branches -> Screen.Repo(screen.owner, screen.name)
+    is Screen.Insights -> Screen.Repo(screen.owner, screen.name)
+    is Screen.Contributors -> Screen.Repo(screen.owner, screen.name)
+    is Screen.Discussions -> Screen.Repo(screen.owner, screen.name)
+    is Screen.DiscussionDetail -> Screen.Repo(screen.owner, screen.name)
+    else -> null
 }

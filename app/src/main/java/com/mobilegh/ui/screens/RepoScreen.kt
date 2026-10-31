@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -30,7 +29,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -57,7 +55,6 @@ import com.mobilegh.nav.retain
 import com.mobilegh.nav.guarded
 import com.mobilegh.nav.sameAccount
 import com.mobilegh.ui.components.Avatar
-import com.mobilegh.ui.components.boxedItems
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.ErrorState
 import com.mobilegh.ui.components.FileInfo
@@ -69,6 +66,7 @@ import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.CompactSearchField
 import com.mobilegh.ui.components.FieldAction
+import com.mobilegh.ui.components.RegisterScrollTop
 import com.mobilegh.ui.components.Segmented
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
@@ -184,6 +182,7 @@ fun RepoScreen(owner: String, name: String) {
             })
         },
     ) { pad ->
+        RegisterScrollTop(listState)
         when {
             r == null && repo.error != null -> ErrorState(repo.error!!, Modifier.padding(pad)) { repo.load(true) }
             r == null -> Loading(Modifier.padding(pad).fillMaxSize())
@@ -241,11 +240,13 @@ fun RepoScreen(owner: String, name: String) {
                         Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Row(
                                 Modifier.weight(1f)
+                                    // 与右侧「分支」按钮同为 44dp，两个框并排时高度一致
+                                    .heightIn(min = 44.dp)
                                     .border(1.dp, g.border, RoundedCornerShape(6.dp))
                                     .background(g.btnBg, RoundedCornerShape(6.dp))
                                     .clip(RoundedCornerShape(6.dp))
                                     .clickable { showBranches = true }
-                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    .padding(horizontal = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Oc(R.drawable.oc_git_branch, g.fgMuted)
@@ -254,7 +255,7 @@ fun RepoScreen(owner: String, name: String) {
                                 Oc(R.drawable.oc_chevron_down, g.fgMuted, 12.dp)
                             }
                             Spacer(Modifier.width(8.dp))
-                            GhButton(tr("分支"), icon = R.drawable.oc_git_branch) { nav.push(Screen.Branches(owner, name)) }
+                            GhButton(tr("分支"), Modifier.heightIn(min = 44.dp), icon = R.drawable.oc_git_branch) { nav.push(Screen.Branches(owner, name)) }
                         }
                         MenuGroup {
                             MenuRow(R.drawable.oc_code, tr("浏览代码"), g.accent) { nav.push(Screen.Files(owner, name, "", ref.value)) }
@@ -262,7 +263,7 @@ fun RepoScreen(owner: String, name: String) {
                             // 仓库内代码搜索使用独立搜索页的代码类型，并预填 repo:，可继续组合语言/路径/文件名
                             MenuRow(R.drawable.oc_search, tr("搜索代码"), g.fgMuted) { nav.push(Screen.Search(SearchType.CODE, "repo:$owner/$name ")) }
                             // 选文件 / 选文件夹，一次上传只产生一个提交（没权限时不给入口，与「新建文件」一致）
-                            if (canPush) MenuRow(R.drawable.oc_upload, tr("上传文件（夹）")) { nav.push(Screen.UploadFiles(owner, name, ref.value, "")) }
+                            if (canPush) MenuRow(R.drawable.oc_upload, tr("上传文件")) { nav.push(Screen.UploadFiles(owner, name, ref.value, "")) }
                             MenuRow(R.drawable.oc_git_commit, tr("提交历史")) { nav.push(Screen.Commits(owner, name, ref.value)) }
                             MenuRow(R.drawable.oc_git_branch, tr("比较分支与提交")) { nav.push(Screen.Compare(owner, name)) }
                         }
@@ -585,9 +586,9 @@ private fun RepoHeader(r: Repo) {
         }
         Spacer(Modifier.height(12.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            IconText(R.drawable.oc_star, "${fmtCount(r.stargazersCount)} star", modifier = Modifier.clickable { nav.push(Screen.Users(UserKind.Stargazers, r.owner.login, r.name)) })
-            IconText(R.drawable.oc_repo_forked, "${fmtCount(r.forksCount)} fork", modifier = Modifier.clickable { nav.push(Screen.Repos(RepoKind.Forks, r.owner.login, r.name)) })
-            IconText(R.drawable.oc_eye, "${fmtCount(r.subscribersCount ?: r.watchersCount)} watching", modifier = Modifier.clickable { nav.push(Screen.Users(UserKind.Watchers, r.owner.login, r.name)) })
+            IconText(R.drawable.oc_star, trf("{0} 星标", fmtCount(r.stargazersCount)), modifier = Modifier.clickable { nav.push(Screen.Users(UserKind.Stargazers, r.owner.login, r.name)) })
+            IconText(R.drawable.oc_repo_forked, trf("{0} 个 Fork", fmtCount(r.forksCount)), modifier = Modifier.clickable { nav.push(Screen.Repos(RepoKind.Forks, r.owner.login, r.name)) })
+            IconText(R.drawable.oc_eye, trf("{0} 人关注", fmtCount(r.subscribersCount ?: r.watchersCount)), modifier = Modifier.clickable { nav.push(Screen.Users(UserKind.Watchers, r.owner.login, r.name)) })
             // 许可证名称可能很长（如自定义许可证的全称），窄屏下折行显示
             r.license?.let { IconText(R.drawable.oc_law, it.spdxId?.takeIf { s -> s != "NOASSERTION" } ?: it.name, maxLines = Int.MAX_VALUE) }
             IconText(R.drawable.oc_package, fmtSize(r.size * 1024))

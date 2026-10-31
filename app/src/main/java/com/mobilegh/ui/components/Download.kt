@@ -12,8 +12,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,10 +38,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import com.mobilegh.R
 import com.mobilegh.data.DownloadState
 import com.mobilegh.data.DownloadTask
@@ -219,19 +229,54 @@ fun DownloadHost() {
             )
         }
     } else if (Downloads.activeCount > 0) {
-        Box(Modifier.fillMaxWidth().padding(end = 16.dp, bottom = 104.dp), contentAlignment = Alignment.BottomEnd) {
-            Row(
-                Modifier.border(1.dp, g.border, RoundedCornerShape(20.dp))
-                    .background(g.canvas, RoundedCornerShape(20.dp))
-                    .clip(RoundedCornerShape(20.dp))
-                    .clickable { Downloads.showHistory = true }
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Oc(R.drawable.oc_download, g.accent, 16.dp)
-                Spacer(Modifier.width(6.dp))
-                Text(tr("下载中 · ") + Downloads.activeCount, color = g.fg, fontSize = 12.sp)
-            }
+        DownloadPill(Downloads.activeCount) { Downloads.showHistory = true }
+    }
+}
+
+/**
+ * 下载中的悬浮胶囊：默认贴在右下角，可以按住拖到屏幕任意位置，拖动范围限制在屏幕内。
+ * 只有胶囊本身接收触摸，屏幕其余部分照常点按和滚动。
+ */
+@Composable
+internal fun DownloadPill(count: Int, onOpen: () -> Unit) {
+    val g = Gh.c
+    val density = LocalDensity.current
+    val edge = with(density) { 16.dp.toPx() }
+    val lift = with(density) { 104.dp.toPx() }
+    var screen by remember { mutableStateOf(IntSize.Zero) }
+    var pill by remember { mutableStateOf(IntSize.Zero) }
+    // 相对默认位置（右下角）的拖动量，单位像素
+    var drag by remember { mutableStateOf(Offset.Zero) }
+    Box(Modifier.fillMaxSize().onSizeChanged { screen = it }) {
+        Row(
+            Modifier.align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 104.dp)
+                .offset { IntOffset(drag.x.roundToInt(), drag.y.roundToInt()) }
+                .onSizeChanged { pill = it }
+                .pointerInput(Unit) {
+                    detectDragGestures { change, delta ->
+                        change.consume()
+                        // 默认位置离右、下边缘各 edge / lift；向左、向上拖到屏幕边缘为止
+                        val minX = -(screen.width - edge - pill.width)
+                        val maxX = edge
+                        val minY = -(screen.height - lift - pill.height)
+                        val maxY = lift
+                        drag = Offset(
+                            (drag.x + delta.x).coerceIn(minX, maxX),
+                            (drag.y + delta.y).coerceIn(minY, maxY),
+                        )
+                    }
+                }
+                .border(1.dp, g.border, RoundedCornerShape(20.dp))
+                .background(g.canvas, RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(20.dp))
+                .clickable(onClick = onOpen)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Oc(R.drawable.oc_download, g.accent, 16.dp)
+            Spacer(Modifier.width(6.dp))
+            Text(trf("下载中 · {0}", count), color = g.fg, fontSize = 12.sp)
         }
     }
 }

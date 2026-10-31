@@ -1,7 +1,5 @@
 package com.mobilegh.ui.screens
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -20,7 +18,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -31,7 +28,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -76,6 +72,7 @@ import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.RatioRow
+import com.mobilegh.ui.components.RegisterScrollTop
 import com.mobilegh.ui.components.RepoItem
 import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.StatCell
@@ -252,6 +249,7 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
             u == null && user.error != null -> ErrorState(user.error!!, Modifier.padding(pad)) { user.load(true) }
             u == null -> Loading(Modifier.padding(pad).fillMaxSize())
             else -> PullToRefreshBox(user.refreshing, { user.refresh(); contrib.refresh(); pinned.refresh(); orgs.refresh() }, Modifier.padding(pad)) {
+                RegisterScrollTop(state)
                 LazyColumn(Modifier.fillMaxSize(), state = state) {
                     item { ProfileHeader(u, isSelf, following.value) { on ->
                         following.value = on

@@ -53,6 +53,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -126,34 +127,48 @@ fun Page(
     floating: @Composable () -> Unit = {},
     contentWindowInsets: WindowInsets? = null,
     onBack: (() -> Unit)? = null,
+    /** 副标题（如 owner/repo）可点：仓库内页面用它回到仓库主页，和网页版的面包屑一致 */
+    onSubtitleClick: (() -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val nav = LocalNav.current
-    Scaffold(
-        containerColor = Gh.c.canvas,
-        topBar = {
-            Column {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-                            if (subtitle != null) Text(subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = Gh.c.fgMuted)
-                        }
-                    },
-                    navigationIcon = {
-                        if (back || onBack != null) OcButton(R.drawable.oc_arrow_left, { if (onBack != null) onBack() else nav.pop() })
-                    },
-                    actions = actions,
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Gh.c.header, titleContentColor = Gh.c.fg),
-                )
-                HDivider()
-            }
-        },
-        bottomBar = bottomBar,
-        floatingActionButton = floating,
-        contentWindowInsets = contentWindowInsets ?: androidx.compose.material3.ScaffoldDefaults.contentWindowInsets,
-        content = content,
-    )
+    // 页面内的主列表登记到这里（见 RegisterScrollTop），右下角的「回到顶部」按钮据此显示和回滚
+    val scrollTop = remember { ScrollTopTarget() }
+    CompositionLocalProvider(LocalScrollTopTarget provides scrollTop) {
+        Scaffold(
+            containerColor = Gh.c.canvas,
+            topBar = {
+                Column {
+                    TopAppBar(
+                        title = {
+                            Column {
+                                Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+                                if (subtitle != null) Text(
+                                subtitle, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = Gh.c.fgMuted,
+                                modifier = if (onSubtitleClick != null) Modifier.clickable(onClick = onSubtitleClick) else Modifier,
+                            )
+                            }
+                        },
+                        navigationIcon = {
+                            if (back || onBack != null) OcButton(R.drawable.oc_arrow_left, { if (onBack != null) onBack() else nav.pop() })
+                        },
+                        actions = actions,
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = Gh.c.header, titleContentColor = Gh.c.fg),
+                    )
+                    HDivider()
+                }
+            },
+            bottomBar = bottomBar,
+            floatingActionButton = {
+                Column(horizontalAlignment = Alignment.End) {
+                    floating()
+                    ScrollToTopButton(scrollTop)
+                }
+            },
+            contentWindowInsets = contentWindowInsets ?: androidx.compose.material3.ScaffoldDefaults.contentWindowInsets,
+            content = content,
+        )
+    }
 }
 
 @Composable
@@ -291,6 +306,7 @@ fun <T> PagedList(
     groupHeader: @Composable LazyItemScope.(List<T>) -> Unit = {},
     item: @Composable LazyItemScope.(T) -> Unit,
 ) {
+    RegisterScrollTop(state)
     val near by remember(state) {
         derivedStateOf {
             val li = state.layoutInfo

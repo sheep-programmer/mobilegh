@@ -54,7 +54,7 @@ class NavVm(private val state: SavedStateHandle) : ViewModel() {
         state.remove<String>("pendingUrl")
         pendingUrl = null
         val target = Links.fromInput(url) ?: return
-        if (nav.top.screen != target) nav.push(target)
+        nav.pushLink(target)
     }
 
     override fun onCleared() {

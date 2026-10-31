@@ -95,9 +95,7 @@ fun CompareScreen(owner: String, name: String, initialBase: String = "HEAD~1", i
     Page(tr("比较版本"), subtitle = "$owner/$name", actions = {
         MoreMenu(buildList {
             add(MenuAction(tr("输入提交 SHA")) { dialog = 3 })
-            add(MenuAction(tr("在浏览器打开")) {
-                ctx.openBrowser("https://github.com/$owner/$name/compare/${com.mobilegh.data.Api.q(base)}...${com.mobilegh.data.Api.q(head)}")
-            })
+            add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$owner/$name/compare/${com.mobilegh.data.Api.q(base)}...${com.mobilegh.data.Api.q(head)}") })
             if (canDeleteHead) add(MenuAction(tr("删除分支"), danger = true) { deleting = Branch(name = head) })
         })
     }) { pad ->
@@ -113,12 +111,6 @@ fun CompareScreen(owner: String, name: String, initialBase: String = "HEAD~1", i
                     LazyColumn(Modifier.fillMaxSize(), state = listState) {
                         item { CompareHeader(c, files.size, tab) { tab = it } }
                         if (files.size >= 300) item { Text(tr("GitHub 比较接口最多返回 300 个文件，此列表可能不完整。"), Modifier.padding(16.dp), color = g.attention, fontSize = 12.sp) }
-                        if (files.isNotEmpty()) item {
-                            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Spacer(Modifier.weight(1f))
-                                DiffModeToggle()
-                            }
-                        }
                         if (files.isEmpty()) emptyItem(listState, tr("两个版本没有可显示的文件差异"), R.drawable.oc_diff)
                         fileDiffs(files, collapsed, g) { f -> nav.push(Screen.FileView(owner, name, f.filename, head)) }
                         item { Spacer(Modifier.height(24.dp)) }
@@ -201,7 +193,11 @@ private fun RefLine(label: String, ref: String, onClick: () -> Unit) {
 private fun CompareHeader(c: Comparison, fileCount: Int, tab: Int, onTab: (Int) -> Unit) {
     Column(Modifier.fillMaxWidth()) {
         CompareSummary(c, fileCount)
-        Chips(listOf(trf("文件 {0}", fileCount), trf("提交 {0}", c.totalCommits)), tab) { onTab(it) }
+        // 数量已在摘要卡里，标签只写名称；文件页的统一 / 分栏切换和标签同一行，省一行高度
+        Row(Modifier.fillMaxWidth().padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Chips(listOf(tr("文件"), tr("提交")), tab, Modifier.weight(1f)) { onTab(it) }
+            if (tab == 0 && fileCount > 0) DiffModeToggle(Modifier.padding(start = 8.dp))
+        }
         HDivider()
     }
 }

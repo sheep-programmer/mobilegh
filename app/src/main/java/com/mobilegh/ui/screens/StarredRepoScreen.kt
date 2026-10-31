@@ -66,6 +66,8 @@ import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.Oc
+import com.mobilegh.ui.components.MenuAction
+import com.mobilegh.ui.components.MoreMenu
 import com.mobilegh.ui.components.RepoItem
 import com.mobilegh.ui.components.Segmented
 import com.mobilegh.ui.components.TextLink
@@ -472,16 +474,10 @@ internal fun StarListCard(name: String, description: String, count: Int, isPriva
 /** 仓库内容独占整行，移除按钮放在下方，避免窄屏和大字体挤压仓库名称。 */
 @Composable
 internal fun RemovableRepoItem(repo: Repo, enabled: Boolean, onRemove: (() -> Unit)?) {
-    Column(Modifier.fillMaxWidth()) {
-        RepoItem(repo)
-        // 紧凑的一行小按钮，贴在仓库信息下方右侧；仍然在仓库内容之下，大字体时也不会挤压名称
-        if (onRemove != null) Text(
-            tr("移除"),
-            Modifier.align(Alignment.End).padding(end = 12.dp, bottom = 6.dp)
-                .clip(RoundedCornerShape(6.dp)).clickable(enabled = enabled, onClick = onRemove)
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            fontSize = 13.sp, fontWeight = FontWeight.Medium, color = if (enabled) Gh.c.danger else Gh.c.fgMuted,
-        )
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Box(Modifier.weight(1f)) { RepoItem(repo) }
+        // 移除收进右侧的「更多」菜单，和其他列表的行操作一致；不再单独占一行
+        if (onRemove != null && enabled) MoreMenu(listOf(MenuAction(tr("移除"), danger = true, onClick = onRemove)))
     }
 }
 

@@ -838,5 +838,5 @@ private fun openCheck(ctx: android.content.Context, nav: com.mobilegh.nav.Naviga
         return
     }
     val route = runCatching { Links.route(url) }.getOrNull()
-    if (route != null) nav.push(route) else ctx.openBrowser(url)
+    if (route != null) nav.pushLink(route) else ctx.openBrowser(url)
 }

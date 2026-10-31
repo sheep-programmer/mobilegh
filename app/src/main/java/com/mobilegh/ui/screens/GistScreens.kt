@@ -321,9 +321,6 @@ fun GistDetailScreen(id: String) {
                         )
                     }
                 }
-                if (list != null && list.size >= 100) item(key = "comments:more") {
-                    GhButton(tr("评论较多，在浏览器查看全部"), Modifier.padding(16.dp).fillMaxWidth()) { ctx.openBrowser(url) }
-                }
                 item { Spacer(Modifier.height(32.dp)) }
             }
             }

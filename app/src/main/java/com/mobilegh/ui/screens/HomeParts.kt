@@ -223,7 +223,8 @@ private fun ListTile(@DrawableRes icon: Int, title: String, subtitle: String, de
     ) {
         Oc(icon, if (muted) g.fgMuted else g.done, 16.dp)
         Spacer(Modifier.height(8.dp))
-        Text(title, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // 列表名允许两行，长名字不再只剩半截省略号
+        Text(title, fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(subtitle, fontSize = 12.sp, lineHeight = 16.sp, color = g.fgMuted, maxLines = 1)
     }
 }

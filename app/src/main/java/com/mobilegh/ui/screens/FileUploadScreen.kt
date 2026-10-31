@@ -252,7 +252,7 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
     }
 
     Page(
-        tr("上传文件（夹）"),
+        tr("上传文件"),
         subtitle = "${t?.baseRef ?: ref ?: tr("默认分支")} · $owner/$name" + if (path.isEmpty()) "" else " · $path/",
         onBack = { if (st.busy || st.raw.isNotEmpty()) st.confirmLeave = true else nav.pop() },
         actions = {

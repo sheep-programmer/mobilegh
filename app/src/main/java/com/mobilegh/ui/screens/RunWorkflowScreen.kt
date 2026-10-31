@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -216,7 +217,7 @@ private fun InputField(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Dropdown(v.ifEmpty { tr("请选择环境") }, environments, { set(environments[it]) })
                     Spacer(Modifier.width(10.dp))
-                    GhField(v, set, tr("或直接输入"), Modifier.weight(1f))
+                    GhField(v, set, tr("或直接输入"), Modifier.weight(1f).heightIn(min = 44.dp))
                 }
             }
             "number" -> GhField(

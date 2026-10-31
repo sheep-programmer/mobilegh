@@ -90,6 +90,7 @@ fun AppRoot(nav: Navigator) {
                         }
                         Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.BottomEnd) { DownloadHost() }
                         com.mobilegh.ui.components.ImageViewerHost()
+                        com.mobilegh.ui.components.VideoViewerHost()
                         com.mobilegh.ui.components.MobileApprovalHost()
                         com.mobilegh.ui.components.NotificationPermissionHost()
                     }

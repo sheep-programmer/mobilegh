@@ -131,6 +131,8 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.biometric)
     implementation(libs.androidx.fragment)

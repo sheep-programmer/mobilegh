@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -115,11 +116,13 @@ internal fun DirectionButton(descending: Boolean, enabled: Boolean = true, onCli
     val g = Gh.c
     Row(
         Modifier
+            // 和同行的搜索框同为 44dp，否则「倒序」会比搜索框矮一截
+            .heightIn(min = 44.dp)
             .border(1.dp, g.border, RoundedCornerShape(6.dp))
             .background(g.btnBg, RoundedCornerShape(6.dp))
             .clip(RoundedCornerShape(6.dp))
             .clickable(enabled = enabled, onClickLabel = if (descending) tr("改为正序") else tr("改为倒序"), onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Oc(if (descending) R.drawable.oc_arrow_down else R.drawable.oc_arrow_up, g.fgMuted, 12.dp)

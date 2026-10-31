@@ -125,6 +125,19 @@ private data class ImageLoadState(val image: ViewerImage? = null, val complete: 
 
 private data class ImageSaveRequest(val bytes: ByteArray, val mime: String?, val name: String)
 
+private val GIF_URL = Regex("\\.gif([?#]|$)", RegexOption.IGNORE_CASE)
+
+/**
+ * 超过图片链路上限（16 MB）的 GIF：不再读进内存，改由 WebView 直接加载原地址（动画保留）。
+ * 字节为空表示「远程加载」，保存交给下载器按文件流式写盘，分享不可用。
+ */
+private fun remoteGif(url: String): ViewerImage? =
+    if (GIF_URL.containsMatchIn(url)) ViewerImage(ImageFetch.Result(ByteArray(0), "image/gif"), "image/gif", null, remoteImgHtml(url)) else null
+
+private fun remoteImgHtml(url: String): String = """<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5"></head>""" +
+    "<body style=\"margin:0;background:transparent;height:100vh;display:flex;align-items:center;justify-content:center\">" +
+    "<img src=\"${escapeHtml(url)}\" style=\"max-width:100%;max-height:100%\"></body></html>"
+
 @Composable
 private fun ImageViewerContent(url: String, title: String) {
     val ctx = rememberCtx()
@@ -146,7 +159,7 @@ private fun ImageViewerContent(url: String, title: String) {
                             ?.let { Images.decode(it.bytes, 4096) }
                         ViewerImage(it, mime, bitmap, if (bitmap == null) webImageHtml(it.bytes, mime) else null)
                     }
-                }
+                } ?: remoteGif(url)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -222,6 +235,11 @@ private fun ImageViewerContent(url: String, title: String) {
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     GhButton(tr("保存到相册"), Modifier.weight(1f), primary = true, icon = R.drawable.oc_download, enabled = !busy) {
+                        if (data.bytes.isEmpty()) {
+                            // 超大 GIF 没有读进内存：交给下载器流式写到「下载」文件夹
+                            ctx.downloadFile(url, saveName(url, title, mime), isPrivate = false, mimeType = mime)
+                            return@GhButton
+                        }
                         val request = ImageSaveRequest(data.bytes, mime, saveName(url, title, mime))
                         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
                             ContextCompat.checkSelfPermission(ctx, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
@@ -238,7 +256,7 @@ private fun ImageViewerContent(url: String, title: String) {
                             }
                         } else save(request)
                     }
-                    GhButton(tr("分享"), Modifier.weight(1f), icon = R.drawable.oc_share_android, enabled = !busy) {
+                    if (data.bytes.isNotEmpty()) GhButton(tr("分享"), Modifier.weight(1f), icon = R.drawable.oc_share_android, enabled = !busy) {
                         busy = true
                         scope.launch {
                             try {

@@ -21,6 +21,9 @@ data class Achievement(
     val slug: String = "",
 )
 
+/** 成就详情：说明（如「@x opened pull requests that have been merged.」）和解锁历史 */
+data class AchievementDetail(val description: String, val history: List<String>)
+
 /** Public GitHub webpage list; never a local list and never written by this scraper. */
 data class StarList(
     val name: String,
@@ -90,6 +93,42 @@ object Web {
         return withContext(Dispatchers.Default) { parseAchievements(page) }
     }
 
+    /**
+     * 成就的说明和解锁历史：GitHub 在悬停卡片里用的公开片段（需要 XHR 请求头）。
+     * 不需要登录，也不读取任何账号 Cookie。
+     */
+    suspend fun achievementDetail(login: String, slug: String): AchievementDetail {
+        require(LOGIN.matches(login)) { tr("无效的 GitHub 用户名") }
+        require(SLUG.matches(slug)) { tr("无效的成就标识") }
+        return withContext(Dispatchers.IO) {
+            val url = github.newBuilder().addPathSegments("users/$login/achievements/$slug/detail").addQueryParameter("hovercard", "1").build()
+            val request = Request.Builder().url(url)
+                .header("User-Agent", "Mozilla/5.0 (compatible; MobileGH; public profile reader)")
+                .header("Accept", "text/html")
+                .header("X-Requested-With", "XMLHttpRequest")
+                .build()
+            client.routed().newCall(request).await().use { response ->
+                if (!response.isSuccessful) throw ApiException(response.code, trf("成就详情加载失败 ({0})", response.code))
+                parseAchievementDetail(response.body.string())
+            }
+        }
+    }
+
+    /** 说明取标题后的第一段；历史取 History 标题之后的各行，逐行去掉标签和多余空白。 */
+    internal fun parseAchievementDetail(fragment: String): AchievementDetail {
+        val body = IGNORED.replace(fragment, "")
+        val afterTitle = body.substringAfter("</h3>", "")
+        val description = DESCRIPTION.find(afterTitle)?.groupValues?.get(1)?.let { text(it) }.orEmpty()
+        val history = body.substringAfter("achievement-history\"", "").substringAfter(">", "")
+            .let { block -> HISTORY_BREAK.replace(block, "\n") }
+            .let { block -> unescape(TAG.replace(block, "")) }
+            .lines()
+            .map { SPACE.replace(it, " ").trim() }
+            .filter { it.isNotEmpty() && it != "·" && it != "History" }
+            .take(60)
+        return AchievementDetail(description, history)
+    }
+
     @Suppress("UNUSED_PARAMETER")
     suspend fun starLists(login: String, self: Boolean = false): List<StarList> {
         val page = html(login, stars = true)
@@ -112,6 +151,8 @@ object Web {
     private val IGNORED = Regex("<!--.*?-->|<(script|style)\\b[^>]*>.*?</\\1\\s*>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
     private val TAG = Regex("<$TAG_ATTRIBUTES>")
     private val SPACE = Regex("\\s+")
+    private val DESCRIPTION = Regex("<div class=\"mt-1\"[^>]*>(.*?)</div>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+    private val HISTORY_BREAK = Regex("</?(?:div|p|li|h[1-6]|br)\\b[^>]*>", RegexOption.IGNORE_CASE)
     private val ENTITY = Regex("&(#(?:[xX][0-9a-fA-F]+|[0-9]+)|amp|lt|gt|quot|apos|nbsp);")
 
     /** Only GitHub's achievement image markup, deduplicated by slug across responsive layouts. */

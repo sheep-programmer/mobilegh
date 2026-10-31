@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.mobilegh.data.AppLog
 import com.mobilegh.data.ImageFetch
+import com.mobilegh.data.MediaProxy
 import com.mobilegh.nav.Links
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Navigator
@@ -105,6 +106,10 @@ fun HtmlView(
                     /** 点击网页里的图片：打开全屏查看器 */
                     @JavascriptInterface
                     fun img(src: String, alt: String) = post { if (webRef[0] === this@apply) ImageViewer.open(src, alt) }
+
+                    /** 点击视频：交给原生全屏播放器（倍速、拖动、保存），WebView 自带的播放器做不到 */
+                    @JavascriptInterface
+                    fun video(src: String) = post { if (webRef[0] === this@apply) VideoViewer.open(src) }
                 }, "Bridge")
                 webViewClient = GhWebClient(c, nav)
             }
@@ -140,7 +145,7 @@ class GhWebClient(private val ctx: Context, private val nav: Navigator) : WebVie
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val url = request.url.toString()
-        Links.route(url)?.let { nav.push(it); return true }
+        Links.route(url)?.let { nav.pushLink(it); return true }
         if (url.startsWith("http")) ctx.openBrowser(url)
         return true
     }
@@ -158,8 +163,13 @@ class GhWebClient(private val ctx: Context, private val nav: Navigator) : WebVie
             (host == "githubusercontent.com" || host.endsWith(".githubusercontent.com")) ||
             (host == "github.com" && url.contains("/user-attachments/"))
         if (!handled) return null
+        // 视频和播放器的 Range 请求不进图片缓存：直接从源站流式转发，才能边下边播、拖动进度
+        val range = request.requestHeaders.entries.firstOrNull { it.key.equals("Range", true) }?.value
+        if (MediaProxy.wants(url, range)) return mediaResponse(url, range)
         val r = ImageFetch.fetch(target)
-            ?: return WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), java.io.ByteArrayInputStream(ByteArray(0)))
+            // 图片链路拿不到（超过 16 MB 的大 GIF、镜像全部失败）时，改从源站流式转发
+            ?: return mediaResponse(url, null)
+                ?: WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), java.io.ByteArrayInputStream(ByteArray(0)))
         // 带上长度和缓存头：WebView 能提前排版并复用已解码的图片，滚动时不必再走一遍拦截器。
         val headers = mapOf(
             "Content-Length" to r.bytes.size.toString(),
@@ -170,6 +180,11 @@ class GhWebClient(private val ctx: Context, private val nav: Navigator) : WebVie
             r.mime ?: ImageFetch.mimeOf(target, r.bytes), null, 200, "OK", headers,
             java.io.ByteArrayInputStream(r.bytes),
         )
+    }
+    /** 流式转发：body 是流，WebView 读完或关闭时才断开源站连接，不会整段读进内存。 */
+    private fun mediaResponse(url: String, range: String?): WebResourceResponse? {
+        val s = MediaProxy.open(url, range) ?: return null
+        return WebResourceResponse(s.mime ?: "application/octet-stream", null, s.code, s.reason, s.headers, s.body)
     }
 }
 
@@ -195,6 +210,8 @@ fun wrapHtml(body: String, dark: Boolean): String = """
   setTimeout(r,1500); setTimeout(r,4000);
   var IMG=/\.(png|jpe?g|gif|webp|svg|avif|bmp)([?#]|$)/i;
   document.addEventListener('click',function(e){
+    var vid=e.target.closest('video');
+    if(vid){e.preventDefault();e.stopPropagation();var vs=vid.currentSrc||vid.src||((vid.querySelector('source')||{}).src)||'';if(vs){try{Bridge.video(vs);}catch(x){}}return;}
     var img=e.target.closest('img');
     if(img&&!img.closest('.tl-head')){
       var la=img.closest('a'), lh=la?(la.getAttribute('href')||''):'';
@@ -207,6 +224,7 @@ fun wrapHtml(body: String, dark: Boolean): String = """
     }
     var a=e.target.closest('a'); if(!a) return;
     var h=a.getAttribute('href')||'';
+    if(/\.(mp4|webm|mov|m4v|ogv)([?#]|$)/i.test(h)){e.preventDefault();e.stopPropagation();try{Bridge.video(a.href);}catch(x){}return;}
     if(h.charAt(0)==='#'){
       e.preventDefault();
       var id=decodeURIComponent(h.substring(1));

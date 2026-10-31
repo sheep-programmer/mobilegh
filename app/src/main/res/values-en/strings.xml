@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_contrib_label">Contribution graph</string>
+    <string name="widget_contrib_desc">GitHub contributions over the last 20 weeks. Tap to open your profile.</string>
+    <string name="widget_inbox_label">Notification inbox</string>
+    <string name="widget_inbox_desc">Unread notification count and the latest 3 unread notifications</string>
+    <string name="widget_preview_contrib_total">386 contributions</string>
+    <string name="widget_preview_contrib_range">Last 20 weeks</string>
+    <string name="widget_preview_inbox_title">Notifications</string>
+    <string name="widget_preview_inbox_count">3 unread</string>
+    <string name="widget_preview_inbox_title_1">Fix the login page display in dark mode</string>
+    <string name="widget_preview_inbox_title_2">Review requested: refactor the network cache</string>
+</resources>

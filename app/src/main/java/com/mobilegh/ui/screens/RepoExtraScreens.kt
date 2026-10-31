@@ -117,7 +117,7 @@ fun ReleasesScreen(owner: String, name: String) {
     val canPush = repo.data?.let { it.permissions?.push == true && !it.archived } == true
     var deleting by remember { mutableStateOf<Release?>(null) }
     Page(
-        "Releases", subtitle = "$owner/$name",
+        "Releases", subtitle = "$owner/$name", onSubtitleClick = { nav.toRepoHome(owner, name) },
         actions = { if (canPush) OcButton(R.drawable.oc_plus, { nav.push(Screen.EditRelease(owner, name)) }) },
     ) { pad ->
         PagedList(
@@ -470,7 +470,7 @@ fun InsightsScreen(owner: String, name: String) {
                 InsightBody(paths) { list ->
                     if (list.isEmpty()) Text(tr("暂无数据"), Modifier.padding(16.dp), color = g.fgMuted, fontSize = 13.sp)
                     list.forEach { p ->
-                        Column(Modifier.fillMaxWidth().clickable { com.mobilegh.nav.Links.route("https://github.com${p.path}")?.let(nav::push) }.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                        Column(Modifier.fillMaxWidth().clickable { com.mobilegh.nav.Links.route("https://github.com${p.path}")?.let(nav::pushLink) }.padding(horizontal = 16.dp, vertical = 6.dp)) {
                             Text(p.path, fontSize = 13.sp, color = g.accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(trf("{0} 次浏览 · {1} 位访客", p.count, p.uniques), fontSize = 12.sp, color = g.fgMuted)
                         }

@@ -39,6 +39,7 @@ import com.mobilegh.nav.Screen
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
 import com.mobilegh.nav.retain
+import com.mobilegh.ui.components.RegisterScrollTop
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.DiffLine
 import com.mobilegh.ui.components.HDivider
@@ -132,6 +133,7 @@ fun CommitDetailScreen(owner: String, name: String, sha: String) {
     ) { pad ->
         LoadBox(data, Modifier.padding(pad).fillMaxSize()) { (c, files) ->
             val state = rememberLazyListState()
+            RegisterScrollTop(state)
             LazyColumn(Modifier.fillMaxSize(), state = state) {
                 item {
                     Column(Modifier.padding(16.dp)) {

@@ -103,7 +103,7 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
                 if (canPush.data == true) {
                     add(MenuAction(tr("新建文件")) { nav.push(Screen.EditFile(owner, name, ref, null, path)) })
                     // 当前目录就是上传的目标目录，选文件夹时会在下面再建一层
-                    add(MenuAction(tr("上传文件（夹）")) { nav.push(Screen.UploadFiles(owner, name, ref, path)) })
+                    add(MenuAction(tr("上传文件")) { nav.push(Screen.UploadFiles(owner, name, ref, path)) })
                 }
                 add(MenuAction(tr("复制路径")) { ctx.copy(path.ifEmpty { "/" }) })
                 add(MenuAction(tr("查找仓库文件")) { nav.push(Screen.FileFinder(owner, name, ref)) })
@@ -148,7 +148,7 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
                         box(base + idx).fillMaxWidth().clickable {
                             when (c.type) {
                                 "dir" -> nav.push(Screen.Files(owner, name, c.path, ref))
-                                "submodule" -> c.htmlUrl?.let { u -> com.mobilegh.nav.Links.route(u)?.let(nav::push) ?: ctx.openBrowser(u) }
+                                "submodule" -> c.htmlUrl?.let { u -> com.mobilegh.nav.Links.route(u)?.let(nav::pushLink) ?: ctx.openBrowser(u) }
                                 else -> nav.push(Screen.FileView(owner, name, c.path, ref))
                             }
                         }.padding(horizontal = 12.dp, vertical = 12.dp),

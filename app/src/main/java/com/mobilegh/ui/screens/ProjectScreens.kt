@@ -288,7 +288,7 @@ private fun ProjectBody(
         when {
             item.type == ProjectItemType.DraftIssue -> viewingDraft = item
             repo != null && item.number != null -> nav.push(Screen.IssueDetail(repo.first, repo.second, item.number, item.type == ProjectItemType.PullRequest))
-            item.url != null -> ctx.openBrowser(item.url)
+            item.url != null -> com.mobilegh.nav.Links.route(item.url)?.let(nav::pushLink) ?: ctx.openBrowser(item.url)
             else -> ctx.toast(tr("当前账号无权查看此条目"))
         }
     }

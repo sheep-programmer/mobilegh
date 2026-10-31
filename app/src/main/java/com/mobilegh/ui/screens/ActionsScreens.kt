@@ -53,10 +53,8 @@ import com.mobilegh.nav.rememberPager
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Chips
-import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
-import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.LoadBox
 import com.mobilegh.ui.components.MenuAction
@@ -66,6 +64,7 @@ import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.Pill
+import com.mobilegh.ui.components.RegisterScrollTop
 import com.mobilegh.ui.components.copy
 import com.mobilegh.ui.components.downloadFile
 import com.mobilegh.ui.components.fmtDuration
@@ -418,6 +417,7 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String) {
             val hs = rememberScrollState()
             Box(Modifier.fillMaxSize().background(g.canvasInset).then(if (Session.codeWrap) Modifier else Modifier.horizontalScroll(hs))) {
                 SelectionContainer {
+                    RegisterScrollTop(state)
                     LazyColumn(if (Session.codeWrap) Modifier.fillMaxSize() else Modifier.width(2400.dp).fillMaxSize(), state = state) {
                         if (shown.isEmpty()) item { Text(if (onlyErrors) tr("没有错误或警告") else tr("日志为空"), Modifier.padding(16.dp), color = g.fgMuted) }
                         itemsIndexed(shown) { _, l ->

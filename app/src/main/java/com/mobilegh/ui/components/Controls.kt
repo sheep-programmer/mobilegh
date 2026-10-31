@@ -107,11 +107,13 @@ fun DropdownButton(label: String, modifier: Modifier = Modifier, active: Boolean
         modifier
             // 放在横向滚动行里时宽度无上限，weight 会把标签压成 0 宽只剩箭头；先按内容定宽，空间不够时仍会被约束截断
             .width(IntrinsicSize.Max)
+            // 和搜索框、筛选按钮同为 44dp，并排时高度一致
+            .heightIn(min = 44.dp)
             .border(1.dp, if (active) g.accent.copy(alpha = 0.6f) else g.border, RoundedCornerShape(6.dp))
             .background(if (active) g.accentSubtle else g.btnBg, RoundedCornerShape(6.dp))
             .clip(RoundedCornerShape(6.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, Modifier.weight(1f, fill = false), fontSize = 13.sp, color = if (active) g.accent else g.fg,

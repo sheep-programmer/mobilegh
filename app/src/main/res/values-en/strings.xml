@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="app_name">mobilegh</string>
     <string name="widget_contrib_label">Contribution graph</string>
     <string name="widget_contrib_desc">GitHub contributions over the last 20 weeks. Tap to open your profile.</string>
     <string name="widget_inbox_label">Notification inbox</string>
@@ -10,4 +11,6 @@
     <string name="widget_preview_inbox_count">3 unread</string>
     <string name="widget_preview_inbox_title_1">Fix the login page display in dark mode</string>
     <string name="widget_preview_inbox_title_2">Review requested: refactor the network cache</string>
+    <string name="widget_preview_inbox_repo_1">octocat/hello-world</string>
+    <string name="widget_preview_inbox_repo_2">octocat/spoon-knife</string>
 </resources>

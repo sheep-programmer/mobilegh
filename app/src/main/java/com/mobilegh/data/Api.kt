@@ -25,6 +25,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.File
+import java.io.InputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -164,6 +165,39 @@ object Api {
             }
         } finally {
             response.close()
+        }
+    }
+
+    /**
+     * 大体积 JSON（如统计接口，约 28 MB）：不把 body 整个读成字符串，而是把输入流交给 [parse] 逐段解析。
+     * 204 返回 null；202（GitHub 仍在计算）和其他非 2xx 抛出 [ApiException]。
+     */
+    suspend fun <T : Any> streamJson(path: String, force: Boolean = false, parse: (InputStream) -> T): T? {
+        val rb = Request.Builder().url(url(path)).get()
+        val callToken = Session.token
+        val requestHost = rb.build().url.host
+        if (callToken != null && (requestHost in AUTH_HOSTS || requestHost == Net.apiHost)) {
+            rb.header("Authorization", "Bearer $callToken")
+        }
+        if (force) rb.cacheControl(CacheControl.Builder().noCache().build())
+        val response = try {
+            http.routed().newCall(rb.build()).await()
+        } catch (e: IOException) {
+            AppLog.warn("network", tr("请求连接失败：") + path.take(180), e)
+            throw ApiException(-1, e.networkHint() ?: tr("网络连接失败，请稍后重试"))
+        }
+        return withContext(Dispatchers.IO) {
+            response.use { r ->
+                when (r.code) {
+                    204 -> null
+                    202 -> throw ApiException(202, tr("GitHub 仍在计算，请稍后重试"))
+                    in 200..299 -> parse(r.body.byteStream())
+                    else -> {
+                        ensureOk(Resp(r.code, r.body.string(), r.headers))
+                        null
+                    }
+                }
+            }
         }
     }
 

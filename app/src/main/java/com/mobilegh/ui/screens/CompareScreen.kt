@@ -104,7 +104,7 @@ fun CompareScreen(owner: String, name: String, initialBase: String = "HEAD~1", i
                 onBase = { dialog = 1 }, onHead = { dialog = 2 },
                 onSwap = { val before = base; base = head; head = before },
             )
-            LoadBox(compare, Modifier.weight(1f)) { (c, files) ->
+            LoadBox(compare, Modifier.fillMaxWidth().weight(1f)) { (c, files) ->
                 if (tab == 0) {
                     val listState = rememberLazyListState()
                     LazyColumn(Modifier.fillMaxSize(), state = listState) {

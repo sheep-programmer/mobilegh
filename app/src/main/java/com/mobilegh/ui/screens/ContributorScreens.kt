@@ -101,7 +101,6 @@ fun ContributorsScreen(owner: String, name: String) {
     val g = Gh.c
     val loader = rememberLoader("contributionDetails:$owner/$name") { ContributionStats.load(owner, name, it) }
     var selected by rememberSaveable(owner, name) { mutableIntStateOf(0) }
-    val range = ContributionRange.entries.getOrElse(selected) { ContributionRange.All }
     val today = Instant.now().atOffset(ZoneOffset.UTC).toLocalDate()
     var startDate by rememberSaveable(owner, name) { mutableStateOf(today.minusDays(29).toString()) }
     var endDate by rememberSaveable(owner, name) { mutableStateOf(today.toString()) }
@@ -151,6 +150,9 @@ fun ContributorsScreen(owner: String, name: String) {
     }
     // A paged copy of the list is the current data, not a stale fallback.
     val stale = (snapshot !== current && !showingList) || loader.error != null
+    // 列表模式只有累计提交数：忽略之前在统计模式里选过的时间范围
+    val range = if (snapshot?.source == ContributionSource.ContributorList) ContributionRange.All
+        else ContributionRange.entries.getOrElse(selected) { ContributionRange.All }
     val summary = remember(snapshot, range, dates.dates, today) {
         snapshot?.let { aggregateContributions(it, range, dates.dates, today.atStartOfDay(ZoneOffset.UTC).toInstant()) }
     }
@@ -170,6 +172,7 @@ fun ContributorsScreen(owner: String, name: String) {
                 Loading(Modifier.size(48.dp))
                 Text(tr("正在加载贡献统计…"), color = g.fgMuted, fontSize = 13.sp)
                 Text(tr("GitHub 首次计算可能需要一些时间"), Modifier.padding(16.dp), color = g.fgMuted, fontSize = 12.sp)
+                Text(tr("超大仓库首次读取可能需要十几秒，结果会缓存一小时"), Modifier.padding(horizontal = 16.dp), color = g.fgMuted, fontSize = 12.sp)
             }
             else -> PullToRefreshBox(
                 isRefreshing = loader.refreshing, onRefresh = { loader.refresh() },
@@ -177,18 +180,10 @@ fun ContributorsScreen(owner: String, name: String) {
             ) {
                 LazyColumn(Modifier.fillMaxSize(), state = listState) {
                     item {
+                        // 备用列表只有累计提交数，不提供时间筛选，所以只在周统计可用时显示筛选项
                         val weeklyAvailable = snapshot.source == ContributionSource.Statistics
-                        Chips(ContributionRange.entries.map { it.label }, range.ordinal) {
-                            // 备用列表只有累计提交数，按时间筛选没有数据可算，直接拦住并说明
-                            if (it == ContributionRange.All.ordinal || weeklyAvailable) selected = it
-                        }
-                        if (!weeklyAvailable) {
-                            Text(
-                                tr("GitHub 仅返回了累计提交数，按时间筛选暂不可用；可稍后刷新重试周统计。"),
-                                Modifier.padding(horizontal = 16.dp), color = g.fgMuted, fontSize = 11.sp,
-                            )
-                        }
-                        if (range == ContributionRange.Custom) {
+                        if (weeklyAvailable) Chips(ContributionRange.entries.map { it.label }, range.ordinal) { selected = it }
+                        if (weeklyAvailable && range == ContributionRange.Custom) {
                             Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedTextField(
                                     startDate, { startDate = it }, label = { Text(tr("开始日期（UTC）")) },
@@ -213,7 +208,8 @@ fun ContributorsScreen(owner: String, name: String) {
                             }.joinToString("\n"), loader.loading,
                         ) { loader.refresh() }
                     }
-                    item { ContributionOverview(summary, range, snapshot) }
+                    // 大仓库的列表模式直接从排名开始，不展示统计汇总卡片
+                    if (snapshot.source == ContributionSource.Statistics) item { ContributionOverview(summary, range, snapshot) }
                     when {
                         snapshot.records.isEmpty() -> {
                             item {

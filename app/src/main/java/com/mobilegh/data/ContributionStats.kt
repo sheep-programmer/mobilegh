@@ -1,10 +1,12 @@
 package com.mobilegh.data
 
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.serialization.SerialName
+import java.io.File
+import java.io.InputStream
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -234,10 +236,10 @@ fun aggregateContributions(
 data class PersonActivity(val weekly: List<ContributionPoint>, val truncated: Boolean)
 
 /** Bounded, cancellable polling with a separate, paginated cumulative-count fallback. */
-object ContributionStats {
-    /** 超过这个人数，周统计接口太重，直接改用分页的累计提交列表。 */
-    private const val LARGE_REPOSITORY = 200L
+/** 读取统计接口的数组：把输入流交给 [parse] 解析；204 返回 null。生产环境用 [Api.streamJson]，测试里可替换。 */
+typealias StatsStreamer = suspend (path: String, force: Boolean, parse: (InputStream) -> List<ContributionRecord>) -> List<ContributionRecord>?
 
+object ContributionStats {
     /** The repository homepage needs only three cumulative counts, never weekly statistics. */
     suspend fun preview(
         owner: String,
@@ -256,78 +258,116 @@ object ContributionStats {
             if (records.isEmpty()) ContributionStatus.Empty else ContributionStatus.Ready)
     }
 
+    /**
+     * 贡献者列表：只读累计提交数（/contributors 分页），不加载周统计，所以打开仓库不会触发大量请求。
+     * 点开某一位贡献者时才由 [personActivity] 单独统计其最近一年的周趋势。
+     */
     suspend fun load(
         owner: String,
         name: String,
         force: Boolean = false,
         request: suspend (String, Boolean) -> Resp = { path, refresh -> Api.call("GET", path, force = refresh) },
-        pause: suspend (Long) -> Unit = { delay(it) },
+        cacheDir: File? = appCacheDir(),
+        streamStats: StatsStreamer = { path, refresh, parse -> Api.streamJson(path, refresh, parse) },
     ): ContributionSnapshot {
         val base = "/repos/$owner/$name"
-        // 先用一次很小的请求数人数：周统计接口对 Linux 这类仓库会返回巨大响应或一直超时
-        val probe = request("$base/contributors?anon=1&per_page=1&page=1", force)
+        // 已缓存的超大仓库排名直接返回：不再请求 /contributors（它会返回 403）
+        if (!force) readRankCache(cacheDir, base, System.currentTimeMillis())?.let { return topSnapshot(it) }
+        val response = request("$base/contributors?anon=1&per_page=$CONTRIBUTOR_PAGE_SIZE&page=1", force)
         when {
-            probe.code == 403 && probe.body.contains("too large", ignoreCase = true) -> return ContributionSnapshot(
-                source = ContributionSource.ContributorList, status = ContributionStatus.Unavailable,
-                message = tr("GitHub 不为这个仓库提供贡献者列表（仓库过大）。可在「提交」里按作者筛选。"),
-            )
-            probe.code == 504 -> return ContributionSnapshot(
+            // 超大仓库 GitHub 不给出分页列表，只能退而读一次统计接口的累计排名
+            response.code == 403 && response.body.contains("too large", ignoreCase = true) ->
+                return loadTopContributorsFromStatistics(base, force, streamStats, cacheDir)
+            response.code == 504 -> return ContributionSnapshot(
                 source = ContributionSource.ContributorList, status = ContributionStatus.Unavailable,
                 message = tr("GitHub 处理贡献者列表超时，请稍后重试"),
             )
-        }
-        if (probe.code == 200 && countFromFirstPage(probe) > LARGE_REPOSITORY) {
-            // Only page 1 now; the screen appends further pages as the user scrolls or searches.
-            val first = fetchContributorPage(base, 1, force, request)
-            return ContributionSnapshot(
-                first.records, ContributionSource.ContributorList,
-                if (first.records.isEmpty()) ContributionStatus.Empty else ContributionStatus.Ready,
-                tr("贡献者很多，已按累计提交排名分页加载；向下滚动可加载更多，搜索时会继续检索其余贡献者。展开某人可查看最近一年的周趋势。"),
-                truncated = first.hasNext, nextPage = if (first.hasNext) 2 else null,
+            response.code == 202 -> return ContributionSnapshot(
+                source = ContributionSource.ContributorList, status = ContributionStatus.Pending,
+                message = tr("GitHub 正在生成贡献者列表，请稍后重试"),
             )
+            response.code == 204 -> return ContributionSnapshot(source = ContributionSource.ContributorList, status = ContributionStatus.Empty)
         }
-        var status = ContributionStatus.Pending
-        var message = tr("GitHub 仍在生成周统计，请稍后重试")
-        try {
-            for (attempt in 0 until 4) {
-                val response = request("$base/stats/contributors", force || attempt > 0)
-                when (response.code) {
-                    200 -> {
-                        val records = Api.json.decodeFromString(ListSerializer(ContributionRecord.serializer()), response.body)
-                        return ContributionSnapshot(records, status = if (records.isEmpty()) ContributionStatus.Empty else ContributionStatus.Ready)
-                    }
-                    204 -> return ContributionSnapshot(status = ContributionStatus.Empty)
-                    202 -> if (attempt < 3) {
-                        val retryAfter = response.headers["Retry-After"]?.toLongOrNull()?.coerceIn(1L, 8L)
-                        pause((retryAfter ?: (1L shl attempt)) * 1000L)
-                    }
-                    else -> {
-                        Api.ensureOk(response)
-                        throw ApiException(response.code, trf("周统计返回了未支持的响应 ({0})", response.code))
-                    }
-                }
-            }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            // Do not spend more quota or repeat authentication failures on a second endpoint.
-            if (error is ApiException && error.code in listOf(401, 403, 429, -1)) throw error
-            status = if (error is ApiException && error.code == 202) ContributionStatus.Pending else ContributionStatus.Unavailable
-            message = if (status == ContributionStatus.Pending) tr("GitHub 仍在生成周统计，请稍后重试")
-                else trf("周统计暂不可用：{0}", error.message?.take(180) ?: tr("请求失败"))
-        }
-        val first = try {
-            fetchContributorPage(base, 1, force, request)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (error: Exception) {
-            if (status != ContributionStatus.Pending) throw error
-            message += trf("；贡献者列表未完整加载：{0}", error.message?.take(120) ?: tr("请求失败"))
-            return ContributionSnapshot(emptyList(), ContributionSource.ContributorList, status, message)
-        }
-        return ContributionSnapshot(first.records, ContributionSource.ContributorList, status, message,
-            truncated = first.hasNext, nextPage = if (first.hasNext) 2 else null)
+        Api.ensureOk(response)
+        if (response.code != 200) throw ApiException(response.code, trf("贡献者列表尚未就绪 ({0})", response.code))
+        val records = decodeContributors(response.body)
+        val hasNext = hasNextContributorPage(response.headers["Link"], records.size)
+        return ContributionSnapshot(
+            records, ContributionSource.ContributorList,
+            if (records.isEmpty()) ContributionStatus.Empty else ContributionStatus.Ready,
+            if (hasNext) tr("贡献者很多，已按累计提交排名分页加载；向下滚动可加载更多，搜索时会继续检索其余贡献者。") else null,
+            truncated = hasNext, nextPage = if (hasNext) 2 else null,
+        )
     }
+
+    /** 超大仓库的排名缓存保留时间：统计接口计算很慢，同一个仓库一小时内不重复读取。 */
+    private const val RANK_CACHE_MILLIS = 60 * 60 * 1000L
+
+    @Serializable
+    private data class RankCache(val savedAt: Long, val records: List<ContributionRecord>)
+
+    /** 缓存文件放在应用缓存目录下，设置里的「清除缓存」会一并删除。缓存目录不可用时静默跳过。 */
+    private fun rankCacheFile(dir: File?, base: String): File? = runCatching {
+        dir?.let { File(File(it, "contributors").apply { mkdirs() }, base.removePrefix("/repos/").replace('/', '_') + ".json") }
+    }.getOrNull()
+
+    private fun readRankCache(dir: File?, base: String, now: Long): List<ContributionRecord>? = runCatching {
+        val file = rankCacheFile(dir, base)?.takeIf { it.exists() } ?: return null
+        val cached = Api.json.decodeFromString(RankCache.serializer(), file.readText())
+        cached.records.takeIf { now - cached.savedAt in 0..RANK_CACHE_MILLIS }
+    }.getOrNull()
+
+    private fun writeRankCache(dir: File?, base: String, records: List<ContributionRecord>, now: Long) {
+        runCatching {
+            rankCacheFile(dir, base)?.writeText(Api.json.encodeToString(RankCache.serializer(), RankCache(now, records)))
+        }
+    }
+
+    /** 应用缓存目录；单元测试里没有初始化时返回 null，即不缓存。 */
+    private fun appCacheDir(): File? = runCatching { Api.cacheDir }.getOrNull()
+
+    private fun topSnapshot(records: List<ContributionRecord>) = ContributionSnapshot(
+        records, ContributionSource.ContributorList, ContributionStatus.Ready,
+        trf("GitHub 不提供这个仓库的完整贡献者列表（仓库过大）。此处是统计接口返回的 {0} 位贡献者，按累计提交数排序；点开某人可查看其最近一年的周趋势。", records.size),
+        truncated = true,
+    )
+
+    /**
+     * /contributors 对超大仓库返回 403 时调用一次 /stats/contributors：流式解析，只保留登录名和累计提交数，
+     * 周数据不分配内存，也不把 28 MB 的响应整个读进字符串。不轮询；结果缓存一小时。
+     */
+    private suspend fun loadTopContributorsFromStatistics(
+        base: String,
+        force: Boolean,
+        streamStats: StatsStreamer,
+        cacheDir: File?,
+    ): ContributionSnapshot {
+        val now = System.currentTimeMillis()
+        val records = try {
+            streamStats("$base/stats/contributors", force, ::decodeTopContributors)
+        } catch (error: ApiException) {
+            return when (error.code) {
+                202 -> ContributionSnapshot(source = ContributionSource.ContributorList, status = ContributionStatus.Pending,
+                    message = tr("GitHub 正在计算这个仓库的贡献统计，稍后刷新即可"))
+                401, 403, 429, -1 -> throw error
+                else -> ContributionSnapshot(source = ContributionSource.ContributorList, status = ContributionStatus.Unavailable,
+                    message = trf("贡献统计暂不可用 ({0})", error.code))
+            }
+        }
+            ?: return ContributionSnapshot(source = ContributionSource.ContributorList, status = ContributionStatus.Empty)
+        if (records.isEmpty()) return ContributionSnapshot(source = ContributionSource.ContributorList, status = ContributionStatus.Empty)
+        writeRankCache(cacheDir, base, records, now)
+        return topSnapshot(records)
+    }
+
+    /** 只解析需要的字段；weeks 数组由解析器跳过，不会变成对象。 */
+    @Serializable
+    private data class TopRow(val author: User? = null, val total: Long? = null)
+
+    private fun decodeTopContributors(input: InputStream): List<ContributionRecord> =
+        Api.json.decodeFromStream(ListSerializer(TopRow.serializer()), input)
+            .sortedByDescending { it.total ?: -1L }
+            .map { ContributionRecord(author = it.author, total = it.total) }
 
     /**
      * Reads one further page of the cumulative contributor list (anonymous authors included).

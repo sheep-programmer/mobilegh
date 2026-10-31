@@ -46,6 +46,10 @@ data class Plan(val name: String = "", val privateRepos: Long = 0)
 @Serializable
 data class License(val key: String = "", val name: String = "", val spdxId: String? = null)
 
+/** GET /repos/{o}/{r}/license 的 path：仓库里许可证文件的路径（如 LICENSE、COPYING） */
+@Serializable
+data class LicenseFile(val path: String = "", val name: String = "")
+
 @Serializable
 data class Permissions(
     val admin: Boolean = false,

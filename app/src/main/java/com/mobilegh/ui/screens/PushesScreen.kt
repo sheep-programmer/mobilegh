@@ -40,7 +40,7 @@ fun PushesScreen(owner: String, name: String) {
     OnRepoChanged(owner, name) { pager.refresh() }
     Page(tr("最近推送"), subtitle = "$owner/$name", onSubtitleClick = { nav.toRepoHome(owner, name) }) { pad ->
         PagedList(
-            pager, Modifier.padding(pad), empty = tr("最近没有推送记录"), divider = true, boxed = false,
+            pager, Modifier.padding(pad), empty = tr("最近没有推送记录"),
         ) { e -> pushSummary(e)?.let { PushRow(owner, name, e) } }
     }
 }
@@ -65,7 +65,8 @@ private fun PushRow(owner: String, name: String, event: Event) {
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                trf("{0} 推送了 {1} 个提交到{2} {3}", actor, s.commitCount, target, s.ref),
+                s.commitCount?.let { trf("{0} 推送了 {1} 个提交到{2} {3}", actor, it, target, s.ref) }
+                    ?: trf("{0} 推送到{1} {2}", actor, target, s.ref),
                 color = g.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )

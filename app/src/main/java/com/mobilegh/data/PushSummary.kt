@@ -11,7 +11,8 @@ import kotlinx.serialization.json.jsonPrimitive
 data class PushSummary(
     val ref: String,
     val isTag: Boolean,
-    val commitCount: Int,
+    /** 推送的提交数；GitHub 事件里没有 size 且 commits 为空时未知，为 null（不能显示成 0）。 */
+    val commitCount: Int?,
     val headSha: String?,
     val headMessage: String,
     /** 推送前的提交：对比页的基准。新建分支时 GitHub 给出全零，改用第一个推送提交的父提交。 */
@@ -28,7 +29,7 @@ fun pushSummary(event: Event): PushSummary? {
     if (event.type != "PushEvent") return null
     val ref = event.payload["ref"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() } ?: return null
     val commits: JsonArray = event.payload["commits"] as? JsonArray ?: JsonArray(emptyList())
-    val count = event.payload["size"]?.jsonPrimitive?.intOrNull ?: commits.size
+    val count = event.payload["size"]?.jsonPrimitive?.intOrNull ?: commits.takeIf { it.isNotEmpty() }?.size
     val head = event.payload["head"]?.jsonPrimitive?.contentOrNull
     val headCommit = commits.firstOrNull { (it as? JsonObject)?.get("sha")?.jsonPrimitive?.contentOrNull == head }
         ?: commits.lastOrNull()

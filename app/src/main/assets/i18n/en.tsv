@@ -2521,7 +2521,6 @@ CI 无	No CI
 这条建议会加入你的待提交审查，提交审查后 PR 作者可在 GitHub 上一键应用。	This suggestion will be added to your pending review. After you submit the review, the PR author can apply it on GitHub.
 建议已加入待提交审查	Suggestion added to pending review
 已放弃待提交审查	Pending review discarded
-展开全文	Show full README
 搜索 Star 列表	Search Star lists
 打开 Star 列表	Open Star lists
 {0} Star	{0} stars
@@ -2568,6 +2567,7 @@ CI 无	No CI
 GitHub 搜索最多返回 1000 条结果，请缩小关键词或使用筛选	GitHub search returns at most 1000 results. Narrow the keywords or use filters.
 最近没有推送记录	No recent pushes
 {0} 推送了 {1} 个提交到{2} {3}	{0} pushed {1} commit(s) to {2} {3}
+{0} 推送到{1} {2}	{0} pushed to {1} {2}
 {0} 的上一个提交	Parent of {0}
 数据格式异常，请稍后重试	Unexpected data format. Please try again later
 倒序，点按改为正序	Descending, tap for ascending
@@ -2600,3 +2600,10 @@ GitHub 搜索最多返回 1000 条结果，请缩小关键词或使用筛选	Git
 共 {0} 个文件	{0} files
 下载进度	Download progress
 ，从断点续传	, resuming from where it stopped
+无法读取许可证文件	Could not load the license file
+贡献者很多，已按累计提交排名分页加载；向下滚动可加载更多，搜索时会继续检索其余贡献者。	Many contributors: loaded in pages ranked by commit count. Scroll down to load more; searching keeps scanning the rest.
+GitHub 不提供这个仓库的完整贡献者列表（仓库过大）。此处是统计接口返回的 {0} 位贡献者，按累计提交数排序；点开某人可查看其最近一年的周趋势。	GitHub does not provide the full contributor list for this repository (too large). Showing the {0} contributors returned by the statistics endpoint, sorted by commit count. Open a person to see their weekly trend for the past year.
+GitHub 正在计算这个仓库的贡献统计，稍后刷新即可	GitHub is still computing contribution statistics for this repository. Refresh later.
+贡献统计暂不可用 ({0})	Contribution statistics unavailable ({0})
+超大仓库首次读取可能需要十几秒，结果会缓存一小时	Large repositories may take tens of seconds on first load; the result is cached for one hour.
+GitHub 仍在计算，请稍后重试	GitHub is still computing this. Try again shortly.

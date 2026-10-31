@@ -151,6 +151,7 @@ object GitHub {
 
     // ---------------- 仓库 ----------------
     suspend fun repo(o: String, n: String, force: Boolean = false) = Api.get<Repo>(r(o, n), force).also { if (it.isPrivate) Net.markPrivate(it.fullName) }
+    suspend fun repoLicense(o: String, n: String) = Api.get<LicenseFile>("${r(o, n)}/license", false)
 
     private fun List<Repo>.track() = onEach { if (it.isPrivate) Net.markPrivate(it.fullName) }
 

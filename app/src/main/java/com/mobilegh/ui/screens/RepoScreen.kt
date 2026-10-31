@@ -3,9 +3,8 @@ package com.mobilegh.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.clickable
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -146,9 +146,7 @@ fun RepoScreen(owner: String, name: String) {
     // README 目录：标题取自 README 的 HTML 源串；点选后经 anchorRequest 让 WebView 滚到该标题
     var tocOpen by remember { mutableStateOf(false) }
     var anchorRequest by remember { mutableStateOf<HtmlAnchorRequest?>(null) }
-    // README 默认折叠，展开状态按仓库记住（切换仓库或进程恢复后仍保持）
-    var readmeExpanded by rememberSaveable(owner, name) { mutableStateOf(false) }
-    // 页内锚点的待滚动位置（标题在 README 内的 y）：先展开，再在展开后的布局上滚动（见 README 卡片里的 LaunchedEffect）
+    // 页内锚点的待滚动位置（标题在 README 内的 y），README 完整展示，直接在列表里滚动到它
     var pendingAnchorY by remember { mutableStateOf<Int?>(null) }
     val headings = remember(readme.data) { readme.data?.let(::readmeHeadings).orEmpty() }
     var zipInfo by remember { mutableStateOf<FileInfo?>(null) }
@@ -208,10 +206,9 @@ fun RepoScreen(owner: String, name: String) {
             else -> PullToRefreshBox(repo.refreshing, { if (!starBusy) { repo.refresh(); readme.refresh(); langs.refresh(); starStatus.refresh(); watching.refresh() } }, Modifier.padding(pad)) {
                 // README 的下标由「是否有语言条」决定，和下方 LazyColumn 里的 item 顺序保持一致
                 val readmeIndex = repoReadmeIndex(langs.data?.isNotEmpty() == true)
-                // 目录或页内锚点：README 展开之后（readmeExpanded 变为 true 的那次组合）才滚动，定位基于展开后的高度
-                LaunchedEffect(pendingAnchorY, readmeExpanded) {
+                // 目录或页内锚点：README 完整展示，直接滚动到标题位置
+                LaunchedEffect(pendingAnchorY) {
                     val y = pendingAnchorY ?: return@LaunchedEffect
-                    if (!readmeExpanded) return@LaunchedEffect
                     pendingAnchorY = null
                     listState.animateScrollToItem(readmeIndex, with(density) { (y + 64).dp.roundToPx() })
                 }
@@ -346,17 +343,7 @@ fun RepoScreen(owner: String, name: String) {
                                     html != null -> ReadmeBody(
                                         html,
                                         baseUrl = "https://github.com/$owner/$name/blob/${branch ?: "HEAD"}/",
-                                        expanded = readmeExpanded,
-                                        onExpandedChange = { open ->
-                                            readmeExpanded = open
-                                            // 收起后把 README 标题滚回可见位置，否则列表会停在已被折叠掉的正文中间
-                                            if (!open) scope.launch { listState.animateScrollToItem(readmeIndex) }
-                                        },
-                                        onAnchor = { y ->
-                                            // 目录或页内锚点要定位到折叠区域下方的标题：先展开全文，滚动由上方的 LaunchedEffect 在展开后执行
-                                            readmeExpanded = true
-                                            pendingAnchorY = y
-                                        },
+                                        onAnchor = { y -> pendingAnchorY = y },
                                         anchorRequest = anchorRequest,
                                     )
                                     readme.loading -> Loading(Modifier.fillMaxWidth().heightIn(min = 120.dp))
@@ -590,6 +577,7 @@ private fun RepoHeader(r: Repo) {
     val g = Gh.c
     val nav = LocalNav.current
     val ctx = rememberCtx()
+    val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
         // 可点按的行和数字至少 48dp 高，手指不容易点空
         Row(Modifier.minimumInteractiveComponentSize().clickable {
@@ -636,18 +624,50 @@ private fun RepoHeader(r: Repo) {
             }
         }
         Spacer(Modifier.height(12.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            // 计数是可点按的入口，触摸区域补到 48dp
-            IconText(R.drawable.oc_star, trf("{0} Star", fmtCount(r.stargazersCount)), modifier = Modifier.minimumInteractiveComponentSize().clickable { nav.push(Screen.Users(UserKind.Stargazers, r.owner.login, r.name)) })
-            IconText(R.drawable.oc_repo_forked, trf("{0} 个 Fork", fmtCount(r.forksCount)), modifier = Modifier.minimumInteractiveComponentSize().clickable { nav.push(Screen.Repos(RepoKind.Forks, r.owner.login, r.name)) })
-            IconText(R.drawable.oc_eye, trf("{0} 人关注", fmtCount(r.subscribersCount ?: r.watchersCount)), modifier = Modifier.minimumInteractiveComponentSize().clickable { nav.push(Screen.Users(UserKind.Watchers, r.owner.login, r.name)) })
-            // 许可证名称可能很长（如自定义许可证的全称），窄屏下折行显示
-            r.license?.let { IconText(R.drawable.oc_law, it.spdxId?.takeIf { s -> s != "NOASSERTION" } ?: it.name, maxLines = Int.MAX_VALUE) }
+        // 每一项都是同样的 48dp 可点按单元（内容在单元里垂直居中），所以一行里的图标和文字对齐，且都能点开对应的列表
+        FlowRow(horizontalArrangement = Arrangement.Start, verticalArrangement = Arrangement.Top) {
+            // 项与项之间留 16dp 间距（只加在右侧，左边的第一项与上面的文字左对齐）
+            val cell = Modifier.defaultMinSize(minHeight = 48.dp).padding(end = 16.dp)
+            StatCell(R.drawable.oc_star, trf("{0} Star", fmtCount(r.stargazersCount)), cell) {
+                nav.push(Screen.Users(UserKind.Stargazers, r.owner.login, r.name))
+            }
+            StatCell(R.drawable.oc_repo_forked, trf("{0} 个 Fork", fmtCount(r.forksCount)), cell) {
+                nav.push(Screen.Repos(RepoKind.Forks, r.owner.login, r.name))
+            }
+            StatCell(R.drawable.oc_eye, trf("{0} 人关注", fmtCount(r.subscribersCount ?: r.watchersCount)), cell) {
+                nav.push(Screen.Users(UserKind.Watchers, r.owner.login, r.name))
+            }
+            // 许可证：打开仓库里的许可证文件；名称可能很长（如自定义许可证的全称），窄屏下折行显示
+            r.license?.let { lic ->
+                StatCell(R.drawable.oc_law, lic.spdxId?.takeIf { s -> s != "NOASSERTION" } ?: lic.name, cell, maxLines = Int.MAX_VALUE) {
+                    scope.launch {
+                        runCatching { GitHub.repoLicense(r.owner.login, r.name) }
+                            .onSuccess { nav.push(Screen.FileView(r.owner.login, r.name, it.path, null)) }
+                            .onFailure { ctx.toast(tr("无法读取许可证文件")) }
+                    }
+                }
+            }
             // 箱子图标与大小进入 Releases；推送时间进入最近推送记录（谁推到了哪个分支）
-            IconText(R.drawable.oc_package, fmtSize(r.size * 1024), modifier = Modifier.minimumInteractiveComponentSize().clickable { nav.push(Screen.Releases(r.owner.login, r.name)) })
-            IconText(R.drawable.oc_clock, trf("推送于 {0}", relTime(r.pushedAt)), modifier = Modifier.minimumInteractiveComponentSize().clickable { nav.push(Screen.Pushes(r.owner.login, r.name)) })
+            StatCell(R.drawable.oc_package, fmtSize(r.size * 1024), cell) {
+                nav.push(Screen.Releases(r.owner.login, r.name))
+            }
+            StatCell(R.drawable.oc_clock, trf("推送于 {0}", relTime(r.pushedAt)), cell) {
+                nav.push(Screen.Pushes(r.owner.login, r.name))
+            }
         }
     }
+}
+
+/** 仓库头部的一个统计项：图标加文字，整项可点按，高度至少 48dp 且内容垂直居中。 */
+@Composable
+private fun StatCell(
+    @DrawableRes icon: Int,
+    text: String,
+    modifier: Modifier,
+    maxLines: Int = 1,
+    onClick: () -> Unit,
+) {
+    IconText(icon, text, modifier = modifier.clickable(onClick = onClick), maxLines = maxLines)
 }
 
 /**
@@ -656,57 +676,22 @@ private fun RepoHeader(r: Repo) {
  */
 internal fun repoReadmeIndex(hasLanguages: Boolean): Int = if (hasLanguages) 5 else 4
 
-/** README 折叠时正文的高度上限（dp）；超出部分裁掉并渐隐，底部给出「展开全文」 */
-internal const val README_COLLAPSED_DP = 480
-
-/**
- * 纯逻辑：HtmlView 渲染出的高度（px）是否达到折叠上限，即正文是否超出了折叠高度。
- * HtmlView 以完整内容高度布局（fullHeight），渲染高度就是正文高度，折叠时只由外层 Box 裁剪。
- * 恰好等于上限时也视为超出（显示「展开全文」），宁可多给一个按钮，也不漏掉被裁的内容。
- */
-internal fun readmeOverflows(renderedPx: Int, collapsedPx: Int): Boolean = renderedPx >= collapsedPx
-
-/**
- * README 正文。折叠时外层 Box 把高度限制在 [README_COLLAPSED_DP] 并裁剪，底部叠一层渐隐。
- * WebView 始终按完整内容高度布局（fullHeight），所以折叠状态下 WebView 自身没有可滚动的范围，
- * 手指拖动交给外层页面滚动；只有「展开全文」才改变可见范围。
- * 是否超出由 HtmlView 实际渲染的高度判断（见 [readmeOverflows]），不读 WebView。
- */
+/** README 正文：完整展示。WebView 按完整内容高度布局，页面整体滚动。 */
 @Composable
 private fun ReadmeBody(
     html: String,
     baseUrl: String,
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit,
     onAnchor: (Int) -> Unit,
     anchorRequest: HtmlAnchorRequest?,
 ) {
-    val g = Gh.c
-    val collapsedPx = with(LocalDensity.current) { README_COLLAPSED_DP.dp.roundToPx() }
-    var renderedPx by remember { mutableIntStateOf(0) }
-    val overflow = readmeOverflows(renderedPx, collapsedPx)
-    val clipped = overflow && !expanded
-    Box(Modifier.fillMaxWidth().then(if (expanded) Modifier else Modifier.heightIn(max = README_COLLAPSED_DP.dp).clipToBounds())) {
-        HtmlView(
-            html,
-            modifier = Modifier.onSizeChanged { renderedPx = it.height },
-            baseUrl = baseUrl,
-            onAnchor = onAnchor,
-            anchorRequest = anchorRequest,
-            fullHeight = true,
-        )
-        if (clipped) Box(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(64.dp)
-                .background(Brush.verticalGradient(listOf(g.canvas.copy(alpha = 0f), g.canvas))),
-        ) {}
-    }
-    if (overflow) {
-        Text(
-            if (expanded) tr("收起") else tr("展开全文"),
-            Modifier.fillMaxWidth().minimumInteractiveComponentSize().clickable { onExpandedChange(!expanded) }.padding(vertical = 12.dp),
-            color = g.accent, fontSize = 14.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
-        )
-    }
+    HtmlView(
+        html,
+        modifier = Modifier.fillMaxWidth(),
+        baseUrl = baseUrl,
+        onAnchor = onAnchor,
+        anchorRequest = anchorRequest,
+        fullHeight = true,
+    )
 }
 
 /** README 目录：底部弹层列出标题（按层级缩进），点一项滚动到对应位置。标题来自 README 的 HTML 源串，不读 WebView。 */

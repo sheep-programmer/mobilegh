@@ -1,6 +1,5 @@
 package com.mobilegh.data
 
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import okhttp3.Headers
 import org.junit.Assert.assertEquals
@@ -10,6 +9,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import java.io.ByteArrayInputStream
+import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -23,7 +24,25 @@ class ContributionStatsTest {
         ContributionRecord(User(login = login), total, weeks.toList())
     private fun snapshot(vararg records: ContributionRecord) = ContributionSnapshot(records.toList(), loadedAt = now)
     private fun response(code: Int, body: String = "", headers: Headers = Headers.Builder().build()) = Resp(code, body, headers)
-    private fun isProbe(path: String) = path.endsWith("/contributors?anon=1&per_page=1&page=1")
+    /** 统计接口的流式读取，用同一套假响应：200 解析、204 为空、202 抛出，其余按 Api 的规则判错。 */
+    private fun streamVia(request: suspend (String, Boolean) -> Resp): StatsStreamer = { path, force, parse ->
+        val r = request(path, force)
+        when (r.code) {
+            204 -> null
+            202 -> throw ApiException(202, "computing")
+            else -> parse(ByteArrayInputStream(Api.ensureOk(r).body.toByteArray()))
+        }
+    }
+
+    private suspend fun loadStats(
+        owner: String,
+        name: String,
+        force: Boolean = false,
+        request: suspend (String, Boolean) -> Resp,
+        cacheDir: File? = null,
+    ): ContributionSnapshot = ContributionStats.load(owner, name, force = force, request = request,
+        cacheDir = cacheDir, streamStats = streamVia(request))
+
 
     @Test fun allHistoryUsesApiTotalAndLabelsShortWeeklyCoverage() {
         val result = aggregateContributions(snapshot(record(weeks = arrayOf(week("2026-09-27", 7), week("2026-10-04", 3)))), ContributionRange.All)
@@ -162,153 +181,145 @@ class ContributionStatsTest {
         assertNotNull(validateContributionDates(" 2026-10-06 ", "2026-10-06", today).dates)
     }
 
-    @Test fun pollingBypassesCacheAndHonorsBoundedRetryAfter() = runBlocking {
-        val forces = mutableListOf<Boolean>()
-        val delays = mutableListOf<Long>()
-        var attempt = 0
-        val result = ContributionStats.load("owner", "repo", request = { path, force ->
-            if (isProbe(path)) response(200, "[]") else {
-                assertTrue(path.endsWith("/stats/contributors"))
-                forces += force
-                if (attempt++ < 2) response(202, headers = Headers.Builder().add("Retry-After", "999").build())
-                else response(200, """[{"author":null,"total":6,"weeks":[{"w":1791072000,"c":2}]}]""")
-            }
-        }, pause = { delays += it })
-        assertEquals(listOf(false, true, true), forces)
-        assertEquals(listOf(8000L, 8000L), delays)
-        assertEquals(ContributionStatus.Ready, result.status)
-        assertEquals(6L, result.records.single().total)
-        assertNull(result.records.single().weeks.single().additions)
-    }
-
-    @Test fun exhausted202ReturnsPendingWithFallbackCountsAndNoFinalSleep() = runBlocking {
-        var calls = 0
-        val delays = mutableListOf<Long>()
-        val result = ContributionStats.load("owner", "repo", request = { path, _ ->
-            calls++
-            if (path.endsWith("/stats/contributors")) response(202)
-            else response(200, """[{"login":"octocat","id":1,"contributions":40}]""")
-        }, pause = { delays += it })
-        // 1 个人数探测 + 4 次周统计 + 1 页贡献者列表
-        assertEquals(6, calls)
-        assertEquals(listOf(1000L, 2000L, 4000L), delays)
-        assertEquals(ContributionStatus.Pending, result.status)
+    @Test fun normalRepositoryListsCommitCountsWithoutAnyStatisticsRequest() = runBlocking {
+        val paths = mutableListOf<String>()
+        val result = loadStats("owner", "repo", cacheDir = null, request = { path, _ ->
+            paths += path
+            response(200, """[{"login":"alice","id":1,"contributions":20},{"login":"bob","id":2,"contributions":5}]""")
+        })
+        assertEquals(1, paths.size)
+        assertTrue(paths.single().contains("/contributors?anon=1&per_page=100&page=1"))
         assertEquals(ContributionSource.ContributorList, result.source)
-        assertEquals(40L, result.records.single().total)
+        assertEquals(ContributionStatus.Ready, result.status)
+        assertEquals(listOf(20L, 5L), result.records.map { it.total })
+        assertTrue(result.records.all { it.weeks.isEmpty() })
+        assertFalse(result.truncated)
+        assertNull(result.nextPage)
     }
 
-    @Test fun parentStyle202ExceptionAlsoPreservesPending() = runBlocking {
-        val result = ContributionStats.load("owner", "repo", request = { path, _ ->
-            if (path.endsWith("/stats/contributors")) throw ApiException(202, "Still calculating")
-            response(200, "[]")
-        }, pause = { fail("No polling delay expected") })
+    @Test fun longListIsPagedAndNeverLoadsStatistics() = runBlocking {
+        val paths = mutableListOf<String>()
+        val result = loadStats("owner", "repo", cacheDir = null, request = { path, _ ->
+            paths += path
+            response(200, """[{"login":"octocat","id":1,"contributions":900}]""",
+                Headers.Builder().add("Link", "<https://api.github.com/x?anon=1&per_page=100&page=2>; rel=\"next\"").build())
+        })
+        assertTrue(paths.none { it.endsWith("/stats/contributors") })
+        assertEquals(ContributionStatus.Ready, result.status)
+        assertEquals(900L, result.records.single().total)
+        assertTrue(result.truncated)
+        assertEquals(2, result.nextPage)
+        assertNotNull(result.message)
+    }
+
+    @Test fun tooLargeListFallsBackToOneStatisticsRequestRankedByCommitsWithoutWeeks() = runBlocking {
+        val paths = mutableListOf<String>()
+        val result = loadStats("owner", "repo", cacheDir = null, request = { path, _ ->
+            paths += path
+            if (path.contains("/contributors?")) response(403, """{"message":"The history or contributor list is too large"}""")
+            else response(200, """[
+                {"author":{"login":"small"},"total":5,"weeks":[{"w":1791072000,"a":1,"d":1,"c":5}]},
+                {"author":{"login":"leader"},"total":9,"weeks":[{"w":1791072000,"a":2,"d":2,"c":9}]}
+            ]""")
+        })
+        assertEquals(2, paths.size)
+        assertEquals(1, paths.count { it.endsWith("/stats/contributors") })
+        assertEquals(ContributionSource.ContributorList, result.source)
+        assertEquals(ContributionStatus.Ready, result.status)
+        assertEquals(listOf("leader", "small"), result.records.map { it.author!!.login })
+        assertTrue(result.records.all { it.weeks.isEmpty() })
+        assertTrue(result.message!!.contains("仓库过大"))
+    }
+
+    @Test fun topRankingIsCachedForAnHourUnlessForced() = runBlocking {
+        val dir = java.nio.file.Files.createTempDirectory("rank-cache").toFile()
+        var statsCalls = 0
+        var listCalls = 0
+        val request: suspend (String, Boolean) -> Resp = { path, _ ->
+            if (path.contains("/contributors?")) { listCalls++; response(403, """{"message":"too large"}""") } else {
+                statsCalls++
+                response(200, """[{"author":{"login":"leader"},"total":9,"weeks":[]}]""")
+            }
+        }
+        loadStats("owner", "bigrepo", request = request, cacheDir = dir)
+        assertEquals(1, statsCalls)
+        assertEquals(1, listCalls)
+        val cached = loadStats("owner", "bigrepo", request = request, cacheDir = dir)
+        // 命中缓存时既不读统计接口，也不再请求会返回 403 的 /contributors
+        assertEquals(1, statsCalls)
+        assertEquals(1, listCalls)
+        assertEquals("leader", cached.records.single().author!!.login)
+        loadStats("owner", "bigrepo", force = true, request = request, cacheDir = dir)
+        assertEquals(2, statsCalls)
+    }
+
+    @Test fun tooLargeListWithStatisticsStillPendingReturnsPendingWithoutPolling() = runBlocking {
+        var calls = 0
+        val result = loadStats("owner", "repo", cacheDir = null, request = { path, _ ->
+            calls++
+            if (path.contains("/contributors?")) response(403, """{"message":"too large"}""") else response(202)
+        })
+        assertEquals(2, calls)
         assertEquals(ContributionStatus.Pending, result.status)
         assertTrue(result.records.isEmpty())
     }
 
-    @Test fun empty204DoesNotFallBackAndIsDistinctFromPending() = runBlocking {
-        var calls = 0
-        val result = ContributionStats.load("owner", "repo", request = { path, _ -> if (path.endsWith("/stats/contributors")) calls++; response(204) }, pause = { fail("Unexpected delay") })
-        assertEquals(1, calls)
+    @Test fun tooLargeListWithEmptyStatisticsIsEmptyNotAnError() = runBlocking {
+        val result = loadStats("owner", "repo", cacheDir = null, request = { path, _ ->
+            if (path.contains("/contributors?")) response(403, """{"message":"too large"}""") else response(204)
+        })
         assertEquals(ContributionStatus.Empty, result.status)
     }
 
-    @Test fun non200SuccessfulHttpCodeDoesNotBecomeAnEmptyRepository() = runBlocking {
-        val result = ContributionStats.load("owner", "repo", request = { path, _ ->
-            if (path.endsWith("/stats/contributors")) response(201, "[]") else response(200, "[]")
-        }, pause = { fail("Unexpected delay") })
-        assertEquals(ContributionStatus.Unavailable, result.status)
+    @Test fun emptyAndPendingContributorListsAreReportedWithoutFallback() = runBlocking {
+        var calls = 0
+        val empty = loadStats("owner", "repo", cacheDir = null, request = { _, _ -> calls++; response(204) })
+        assertEquals(ContributionStatus.Empty, empty.status)
+        val pending = loadStats("owner", "repo", cacheDir = null, request = { _, _ -> calls++; response(202) })
+        assertEquals(ContributionStatus.Pending, pending.status)
+        assertEquals(2, calls)
     }
 
-    @Test fun fallbackPaginationIncludesAnonymousAuthorsAndMarksTruncation() = runBlocking {
-        val paths = mutableListOf<String>()
-        val result = ContributionStats.load("owner", "repo", request = { path, _ ->
-            paths += path
-            if (path.endsWith("/stats/contributors")) response(422, """{"message":"Statistics unavailable"}""")
-            else response(200, """[{"name":"Anonymous","type":"Anonymous","contributions":8}]""",
-                Headers.Builder().add("Link", "<https://api.github.com/next>; rel=\"next\"").build())
-        }, pause = { fail("Unexpected delay") })
-        // 探测 + 周统计 + 第 1 页；后续页由界面按需加载，不再一次读满
-        assertEquals(3, paths.size)
-        assertTrue(paths.drop(2).all { it.contains("anon=1&per_page=100&page=1") })
-        assertTrue(result.truncated)
-        assertEquals(2, result.nextPage)
-        assertEquals(ContributionStatus.Unavailable, result.status)
-        assertEquals(1, result.records.size)
-        assertTrue(result.records.all { it.author!!.login.isBlank() })
+    @Test fun unexpectedSuccessCodeIsAnErrorNotAnEmptyRepository() = runBlocking {
+        val failed = runCatching {
+            loadStats("owner", "repo", cacheDir = null, request = { _, _ -> response(201, "[]") })
+        }
+        assertTrue(failed.isFailure)
     }
 
-    @Test fun partialFallbackFailureRetainsEarlierSuccessAndError() = runBlocking {
-        val result = ContributionStats.load("owner", "repo", request = { path, _ ->
-            when {
-                path.endsWith("/stats/contributors") -> response(500, "{}")
-                path.endsWith("page=1") -> response(200, """[{"login":"alice","contributions":20}]""",
-                    Headers.Builder().add("Link", "<https://api.github.com/next>; rel=\"next\"").build())
-                else -> response(503, """{"message":"Try later"}""")
+    @Test fun authenticationAndRateLimitFailuresAreRaisedOnTheFirstRequest() = runBlocking {
+        for (code in listOf(401, 429)) {
+            val paths = mutableListOf<String>()
+            try {
+                loadStats("owner", "repo", cacheDir = null, request = { path, _ -> paths += path; response(code, "{}") })
+                fail("Expected API failure")
+            } catch (error: ApiException) {
+                assertEquals(code, error.code)
             }
-        }, pause = { fail("Unexpected delay") })
+            assertEquals(1, paths.size)
+        }
+    }
+
+    @Test fun laterPageFailureIsReportedWhenTheScreenRequestsIt() = runBlocking {
+        val result = loadStats("owner", "repo", cacheDir = null, request = { _, _ ->
+            response(200, """[{"login":"alice","contributions":20}]""",
+                Headers.Builder().add("Link", "<https://api.github.com/next>; rel=\"next\"").build())
+        })
         assertEquals(20L, result.records.single().total)
         assertTrue(result.truncated)
         assertEquals(2, result.nextPage)
-        // 后续页的失败由界面按需加载时报告；这里只确认第 2 页的请求失败会以异常返回
         val later = runCatching {
             ContributionStats.contributorPage("owner", "repo", 2, request = { _, _ -> response(503, "{}") })
         }
         assertTrue(later.isFailure)
     }
 
-    @Test fun authenticationAndRateLimitFailuresDoNotTryAnotherEndpoint() = runBlocking {
-        for (code in listOf(401, 403, 429)) {
-            var statsCalls = 0
-            var listCalls = 0
-            try {
-                ContributionStats.load("owner", "repo", request = { path, _ ->
-                    if (path.endsWith("/stats/contributors")) statsCalls++
-                    if (path.contains("per_page=100")) listCalls++
-                    response(code, "{}")
-                })
-                fail("Expected API failure")
-            } catch (error: ApiException) {
-                assertEquals(code, error.code)
-            }
-            assertEquals(1, statsCalls)
-            assertEquals(0, listCalls)
-        }
-    }
-
-    @Test fun cancellationStopsPollingWithoutLoadingFallback() = runBlocking {
-        var calls = 0
-        try {
-            ContributionStats.load("owner", "repo", request = { path, _ -> if (path.endsWith("/stats/contributors")) calls++; response(202) }, pause = { throw CancellationException("screen left") })
-            fail("Expected cancellation")
-        } catch (_: CancellationException) { }
-        assertEquals(1, calls)
-    }
-
-    @Test fun largeRepositoryUsesPagedListWithoutWeeklyStatistics() = runBlocking {
-        val paths = mutableListOf<String>()
-        val result = ContributionStats.load("owner", "repo", request = { path, _ ->
-            paths += path
-            if (isProbe(path)) response(200, """[{"login":"octocat","id":1,"contributions":900}]""",
-                Headers.Builder().add("Link", "<https://api.github.com/x?anon=1&per_page=1&page=2>; rel=\"next\", <https://api.github.com/x?anon=1&per_page=1&page=321>; rel=\"last\"").build())
-            else response(200, """[{"login":"octocat","id":1,"contributions":900}]""")
-        }, pause = { fail("Unexpected delay") })
-        assertTrue(paths.none { it.endsWith("/stats/contributors") })
-        assertEquals(ContributionSource.ContributorList, result.source)
-        assertEquals(ContributionStatus.Ready, result.status)
-        assertEquals(900L, result.records.single().total)
-        assertNotNull(result.message)
-    }
-
-    @Test fun tooLargeContributorListIsExplainedWithoutStatisticsCalls() = runBlocking {
-        var calls = 0
-        val result = ContributionStats.load("owner", "repo", request = { _, _ -> calls++
-            response(403, """{"message":"The history or contributor list is too large to list contributors for this repository via the API."}""")
-        }, pause = { fail("Unexpected delay") })
-        assertEquals(1, calls)
-        assertEquals(ContributionStatus.Unavailable, result.status)
-        assertTrue(result.records.isEmpty())
-        assertTrue(result.message!!.contains("仓库过大"))
+    @Test fun anonymousAuthorsAreIncludedInTheFirstPage() = runBlocking {
+        val result = loadStats("owner", "repo", cacheDir = null, request = { _, _ ->
+            response(200, """[{"name":"Anonymous","type":"Anonymous","contributions":8}]""")
+        })
+        assertEquals(1, result.records.size)
+        assertTrue(result.records.all { it.author!!.login.isBlank() })
     }
 
     @Test fun personActivityBucketsRecentCommitsByUtcSundayWeek() = runBlocking {

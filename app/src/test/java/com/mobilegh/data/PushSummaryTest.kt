@@ -28,7 +28,7 @@ class PushSummaryTest {
         val s = pushSummary(event("PushEvent", """{"ref":"refs/tags/v1.0","head":"aaa","commits":[]}"""))!!
         assertEquals("v1.0", s.ref)
         assertTrue(s.isTag)
-        assertEquals(0, s.commitCount)
+        assertNull(s.commitCount)
     }
 
     @Test fun countFallsBackToCommitListWhenSizeMissing() {

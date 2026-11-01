@@ -33,4 +33,16 @@ class StarListPickerStateTest {
         assertFalse(canCreateListWithRepository(unstarred, mine = false))
         assertTrue(canCreateListWithRepository(unstarred, mine = true))
     }
+
+    @Test fun listChangeFeedbackNamesTheListsThatWereAddedOrRemoved() {
+        val lists = listOf(
+            com.mobilegh.data.GitHubStarList(id = "a", name = "前端", description = "", isPrivate = false, slug = "a", owner = "me", count = 1),
+            com.mobilegh.data.GitHubStarList(id = "b", name = "工具", description = "", isPrivate = false, slug = "b", owner = "me", count = 1),
+        )
+        assertEquals(null, starListChangeMessage(setOf("a"), setOf("a"), lists))
+        assertTrue(starListChangeMessage(emptySet(), setOf("a"), lists)!!.contains("前端"))
+        assertTrue(starListChangeMessage(setOf("a"), emptySet(), lists)!!.contains("前端"))
+        val both = starListChangeMessage(setOf("a"), setOf("b"), lists)!!
+        assertTrue(both.contains("工具") && both.contains("前端"))
+    }
 }

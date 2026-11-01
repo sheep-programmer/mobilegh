@@ -274,6 +274,7 @@ fun ContributorsScreen(owner: String, name: String) {
                                     index + 1, contributor, range, snapshot.truncated,
                                     owner = owner, name = name,
                                     listOnly = snapshot.source == ContributionSource.ContributorList,
+                                    personDetails = snapshot.personDetails,
                                     onViewCommits = if (author != null && (range != ContributionRange.Custom || dates.error == null)) ({
                                         val requested = summary.requestedDates
                                         nav.push(Screen.Commits(owner, name, null, author = author,
@@ -387,6 +388,7 @@ private fun ContributorDetailCard(
     owner: String,
     name: String,
     listOnly: Boolean,
+    personDetails: Boolean = true,
     onViewCommits: (() -> Unit)? = null,
 ) {
     val g = Gh.c
@@ -431,6 +433,7 @@ private fun ContributorDetailCard(
             }
             if (listOnly) {
                 if (login.isBlank()) MutedText(tr("未关联账号的贡献者无法查询周趋势。"))
+                else if (!personDetails) MutedText(tr("仓库过大，GitHub 不提供每人的周趋势，这里只显示累计提交数。"))
                 else {
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).clickable { expanded = !expanded }

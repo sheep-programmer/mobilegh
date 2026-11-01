@@ -54,6 +54,7 @@ import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.rememberCtx
+import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -73,6 +74,24 @@ internal fun rememberStarListCatalog(login: String): Loader<List<GitHubStarList>
     val account = remember(active, login, Session.generation) { StarListAccount(active, Session.generation) }
     return rememberLoader("star-lists:${active.lowercase(Locale.ROOT)}:${login.lowercase(Locale.ROOT)}:${account.generation}") {
         UserLists.lists(account, login)
+    }
+}
+
+/** 一次写入成功后给用户的反馈：加入了哪些列表、移出了哪些列表；没有变化时返回 null。 */
+internal fun starListChangeMessage(before: Set<String>, after: Set<String>, lists: List<GitHubStarList>): String? {
+    val added = after - before
+    val removed = before - after
+    if (added.isEmpty() && removed.isEmpty()) return null
+    val names = lists.associate { it.id to it.name }
+    fun label(ids: Set<String>): String {
+        val known = ids.mapNotNull { names[it] }
+        return if (known.size == ids.size && known.size <= 3) known.joinToString("、") { "「$it」" }
+        else trf("{0} 个列表", ids.size)
+    }
+    return when {
+        removed.isEmpty() -> trf("已加入 {0}", label(added))
+        added.isEmpty() -> trf("已从 {0} 移出", label(removed))
+        else -> trf("已加入 {0}，已从 {1} 移出", label(added), label(removed))
     }
 }
 
@@ -115,6 +134,7 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
     val catalog = rememberStarListCatalog(account.login)
+    val ctx = rememberCtx()
     LaunchedEffect(catalog) {
         if (catalog.data != null || catalog.error != null) catalog.refresh()
     }
@@ -163,12 +183,15 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                 while (true) {
                     val wanted = picked ?: break
                     if (wanted == requested) break
+                    val before = applied
                     val confirmed = UserLists.setRepositoryLists(
                         account, repo.owner.login, repo.name,
                         selected = wanted, original = requested, allowUnstarred = mine,
                     )
                     requested = wanted
                     applied = confirmed
+                    // 写入成功才提示；提示的是服务器确认后的变化，不是用户的点击
+                    starListChangeMessage(before, confirmed, catalog.data.orEmpty())?.let { ctx.toast(it) }
                     picked = starListPickedAfterWrite(wanted, picked ?: wanted, confirmed)
                     if (picked == confirmed) {
                         error = null
@@ -263,13 +286,14 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
         closeDescription = tr("关闭"),
         onDismiss = { if (saving || writing) closeAfterWrite = true else onDismiss() },
         footer = {
-            if (lists.size < UserListsClient.MAX_LISTS) TextButton(
-                onClick = {
-                    error = null
-                    creating = true
-                },
+            if (lists.size < UserListsClient.MAX_LISTS) GhButton(
+                tr("新建列表"),
+                icon = R.drawable.oc_plus,
                 enabled = !saving && !writing && canCreateListWithRepository(snapshot, mine),
-            ) { Text(tr("新建列表")) }
+            ) {
+                error = null
+                creating = true
+            }
             TextButton(
                 onClick = {
                     onDismiss()
@@ -302,7 +326,10 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                 // 归属是后台读的，不占版面；只有真失败了才提示并给重试
                 val failure = membershipError
                 if (snapshot == null && failure != null) InlineError(trf("列表归属读取失败：{0}", failure), Modifier.fillMaxWidth()) { loadMembership() }
-                if (ordered.isEmpty()) Text(tr("还没有 GitHub 列表，新建一个后即可加入。"), fontSize = 13.sp, color = g.fgMuted)
+                if (ordered.isEmpty()) Text(
+                    tr("还没有 GitHub 列表，新建一个后即可加入。"),
+                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 13.sp, color = g.fgMuted,
+                )
                 else Column(Modifier.fillMaxWidth()) {
                     ordered.forEach { list ->
                         // 直接在行内读状态：勾选变化一定让这一行自己重组，不依赖外层是否传下新值
@@ -311,22 +338,13 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                         val addable = snapshot?.starred != false || mine
                         // 未 Star 时只允许移除已有分类；移除后不能绕过数据层校验再次添加。
                         val enabled = snapshot != null && !saving && (addable || checked)
-                        Row(
-                            Modifier.fillMaxWidth()
-                                .toggleable(value = checked, enabled = enabled, role = Role.Checkbox) { toggle(list.id) },
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            // 复选框自身不处理点击，整行只有这一个点击入口
-                            Checkbox(checked, null, enabled = enabled)
-                            Spacer(Modifier.width(10.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(list.name, color = if (enabled) g.fg else g.fgMuted, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text(
-                                    if (list.isPrivate) trf("{0} 个仓库 · 私有", list.count) else trf("{0} 个仓库", list.count),
-                                    color = g.fgMuted, fontSize = 12.sp,
-                                )
-                            }
-                        }
+                        ListPickRow(
+                            name = list.name,
+                            isPrivate = list.isPrivate,
+                            meta = trf("{0} 个仓库", list.count),
+                            checked = checked,
+                            enabled = enabled,
+                        ) { toggle(list.id) }
                     }
                 }
             }
@@ -412,18 +430,14 @@ private fun LocalOnlyStarListDialog(repo: Repo, account: StarListAccount, onDism
                 items(lists.orEmpty(), key = { it.id }) { list ->
                     val checked = list.id in selected
                     val enabled = !saving && !loading && (starred == true || checked)
-                    Row(
-                        Modifier.fillMaxWidth()
-                            .toggleable(value = checked, enabled = enabled, role = Role.Checkbox) {
-                                selected = if (checked) selected - list.id else selected + list.id
-                            }
-                            .padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(checked, null, enabled = enabled)
-                        Spacer(Modifier.width(10.dp))
-                        Text(list.name, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    }
+                    ListPickRow(
+                        name = list.name,
+                        isPrivate = false,
+                        meta = trf("{0} 个仓库", list.repositories.size),
+                        checked = checked,
+                        enabled = enabled,
+                        horizontalPadding = 0.dp,
+                    ) { selected = if (checked) selected - list.id else selected + list.id }
                 }
             }
             TextButton(

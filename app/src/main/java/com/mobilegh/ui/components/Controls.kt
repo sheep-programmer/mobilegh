@@ -116,13 +116,16 @@ data class MenuAction(val text: String, val danger: Boolean = false, val onClick
 fun MoreMenu(actions: List<MenuAction>, tint: Color = Gh.c.fg) {
     var open by remember { mutableStateOf(false) }
     val g = Gh.c
-    OcButton(R.drawable.oc_kebab_horizontal, { open = true }, tint)
-    DropdownMenu(open, { open = false }, containerColor = g.canvas) {
-        actions.forEach { a ->
-            DropdownMenuItem(
-                text = { Text(a.text, color = if (a.danger) g.danger else g.fg) },
-                onClick = { open = false; a.onClick() },
-            )
+    // 菜单必须和按钮放在同一个 Box 里：DropdownMenu 锚定在父布局上，直接放进 Row 会跑到整行的起点（左边）
+    Box {
+        OcButton(R.drawable.oc_kebab_horizontal, { open = true }, tint)
+        DropdownMenu(open, { open = false }, containerColor = g.canvas) {
+            actions.forEach { a ->
+                DropdownMenuItem(
+                    text = { Text(a.text, color = if (a.danger) g.danger else g.fg) },
+                    onClick = { open = false; a.onClick() },
+                )
+            }
         }
     }
 }

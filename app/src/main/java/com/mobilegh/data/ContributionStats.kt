@@ -53,6 +53,8 @@ data class ContributionSnapshot(
     val loadedAt: Instant = Instant.now(),
     /** Next /contributors page the screen should request; null when the list is complete. */
     val nextPage: Int? = null,
+    /** 为 false 时不提供每人的周趋势（超大仓库，GitHub 不给出明细），界面不显示展开入口。 */
+    val personDetails: Boolean = true,
 )
 
 /** One page of GET /contributors; [hasNext] comes from the Link header (or a full page when absent). */
@@ -258,9 +260,14 @@ object ContributionStats {
             if (records.isEmpty()) ContributionStatus.Empty else ContributionStatus.Ready)
     }
 
+    /** 不超过这个人数的仓库读周统计（含增删行数与按时间筛选）；超过的只读分页的累计提交列表。 */
+    private const val LARGE_REPOSITORY = 200L
+
     /**
-     * 贡献者列表：只读累计提交数（/contributors 分页），不加载周统计，所以打开仓库不会触发大量请求。
-     * 点开某一位贡献者时才由 [personActivity] 单独统计其最近一年的周趋势。
+     * 贡献者列表。
+     * - 小仓库（不超过 [LARGE_REPOSITORY] 人）：读 /stats/contributors，有周数据、增删行数和时间筛选；统计仍在生成时退回累计提交列表。
+     * - 大仓库：只读分页的累计提交数，点开某一位贡献者时才由 [personActivity] 单独统计其最近一年的周趋势。
+     * - 超大仓库（/contributors 返回 403 too large）：只能给出统计接口的累计排名，没有每人的明细。
      */
     suspend fun load(
         owner: String,
@@ -269,35 +276,78 @@ object ContributionStats {
         request: suspend (String, Boolean) -> Resp = { path, refresh -> Api.call("GET", path, force = refresh) },
         cacheDir: File? = appCacheDir(),
         streamStats: StatsStreamer = { path, refresh, parse -> Api.streamJson(path, refresh, parse) },
+        pause: suspend (Long) -> Unit = { delay(it) },
     ): ContributionSnapshot {
         val base = "/repos/$owner/$name"
         // 已缓存的超大仓库排名直接返回：不再请求 /contributors（它会返回 403）
         if (!force) readRankCache(cacheDir, base, System.currentTimeMillis())?.let { return topSnapshot(it) }
-        val response = request("$base/contributors?anon=1&per_page=$CONTRIBUTOR_PAGE_SIZE&page=1", force)
+        val probe = request("$base/contributors?anon=1&per_page=1&page=1", force)
         when {
             // 超大仓库 GitHub 不给出分页列表，只能退而读一次统计接口的累计排名
-            response.code == 403 && response.body.contains("too large", ignoreCase = true) ->
+            probe.code == 403 && probe.body.contains("too large", ignoreCase = true) ->
                 return loadTopContributorsFromStatistics(base, force, streamStats, cacheDir)
-            response.code == 504 -> return ContributionSnapshot(
+            probe.code == 504 -> return ContributionSnapshot(
                 source = ContributionSource.ContributorList, status = ContributionStatus.Unavailable,
                 message = tr("GitHub 处理贡献者列表超时，请稍后重试"),
             )
-            response.code == 202 -> return ContributionSnapshot(
+            probe.code == 202 -> return ContributionSnapshot(
                 source = ContributionSource.ContributorList, status = ContributionStatus.Pending,
                 message = tr("GitHub 正在生成贡献者列表，请稍后重试"),
             )
-            response.code == 204 -> return ContributionSnapshot(source = ContributionSource.ContributorList, status = ContributionStatus.Empty)
+            probe.code == 204 -> return ContributionSnapshot(source = ContributionSource.ContributorList, status = ContributionStatus.Empty)
         }
-        Api.ensureOk(response)
-        if (response.code != 200) throw ApiException(response.code, trf("贡献者列表尚未就绪 ({0})", response.code))
-        val records = decodeContributors(response.body)
-        val hasNext = hasNextContributorPage(response.headers["Link"], records.size)
+        Api.ensureOk(probe)
+        if (probe.code != 200) throw ApiException(probe.code, trf("贡献者列表尚未就绪 ({0})", probe.code))
+        val count = countFromFirstPage(probe)
+        var status = ContributionStatus.Ready
+        var message: String? = null
+        if (count in 1..LARGE_REPOSITORY) {
+            val weekly = loadWeeklyStatistics(base, force, request, pause)
+            if (weekly.status == ContributionStatus.Ready || weekly.status == ContributionStatus.Empty) return weekly
+            // 周统计没有就绪：下面退回累计提交列表，并说明原因
+            status = weekly.status
+            message = weekly.message
+        }
+        val first = fetchContributorPage(base, 1, force, request)
+        val paging = if (first.hasNext) tr("贡献者很多，已按累计提交排名分页加载；向下滚动可加载更多，搜索时会继续检索其余贡献者。") else null
         return ContributionSnapshot(
-            records, ContributionSource.ContributorList,
-            if (records.isEmpty()) ContributionStatus.Empty else ContributionStatus.Ready,
-            if (hasNext) tr("贡献者很多，已按累计提交排名分页加载；向下滚动可加载更多，搜索时会继续检索其余贡献者。") else null,
-            truncated = hasNext, nextPage = if (hasNext) 2 else null,
+            first.records, ContributionSource.ContributorList,
+            if (first.records.isEmpty() && status == ContributionStatus.Ready) ContributionStatus.Empty else status,
+            listOfNotNull(message, paging).joinToString("\n").ifBlank { null },
+            truncated = first.hasNext, nextPage = if (first.hasNext) 2 else null,
         )
+    }
+
+    /** 周统计（含增删行数）。GitHub 仍在计算时最多等待约 7 秒；结果的状态决定调用方是否退回累计列表。 */
+    private suspend fun loadWeeklyStatistics(
+        base: String,
+        force: Boolean,
+        request: suspend (String, Boolean) -> Resp,
+        pause: suspend (Long) -> Unit,
+    ): ContributionSnapshot {
+        for (attempt in 0 until 4) {
+            val response = request("$base/stats/contributors", force || attempt > 0)
+            when (response.code) {
+                200 -> {
+                    val records = Api.json.decodeFromString(ListSerializer(ContributionRecord.serializer()), response.body)
+                    return ContributionSnapshot(records, ContributionSource.Statistics,
+                        if (records.isEmpty()) ContributionStatus.Empty else ContributionStatus.Ready)
+                }
+                204 -> return ContributionSnapshot(source = ContributionSource.Statistics, status = ContributionStatus.Empty)
+                202 -> if (attempt < 3) {
+                    val retryAfter = response.headers["Retry-After"]?.toLongOrNull()?.coerceIn(1L, 8L)
+                    pause((retryAfter ?: (1L shl attempt)) * 1000L)
+                }
+                else -> {
+                    // 认证与限流失败不再尝试其他接口
+                    if (response.code in listOf(401, 403, 429)) Api.ensureOk(response)
+                    return ContributionSnapshot(source = ContributionSource.Statistics, status = ContributionStatus.Unavailable,
+                        message = trf("周统计暂不可用 ({0})", response.code))
+                }
+            }
+        }
+        return ContributionSnapshot(source = ContributionSource.Statistics, status = ContributionStatus.Pending,
+            message = tr("GitHub 仍在生成周统计，请稍后刷新"))
     }
 
     /** 超大仓库的排名缓存保留时间：统计接口计算很慢，同一个仓库一小时内不重复读取。 */
@@ -330,6 +380,7 @@ object ContributionStats {
         records, ContributionSource.ContributorList, ContributionStatus.Ready,
         trf("GitHub 不提供这个仓库的完整贡献者列表（仓库过大）。此处是统计接口返回的 {0} 位贡献者，按累计提交数排序；点开某人可查看其最近一年的周趋势。", records.size),
         truncated = true,
+        personDetails = false,
     )
 
     /**

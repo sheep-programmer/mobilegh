@@ -37,6 +37,8 @@ import com.mobilegh.nav.Pager
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.Tab
 import com.mobilegh.ui.screens.SearchFilterDialog
+import com.mobilegh.ui.screens.AddToStarListsDialog
+import com.mobilegh.ui.screens.GitHubListEditor
 import com.mobilegh.ui.screens.StarListsScreen
 import com.mobilegh.ui.screens.StarredRepoPage
 import com.mobilegh.ui.theme.MobileGhTheme
@@ -131,7 +133,11 @@ class ReadmeScreenshotsTest {
             p.contains("/actions/jobs/") && p.endsWith("/logs") -> sampleJobLog
             p == "/repos/mona/mobilegh/events" -> """[{"id":"1","type":"PushEvent","actor":{"login":"mona","avatar_url":"https://avatars.githubusercontent.com/u/1?v=4"},"repo":{"name":"mona/mobilegh"},"payload":{"ref":"refs/heads/feature/login","head":"abcdef1234567","size":3,"commits":[{"sha":"111","message":"older change"},{"sha":"abcdef1234567","message":"Fix login redirect"}]},"created_at":"${ago(3)}"},{"id":"2","type":"PushEvent","actor":{"login":"hubot","avatar_url":"https://avatars.githubusercontent.com/u/2?v=4"},"repo":{"name":"mona/mobilegh"},"payload":{"ref":"refs/heads/main","head":"fedcba9876543","size":1,"commits":[{"sha":"fedcba9876543","message":"Bump version"}]},"created_at":"${ago(9)}"}]"""
             p == "/user" -> user("mona", "Mona Lisa")
-            p == "/graphql" -> if (body.contains("MobileGHLists(")) listsGraphql() else graphql()
+            p == "/graphql" -> when {
+                body.contains("MobileGHRepositoryLists(") -> repoListsGraphql()
+                body.contains("MobileGHLists(") -> listsGraphql()
+                else -> graphql()
+            }
             p.startsWith("/user/repos") || p.endsWith("/repos") -> "[${repos.joinToString(",")}]"
             p.startsWith("/user/starred") || p.endsWith("/starred") -> "[${repos.joinToString(",")}]"
             p.startsWith("/notifications") -> "[" + listOf(
@@ -185,16 +191,26 @@ class ReadmeScreenshotsTest {
     }
 
     /** 「Star 列表」目录页：三个测试列表，一个私有 */
+    private fun listNode(id: String, name: String, desc: String, priv: Boolean, count: Int, h: Int) =
+        """{"id":"$id","name":"$name","description":"$desc","isPrivate":$priv,"slug":"$id","createdAt":"${ago(h + 500)}","updatedAt":"${ago(h)}","lastAddedAt":"${ago(h)}","user":{"login":"mona"},"items":{"totalCount":$count}}"""
+
     private fun listsGraphql(): String {
-        fun node(id: String, name: String, desc: String, priv: Boolean, count: Int, h: Int) =
-            """{"id":"$id","name":"$name","description":"$desc","isPrivate":$priv,"slug":"$id","createdAt":"${ago(h + 500)}","updatedAt":"${ago(h)}","lastAddedAt":"${ago(h)}","user":{"login":"mona"},"items":{"totalCount":$count}}"""
         val nodes = listOf(
-            node("list-1", "Learning Kotlin", "Resources and samples I am following", false, 8, 5),
-            node("list-2", "Private reading list", "", true, 128, 30),
-            node("list-3", "Tools", "CLI tools I use every day", false, 23, 96),
-            node("list-4", "Design inspiration", "Interfaces worth studying", false, 12, 400),
+            listNode("list-1", "Learning Kotlin", "Resources and samples I am following", false, 8, 5),
+            listNode("list-2", "Private reading list", "", true, 128, 30),
+            listNode("list-3", "Tools", "CLI tools I use every day", false, 23, 96),
+            listNode("list-4", "Design inspiration", "Interfaces worth studying", false, 12, 400),
         ).joinToString(",")
         return """{"data":{"viewer":{"login":"mona"},"user":{"lists":{"totalCount":4,"pageInfo":{"hasNextPage":false,"endCursor":null,"hasPreviousPage":false,"startCursor":null},"nodes":[$nodes]}}}}"""
+    }
+
+    /** 仓库归属（长按 Star 的选择器读的）：仓库已 Star，并且已在「Learning Kotlin」与「Tools」两个列表里 */
+    private fun repoListsGraphql(): String {
+        val nodes = listOf(
+            listNode("list-1", "Learning Kotlin", "Resources and samples I am following", false, 8, 5),
+            listNode("list-3", "Tools", "CLI tools I use every day", false, 23, 96),
+        ).joinToString(",")
+        return """{"data":{"viewer":{"login":"mona"},"repository":{"id":"R_mobilegh","viewerHasStarred":true,"lists":{"nodes":[$nodes]}}}}"""
     }
 
     private fun graphql(): String {
@@ -372,6 +388,33 @@ class ReadmeScreenshotsTest {
         compose.onNodeWithText("Learning Kotlin").performClick()
         Thread.sleep(1500)
         save("09-star-list")
+    }
+
+    private val fixtureLists = listOf(
+        GitHubStarList("list-1", "Learning Kotlin", "Resources and samples I am following", false, "learning", "mona", 8),
+        GitHubStarList("list-2", "Private reading list", "", true, "reading", "mona", 128),
+        GitHubStarList("list-3", "Tools", "CLI tools I use every day", false, "tools", "mona", 23),
+        GitHubStarList("list-4", "Design inspiration", "Interfaces worth studying", false, "design", "mona", 12),
+    )
+
+    /** 长按仓库的 Star 按钮后弹出的列表选择器（底部弹层） */
+    @Test fun starListPicker() {
+        val n = Navigator().also { nav = it }
+        val lists = fixtureLists
+        n.root.bag["star-lists:mona:mona:${Session.generation}"] = Loader(n.root.scope) { lists }.also { it.accept(lists) }
+        val repo = Repo(1, "mobilegh", "mona/mobilegh", User(login = "mona", avatarUrl = "https://avatars.githubusercontent.com/u/1?v=4"), description = "A GitHub client for Android", language = "Kotlin", stargazersCount = 1280, pushedAt = ago(3))
+        compose.setContent { MobileGhTheme { CompositionLocalProvider(LocalNav provides n, LocalEntry provides n.root) { AddToStarListsDialog(repo) {} } } }
+        Thread.sleep(2500)
+        compose.waitForIdle()
+        saveScreen("13-star-picker")
+    }
+
+    /** 新建 GitHub 列表的编辑弹窗 */
+    @Test fun newStarList() {
+        compose.setContent { MobileGhTheme { GitHubListEditor(null, false, null, {}) { _, _, _ -> } } }
+        Thread.sleep(1500)
+        compose.waitForIdle()
+        saveScreen("14-new-list")
     }
 
     @Test fun starListsOverview() {

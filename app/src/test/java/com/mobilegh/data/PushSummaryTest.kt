@@ -41,4 +41,13 @@ class PushSummaryTest {
         assertNull(pushSummary(event("IssuesEvent", """{"ref":"refs/heads/main"}""")))
         assertNull(pushSummary(event("PushEvent", """{"head":"a"}""")))
     }
+
+    @Test fun pushFeedBehindRepositoryPushedAtIsFlagged() {
+        // 与 torvalds/linux 的情况一致：仓库 pushed_at 很新，事件流里最新的推送是一天前
+        assertTrue(pushFeedIsBehind("2026-10-31T19:35:13Z", "2026-10-30T00:07:07Z"))
+        assertTrue(pushFeedIsBehind("2026-10-31T19:35:13Z", null))
+        // 事件流与仓库时间基本一致（一分钟内的延迟不算落后）
+        assertFalse(pushFeedIsBehind("2026-10-31T19:35:13Z", "2026-10-31T19:35:00Z"))
+        assertFalse(pushFeedIsBehind(null, "2026-10-30T00:07:07Z"))
+    }
 }

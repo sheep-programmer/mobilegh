@@ -181,37 +181,56 @@ class ContributionStatsTest {
         assertNotNull(validateContributionDates(" 2026-10-06 ", "2026-10-06", today).dates)
     }
 
-    @Test fun normalRepositoryListsCommitCountsWithoutAnyStatisticsRequest() = runBlocking {
+    @Test fun smallRepositoryUsesWeeklyStatisticsAndNoListPaging() = runBlocking {
         val paths = mutableListOf<String>()
-        val result = loadStats("owner", "repo", cacheDir = null, request = { path, _ ->
+        val result = loadStats("owner", "repo", request = { path, _ ->
             paths += path
-            response(200, """[{"login":"alice","id":1,"contributions":20},{"login":"bob","id":2,"contributions":5}]""")
+            if (path.contains("/stats/contributors")) {
+                response(200, """[{"author":{"login":"alice"},"total":20,"weeks":[{"w":1791072000,"c":2}]}]""")
+            } else response(200, """[{"login":"alice","id":1,"contributions":20}]""")
         })
-        assertEquals(1, paths.size)
-        assertTrue(paths.single().contains("/contributors?anon=1&per_page=100&page=1"))
-        assertEquals(ContributionSource.ContributorList, result.source)
+        assertEquals(2, paths.size)
+        assertTrue(paths.none { it.contains("per_page=100") })
+        assertEquals(ContributionSource.Statistics, result.source)
         assertEquals(ContributionStatus.Ready, result.status)
-        assertEquals(listOf(20L, 5L), result.records.map { it.total })
-        assertTrue(result.records.all { it.weeks.isEmpty() })
+        assertEquals(20L, result.records.single().total)
+        assertTrue(result.records.single().weeks.isNotEmpty())
         assertFalse(result.truncated)
-        assertNull(result.nextPage)
+        assertTrue(result.personDetails)
     }
 
+    @Test fun statisticsStillPendingFallsBackToCommitListWithMessage() = runBlocking {
+        val paths = mutableListOf<String>()
+        val result = loadStats("owner", "repo", request = { path, _ ->
+            paths += path
+            when {
+                path.contains("/stats/contributors") -> response(202)
+                else -> response(200, """[{"login":"alice","id":1,"contributions":20}]""")
+            }
+        })
+        // 探测 + 4 次统计（含重试）+ 第 1 页列表
+        assertEquals(6, paths.size)
+        assertEquals(ContributionSource.ContributorList, result.source)
+        assertEquals(ContributionStatus.Pending, result.status)
+        assertEquals(20L, result.records.single().total)
+        assertNotNull(result.message)
+    }
     @Test fun longListIsPagedAndNeverLoadsStatistics() = runBlocking {
         val paths = mutableListOf<String>()
-        val result = loadStats("owner", "repo", cacheDir = null, request = { path, _ ->
+        val result = loadStats("owner", "repo", request = { path, _ ->
             paths += path
             response(200, """[{"login":"octocat","id":1,"contributions":900}]""",
-                Headers.Builder().add("Link", "<https://api.github.com/x?anon=1&per_page=100&page=2>; rel=\"next\"").build())
+                Headers.Builder().add("Link", "<https://api.github.com/x?anon=1&per_page=1&page=2>; rel=\"next\", <https://api.github.com/x?anon=1&per_page=1&page=321>; rel=\"last\"").build())
         })
         assertTrue(paths.none { it.endsWith("/stats/contributors") })
+        assertEquals(ContributionSource.ContributorList, result.source)
         assertEquals(ContributionStatus.Ready, result.status)
         assertEquals(900L, result.records.single().total)
         assertTrue(result.truncated)
         assertEquals(2, result.nextPage)
         assertNotNull(result.message)
+        assertTrue(result.personDetails)
     }
-
     @Test fun tooLargeListFallsBackToOneStatisticsRequestRankedByCommitsWithoutWeeks() = runBlocking {
         val paths = mutableListOf<String>()
         val result = loadStats("owner", "repo", cacheDir = null, request = { path, _ ->
@@ -229,6 +248,7 @@ class ContributionStatsTest {
         assertEquals(listOf("leader", "small"), result.records.map { it.author!!.login })
         assertTrue(result.records.all { it.weeks.isEmpty() })
         assertTrue(result.message!!.contains("仓库过大"))
+        assertFalse(result.personDetails)
     }
 
     @Test fun topRankingIsCachedForAnHourUnlessForced() = runBlocking {
@@ -301,8 +321,9 @@ class ContributionStatsTest {
     }
 
     @Test fun laterPageFailureIsReportedWhenTheScreenRequestsIt() = runBlocking {
-        val result = loadStats("owner", "repo", cacheDir = null, request = { _, _ ->
-            response(200, """[{"login":"alice","contributions":20}]""",
+        val result = loadStats("owner", "repo", request = { path, _ ->
+            if (path.contains("/stats/contributors")) response(500, "{}")
+            else response(200, """[{"login":"alice","contributions":20}]""",
                 Headers.Builder().add("Link", "<https://api.github.com/next>; rel=\"next\"").build())
         })
         assertEquals(20L, result.records.single().total)
@@ -313,15 +334,14 @@ class ContributionStatsTest {
         }
         assertTrue(later.isFailure)
     }
-
     @Test fun anonymousAuthorsAreIncludedInTheFirstPage() = runBlocking {
-        val result = loadStats("owner", "repo", cacheDir = null, request = { _, _ ->
-            response(200, """[{"name":"Anonymous","type":"Anonymous","contributions":8}]""")
+        val result = loadStats("owner", "repo", request = { path, _ ->
+            if (path.contains("/stats/contributors")) response(500, "{}")
+            else response(200, """[{"name":"Anonymous","type":"Anonymous","contributions":8}]""")
         })
         assertEquals(1, result.records.size)
         assertTrue(result.records.all { it.author!!.login.isBlank() })
     }
-
     @Test fun personActivityBucketsRecentCommitsByUtcSundayWeek() = runBlocking {
         val commits = """[
             {"commit":{"author":{"date":"2026-10-05T10:00:00Z"}}},

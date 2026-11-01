@@ -18,12 +18,14 @@ import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.Event
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.pushFeedIsBehind
 import com.mobilegh.data.pushSummary
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.OnRepoChanged
 import com.mobilegh.nav.Screen
+import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Oc
@@ -37,12 +39,34 @@ import com.mobilegh.ui.theme.Gh
 fun PushesScreen(owner: String, name: String) {
     val nav = LocalNav.current
     val pager = rememberPager("pushes", 30) { p, f -> GitHub.repoEvents(owner, name, p, f) }
+    // 仓库头部「推送于」用的是仓库的 pushed_at；这里对照事件流，落后时在列表顶部说明
+    val repo = rememberLoader("pushes-repo:$owner/$name") { GitHub.repo(owner, name, it) }
     OnRepoChanged(owner, name) { pager.refresh() }
+    val newestPushAt = pager.items.firstOrNull { pushSummary(it) != null }?.createdAt
+    val pushedAt = repo.data?.pushedAt
+    val behind = pager.loadedOnce && pushFeedIsBehind(pushedAt, newestPushAt)
     Page(tr("最近推送"), subtitle = "$owner/$name", onSubtitleClick = { nav.toRepoHome(owner, name) }) { pad ->
         PagedList(
             pager, Modifier.padding(pad), empty = tr("最近没有推送记录"),
+            header = {
+                if (behind) item { PushFeedNotice(pushedAt, newestPushAt) }
+            },
         ) { e -> pushSummary(e)?.let { PushRow(owner, name, e) } }
     }
+}
+
+@Composable
+private fun PushFeedNotice(pushedAt: String?, newestPushAt: String?) {
+    val g = Gh.c
+    Text(
+        if (newestPushAt == null) {
+            trf("仓库最后推送于 {0}，但 GitHub 的事件记录里没有可显示的推送。大仓库的事件记录并不完整。", relTime(pushedAt))
+        } else {
+            trf("仓库最后推送于 {0}，但 GitHub 的事件记录里最新的推送是 {1}。事件记录对大仓库并不完整，以下只是它能提供的部分。",
+                relTime(pushedAt), relTime(newestPushAt))
+        },
+        Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = g.attention, fontSize = 12.sp,
+    )
 }
 
 @Composable

@@ -1,0 +1,10 @@
+以下第三方库随应用内置，用于本地渲染 README 中的图表与公式。
+
+mermaid 11.17.2 (MIT) https://github.com/mermaid-js/mermaid
+KaTeX 0.19.1 (MIT) https://github.com/KaTeX/KaTeX
+three.js 0.187.0 (MIT) https://github.com/mrdoob/three.js
+d3-geo 3.1.1 (ISC) https://github.com/d3/d3-geo
+topojson-client 3.1.0 (ISC) https://github.com/topojson/topojson-client
+
+geo.min.js 由 d3-geo 与 topojson-client 打包而成；stl.min.js 由 three.js（STLLoader、OrbitControls）打包而成。
+各库的完整许可证文本见其发布包的 LICENSE 文件。

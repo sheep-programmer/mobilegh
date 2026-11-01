@@ -138,6 +138,12 @@ fun RepoScreen(owner: String, name: String) {
     val starBusyState = retain("star-busy") { mutableStateOf(false) }
     var starBusy by starBusyState
     val watching = rememberLoader("watch-status") { entry.guarded { SubscriptionSettings.current(owner, name) } }
+    // 从子页面（Star 列表、分支、设置等）返回时页面会重新组合：静默同步一次仓库数据与星标状态，不出现加载态。
+    // 首次进入时数据还没有，由初始加载负责。
+    LaunchedEffect(Unit) {
+        if (repo.data != null) repo.refreshSilently()
+        if (starStatus.data != null) starStatus.refreshSilently()
+    }
     var showBranches by remember { mutableStateOf(false) }
     var showClone by remember { mutableStateOf(false) }
     var showFork by remember { mutableStateOf(false) }
@@ -245,9 +251,15 @@ fun RepoScreen(owner: String, name: String) {
                                     }) {
                                         try {
                                             entry.guarded { GitHub.star(owner, name, on) }
-                                            // 写入成功后静默同步服务器上的真实计数和状态，不出现加载态
-                                            repo.refreshSilently()
-                                            starStatus.refreshSilently()
+                                            // 写入已成功：用服务器的最新数据替换。强制联网，不走 HTTP 缓存；
+                                            // 不依赖 refreshSilently（它在加载中会直接跳过）。刷新失败时保留乐观更新，不回滚。
+                                            try {
+                                                repo.accept(entry.guarded { GitHub.repo(owner, name, true) })
+                                                starStatus.accept(entry.guarded { GitHub.isStarred(owner, name) })
+                                            } catch (cancel: CancellationException) {
+                                                throw cancel
+                                            } catch (_: Exception) {
+                                            }
                                         } finally { starBusy = false }
                                     }
                                 }

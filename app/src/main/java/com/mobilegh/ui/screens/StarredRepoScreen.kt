@@ -388,17 +388,26 @@ private fun StarListDirectory(
     var error by remember { mutableStateOf<String?>(null) }
     val browser = rememberListBrowser("star-lists:$login")
     val header: @Composable () -> Unit = {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (isMe) GhButton(tr("新建列表"), enabled = all.size < UserListsClient.MAX_LISTS) { picker = true }
-            GhButton(tr("刷新"), enabled = !lists.loading) { lists.load(true) }
+        if (all.isNotEmpty()) {
+            val privateCount = all.count { it.isPrivate }
+            ListsSummaryCard(
+                R.drawable.oc_checklist, trf("{0} 个列表", all.size), trf("{0} 个公开 · {1} 个私有", all.size - privateCount, privateCount),
+                if (isMe) tr("列表与 GitHub 同步；公开列表可被其他人查看。") else tr("列表是 Star 的分类，与 GitHub 同步。"),
+                Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                action = if (isMe) tr("新建列表") else null,
+                actionIcon = R.drawable.oc_plus,
+                actionEnabled = all.size < UserListsClient.MAX_LISTS && !lists.loading,
+            ) { picker = true }
         }
         lists.error?.let { InlineError(it, Modifier.padding(horizontal = 16.dp)) { lists.load(true) } }
-        Text(tr("列表是 Star 的分类，与 GitHub 同步。"), Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 12.sp, color = Gh.c.fgMuted)
-        SearchBox(
-            browser.input, browser.query, { browser.input = it }, { browser.apply() }, { browser.clear() },
-            tr("搜索列表"), tr("名称或描述"),
-            Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp),
-        )
+        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            SearchBox(
+                browser.input, browser.query, { browser.input = it }, { browser.apply() }, { browser.clear() },
+                tr("搜索列表"), tr("名称或描述"),
+                Modifier.weight(1f),
+            )
+            TextButton(onClick = { lists.load(true) }, enabled = !lists.loading) { Text(tr("刷新")) }
+        }
         SortBar(LIST_SORTS, browser.sort, browser.descending, { browser.pick(it) }, { browser.descending = !browser.descending })
     }
     StarListRows(
@@ -467,14 +476,18 @@ private fun StarListRows(
 internal fun StarListRow(list: GitHubStarList, enabled: Boolean = true, onClick: () -> Unit) =
     StarListCard(list.name, list.description, list.count, list.isPrivate, list.lastAddedAt, enabled, onClick)
 
-/** GitHub 列表与本机列表共用的目录卡片：左侧图标徽标，中间名称 / 说明 / 元信息三行，右侧箭头 */
+/** GitHub 列表与本机列表共用的目录卡片：左侧徽标，中间名称、说明和一排小标签，右侧箭头 */
 @Composable
-@OptIn(ExperimentalLayoutApi::class)
 internal fun StarListCard(name: String, description: String, count: Int, isPrivate: Boolean, updatedAt: String = "", enabled: Boolean = true, onClick: () -> Unit) {
     val g = Gh.c
     Card(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).clickable(enabled = enabled, onClick = onClick)) {
-        Row(Modifier.padding(start = 12.dp, end = 10.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconBadge(if (isPrivate) R.drawable.oc_lock else R.drawable.oc_checklist, if (isPrivate) g.fgMuted else g.accent, if (isPrivate) g.canvasSubtle else g.accentSubtle)
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconBadge(
+                if (isPrivate) R.drawable.oc_lock else R.drawable.oc_checklist,
+                if (isPrivate) g.fgMuted else g.accent,
+                if (isPrivate) g.canvasSubtle else g.accentSubtle,
+                44,
+            )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(name, Modifier.fillMaxWidth(), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -482,22 +495,15 @@ internal fun StarListCard(name: String, description: String, count: Int, isPriva
                     description, color = g.fgMuted, fontSize = 13.sp, lineHeight = 18.sp,
                     maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
-                // 元信息之间只留间距不放分隔点：换行时不会出现行尾 / 行首孤零零的“·”
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    if (isPrivate) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Oc(R.drawable.oc_lock, g.fgMuted, 12.dp)
-                            Spacer(Modifier.width(3.dp))
-                            Text(tr("私有"), fontSize = 12.sp, color = g.fgMuted)
-                        }
-                    }
-                    Text(trf("{0} 个仓库", count), fontSize = 12.sp, color = g.fgMuted)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 2.dp)) {
+                    if (isPrivate) ListPill(tr("私有"), R.drawable.oc_lock)
+                    ListPill(trf("{0} 个仓库", count), R.drawable.oc_repo)
                     val updated = relTime(updatedAt)
-                    if (updated.isNotEmpty()) Text(trf("更新于 {0}", updated), fontSize = 12.sp, color = g.fgMuted)
+                    if (updated.isNotEmpty()) ListPill(trf("更新于 {0}", updated), R.drawable.oc_clock)
                 }
             }
             Spacer(Modifier.width(8.dp))
-            Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
+            Oc(R.drawable.oc_chevron_right, g.fgMuted, 16.dp)
         }
     }
 }
@@ -542,22 +548,14 @@ private fun StarListDetail(
         return
     }
     val g = Gh.c
-    // 列表信息卡：名称、说明、可见性与数量，一眼看清自己在哪个列表里
-    Card(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Oc(if (list.isPrivate) R.drawable.oc_lock else R.drawable.oc_checklist, g.fgMuted, 16.dp)
-                Spacer(Modifier.width(8.dp))
-                Text(list.name, Modifier.weight(1f), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-            if (list.description.isNotEmpty()) Text(list.description, fontSize = 13.sp, lineHeight = 18.sp, color = g.fgMuted)
-            Text(
-                trf("{0} · {1} 个仓库 · 已加载 {2} 个", if (list.isPrivate) tr("私有") else tr("公开"), list.count, pager.items.size),
-                fontSize = 12.sp, color = g.fgMuted,
-            )
-            if (isMe) Text(tr("移除分类不会取消 Star。"), fontSize = 12.sp, color = g.fgMuted)
-        }
-    }
+    // 列表信息头：名称、说明、可见性与数量，一眼看清自己在哪个列表里
+    ListDetailHeader(
+        name = list.name,
+        description = list.description,
+        isPrivate = list.isPrivate,
+        meta = trf("{0} 个仓库 · 已加载 {1} 个", list.count, pager.items.size),
+        hint = if (isMe) tr("移除分类不会取消 Star。") else null,
+    )
     // 搜索与排序方向并成一行，不再占三行
     Row(
         Modifier.fillMaxWidth().padding(start = 12.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),

@@ -1,5 +1,12 @@
 package com.mobilegh.ui.screens
 
+import androidx.compose.foundation.border
+import com.mobilegh.ui.components.Oc
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -656,11 +663,13 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
                 // 列表详情：和官方 FetchList 一样按 items 的原始顺序翻页，只提供正序 / 倒序
                 var itemInput by rememberSaveable(selected.id) { mutableStateOf("") }
                 var itemQuery by rememberSaveable(selected.id) { mutableStateOf("") }
-                Text(
-                    trf("{0} · 已加载 {1} / {2}", if (selected.isPrivate) tr("私有") else tr("公开"), repositories.size, detailTotal),
-                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.fgMuted, fontSize = 12.sp,
+                ListDetailHeader(
+                    name = selected.name,
+                    description = selected.description,
+                    isPrivate = selected.isPrivate,
+                    meta = trf("已加载 {0} / {1} 个仓库", repositories.size, detailTotal),
+                    hint = if (self) tr("移除分类不会取消 Star。") else null,
                 )
-                if (selected.description.isNotEmpty()) Text(selected.description, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.fgMuted, fontSize = 13.sp)
                 SearchBox(
                     itemInput, itemQuery, { itemInput = it }, { itemQuery = itemInput.trim() },
                     { itemInput = ""; itemQuery = "" },
@@ -707,7 +716,6 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
                         }
                     }
                 }
-                if (self) Text(tr("移除分类不会取消 Star。"), Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
             }
         }
     }
@@ -739,17 +747,74 @@ fun GitHubListEditor(list: GitHubStarList?, saving: Boolean, error: String?, onD
     var name by remember(list?.id) { mutableStateOf(list?.name.orEmpty()) }
     var description by remember(list?.id) { mutableStateOf(list?.description.orEmpty()) }
     var privateList by remember(list?.id) { mutableStateOf(list?.isPrivate ?: false) }
-    GhDialog(if (list == null) tr("新建 GitHub 列表") else tr("编辑 GitHub 列表"), onDismiss = onDismiss, confirm = if (saving) tr("保存中…") else tr("保存到 GitHub"), confirmEnabled = !saving && name.isNotBlank(), onConfirm = { onSave(name, description, privateList) }) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            GhField(name, { if (it.length <= UserListsClient.MAX_NAME) name = it }, tr("名称"))
-            GhField(description, { if (it.length <= UserListsClient.MAX_DESCRIPTION) description = it }, tr("描述（可选）"), singleLine = false, minLines = 2)
-            Row(Modifier.fillMaxWidth().clickable(enabled = !saving) { privateList = !privateList }, verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(privateList, onCheckedChange = { privateList = it }, enabled = !saving)
-                Text(tr("私有列表（仅自己可见）"), fontSize = 13.sp)
+    val g = Gh.c
+    GhDialog(
+        if (list == null) tr("新建列表") else tr("编辑列表"),
+        onDismiss = onDismiss,
+        confirm = if (saving) tr("保存中…") else tr("保存到 GitHub"),
+        confirmEnabled = !saving && name.isNotBlank(),
+        onConfirm = { onSave(name, description, privateList) },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            GhField(
+                name, { if (it.length <= UserListsClient.MAX_NAME) name = it }, tr("名称"),
+                enabled = !saving,
+                trailing = { Text("${name.length}/${UserListsClient.MAX_NAME}", fontSize = 12.sp, color = g.fgMuted) },
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                GhField(
+                    description, { if (it.length <= UserListsClient.MAX_DESCRIPTION) description = it }, tr("描述（可选）"),
+                    singleLine = false, minLines = 2, enabled = !saving,
+                )
+                Text(
+                    "${description.length}/${UserListsClient.MAX_DESCRIPTION}",
+                    Modifier.fillMaxWidth(), textAlign = TextAlign.End, fontSize = 12.sp, color = g.fgMuted,
+                )
             }
-            Text(if (privateList) tr("列表将保存在 GitHub，设为私有。") else tr("公开列表会显示在你的 GitHub Stars 页面。"), color = Gh.c.fgMuted, fontSize = 12.sp)
-            if (error != null) Text(error, color = Gh.c.danger, fontSize = 12.sp)
+            Text(tr("可见性"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                VisibilityOption(
+                    R.drawable.oc_globe, tr("公开"), tr("所有人都可以看到"),
+                    selected = !privateList, enabled = !saving, modifier = Modifier.weight(1f),
+                ) { privateList = false }
+                VisibilityOption(
+                    R.drawable.oc_lock, tr("私有"), tr("仅自己可以看到"),
+                    selected = privateList, enabled = !saving, modifier = Modifier.weight(1f),
+                ) { privateList = true }
+            }
+            if (error != null) Text(error, color = g.danger, fontSize = 12.sp)
         }
+    }
+}
+
+/** 可见性的一张选项卡：图标 + 标题 + 一句说明，选中时有强调色底和边框 */
+@Composable
+private fun VisibilityOption(
+    @DrawableRes icon: Int,
+    title: String,
+    hint: String,
+    selected: Boolean,
+    enabled: Boolean,
+    modifier: Modifier,
+    onSelect: () -> Unit,
+) {
+    val g = Gh.c
+    val shape = RoundedCornerShape(12.dp)
+    Column(
+        modifier
+            .clip(shape)
+            .background(if (selected) g.accentSubtle else g.canvas, shape)
+            .border(1.dp, if (selected) g.accent else g.border, shape)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onSelect)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Oc(icon, if (selected) g.accent else g.fgMuted, 16.dp)
+            Spacer(Modifier.width(6.dp))
+            Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+        }
+        Text(hint, fontSize = 12.sp, lineHeight = 16.sp, color = g.fgMuted)
     }
 }
 

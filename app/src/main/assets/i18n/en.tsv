@@ -2607,3 +2607,19 @@ GitHub 正在计算这个仓库的贡献统计，稍后刷新即可	GitHub is st
 贡献统计暂不可用 ({0})	Contribution statistics unavailable ({0})
 超大仓库首次读取可能需要十几秒，结果会缓存一小时	Large repositories may take tens of seconds on first load; the result is cached for one hour.
 GitHub 仍在计算，请稍后重试	GitHub is still computing this. Try again shortly.
+仓库最后推送于 {0}，但 GitHub 的事件记录里没有可显示的推送。大仓库的事件记录并不完整。	The repository was last pushed {0}, but GitHub's event feed has no push to show. Event feeds are incomplete for large repositories.
+仓库最后推送于 {0}，但 GitHub 的事件记录里最新的推送是 {1}。事件记录对大仓库并不完整，以下只是它能提供的部分。	The repository was last pushed {0}, but the newest push in GitHub's event feed is {1}. Event feeds are incomplete for large repositories; the list below is only what GitHub provides.
+仓库过大，GitHub 不提供每人的周趋势，这里只显示累计提交数。	The repository is too large; GitHub does not provide per-person weekly trends, so only cumulative commit counts are shown.
+周统计暂不可用 ({0})	Weekly statistics unavailable ({0})
+GitHub 仍在生成周统计，请稍后刷新	GitHub is still generating weekly statistics. Refresh later.
+图表	Diagram
+源码	Source
+图表无法渲染：	Could not render the diagram: 
+增大字号（当前 {0}）	Larger text (now {0})
+缩小字号（当前 {0}）	Smaller text (now {0})
+已从 {0} 移出	Removed from {0}
+已加入 {0}，已从 {1} 移出	Added to {0}; removed from {1}
+已加载 {0} / {1} 个仓库	Loaded {0} / {1} repositories
+所有人都可以看到	Anyone can see it
+仅自己可以看到	Only you can see it
+{0} 个仓库 · 已加载 {1} 个	{0} repositories · {1} loaded

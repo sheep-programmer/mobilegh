@@ -1,5 +1,6 @@
 package com.mobilegh.data
 
+import java.time.Instant
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -20,6 +21,16 @@ data class PushSummary(
 )
 
 private val ZERO_SHA = Regex("^0+$")
+
+/**
+ * 仓库的 pushed_at（最后一次推送）比事件流里最新的推送晚一分钟以上：事件流没有覆盖最近的推送，列表会比仓库头部的时间旧。
+ * 大仓库的事件记录常常不完整。没有 pushed_at 或时间无法解析时不提示；事件流为空时视为落后。
+ */
+fun pushFeedIsBehind(repoPushedAt: String?, newestPushAt: String?): Boolean {
+    val repo = repoPushedAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return false
+    val newest = newestPushAt?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: return true
+    return repo.isAfter(newest.plusSeconds(60))
+}
 
 /**
  * 从 PushEvent 的 payload 里取出摘要；不是推送事件或缺少分支信息时返回 null。

@@ -16,11 +16,18 @@ class ClipboardLinkTracker {
     fun inspect(timestamp: Long, texts: List<String>): Update? {
         val hash = texts.hashCode()
         if (timestamp == lastTimestamp && hash == lastHash) return null
-        lastTimestamp = timestamp
-        lastHash = hash
+        record(timestamp, hash)
         if (suggested) return Update(null)
         val link = texts.firstNotNullOfOrNull(Links::clipboardLink)
         if (link != null) suggested = true
         return Update(link)
+    }
+
+    /** 应用内自己复制的内容（“复制链接”等）：只记下内容，不给出跳转提示。 */
+    fun note(timestamp: Long, texts: List<String>) = record(timestamp, texts.hashCode())
+
+    private fun record(timestamp: Long, hash: Int) {
+        lastTimestamp = timestamp
+        lastHash = hash
     }
 }

@@ -179,7 +179,8 @@ private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean,
     info?.let { FileInfoDialog(it) { info = null } }
     Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
         Column(Modifier.padding(top = if (menu.isEmpty()) 12.dp else 2.dp, bottom = 12.dp)) {
-            Row(Modifier.padding(start = 12.dp, end = if (menu.isEmpty()) 12.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
+            // 标题行撑满卡片宽度，「...」才能贴到右边；不撑满时 Row 只有内容宽，菜单会停在中间
+            Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = if (menu.isEmpty()) 12.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(r.name?.takeIf { it.isNotBlank() } ?: r.tagName, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg, modifier = Modifier.weight(1f, false))
                 Spacer(Modifier.width(8.dp))
                 when {
@@ -302,8 +303,8 @@ fun EditReleaseScreen(owner: String, name: String, releaseId: Long?) {
         val s = seed.data
         when {
             s != null -> ReleaseForm(owner, name, s, Modifier.padding(pad))
-            seed.error != null -> ErrorState(seed.error!!, Modifier.padding(pad)) { seed.load(true) }
-            else -> Loading(Modifier.padding(pad))
+            seed.error != null -> ErrorState(seed.error!!, Modifier.padding(pad).fillMaxSize()) { seed.load(true) }
+            else -> Loading(Modifier.padding(pad).fillMaxSize())
         }
     }
 }

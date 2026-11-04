@@ -337,15 +337,36 @@ private fun StarListsContent(login: String, generation: Int, onGitHub: () -> Uni
 }
 
 @Composable
-private fun ListEditor(list: LocalStarList?, saving: Boolean, error: String?, onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
+internal fun ListEditor(list: LocalStarList?, saving: Boolean, error: String?, onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
     var name by remember(list?.id) { mutableStateOf(list?.name.orEmpty()) }
     var description by remember(list?.id) { mutableStateOf(list?.description.orEmpty()) }
-    GhDialog(if (list == null) tr("新建本机列表") else tr("编辑本机列表"), onDismiss = onDismiss, confirm = if (saving) tr("保存中…") else tr("保存"), confirmEnabled = !saving && name.isNotBlank(), onConfirm = { onSave(name, description) }) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            GhField(name, { if (it.length <= LocalStarListsStore.MAX_NAME) name = it }, tr("名称"))
-            GhField(description, { if (it.length <= LocalStarListsStore.MAX_DESCRIPTION) description = it }, tr("描述（可选）"), singleLine = false, minLines = 2)
-            Text(tr("仅保存在当前设备，不会同步到 GitHub。"), color = Gh.c.fgMuted, fontSize = 12.sp)
-            if (error != null) Text(error, color = Gh.c.danger, fontSize = 13.sp)
+    val g = Gh.c
+    GhDialog(
+        if (list == null) tr("新建本机列表") else tr("编辑本机列表"),
+        onDismiss = onDismiss,
+        confirm = if (saving) tr("保存中…") else tr("保存"),
+        confirmEnabled = !saving && name.isNotBlank(),
+        onConfirm = { onSave(name, description) },
+    ) {
+        // 和 GitHub 列表编辑器保持同一套排版：名称、描述各自带字数，底部一句存储范围说明
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            GhField(
+                name, { if (it.length <= LocalStarListsStore.MAX_NAME) name = it }, tr("名称"),
+                enabled = !saving,
+                trailing = { Text("${name.length}/${LocalStarListsStore.MAX_NAME}", fontSize = 12.sp, color = g.fgMuted) },
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                GhField(
+                    description, { if (it.length <= LocalStarListsStore.MAX_DESCRIPTION) description = it }, tr("描述（可选）"),
+                    singleLine = false, minLines = 2, enabled = !saving,
+                )
+                Text(
+                    "${description.length}/${LocalStarListsStore.MAX_DESCRIPTION}",
+                    Modifier.fillMaxWidth(), textAlign = TextAlign.End, fontSize = 12.sp, color = g.fgMuted,
+                )
+            }
+            Text(tr("仅保存在当前设备，不会同步到 GitHub。"), color = g.fgMuted, fontSize = 12.sp)
+            if (error != null) Text(error, color = g.danger, fontSize = 12.sp)
         }
     }
 }

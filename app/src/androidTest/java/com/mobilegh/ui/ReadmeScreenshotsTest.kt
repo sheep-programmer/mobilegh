@@ -23,9 +23,12 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.mobilegh.data.Api
 import com.mobilegh.data.GitHubStarList
+import com.mobilegh.data.ListedRepository
 import com.mobilegh.data.Net
 import com.mobilegh.data.Repo
 import com.mobilegh.data.Session
+import com.mobilegh.data.StarListAccount
+import com.mobilegh.data.StarLists
 import com.mobilegh.data.User
 import com.mobilegh.i18n.AppLanguage
 import com.mobilegh.i18n.I18n
@@ -39,6 +42,8 @@ import com.mobilegh.nav.Tab
 import com.mobilegh.ui.screens.SearchFilterDialog
 import com.mobilegh.ui.screens.AddToStarListsDialog
 import com.mobilegh.ui.screens.GitHubListEditor
+import com.mobilegh.ui.screens.ListEditor
+import com.mobilegh.ui.screens.LocalOnlyStarListDialogForTest
 import com.mobilegh.ui.screens.StarListsScreen
 import com.mobilegh.ui.screens.StarredRepoPage
 import com.mobilegh.ui.theme.MobileGhTheme
@@ -415,6 +420,33 @@ class ReadmeScreenshotsTest {
         Thread.sleep(1500)
         compose.waitForIdle()
         saveScreen("14-new-list")
+    }
+
+    /** 新建本机列表的编辑弹窗（不带可见性选项，仅名称、描述和字数） */
+    @Test fun newLocalList() {
+        compose.setContent { MobileGhTheme { ListEditor(null, false, null, {}) { _, _ -> } } }
+        Thread.sleep(1500)
+        compose.waitForIdle()
+        saveScreen("14b-new-local-list")
+    }
+
+    /** 长按 Star 后改用本机列表的选择器（底部弹层，带保存按钮） */
+    @Test fun localStarListPicker() {
+        val n = Navigator().also { nav = it }
+        val repo = Repo(1, "mobilegh", "mona/mobilegh", User(login = "mona", avatarUrl = "https://avatars.githubusercontent.com/u/1?v=4"), description = "A GitHub client for Android", language = "Kotlin", stargazersCount = 1280, pushedAt = ago(3))
+        compose.setContent { MobileGhTheme { CompositionLocalProvider(LocalNav provides n, LocalEntry provides n.root) {
+            val account = StarListAccount("mona", Session.generation)
+            val store = StarLists.store(compose.activity)
+            // 预置两个本机列表，第一个已包含这个仓库；上一次运行可能留过同名列表，先清掉
+            runCatching { store.read(account).forEach { store.delete(account, it.id) } }
+            val made = store.create(account, "Read later", "Articles worth finishing")
+            store.create(account, "Machine learning", "")
+            store.setRepositoryLists(account, ListedRepository.from(repo), setOf(made.first().id), emptySet())
+            LocalOnlyStarListDialogForTest(repo, account)
+        } } }
+        Thread.sleep(2500)
+        compose.waitForIdle()
+        saveScreen("13b-local-star-picker")
     }
 
     @Test fun starListsOverview() {

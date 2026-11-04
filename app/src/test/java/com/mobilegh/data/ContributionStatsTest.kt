@@ -9,8 +9,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
-import java.io.ByteArrayInputStream
-import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -24,25 +22,18 @@ class ContributionStatsTest {
         ContributionRecord(User(login = login), total, weeks.toList())
     private fun snapshot(vararg records: ContributionRecord) = ContributionSnapshot(records.toList(), loadedAt = now)
     private fun response(code: Int, body: String = "", headers: Headers = Headers.Builder().build()) = Resp(code, body, headers)
-    /** 统计接口的流式读取，用同一套假响应：200 解析、204 为空、202 抛出，其余按 Api 的规则判错。 */
-    private fun streamVia(request: suspend (String, Boolean) -> Resp): StatsStreamer = { path, force, parse ->
-        val r = request(path, force)
-        when (r.code) {
-            204 -> null
-            202 -> throw ApiException(202, "computing")
-            else -> parse(ByteArrayInputStream(Api.ensureOk(r).body.toByteArray()))
-        }
-    }
-
     private suspend fun loadStats(
         owner: String,
         name: String,
         force: Boolean = false,
         request: suspend (String, Boolean) -> Resp,
-        cacheDir: File? = null,
-    ): ContributionSnapshot = ContributionStats.load(owner, name, force = force, request = request,
-        cacheDir = cacheDir, streamStats = streamVia(request))
+    ): ContributionSnapshot = ContributionStats.load(owner, name, force = force, request = request, pause = {})
 
+    private fun commitsJson(vararg logins: String?) = "[" + logins.joinToString(",") {
+        if (it == null) """{"author":null}""" else """{"author":{"login":"$it"}}"""
+    } + "]"
+
+    private fun tooLarge(path: String) = path.contains("/contributors?") && !path.contains("/stats/")
 
     @Test fun allHistoryUsesApiTotalAndLabelsShortWeeklyCoverage() {
         val result = aggregateContributions(snapshot(record(weeks = arrayOf(week("2026-09-27", 7), week("2026-10-04", 3)))), ContributionRange.All)
@@ -196,7 +187,6 @@ class ContributionStatsTest {
         assertEquals(20L, result.records.single().total)
         assertTrue(result.records.single().weeks.isNotEmpty())
         assertFalse(result.truncated)
-        assertTrue(result.personDetails)
     }
 
     @Test fun statisticsStillPendingFallsBackToCommitListWithMessage() = runBlocking {
@@ -229,80 +219,146 @@ class ContributionStatsTest {
         assertTrue(result.truncated)
         assertEquals(2, result.nextPage)
         assertNotNull(result.message)
-        assertTrue(result.personDetails)
     }
-    @Test fun tooLargeListFallsBackToOneStatisticsRequestRankedByCommitsWithoutWeeks() = runBlocking {
+    @Test fun tooLargeListReadsOneBatchOfRecentCommitsAndNeverStatistics() = runBlocking {
         val paths = mutableListOf<String>()
-        val result = loadStats("owner", "repo", cacheDir = null, request = { path, _ ->
+        // 100 条提交来自 40 位作者：一页就够 30 位，不再多读
+        val page = (0 until 100).map { "Dev${it % 40}" }.toTypedArray()
+        val result = loadStats("owner", "linux", request = { path, _ ->
             paths += path
-            if (path.contains("/contributors?")) response(403, """{"message":"The history or contributor list is too large"}""")
-            else response(200, """[
-                {"author":{"login":"small"},"total":5,"weeks":[{"w":1791072000,"a":1,"d":1,"c":5}]},
-                {"author":{"login":"leader"},"total":9,"weeks":[{"w":1791072000,"a":2,"d":2,"c":9}]}
-            ]""")
+            if (tooLarge(path)) response(403, """{"message":"The history or contributor list is too large to list contributors for this repository via the API."}""")
+            else response(200, commitsJson(*page))
         })
+        // 探测一次 + 最近提交的第 1 页；绝不读统计接口，也不预取后面的页
         assertEquals(2, paths.size)
-        assertEquals(1, paths.count { it.endsWith("/stats/contributors") })
-        assertEquals(ContributionSource.ContributorList, result.source)
+        assertTrue(paths.none { it.contains("/stats/") })
+        assertTrue(paths.last().contains("/commits?per_page=100&page=1"))
         assertEquals(ContributionStatus.Ready, result.status)
-        assertEquals(listOf("leader", "small"), result.records.map { it.author!!.login })
-        assertTrue(result.records.all { it.weeks.isEmpty() })
-        assertTrue(result.message!!.contains("仓库过大"))
-        assertFalse(result.personDetails)
+        assertTrue(result.commitPaged)
+        assertTrue(result.truncated)
+        assertEquals(2, result.nextPage)
+        assertEquals(40, result.records.size)
+        // 保持出现顺序，不按次数重排
+        assertEquals("Dev0", result.records.first().author!!.login)
+        assertEquals(3L, result.records.first().total)
     }
 
-    @Test fun topRankingIsCachedForAnHourUnlessForced() = runBlocking {
-        val dir = java.nio.file.Files.createTempDirectory("rank-cache").toFile()
-        var statsCalls = 0
-        var listCalls = 0
-        val request: suspend (String, Boolean) -> Resp = { path, _ ->
-            if (path.contains("/contributors?")) { listCalls++; response(403, """{"message":"too large"}""") } else {
-                statsCalls++
-                response(200, """[{"author":{"login":"leader"},"total":9,"weeks":[]}]""")
-            }
-        }
-        loadStats("owner", "bigrepo", request = request, cacheDir = dir)
-        assertEquals(1, statsCalls)
-        assertEquals(1, listCalls)
-        val cached = loadStats("owner", "bigrepo", request = request, cacheDir = dir)
-        // 命中缓存时既不读统计接口，也不再请求会返回 403 的 /contributors
-        assertEquals(1, statsCalls)
-        assertEquals(1, listCalls)
-        assertEquals("leader", cached.records.single().author!!.login)
-        loadStats("owner", "bigrepo", force = true, request = request, cacheDir = dir)
-        assertEquals(2, statsCalls)
-    }
-
-    @Test fun tooLargeListWithStatisticsStillPendingReturnsPendingWithoutPolling() = runBlocking {
-        var calls = 0
-        val result = loadStats("owner", "repo", cacheDir = null, request = { path, _ ->
-            calls++
-            if (path.contains("/contributors?")) response(403, """{"message":"too large"}""") else response(202)
+    @Test fun fewAuthorsMakeABatchReadMorePagesUpToALimit() = runBlocking {
+        val paths = mutableListOf<String>()
+        val result = loadStats("owner", "linux", request = { path, _ ->
+            paths += path
+            if (tooLarge(path)) response(403, """{"message":"too large"}""")
+            else response(200, commitsJson(*Array(100) { if (it < 70) "Alice" else "bob" }))
         })
-        assertEquals(2, calls)
-        assertEquals(ContributionStatus.Pending, result.status)
-        assertTrue(result.records.isEmpty())
+        // 探测 + 最多 3 页提交，游标跳到第 4 页
+        assertEquals(1 + 3, paths.size)
+        assertEquals(4, result.nextPage)
+        assertEquals(listOf("Alice", "bob"), result.records.map { it.author!!.login })
+        assertEquals(listOf(210L, 90L), result.records.map { it.total })
     }
 
-    @Test fun tooLargeListWithEmptyStatisticsIsEmptyNotAnError() = runBlocking {
-        val result = loadStats("owner", "repo", cacheDir = null, request = { path, _ ->
-            if (path.contains("/contributors?")) response(403, """{"message":"too large"}""") else response(204)
+    @Test fun authorsAlreadyListedDoNotCountTowardTheNextBatch() = runBlocking {
+        var calls = 0
+        val page = ContributionStats.commitAuthorPage("owner", "linux", 5, known = setOf("alice"),
+            request = { _, _ -> calls++; response(200, commitsJson(*Array(100) { "Alice" })) })
+        // 只有已列出的作者，凑不够新作者，读满 3 页后停下
+        assertEquals(3, calls)
+        assertEquals(3, page.pagesRead)
+        assertTrue(page.hasNext)
+    }
+
+    @Test fun laterPageFailureInABatchKeepsWhatWasAlreadyRead() = runBlocking {
+        var calls = 0
+        val page = ContributionStats.commitAuthorPage("owner", "linux", 1, request = { _, _ ->
+            if (++calls == 1) response(200, commitsJson(*Array(100) { "Alice" })) else response(502, "{}")
+        })
+        assertEquals(listOf("Alice"), page.records.map { it.author!!.login })
+        assertEquals(1, page.pagesRead)
+        assertTrue(page.hasNext)
+    }
+
+    @Test fun recentCommitPageSkipsUnlinkedAuthorsAndStopsAtAShortPage() = runBlocking {
+        val page = ContributionStats.commitAuthorPage("owner", "linux", 7,
+            request = { path, _ -> assertTrue(path.contains("page=7")); response(200, commitsJson("a", null, "A", "b")) })
+        assertEquals(listOf("a", "b"), page.records.map { it.author!!.login })
+        assertEquals(listOf(2L, 1L), page.records.map { it.total })
+        assertFalse(page.hasNext)
+    }
+
+    @Test fun fullRecentCommitPageReportsAnotherPage() = runBlocking {
+        val page = ContributionStats.commitAuthorPage("owner", "linux", 1,
+            request = { _, _ -> response(200, commitsJson(*Array(100) { "dev$it" })) })
+        assertEquals(100, page.records.size)
+        assertTrue(page.hasNext)
+    }
+
+    @Test fun recentCommitPagesMergeTheSameAuthorAcrossPages() {
+        val first = listOf(record("alice", 3), record("bob", 2))
+        val merged = mergeAuthorCounts(first, listOf(record("BOB", 4), record("carol", 1)))
+        assertEquals(listOf("alice", "bob", "carol"), merged.map { it.author!!.login })
+        assertEquals(listOf(3L, 6L, 1L), merged.map { it.total })
+        // 经分页状态追加时同样合并，且只在开启 mergeByLogin 时
+        val state = ContributorListState(records = first, nextPage = 2, busy = true, mergeByLogin = true)
+            .finishPage(ContributorPage(listOf(record("alice", 5)), hasNext = true))
+        assertEquals(listOf("alice", "bob"), state.records.map { it.author!!.login })
+        assertEquals(8L, state.records.first().total)
+        assertEquals(3, state.nextPage)
+        val skipped = ContributorListState(records = first, nextPage = 2, busy = true, mergeByLogin = true)
+            .finishPage(ContributorPage(listOf(record("carol", 1)), hasNext = true, pagesRead = 3))
+        assertEquals(5, skipped.nextPage)
+        val plain = ContributorListState(records = first, nextPage = 2, busy = true)
+            .finishPage(ContributorPage(listOf(record("alice", 5)), hasNext = true))
+        assertEquals(3, plain.records.size)
+    }
+
+    @Test fun tooLargeListWithoutAnyLinkedAuthorsStillOffersLaterPages() = runBlocking {
+        val result = loadStats("owner", "linux", request = { path, _ ->
+            if (tooLarge(path)) response(403, """{"message":"too large"}""")
+            else response(200, commitsJson(*Array(100) { null }))
+        })
+        assertTrue(result.records.isEmpty())
+        assertEquals(ContributionStatus.Ready, result.status)
+        // 一批读满 3 页仍没有可显示的作者，游标跳到第 4 页
+        assertEquals(4, result.nextPage)
+    }
+
+    @Test fun tooLargeListOfAnEmptyRepositoryIsEmpty() = runBlocking {
+        val result = loadStats("owner", "repo", request = { path, _ ->
+            if (tooLarge(path)) response(403, """{"message":"too large"}""") else response(409, """{"message":"Git Repository is empty."}""")
         })
         assertEquals(ContributionStatus.Empty, result.status)
+        assertNull(result.nextPage)
+    }
+
+    @Test fun tooLargeListRateLimitIsRaisedNotHidden() = runBlocking {
+        val failed = runCatching {
+            loadStats("owner", "linux", request = { path, _ ->
+                if (tooLarge(path)) response(403, """{"message":"too large"}""") else response(429, "{}")
+            })
+        }
+        assertTrue(failed.exceptionOrNull() is ApiException)
+    }
+
+    @Test fun tooLargeListWhenCommitsAreUnavailableIsReportedWithoutThrowing() = runBlocking {
+        val result = loadStats("owner", "linux", request = { path, _ ->
+            if (tooLarge(path)) response(403, """{"message":"too large"}""") else response(500, "{}")
+        })
+        assertEquals(ContributionStatus.Unavailable, result.status)
+        assertTrue(result.records.isEmpty())
     }
 
     @Test fun emptyAndPendingContributorListsAreReportedWithoutFallback() = runBlocking {
         var calls = 0
-        val empty = loadStats("owner", "repo", cacheDir = null, request = { _, _ -> calls++; response(204) })
+        val empty = loadStats("owner", "repo", request = { _, _ -> calls++; response(204) })
         assertEquals(ContributionStatus.Empty, empty.status)
-        val pending = loadStats("owner", "repo", cacheDir = null, request = { _, _ -> calls++; response(202) })
+        val pending = loadStats("owner", "repo", request = { _, _ -> calls++; response(202) })
         assertEquals(ContributionStatus.Pending, pending.status)
         assertEquals(2, calls)
     }
 
     @Test fun unexpectedSuccessCodeIsAnErrorNotAnEmptyRepository() = runBlocking {
         val failed = runCatching {
-            loadStats("owner", "repo", cacheDir = null, request = { _, _ -> response(201, "[]") })
+            loadStats("owner", "repo", request = { _, _ -> response(201, "[]") })
         }
         assertTrue(failed.isFailure)
     }
@@ -311,7 +367,7 @@ class ContributionStatsTest {
         for (code in listOf(401, 429)) {
             val paths = mutableListOf<String>()
             try {
-                loadStats("owner", "repo", cacheDir = null, request = { path, _ -> paths += path; response(code, "{}") })
+                loadStats("owner", "repo", request = { path, _ -> paths += path; response(code, "{}") })
                 fail("Expected API failure")
             } catch (error: ApiException) {
                 assertEquals(code, error.code)
@@ -358,6 +414,40 @@ class ContributionStatsTest {
         assertEquals(0L, activity.weekly.first().commits)
     }
 
+    @Test fun personActivityReadsEveryPageOfTheYearAndReportsProgress() = runBlocking {
+        val pages = mutableListOf<Int>()
+        val progress = mutableListOf<PersonActivity>()
+        fun commit(date: String) = """{"commit":{"author":{"date":"$date"}}}"""
+        val full = "[" + (1..100).joinToString(",") { commit("2026-10-05T10:00:00Z") } + "]"
+        val activity = ContributionStats.personActivity("owner", "linux", "gregkh", now = now,
+            onProgress = { progress += it },
+            request = { path, _ ->
+                val page = Regex("&page=(\\d+)").find(path)!!.groupValues[1].toInt()
+                pages += page
+                if (page < 5) response(200, full) else response(200, "[" + commit("2026-03-01T00:00:00Z") + "]")
+            })
+        // 超过 3 页也继续读，直到一页不满为止；读到的每一页之后都交出过中间结果
+        assertEquals(listOf(1, 2, 3, 4, 5), pages)
+        assertEquals(4, progress.size)
+        assertTrue(progress.all { it.truncated })
+        assertFalse(activity.truncated)
+        assertEquals(400L, activity.weekly.last().commits)
+        assertEquals(1L, activity.weekly.single { it.start == LocalDate.parse("2026-03-01") }.commits)
+        assertEquals(0L, activity.weekly.first().commits)
+    }
+
+    @Test fun authorCommitCountIsReportedUnavailableWhenGitHubOmitsTheLastPage() = runBlocking {
+        val noLast = Headers.Builder().add("Link", "<https://api.github.com/x?per_page=1&page=3>; rel=\"next\", <https://api.github.com/x?per_page=1&page=1>; rel=\"first\"").build()
+        val failed = runCatching { ContributionStats.authorCommits("owner", "linux", "gregkh", request = { _, _ -> response(200, "[{}]", noLast) }) }
+        assertTrue(failed.isFailure)
+    }
+
+    @Test fun keepOrderPreservesTheSnapshotSequence() {
+        val snap = snapshot(record("zed", 1), record("amy", 9))
+        assertEquals(listOf("zed", "amy"), aggregateContributions(snap, ContributionRange.All, keepOrder = true).contributors.map { it.author!!.login })
+        assertEquals(listOf("amy", "zed"), aggregateContributions(snap, ContributionRange.All).contributors.map { it.author!!.login })
+    }
+
     @Test fun authorCommitCountComesFromLastPageOfOneItemPages() = runBlocking {
         val last = Headers.Builder().add("Link", "<https://api.github.com/x?per_page=1&page=2>; rel=\"next\", <https://api.github.com/x?per_page=1&page=42>; rel=\"last\"").build()
         assertEquals(42L, ContributionStats.authorCommits("owner", "repo", "octocat", request = { _, _ -> response(200, "[{}]", last) }))
@@ -370,18 +460,27 @@ class ContributionStatsTest {
         assertNull(result.additions)
     }
 
-    @Test fun homepagePreviewFetchesOnlyThreeCumulativeCountsWithoutHeavyStatistics() = runBlocking {
+    @Test fun homepagePreviewFetchesTopThreeCumulativeCountsWithoutHeavyStatistics() = runBlocking {
         var calls = 0
         val result = ContributionStats.preview("owner", "repo", force = true, request = { path, force ->
             calls++
             assertEquals("/repos/owner/repo/contributors?anon=1&per_page=3&page=1", path)
             assertTrue(force)
-            response(200, """[{"login":"alice","contributions":100},{"login":"bob","contributions":60},{"name":"Anonymous","contributions":40}]""")
+            response(200, """[{"login":"alice","contributions":60},{"login":"bob","contributions":100},{"login":"carol","contributions":40},{"login":"dave","contributions":10}]""")
         })
         assertEquals(1, calls)
+        // 取提交数最多的三位（顺序按提交数降序），多余的即使接口给了也不展示
         assertEquals(listOf(100L, 60L, 40L), result.records.map { it.total })
         assertTrue(result.records.all { it.weeks.isEmpty() })
         assertEquals(ContributionSource.ContributorList, result.source)
+    }
+
+    @Test fun homepagePreviewFallsBackToAnyThreeWhenCountsAreMissing() = runBlocking {
+        val result = ContributionStats.preview("owner", "repo", request = { _, _ ->
+            response(200, """[{"login":"alice"},{"login":"bob"},{"login":"carol"},{"login":"dave"}]""")
+        })
+        // 拿不到提交数时保持接口顺序，随便取三位
+        assertEquals(listOf("alice", "bob", "carol"), result.records.map { it.author?.login })
     }
 
     @Test fun emptyHomepagePreviewHasNoStatisticsOrFallbackRequests() = runBlocking {

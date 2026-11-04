@@ -71,12 +71,14 @@ import com.mobilegh.data.ContributorContribution
 import com.mobilegh.data.ContributorListState
 import com.mobilegh.data.ContributorPager
 import com.mobilegh.data.ContributorScanPhase
+import com.mobilegh.data.PersonActivity
 import com.mobilegh.data.aggregateContributions
 import com.mobilegh.data.contributorMatches
 import com.mobilegh.data.normalizeContributorQuery
 import com.mobilegh.data.validateContributionDates
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
+import com.mobilegh.nav.friendly
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.ui.components.ChartBubbleSpace
 import com.mobilegh.ui.components.drawValueBubble
@@ -118,11 +120,21 @@ fun ContributorsScreen(owner: String, name: String) {
     }
     // The loader supplies page 1 of the contributor list; further pages are appended by the pager below.
     val scope = rememberCoroutineScope()
+    // 超大仓库（commitPaged）没有贡献者列表：每页读一段最近的提交并按作者合并，只在滚到底时请求下一页
+    val commitPaged = current?.commitPaged == true
     val pager = remember(current, owner, name) {
+        // 已列出的登录名：每批读提交时据此判断新作者够不够 30 位
+        val known = HashSet<String>().apply {
+            current?.records?.forEach { r -> r.author?.login?.takeIf { it.isNotBlank() }?.let { add(it.lowercase(Locale.ROOT)) } }
+        }
         ContributorPager(
             scope,
-            ContributorListState(records = current?.records.orEmpty(), nextPage = current?.nextPage),
-            { page -> ContributionStats.contributorPage(owner, name, page) },
+            ContributorListState(records = current?.records.orEmpty(), nextPage = current?.nextPage, mergeByLogin = commitPaged),
+            if (commitPaged) { page ->
+                ContributionStats.commitAuthorPage(owner, name, page, known = known).also { result ->
+                    result.records.forEach { r -> r.author?.login?.takeIf { it.isNotBlank() }?.let { known.add(it.lowercase(Locale.ROOT)) } }
+                }
+            } else { page -> ContributionStats.contributorPage(owner, name, page) },
         )
     }
     DisposableEffect(pager) { onDispose { pager.close() } }
@@ -130,7 +142,8 @@ fun ContributorsScreen(owner: String, name: String) {
     val showingList = current?.source == ContributionSource.ContributorList && lastStatistics == null
     val needle = normalizeContributorQuery(query)
     // Searching scans the remaining pages in the background; the scan stops when the list is not on screen.
-    LaunchedEffect(pager, needle, showingList) { pager.setQuery(if (showingList) needle else "") }
+    // 超大仓库不做后台全量检索（那等于把整个提交历史读一遍）：搜索只过滤已加载的作者，往下滚会继续加载更早的提交
+    LaunchedEffect(pager, needle, showingList) { pager.setQuery(if (showingList && !commitPaged) needle else "") }
     val listState = rememberLazyListState()
     // Load the next page only when the user scrolls within a few items of the loaded end.
     LaunchedEffect(pager) {
@@ -154,7 +167,7 @@ fun ContributorsScreen(owner: String, name: String) {
     val range = if (snapshot?.source == ContributionSource.ContributorList) ContributionRange.All
         else ContributionRange.entries.getOrElse(selected) { ContributionRange.All }
     val summary = remember(snapshot, range, dates.dates, today) {
-        snapshot?.let { aggregateContributions(it, range, dates.dates, today.atStartOfDay(ZoneOffset.UTC).toInstant()) }
+        snapshot?.let { aggregateContributions(it, range, dates.dates, today.atStartOfDay(ZoneOffset.UTC).toInstant(), keepOrder = it.commitPaged) }
     }
 
     Page(tr("贡献者"), subtitle = "$owner/$name", actions = {
@@ -172,7 +185,6 @@ fun ContributorsScreen(owner: String, name: String) {
                 Loading(Modifier.size(48.dp))
                 Text(tr("正在加载贡献统计…"), color = g.fgMuted, fontSize = 13.sp)
                 Text(tr("GitHub 首次计算可能需要一些时间"), Modifier.padding(16.dp), color = g.fgMuted, fontSize = 12.sp)
-                Text(tr("超大仓库首次读取可能需要十几秒，结果会缓存一小时"), Modifier.padding(horizontal = 16.dp), color = g.fgMuted, fontSize = 12.sp)
             }
             else -> PullToRefreshBox(
                 isRefreshing = loader.refreshing, onRefresh = { loader.refresh() },
@@ -204,7 +216,7 @@ fun ContributorsScreen(owner: String, name: String) {
                             buildList {
                                 if (stale) add(trf("显示上次加载的统计。{0}", loader.error ?: current?.message.orEmpty()))
                                 else current?.message?.let { add(it) }
-                                if (snapshot.truncated) add(tr("仅汇总已加载的贡献者；占比以此列表为分母"))
+                                if (snapshot.truncated && !snapshot.commitPaged) add(tr("仅汇总已加载的贡献者；占比以此列表为分母"))
                             }.joinToString("\n"), loader.loading,
                         ) { loader.refresh() }
                     }
@@ -248,7 +260,7 @@ fun ContributorsScreen(owner: String, name: String) {
                                 contributorMatches(contributor.author, needle)
                             }
                             contributorSearchField(query) { query = it; lookup = null }
-                            if (needle.isNotEmpty()) item {
+                            if (needle.isNotEmpty() && !commitPaged) item {
                                 ContributorScanStatus(pagingState, visible.size,
                                     onStop = { pager.stopScan() }, onResume = { pager.resume() })
                             }
@@ -263,6 +275,7 @@ fun ContributorsScreen(owner: String, name: String) {
                                 item {
                                     ContributionEmpty(tr("已加载的贡献者中没有匹配项"),
                                         if (pagingState.scanPhase == ContributorScanPhase.Scanning) tr("仍在检索其余贡献者，匹配项会陆续出现。")
+                                        else if (commitPaged) tr("继续下滑会读取更早的提交；也可以输入完整登录名，在整个仓库中查找。")
                                         else tr("可以输入完整登录名，在整个仓库中查找。"))
                                 }
                             }
@@ -274,7 +287,6 @@ fun ContributorsScreen(owner: String, name: String) {
                                     index + 1, contributor, range, snapshot.truncated,
                                     owner = owner, name = name,
                                     listOnly = snapshot.source == ContributionSource.ContributorList,
-                                    personDetails = snapshot.personDetails,
                                     onViewCommits = if (author != null && (range != ContributionRange.Custom || dates.error == null)) ({
                                         val requested = summary.requestedDates
                                         nav.push(Screen.Commits(owner, name, null, author = author,
@@ -283,7 +295,7 @@ fun ContributorsScreen(owner: String, name: String) {
                                     }) else null,
                                 )
                             }
-                            if (needle.isEmpty() && pagingState.nextPage != null) item {
+                            if ((needle.isEmpty() || commitPaged) && pagingState.nextPage != null) item {
                                 ContributorLoadMore(pagingState, onLoad = { pager.loadNext() }, onRetry = { pager.resume() })
                             }
                         }
@@ -292,7 +304,8 @@ fun ContributorsScreen(owner: String, name: String) {
                         Text(
                             if (snapshot.source == ContributionSource.Statistics)
                                 tr("统计基于默认分支，排除合并提交与空提交。占比按返回的贡献者提交数计算；未关联账号的贡献可能不在统计中。GitHub 缓存可能延迟更新。")
-                            else tr("备用贡献者列表来自 GitHub 的缓存，可能延迟数小时。它仅提供累计提交数，不提供日期、周趋势或增删行数。"),
+                            else if (snapshot.commitPaged) tr("下滑加载更多，点开某人查看周趋势。")
+                            else tr("备用列表只提供累计提交数，不提供增删行数。点开某人可查看其最近一年的周提交趋势。"),
                             Modifier.padding(16.dp), color = g.fgMuted, fontSize = 11.sp,
                         )
                         Spacer(Modifier.height(16.dp))
@@ -388,7 +401,6 @@ private fun ContributorDetailCard(
     owner: String,
     name: String,
     listOnly: Boolean,
-    personDetails: Boolean = true,
     onViewCommits: (() -> Unit)? = null,
 ) {
     val g = Gh.c
@@ -433,7 +445,6 @@ private fun ContributorDetailCard(
             }
             if (listOnly) {
                 if (login.isBlank()) MutedText(tr("未关联账号的贡献者无法查询周趋势。"))
-                else if (!personDetails) MutedText(tr("仓库过大，GitHub 不提供每人的周趋势，这里只显示累计提交数。"))
                 else {
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).clickable { expanded = !expanded }
@@ -476,21 +487,39 @@ private fun ContributorDetailCard(
 /** 只有展开时才会组合这个函数，所以周趋势请求只为被展开的人发出。 */
 @Composable
 private fun PersonActivitySection(owner: String, name: String, login: String) {
-    val loader = rememberLoader("personActivity:$owner/$name/$login") { ContributionStats.personActivity(owner, name, login, it) }
-    val activity = loader.data
-    when {
-        activity != null -> {
-            WeeklyContributionGraph(activity.weekly, height = 42.dp)
-            if (activity.truncated) MutedText(tr("提交很多，只取到了最近的一部分；较早的周显示为缺失。"))
+    // 逐页读取这个人最近一年的提交：每读完一页就刷新图，最近的周先出现，读完后才算完整
+    var activity by remember(owner, name, login) { mutableStateOf<PersonActivity?>(null) }
+    var loading by remember(owner, name, login) { mutableStateOf(true) }
+    var error by remember(owner, name, login) { mutableStateOf<String?>(null) }
+    var attempt by remember(owner, name, login) { mutableIntStateOf(0) }
+    LaunchedEffect(owner, name, login, attempt) {
+        loading = true
+        error = null
+        try {
+            ContributionStats.personActivity(owner, name, login, onProgress = { activity = it })
+                .let { activity = it }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            error = e.friendly()
+        } finally {
+            loading = false
         }
-        loader.error != null -> {
-            MutedText(loader.error!!)
-            TextButton(onClick = { loader.load(true) }, enabled = !loader.loading) { Text(tr("重试")) }
-        }
-        else -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Loading(Modifier.size(20.dp))
-            MutedText(tr("正在加载最近一年的周趋势…"))
-        }
+    }
+    activity?.let { shown ->
+        WeeklyContributionGraph(shown.weekly, height = 42.dp)
+        if (loading) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Loading(Modifier.size(16.dp))
+            MutedText(tr("正在读取更早的提交…"))
+        } else if (shown.truncated) MutedText(tr("提交非常多，只读到了最近的一部分；更早的周显示为缺失。"))
+    }
+    error?.let {
+        MutedText(it)
+        TextButton(onClick = { attempt++ }, enabled = !loading) { Text(tr("重试")) }
+    }
+    if (activity == null && error == null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Loading(Modifier.size(20.dp))
+        MutedText(tr("正在加载最近一年的周趋势…"))
     }
 }
 
@@ -771,7 +800,8 @@ fun ContributorPreview(owner: String, name: String) {
                         }
                     }
                 }
-                MutedText(trf("提交最多的 {0} 位贡献者 · GitHub 返回的累计提交数，缓存可能延迟。", snapshot.records.size.coerceAtMost(3)))
+                // 只说明数据来源，不写「最多」：展示的已是提交数最多的三位
+                MutedText(tr("按累计提交数排序 · 数据来自 GitHub，缓存可能延迟。"))
             }
         }
     }

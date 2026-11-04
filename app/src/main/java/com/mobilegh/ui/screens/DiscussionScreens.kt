@@ -206,7 +206,7 @@ fun DiscussionsScreen(
     var composing by rememberSaveable { mutableStateOf(false) }
 
     Page("Discussions", subtitle = "$owner/$name") { padding ->
-        LoadBox(repository, Modifier.padding(padding)) { repo ->
+        LoadBox(repository, Modifier.padding(padding).fillMaxSize()) { repo ->
             if (!repo.enabled) {
                 EmptyState(tr("此仓库未启用 Discussions"), R.drawable.oc_comment_discussion)
             } else {
@@ -375,7 +375,7 @@ fun DiscussionDetailScreen(
             if (d != null && d.viewerCanDelete) add(MenuAction(tr("删除讨论"), danger = true) { deletingDiscussion = true })
         })
     }) { padding ->
-        LoadBox(thread, Modifier.padding(padding)) { data ->
+        LoadBox(thread, Modifier.padding(padding).fillMaxSize()) { data ->
             val discussion = data.discussion
             val allowed = discussion.canReply(data.repository, canWrite && Session.token != null && !Session.authExpired)
             val answerable = discussion.category.isAnswerable

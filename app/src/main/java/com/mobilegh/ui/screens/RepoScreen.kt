@@ -207,7 +207,7 @@ fun RepoScreen(owner: String, name: String) {
     ) { pad ->
         RegisterScrollTop(listState)
         when {
-            r == null && repo.error != null -> ErrorState(repo.error!!, Modifier.padding(pad)) { repo.load(true) }
+            r == null && repo.error != null -> ErrorState(repo.error!!, Modifier.padding(pad).fillMaxSize()) { repo.load(true) }
             r == null -> Loading(Modifier.padding(pad).fillMaxSize())
             else -> PullToRefreshBox(repo.refreshing, { if (!starBusy) { repo.refresh(); readme.refresh(); langs.refresh(); starStatus.refresh(); watching.refresh() } }, Modifier.padding(pad)) {
                 // README 的下标由「是否有语言条」决定，和下方 LazyColumn 里的 item 顺序保持一致

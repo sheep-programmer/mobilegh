@@ -469,7 +469,7 @@ fun InvitationsScreen() {
     Page(tr("待处理邀请")) { pad ->
         val list = repoInv.data
         when {
-            list == null && repoInv.error != null -> ErrorState(repoInv.error!!, Modifier.padding(pad)) { repoInv.load(true) }
+            list == null && repoInv.error != null -> ErrorState(repoInv.error!!, Modifier.padding(pad).fillMaxSize()) { repoInv.load(true) }
             list == null -> Loading(Modifier.padding(pad).fillMaxSize())
             else -> PullToRefreshBox(repoInv.refreshing, { repoInv.refresh(); orgInv.refresh() }, Modifier.padding(pad)) {
                 LazyColumn(Modifier.fillMaxSize()) {

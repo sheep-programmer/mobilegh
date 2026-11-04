@@ -262,7 +262,7 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
         },
     ) { pad ->
         when {
-            u == null && user.error != null -> ErrorState(user.error!!, Modifier.padding(pad)) { user.load(true) }
+            u == null && user.error != null -> ErrorState(user.error!!, Modifier.padding(pad).fillMaxSize()) { user.load(true) }
             u == null -> Loading(Modifier.padding(pad).fillMaxSize())
             else -> PullToRefreshBox(user.refreshing, { user.refresh(); contrib.refresh(); pinned.refresh(); orgs.refresh() }, Modifier.padding(pad)) {
                 RegisterScrollTop(state)

@@ -41,19 +41,28 @@ fun ClipboardLinkHost(nav: Navigator, modifier: Modifier = Modifier) {
     val g = Gh.c
 
     DisposableEffect(clipboard, view, lifecycle, nav) {
-        fun inspect() {
-            if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) || !view.hasWindowFocus()) return
+        /** [suggest] 为 false 表示剪贴板是在应用内被改动的（复制链接等），只记录、不提示跳转。 */
+        fun inspect(suggest: Boolean) {
+            if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+            // 应用内的弹窗会暂时拿走窗口焦点，此时仍属于应用内复制，只需要记录
+            if (suggest && !view.hasWindowFocus()) return
             val clip = runCatching { clipboard.primaryClip }.getOrElse { return }
             val sensitive = clip?.description?.extras?.getBoolean("android.content.extra.IS_SENSITIVE", false) == true
             val texts = if (clip == null || sensitive) emptyList() else (0 until clip.itemCount.coerceAtMost(8)).mapNotNull { i ->
                 val item = clip.getItemAt(i)
                 (item.text ?: item.uri?.toString())?.take(65_536)?.toString()
             }
-            val update = nav.clipboardLinks.inspect(clip?.description?.timestamp ?: 0, texts) ?: return
+            val timestamp = clip?.description?.timestamp ?: 0
+            if (!suggest) {
+                nav.clipboardLinks.note(timestamp, texts)
+                return
+            }
+            val update = nav.clipboardLinks.inspect(timestamp, texts) ?: return
             pending = update.link?.takeUnless { it.target == nav.top.screen }
         }
-        val inspectLater = Runnable { inspect() }
-        val listener = ClipboardManager.OnPrimaryClipChangedListener { view.post(inspectLater) }
+        val inspectLater = Runnable { inspect(suggest = true) }
+        val clipboardChanged = Runnable { inspect(suggest = false) }
+        val listener = ClipboardManager.OnPrimaryClipChangedListener { view.post(clipboardChanged) }
         val focusListener = ViewTreeObserver.OnWindowFocusChangeListener { focused -> if (focused) view.post(inspectLater) }
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) view.post(inspectLater) }
         clipboard.addPrimaryClipChangedListener(listener)
@@ -65,6 +74,7 @@ fun ClipboardLinkHost(nav: Navigator, modifier: Modifier = Modifier) {
             if (view.viewTreeObserver.isAlive) view.viewTreeObserver.removeOnWindowFocusChangeListener(focusListener)
             lifecycle.removeObserver(observer)
             view.removeCallbacks(inspectLater)
+            view.removeCallbacks(clipboardChanged)
         }
     }
 

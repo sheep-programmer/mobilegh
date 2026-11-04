@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -29,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +54,7 @@ import com.mobilegh.data.MediaProxy
 import com.mobilegh.nav.Links
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Navigator
+import com.mobilegh.nav.Screen
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
 import androidx.compose.foundation.clickable
@@ -126,6 +129,26 @@ internal fun externalLinkKind(url: String): ExternalLinkKind =
         else -> ExternalLinkKind.Other
     }
 
+/** 渲染进程退出后，同一个页面最多自动重建 WebView 的次数 */
+private const val MAX_RENDER_RETRIES = 2
+
+/** 网页里点击链接后的去向。WebView 自己不跳转：GitHub 内部地址走原生页面，其余交给浏览器或系统应用。 */
+internal sealed interface WebLinkAction {
+    data class Native(val screen: Screen) : WebLinkAction
+    data object Browser : WebLinkAction
+    data object System : WebLinkAction
+    data object Unsupported : WebLinkAction
+}
+
+internal fun webLinkAction(url: String): WebLinkAction {
+    Links.route(url)?.let { return WebLinkAction.Native(it) }
+    return when (externalLinkKind(url)) {
+        ExternalLinkKind.Web -> WebLinkAction.Browser
+        ExternalLinkKind.Mail, ExternalLinkKind.Phone -> WebLinkAction.System
+        ExternalLinkKind.Other -> WebLinkAction.Unsupported
+    }
+}
+
 /**
  * 渲染 GitHub 返回的 HTML（README、Issue、Release 等），使用 GitHub 的 markdown 样式。
  * WebView 高度随内容自适应，放在可滚动容器中使用。
@@ -152,6 +175,7 @@ fun HtmlView(
     val density = LocalDensity.current.density
     val textZoom = (LocalDensity.current.fontScale * 100).toInt().coerceAtLeast(1)
     var measuredWidth by remember { mutableIntStateOf(0) }
+    var renderEpoch by remember { mutableIntStateOf(0) }
     val maxHeight = remember(density, measuredWidth) { htmlMaxHeightDp(density, measuredWidth) }
     val heightLimit by rememberUpdatedState(maxHeight)
     var height by remember { mutableIntStateOf(0) }
@@ -167,88 +191,92 @@ fun HtmlView(
         val req = anchorRequest ?: return@LaunchedEffect
         webRef[0]?.evaluateJavascript(headingScrollScript(req.anchor), null)
     }
-    AndroidView(
-        factory = { c ->
-            WebView(c).apply {
-                webRef[0] = this
-                setBackgroundColor(0)
-                isVerticalScrollBarEnabled = false
-                isHorizontalScrollBarEnabled = false
-                overScrollMode = WebView.OVER_SCROLL_NEVER
-                // 页面高度跟随内容（ResizeObserver 上报），WebView 本身不该滚动。若上报的高度偶尔比内容矮，
-                // 手指在正文上拖动会让它内部滚动，顶部就被裁掉；这里把内部滚动位置钉在 0。
-                setOnScrollChangeListener { _, _, y, _, _ -> if (y != 0) scrollTo(0, 0) }
-                settings.javaScriptEnabled = true
-                settings.allowFileAccess = false
-                settings.allowContentAccess = false
-                settings.textZoom = textZoom
-                addJavascriptInterface(object {
-                    /** 同一个 WebView 只记一次：页面里有循环图片时高度会反复超限 */
-                    @Volatile private var warned = false
+    // 渲染进程退出后换一个 key 重建 WebView；最多重建两次，避免某个页面反复崩溃时无限循环
+    key(renderEpoch) {
+        AndroidView(
+            factory = { c ->
+                WebView(c).apply {
+                    webRef[0] = this
+                    setBackgroundColor(0)
+                    isVerticalScrollBarEnabled = false
+                    isHorizontalScrollBarEnabled = false
+                    overScrollMode = WebView.OVER_SCROLL_NEVER
+                    // 页面高度跟随内容（ResizeObserver 上报），WebView 本身不该滚动。若上报的高度偶尔比内容矮，
+                    // 手指在正文上拖动会让它内部滚动，顶部就被裁掉；这里把内部滚动位置钉在 0。
+                    setOnScrollChangeListener { _, _, y, _, _ -> if (y != 0) scrollTo(0, 0) }
+                    settings.javaScriptEnabled = true
+                    settings.allowFileAccess = false
+                    settings.allowContentAccess = false
+                    settings.textZoom = textZoom
+                    addJavascriptInterface(object {
+                        /** 同一个 WebView 只记一次：页面里有循环图片时高度会反复超限 */
+                        @Volatile private var warned = false
 
-                    @JavascriptInterface
-                    fun h(v: Int) = post {
-                        if (webRef[0] !== this@apply) return@post
-                        // JS 返回的是内容像素；异常页面/循环图片可能回报几十万像素，
-                        // 直接换算成 dp 会触发 Compose Constraints 崩溃。
-                        if (v > heightLimit && !warned) {
-                            warned = true
-                            AppLog.warn("webview", tr("HTML 高度异常：") + v + tr("px，已限制"))
+                        @JavascriptInterface
+                        fun h(v: Int) = post {
+                            if (webRef[0] !== this@apply) return@post
+                            // JS 返回的是内容像素；异常页面/循环图片可能回报几十万像素，
+                            // 直接换算成 dp 会触发 Compose Constraints 崩溃。
+                            if (v > heightLimit && !warned) {
+                                warned = true
+                                AppLog.warn("webview", tr("HTML 高度异常：") + v + tr("px，已限制"))
+                            }
+                            height = v.coerceIn(24, heightLimit)
                         }
-                        height = v.coerceIn(24, heightLimit)
-                    }
 
-                    @JavascriptInterface
-                    fun a(y: Int) = post { if (webRef[0] === this@apply) anchor?.invoke(y) }
+                        @JavascriptInterface
+                        fun a(y: Int) = post { if (webRef[0] === this@apply) anchor?.invoke(y) }
 
-                    /** 点击网页里的图片：打开全屏查看器 */
-                    @JavascriptInterface
-                    fun img(src: String, alt: String) = post { if (webRef[0] === this@apply) ImageViewer.open(src, alt) }
+                        /** 点击网页里的图片：打开全屏查看器 */
+                        @JavascriptInterface
+                        fun img(src: String, alt: String) = post { if (webRef[0] === this@apply) ImageViewer.open(src, alt) }
 
-                    /** 点击视频：交给原生全屏播放器（倍速、拖动、保存），WebView 自带的播放器做不到 */
-                    @JavascriptInterface
-                    fun video(src: String) = post { if (webRef[0] === this@apply) VideoViewer.open(src) }
+                        /** 点击视频：交给原生全屏播放器（倍速、拖动、保存），WebView 自带的播放器做不到 */
+                        @JavascriptInterface
+                        fun video(src: String) = post { if (webRef[0] === this@apply) VideoViewer.open(src) }
 
-                    /** 代码块「复制」：代码文本作为参数传入，不拼进 JS 源码 */
-                    @JavascriptInterface
-                    fun copyCode(text: String) = post { if (webRef[0] === this@apply) c.copy(text) }
+                        /** 代码块「复制」：代码文本作为参数传入，不拼进 JS 源码 */
+                        @JavascriptInterface
+                        fun copyCode(text: String) = post { if (webRef[0] === this@apply) c.copy(text) }
 
-                    /** 代码块「放大」：全屏查看，横向、纵向都能滚动 */
-                    @JavascriptInterface
-                    fun zoomCode(text: String) = post { if (webRef[0] === this@apply) codeZoom.value = text }
+                        /** 代码块「放大」：全屏查看，横向、纵向都能滚动 */
+                        @JavascriptInterface
+                        fun zoomCode(text: String) = post { if (webRef[0] === this@apply) codeZoom.value = text }
 
-                    /** 图表「放大」：全屏查看，可缩放、拖动或旋转，并能切换到源码 */
-                    @JavascriptInterface
-                    fun diagram(kind: String, src: String) = post { if (webRef[0] === this@apply) diagramZoom.value = DiagramRequest(kind, src) }
-                }, "Bridge")
-                webViewClient = GhWebClient(c, nav)
-            }
-        },
-        onRelease = { wv ->
-            webRef[0] = null
-            wv.removeJavascriptInterface("Bridge")
-            wv.stopLoading()
-            wv.destroy()
-        },
-        update = { wv ->
-            if (wv.settings.textZoom != textZoom) wv.settings.textZoom = textZoom
-            val contentKey = doc to baseUrl
-            if (wv.tag != contentKey) {
-                wv.tag = contentKey
-                wv.loadDataWithBaseURL(baseUrl, doc, "text/html", "utf-8", null)
-            }
-        },
-        modifier = modifier
-            .fillMaxWidth()
-            .onSizeChanged { if (it.width != measuredWidth) measuredWidth = it.width }
-            // Modifier.height 会把高度夹进父级的最大约束；折叠的 README 父级上限只有 480dp，WebView 会被压低并内部滚动。
-            // fullHeight 时改用 requiredHeight，忽略父级约束，由外层裁剪。
-            .then(
-                htmlContentHeightDp(height, maxHeight).dp.let { h ->
-                    if (fullHeight) Modifier.requiredHeight(h) else Modifier.height(h)
-                },
-            ),
-    )
+                        /** 图表「放大」：全屏查看，可缩放、拖动或旋转，并能切换到源码 */
+                        @JavascriptInterface
+                        fun diagram(kind: String, src: String) = post { if (webRef[0] === this@apply) diagramZoom.value = DiagramRequest(kind, src) }
+                    }, "Bridge")
+                    webViewClient = GhWebClient(c, nav) { if (renderEpoch < MAX_RENDER_RETRIES) renderEpoch++ }
+                }
+            },
+            onRelease = { wv ->
+                // 重建时新的 WebView 可能先于旧的释放登记；只清理自己
+                if (webRef[0] === wv) webRef[0] = null
+                wv.removeJavascriptInterface("Bridge")
+                wv.stopLoading()
+                wv.destroy()
+            },
+            update = { wv ->
+                if (wv.settings.textZoom != textZoom) wv.settings.textZoom = textZoom
+                val contentKey = doc to baseUrl
+                if (wv.tag != contentKey) {
+                    wv.tag = contentKey
+                    wv.loadDataWithBaseURL(baseUrl, doc, "text/html", "utf-8", null)
+                }
+            },
+            modifier = modifier
+                .fillMaxWidth()
+                .onSizeChanged { if (it.width != measuredWidth) measuredWidth = it.width }
+                // Modifier.height 会把高度夹进父级的最大约束；折叠的 README 父级上限只有 480dp，WebView 会被压低并内部滚动。
+                // fullHeight 时改用 requiredHeight，忽略父级约束，由外层裁剪。
+                .then(
+                    htmlContentHeightDp(height, maxHeight).dp.let { h ->
+                        if (fullHeight) Modifier.requiredHeight(h) else Modifier.height(h)
+                    },
+                ),
+        )
+    }
     codeZoom.value?.let { code -> CodeZoomDialog(code) { codeZoom.value = null } }
     diagramZoom.value?.let { req -> DiagramZoomDialog(req.kind, req.src, dark) { diagramZoom.value = null } }
 }
@@ -503,7 +531,19 @@ ${DIAGRAM_JS}
 """
 }
 
-class GhWebClient(private val ctx: Context, private val nav: Navigator) : WebViewClient() {
+class GhWebClient(
+    private val ctx: Context,
+    private val nav: Navigator,
+    /** 渲染进程退出后由外层决定是否重建 WebView；为空时当前卡片留空。 */
+    private val onRenderGone: (() -> Unit)? = null,
+) : WebViewClient() {
+    /** Chromium 渲染进程崩溃或被系统回收时，返回 true 让 App 继续运行；已退出的 WebView 不能复用，由外层释放。 */
+    override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+        AppLog.error("webview", tr("网页渲染进程退出：didCrash=") + detail.didCrash())
+        onRenderGone?.invoke()
+        return true
+    }
+
     /** 应用内置的前端库与 KaTeX 字体：只放行白名单里的文件，读取失败或不在白名单时返回 404。 */
     private fun builtinAsset(path: String?): WebResourceResponse {
         val rel = path?.removePrefix("/").orEmpty()
@@ -516,6 +556,20 @@ class GhWebClient(private val ctx: Context, private val nav: Navigator) : WebVie
         }
         // 字体是跨域加载的，需要 CORS 头才能生效
         return WebResourceResponse(mime, "utf-8", stream).apply { responseHeaders = mapOf("Access-Control-Allow-Origin" to "*") }
+    }
+
+    /** 页面内的链接点击一律在这里接管，WebView 不会自己加载新页面（否则会在应用里打开内嵌网页）。 */
+    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+        // 子框架的跳转保持系统默认，避免页面内部的 about:blank、data: 等误触发提示或页面跳转
+        if (!request.isForMainFrame) return false
+        val url = request.url.toString()
+        when (val action = webLinkAction(url)) {
+            is WebLinkAction.Native -> nav.pushLink(action.screen)
+            WebLinkAction.Browser -> ctx.openBrowser(url)
+            WebLinkAction.System -> openSystemLink(url)
+            WebLinkAction.Unsupported -> ctx.toast(tr("无法打开此链接"))
+        }
+        return true
     }
 
     /** mailto 交给邮件应用（ACTION_SENDTO），tel 交给拨号盘（ACTION_DIAL，不需要通话权限）；没有可处理的应用时提示。 */

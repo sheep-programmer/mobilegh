@@ -1100,7 +1100,7 @@ GitHub 未提供该贡献者的周趋势或增删行数。	GitHub did not provid
 贡献者暂不可用	Contributors are unavailable
 GitHub 未返回贡献者数据	GitHub returned no contributor data
 {0} 次累计提交	{0} commits in total
-提交最多的 {0} 位贡献者 · GitHub 返回的累计提交数，缓存可能延迟。	Top {0} contributors by commits · cumulative commit counts returned by GitHub, the cache may lag.
+按累计提交数排序 · 数据来自 GitHub，缓存可能延迟。	Sorted by cumulative commit count · data comes from GitHub, the cache may lag.
 此仓库未启用 Discussions	Discussions are not enabled for this repository
 全部分类	All categories
 新讨论	New discussion
@@ -2193,10 +2193,10 @@ owner/name，可留空搜索全站	owner/name, leave empty to search everywhere
 {0} 个仓库 · 私有	{0} repositories · private
 管理	Manage
 改用本机列表（不同步 GitHub）	Use local lists instead (not synced to GitHub)
+本机列表	Local lists
+还没有本机列表，新建一个后即可加入。	No local lists yet. Create one to start adding.
 加入本机列表	Add to local lists
 请先 Star 此仓库再添加；仍可移除已有的本机分类。	Star this repository first to add it; existing local categories can still be removed.
-暂无本机列表，先在管理页创建一个。	No local lists yet, create one on the manage page first.
-管理 / 新建本机列表	Manage / new local list
 Star 时间	Star time
 最后更新时间	Last updated
 仓库数	Repository count
@@ -2291,7 +2291,6 @@ GitHub 处理贡献者列表超时，请稍后重试	GitHub timed out building t
 未关联账号的贡献者无法查询周趋势。	Weekly trends can't be queried for contributors without a linked account.
 收起周趋势	Hide weekly trend
 展开查看最近一年的周趋势	Show weekly trend for the past year
-提交很多，只取到了最近的一部分；较早的周显示为缺失。	Too many commits; only the most recent part was loaded. Earlier weeks are shown as missing.
 正在加载最近一年的周趋势…	Loading the past year's weekly trend…
 默认分支上没有这个作者的提交。	No commits from this author on the default branch.
 默认分支共 {0} 次提交	{0} commits on the default branch
@@ -2602,14 +2601,11 @@ GitHub 搜索最多返回 1000 条结果，请缩小关键词或使用筛选	Git
 ，从断点续传	, resuming from where it stopped
 无法读取许可证文件	Could not load the license file
 贡献者很多，已按累计提交排名分页加载；向下滚动可加载更多，搜索时会继续检索其余贡献者。	Many contributors: loaded in pages ranked by commit count. Scroll down to load more; searching keeps scanning the rest.
-GitHub 不提供这个仓库的完整贡献者列表（仓库过大）。此处是统计接口返回的 {0} 位贡献者，按累计提交数排序；点开某人可查看其最近一年的周趋势。	GitHub does not provide the full contributor list for this repository (too large). Showing the {0} contributors returned by the statistics endpoint, sorted by commit count. Open a person to see their weekly trend for the past year.
 GitHub 正在计算这个仓库的贡献统计，稍后刷新即可	GitHub is still computing contribution statistics for this repository. Refresh later.
 贡献统计暂不可用 ({0})	Contribution statistics unavailable ({0})
-超大仓库首次读取可能需要十几秒，结果会缓存一小时	Large repositories may take tens of seconds on first load; the result is cached for one hour.
 GitHub 仍在计算，请稍后重试	GitHub is still computing this. Try again shortly.
 仓库最后推送于 {0}，但 GitHub 的事件记录里没有可显示的推送。大仓库的事件记录并不完整。	The repository was last pushed {0}, but GitHub's event feed has no push to show. Event feeds are incomplete for large repositories.
 仓库最后推送于 {0}，但 GitHub 的事件记录里最新的推送是 {1}。事件记录对大仓库并不完整，以下只是它能提供的部分。	The repository was last pushed {0}, but the newest push in GitHub's event feed is {1}. Event feeds are incomplete for large repositories; the list below is only what GitHub provides.
-仓库过大，GitHub 不提供每人的周趋势，这里只显示累计提交数。	The repository is too large; GitHub does not provide per-person weekly trends, so only cumulative commit counts are shown.
 周统计暂不可用 ({0})	Weekly statistics unavailable ({0})
 GitHub 仍在生成周统计，请稍后刷新	GitHub is still generating weekly statistics. Refresh later.
 图表	Diagram
@@ -2623,3 +2619,14 @@ GitHub 仍在生成周统计，请稍后刷新	GitHub is still generating weekly
 所有人都可以看到	Anyone can see it
 仅自己可以看到	Only you can see it
 {0} 个仓库 · 已加载 {1} 个	{0} repositories · {1} loaded
+仓库过大，GitHub 不提供贡献者列表；点「详细统计」可按最近的提交逐页查看。	The repository is too large for GitHub to provide a contributor list; open "Detailed statistics" to browse authors of recent commits page by page.
+这个仓库的提交记录暂时不可用 ({0})，可稍后重试	The commit history of this repository is temporarily unavailable ({0}); try again later
+提交记录尚未就绪 ({0})	Commit history is not ready yet ({0})
+最近提交里没有关联 GitHub 账号的作者。	None of the recent commits are linked to a GitHub account.
+仓库过大，GitHub 不提供完整名单，按最近的提交列出。	The repository is too large for GitHub to provide a full list; contributors are listed from recent commits.
+继续下滑会读取更早的提交；也可以输入完整登录名，在整个仓库中查找。	Keep scrolling to read older commits, or enter a full login to look it up across the whole repository.
+备用列表只提供累计提交数，不提供增删行数。点开某人可查看其最近一年的周提交趋势。	The fallback list shows commit counts only, not added or removed lines. Tap a person to see their weekly commits for the past year.
+下滑加载更多，点开某人查看周趋势。	Scroll for more; open a person to see their weekly trend.
+GitHub 没有提供该作者在这个仓库的提交总数	GitHub does not provide this author's total commit count for this repository
+正在读取更早的提交…	Reading older commits…
+提交非常多，只读到了最近的一部分；更早的周显示为缺失。	There are too many commits; only the most recent part was read, and earlier weeks are shown as missing.

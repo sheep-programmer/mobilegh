@@ -61,6 +61,11 @@ data class ContributorListState(
     val query: String = "",
     /** The user pressed 停止检索 for the current query. */
     val stopped: Boolean = false,
+    /**
+     * 每页只是一段最近提交里的作者次数（超大仓库），同一个人会出现在多页：追加新页时按登录名合并并累加次数，
+     * 而不是当作新的一行。普通的 /contributors 分页每人只出现一次，保持追加。
+     */
+    val mergeByLogin: Boolean = false,
 ) {
     val scanPhase: ContributorScanPhase
         get() = when {
@@ -78,11 +83,28 @@ fun ContributorListState.beginPage(): ContributorListState? =
 
 /** Appends a loaded page and advances the cursor only when GitHub reports another page. */
 fun ContributorListState.finishPage(page: ContributorPage): ContributorListState = copy(
-    records = records + page.records,
-    nextPage = nextPage?.takeIf { page.hasNext }?.plus(1),
+    records = if (mergeByLogin) mergeAuthorCounts(records, page.records) else records + page.records,
+    nextPage = nextPage?.takeIf { page.hasNext }?.plus(page.pagesRead),
     busy = false,
     error = null,
 )
+
+/**
+ * 把新一页的作者次数并入已有列表：登录名不区分大小写，同一人的次数相加，保留首次出现时的资料；
+ * 保持首次出现的先后顺序，不按次数重排（滚动加载时已显示的行不能换位）。没有登录名的记录无法合并，原样追加。
+ */
+fun mergeAuthorCounts(existing: List<ContributionRecord>, incoming: List<ContributionRecord>): List<ContributionRecord> {
+    val merged = LinkedHashMap<String, ContributionRecord>()
+    val unlinked = ArrayList<ContributionRecord>()
+    for (record in existing + incoming) {
+        val login = record.author?.login?.takeIf { it.isNotBlank() }?.lowercase(Locale.ROOT)
+        if (login == null) { unlinked += record; continue }
+        val previous = merged[login]
+        merged[login] = if (previous == null) record
+            else previous.copy(total = (previous.total ?: 0L) + (record.total ?: 0L))
+    }
+    return merged.values + unlinked
+}
 
 /** Keeps everything loaded so far and remembers the failure; the cursor is unchanged. */
 fun ContributorListState.failPage(message: String): ContributorListState = copy(busy = false, error = message)

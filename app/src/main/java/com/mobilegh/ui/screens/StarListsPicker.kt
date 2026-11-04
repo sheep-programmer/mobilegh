@@ -1,18 +1,11 @@
 package com.mobilegh.ui.screens
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -23,11 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
@@ -35,6 +24,7 @@ import com.mobilegh.data.GitHub
 import com.mobilegh.data.GitHubStarList
 import com.mobilegh.data.ListedRepository
 import com.mobilegh.data.LocalStarList
+import com.mobilegh.data.LocalStarListsStore
 import com.mobilegh.data.Repo
 import com.mobilegh.data.RepositoryListMemberships
 import com.mobilegh.data.Session
@@ -50,7 +40,6 @@ import com.mobilegh.nav.friendly
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.FilterSheet
-import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.rememberCtx
@@ -358,16 +347,30 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
 /** 本机分类是明确独立的存储，不把它包装成会同步到 GitHub 的列表。 */
 @Composable
 private fun LocalOnlyStarListDialog(repo: Repo, account: StarListAccount, onDismiss: () -> Unit) {
+    LocalOnlyStarListDialogContent(repo, account, onDismiss)
+}
+
+/** 仅测试可见的入口：本机弹窗走底部弹层（单独窗口），截图测试需要直接渲染内容 */
+@Composable
+internal fun LocalOnlyStarListDialogForTest(repo: Repo, account: StarListAccount, onDismiss: () -> Unit = {}) {
+    LocalOnlyStarListDialogContent(repo, account, onDismiss)
+}
+
+@Composable
+private fun LocalOnlyStarListDialogContent(repo: Repo, account: StarListAccount, onDismiss: () -> Unit) {
     val ctx = rememberCtx()
     val nav = LocalNav.current
     val store = remember { StarLists.store(ctx) }
     val scope = rememberCoroutineScope()
+    val g = Gh.c
     var lists by remember { mutableStateOf<List<LocalStarList>?>(null) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var starred by remember { mutableStateOf<Boolean?>(null) }
     var loading by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var creating by remember { mutableStateOf(false) }
+    var createError by remember { mutableStateOf<String?>(null) }
     val original = lists?.filter { list -> list.repositories.any { it.id == repo.id } }?.map { it.id }?.toSet().orEmpty()
 
     fun load() {
@@ -394,57 +397,101 @@ private fun LocalOnlyStarListDialog(repo: Repo, account: StarListAccount, onDism
     }
 
     LaunchedEffect(account, repo.id) { load() }
-    GhDialog(
-        tr("加入本机列表"),
-        onDismiss = { if (!saving) onDismiss() },
-        confirm = if (saving) tr("保存中…") else tr("保存"),
-        confirmEnabled = !saving && !loading && lists != null && selected != original &&
-            (starred == true || selected.all { it in original }),
-        onConfirm = {
-            saving = true
-            error = null
-            scope.launch {
-                try {
-                    withContext(Dispatchers.IO) {
-                        store.setRepositoryLists(account, ListedRepository.from(repo), selected, original)
+
+    if (creating) {
+        ListEditor(null, saving, createError, onDismiss = { if (!saving) { creating = false; createError = null } }) { name, description ->
+            if (!saving) {
+                saving = true
+                createError = null
+                scope.launch {
+                    try {
+                        val updated = withContext(Dispatchers.IO) { store.create(account, name, description) }
+                        lists = updated
+                        // 新建后直接勾上：和 GitHub 列表新建后的行为一致
+                        updated.lastOrNull()?.let { selected = selected + it.id }
+                        creating = false
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        createError = failure.friendly()
+                    } finally {
+                        saving = false
                     }
-                    onDismiss()
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (failure: Exception) {
-                    error = failure.friendly()
-                } finally {
-                    saving = false
                 }
             }
-        },
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(repo.fullName.ifBlank { "${repo.owner.login}/${repo.name}" }, fontWeight = FontWeight.SemiBold)
-            Text(tr("仅保存在当前设备，不会同步到 GitHub。"), color = Gh.c.fgMuted, fontSize = 12.sp)
-            if (starred == false) Text(tr("请先 Star 此仓库再添加；仍可移除已有的本机分类。"), color = Gh.c.fgMuted, fontSize = 12.sp)
-            error?.let { InlineError(it, Modifier.fillMaxWidth()) { load() } }
-            if (loading) Loading(Modifier.fillMaxWidth().height(48.dp))
-            if (lists?.isEmpty() == true) Text(tr("暂无本机列表，先在管理页创建一个。"), color = Gh.c.fgMuted, fontSize = 13.sp)
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp)) {
-                items(lists.orEmpty(), key = { it.id }) { list ->
-                    val checked = list.id in selected
-                    val enabled = !saving && !loading && (starred == true || checked)
-                    ListPickRow(
-                        name = list.name,
-                        isPrivate = false,
-                        meta = trf("{0} 个仓库", list.repositories.size),
-                        checked = checked,
-                        enabled = enabled,
-                        horizontalPadding = 0.dp,
-                    ) { selected = if (checked) selected - list.id else selected + list.id }
+        }
+        return
+    }
+
+    // 与 GitHub 列表选择器同一套底部弹层：说明写在标题下，列表行整行可点，操作放底部
+    FilterSheet(
+        title = tr("本机列表"),
+        subtitle = repo.fullName.ifBlank { "${repo.owner.login}/${repo.name}" },
+        closeDescription = tr("关闭"),
+        onDismiss = { if (!saving) onDismiss() },
+        footer = {
+            if ((lists?.size ?: 0) < LocalStarListsStore.MAX_LISTS) GhButton(
+                tr("新建列表"),
+                icon = R.drawable.oc_plus,
+                enabled = !saving && !loading,
+            ) {
+                createError = null
+                creating = true
+            }
+            Spacer(Modifier.width(8.dp))
+            GhButton(
+                if (saving) tr("保存中…") else tr("保存"),
+                primary = true,
+                enabled = !saving && !loading && lists != null && selected != original &&
+                    (starred == true || selected.all { it in original }),
+            ) {
+                saving = true
+                error = null
+                scope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            store.setRepositoryLists(account, ListedRepository.from(repo), selected, original)
+                        }
+                        onDismiss()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        error = failure.friendly()
+                    } finally {
+                        saving = false
+                    }
                 }
             }
             TextButton(
                 onClick = { onDismiss(); nav.push(Screen.StarLists(account.login, local = true)) },
                 enabled = !saving,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(tr("管理 / 新建本机列表")) }
+            ) { Text(tr("管理")) }
+        },
+    ) {
+        if (starred == false) Text(
+            tr("请先 Star 此仓库再添加；仍可移除已有的本机分类。"),
+            fontSize = 12.sp, color = g.fgMuted,
+        )
+        Text(tr("仅保存在当前设备，不会同步到 GitHub。"), fontSize = 12.sp, color = g.fgMuted)
+        error?.let { InlineError(it, Modifier.fillMaxWidth()) { load() } }
+        if (loading) Loading(Modifier.fillMaxWidth().height(72.dp))
+        if (lists?.isEmpty() == true) Text(
+            tr("还没有本机列表，新建一个后即可加入。"),
+            fontSize = 13.sp, color = g.fgMuted,
+        )
+        Column(Modifier.fillMaxWidth()) {
+            lists.orEmpty().forEach { list ->
+                val checked = list.id in selected
+                val enabled = !saving && !loading && (starred == true || checked)
+                ListPickRow(
+                    name = list.name,
+                    isPrivate = false,
+                    meta = trf("{0} 个仓库", list.repositories.size),
+                    checked = checked,
+                    enabled = enabled,
+                    horizontalPadding = 0.dp,
+                ) { selected = if (checked) selected - list.id else selected + list.id }
+            }
         }
     }
 }

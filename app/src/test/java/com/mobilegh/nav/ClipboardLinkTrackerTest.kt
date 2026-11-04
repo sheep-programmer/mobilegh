@@ -36,6 +36,15 @@ class ClipboardLinkTrackerTest {
         assertNull(tracker.inspect(0, listOf("https://github.com/octocat/Other"))?.link)
     }
 
+    @Test fun noteSuppressesSuggestionForContentCopiedInsideTheApp() {
+        val tracker = ClipboardLinkTracker()
+        tracker.note(100, listOf(text))
+        // 应用内「复制链接」之后再回到前台，不再为同一内容提示跳转
+        assertNull(tracker.inspect(100, listOf(text)))
+        // 之后从外部复制的新链接仍然可以提示
+        assertNotNull(tracker.inspect(101, listOf("https://github.com/octocat/Other"))?.link)
+    }
+
     @Test fun onlyCompleteOrShortGithubLinksAreSuggested() {
         val tracker = ClipboardLinkTracker()
         // 完整链接、无协议地址、owner/repo、克隆地址都可以

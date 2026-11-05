@@ -92,7 +92,8 @@ object Api {
                     b.header("Authorization", "Bearer $token")
                 }
                 if (req.url.host == apiHost || req.url.host == "api.github.com") {
-                    b.header("X-GitHub-Api-Version", "2022-11-28")
+                    // 个别新接口（如相关议题）需要更新的版本，请求自己指定时以它为准
+                    if (req.header("X-GitHub-Api-Version") == null) b.header("X-GitHub-Api-Version", "2022-11-28")
                     if (req.header("Accept") == null) b.header("Accept", "application/vnd.github+json")
                 }
                 val authenticatedReq = b.build()
@@ -137,8 +138,10 @@ object Api {
         body: JsonElement? = null,
         accept: String? = null,
         force: Boolean = false,
+        headers: Map<String, String> = emptyMap(),
     ): Resp {
         val rb = Request.Builder().url(url(path))
+        headers.forEach { (k, v) -> rb.header(k, v) }
         // Bind this operation to its initiating account, before OkHttp queues the request.
         val callToken = Session.token
         val requestHost = rb.build().url.host
@@ -220,21 +223,31 @@ object Api {
         else -> trf("请求失败 ({0})", code)
     }
 
-    suspend inline fun <reified T> get(path: String, force: Boolean = false, accept: String? = null): T {
-        val body = ensureOk(call("GET", path, accept = accept, force = force)).body
+    suspend inline fun <reified T> get(
+        path: String,
+        force: Boolean = false,
+        accept: String? = null,
+        headers: Map<String, String> = emptyMap(),
+    ): T {
+        val body = ensureOk(call("GET", path, accept = accept, force = force, headers = headers)).body
         return withContext(Dispatchers.Default) { json.decodeFromString(body) }
     }
 
     suspend fun text(path: String, accept: String? = null, force: Boolean = false): String =
         ensureOk(call("GET", path, accept = accept, force = force)).body
 
-    suspend inline fun <reified T> send(method: String, path: String, body: JsonElement? = null): T {
-        val text = ensureOk(call(method, path, body)).body
+    suspend inline fun <reified T> send(
+        method: String,
+        path: String,
+        body: JsonElement? = null,
+        headers: Map<String, String> = emptyMap(),
+    ): T {
+        val text = ensureOk(call(method, path, body, headers = headers)).body
         return withContext(Dispatchers.Default) { json.decodeFromString(text) }
     }
 
-    suspend fun exec(method: String, path: String, body: JsonElement? = null) {
-        ensureOk(call(method, path, body))
+    suspend fun exec(method: String, path: String, body: JsonElement? = null, headers: Map<String, String> = emptyMap()) {
+        ensureOk(call(method, path, body, headers = headers))
     }
 
     /** 204 = true, 404 = false（用于 star/follow 状态检查） */

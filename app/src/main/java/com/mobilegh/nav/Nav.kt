@@ -161,11 +161,18 @@ class Navigator {
     }
 
     /**
-     * 外部链接（通知、搜索、README、Intent）进入仓库内页面：先把仓库主页压到栈底，
-     * 返回键就能回到仓库，和网页版的面包屑一致；不再直接退回首页。
+     * 打开链接指向的页面。
+     *
+     * 只有在没有任何可返回的页面时（停在首页 / 标签页，链接来自通知、搜索或外部 Intent），
+     * 才先压入仓库主页，让返回键回到仓库而不是直接退出。
+     *
+     * 应用内页面里点链接（README、Issue 里提到的另一个 Issue、代码搜索等）就和浏览器一样：
+     * 只压入目标页，返回键回到刚才的页面。不能凭空插入仓库主页，否则返回路径会多出一层，
+     * 例如 #314 → #31 再返回会先到仓库主页，而不是 #314。
      */
     fun pushLink(target: Screen) {
-        repoHomeOf(target)?.let { home -> if (top.screen != home) push(home) }
+        val home = repoHomeOf(target)
+        if (home != null && stack.isEmpty()) push(home)
         if (top.screen != target) push(target)
     }
 
@@ -217,14 +224,25 @@ fun OnTabReselect(tab: Tab, block: suspend () -> Unit) {
 internal fun repoHomeOf(screen: Screen): Screen.Repo? = when (screen) {
     is Screen.Files -> Screen.Repo(screen.owner, screen.name)
     is Screen.FileView -> Screen.Repo(screen.owner, screen.name)
+    is Screen.FileFinder -> Screen.Repo(screen.owner, screen.name)
+    is Screen.CodeSearch -> Screen.Repo(screen.owner, screen.name)
+    is Screen.Blame -> Screen.Repo(screen.owner, screen.name)
+    is Screen.EditFile -> Screen.Repo(screen.owner, screen.name)
+    is Screen.UploadFiles -> Screen.Repo(screen.owner, screen.name)
+    is Screen.NewPull -> Screen.Repo(screen.owner, screen.name)
+    is Screen.EditRelease -> Screen.Repo(screen.owner, screen.name)
+    is Screen.RunWorkflow -> Screen.Repo(screen.owner, screen.name)
     is Screen.Commits -> Screen.Repo(screen.owner, screen.name)
     is Screen.CommitDetail -> Screen.Repo(screen.owner, screen.name)
     is Screen.Compare -> Screen.Repo(screen.owner, screen.name)
     is Screen.Issues -> Screen.Repo(screen.owner, screen.name)
     is Screen.IssueDetail -> Screen.Repo(screen.owner, screen.name)
     is Screen.PullFiles -> Screen.Repo(screen.owner, screen.name)
+    is Screen.PullChecks -> Screen.Repo(screen.owner, screen.name)
+    is Screen.NewIssue -> Screen.Repo(screen.owner, screen.name)
     is Screen.Actions -> Screen.Repo(screen.owner, screen.name)
     is Screen.RunDetail -> Screen.Repo(screen.owner, screen.name)
+    is Screen.JobLog -> Screen.Repo(screen.owner, screen.name)
     is Screen.Releases -> Screen.Repo(screen.owner, screen.name)
     is Screen.Pushes -> Screen.Repo(screen.owner, screen.name)
     is Screen.Branches -> Screen.Repo(screen.owner, screen.name)
@@ -232,5 +250,14 @@ internal fun repoHomeOf(screen: Screen): Screen.Repo? = when (screen) {
     is Screen.Contributors -> Screen.Repo(screen.owner, screen.name)
     is Screen.Discussions -> Screen.Repo(screen.owner, screen.name)
     is Screen.DiscussionDetail -> Screen.Repo(screen.owner, screen.name)
+    is Screen.RepoSettings -> Screen.Repo(screen.owner, screen.name)
+    is Screen.Collaborators -> Screen.Repo(screen.owner, screen.name)
+    is Screen.Projects -> if (screen.kind == ProjectOwnerKind.Repo) Screen.Repo(screen.login, screen.name) else null
+    is Screen.Users -> when (screen.kind) {
+        UserKind.Stargazers, UserKind.Watchers, UserKind.Contributors ->
+            if (screen.b.isNotEmpty()) Screen.Repo(screen.a, screen.b) else null
+        else -> null
+    }
+    is Screen.Repos -> if (screen.kind == RepoKind.Forks && screen.name.isNotEmpty()) Screen.Repo(screen.login, screen.name) else null
     else -> null
 }

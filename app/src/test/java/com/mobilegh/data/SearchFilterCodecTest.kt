@@ -39,13 +39,15 @@ class SearchFilterCodecTest {
         assertNull(SearchFilterCodec.decode("not json"))
     }
 
-    @Test fun issueSortDefaultsMatchTheOrderTheScreenUsedBefore() {
-        assertEquals("created", IssueSearchSort.keys(pulls = false).first())
-        assertEquals("updated", IssueSearchSort.keys(pulls = true).first())
+    @Test fun issueSearchDefaultsToRelevanceLikeGitHub() {
+        // 与 GitHub 搜索一致：默认按相关度，且这个选项排在排序菜单第一位
+        assertEquals(IssueSearchSort.RELEVANCE, IssueSearchSort.keys(pulls = false).first())
+        assertEquals(IssueSearchSort.RELEVANCE, IssueSearchSort.keys(pulls = true).first())
     }
 
     @Test fun everyIssueSortOptionIsASortKeyGitHubSupports() {
-        val supported = setOf("created", "updated", "comments", "reactions", "interactions")
+        // relevance 表示请求里不带 sort 参数（GitHub 返回相关度排序），其余都是 Search API 的 sort 值
+        val supported = setOf(IssueSearchSort.RELEVANCE, "created", "updated", "comments", "reactions", "interactions")
         assertTrue(IssueSearchSort.keys(pulls = false).all { it in supported })
         assertTrue(IssueSearchSort.keys(pulls = true).all { it in supported })
     }

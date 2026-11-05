@@ -368,6 +368,7 @@ private fun RepoResults(query: String, state: LazyListState, sort: Int, onSort: 
 
 /** Issue / PR 搜索的排序名称，与 [IssueSearchSort] 的 key 对应 */
 private fun issueSortLabel(key: String): String = when (key) {
+    IssueSearchSort.RELEVANCE -> tr("相关")
     "created" -> tr("最近创建")
     "updated" -> tr("最近更新")
     "comments" -> tr("评论最多")
@@ -434,7 +435,9 @@ private fun IssueResults(query: String, pulls: Boolean, state: LazyListState, so
     val keys = IssueSearchSort.keys(pulls)
     val index = sort.coerceIn(0, keys.lastIndex)
     val pager = rememberPager("search-${if (pulls) "pr" else "issue"}:$query:$index") { p, _ ->
-        GitHub.searchIssues(query, p, keys[index], "desc").items
+        // 「相关」不传 sort/order，GitHub 会按相关度返回最匹配的结果
+        val key = keys[index].takeIf { it != IssueSearchSort.RELEVANCE }
+        GitHub.searchIssues(query, p, key, key?.let { "desc" }).items
     }
     PagedList(pager, state = state, itemKey = { it.id }, empty = trf("没有找到匹配的{0}", if (pulls) " PR" else " Issue"),
         emptyIcon = if (pulls) R.drawable.oc_git_pull_request else R.drawable.oc_issue_opened,

@@ -276,7 +276,10 @@ object SearchFilterCodec {
  * 顺序：issue 默认按创建时间，PR 默认按更新时间（与原先固定的排序一致）。
  */
 object IssueSearchSort {
+    /** 相关：GitHub 搜索的默认排序，请求里不传 sort 参数即为按相关度 */
+    const val RELEVANCE = "relevance"
+
     fun keys(pulls: Boolean): List<String> =
-        if (pulls) listOf("updated", "created", "comments", "reactions", "interactions")
-        else listOf("created", "updated", "comments", "reactions", "interactions")
+        if (pulls) listOf(RELEVANCE, "updated", "created", "comments", "reactions", "interactions")
+        else listOf(RELEVANCE, "created", "updated", "comments", "reactions", "interactions")
 }

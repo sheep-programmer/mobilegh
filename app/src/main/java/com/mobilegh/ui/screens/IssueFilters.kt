@@ -347,13 +347,13 @@ fun IssueResults(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Strin
         owner == null || name == null -> {}
         q.pulls -> {
             val sort = if (q.sort == IssueSort.Updated) "updated" else "created"
-            val pager = rememberPager("pulls:${q.key()}") { p, f -> GitHub.pulls(owner, name, q.state.api, p, f, sort, q.sort.order) }
+            val pager = rememberPager("pulls:${q.key()}") { p, f -> GitHub.pulls(owner, name, q.state.api, p, f, sort, q.sort.order ?: "desc") }
             PagedList(pager, empty = empty, emptyIcon = emptyIcon, emptyAction = emptyAction, onEmptyAction = clear, itemKey = { it.id }) { pr ->
                 PullItem(pr) { nav.push(Screen.IssueDetail(owner, name, pr.number, true)) }
             }
         }
         else -> {
-            val pager = rememberPager("issues:${q.key()}") { p, f -> GitHub.issues(owner, name, q.state.api, p, f, q.sort.field, q.sort.order) }
+            val pager = rememberPager("issues:${q.key()}") { p, f -> GitHub.issues(owner, name, q.state.api, p, f, q.sort.field ?: "created", q.sort.order ?: "desc") }
             PagedList(
                 pager, empty = empty, emptyIcon = emptyIcon, emptyAction = emptyAction, onEmptyAction = clear,
                 itemFilter = { it.pullRequest == null }, itemKey = { it.id },

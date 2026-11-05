@@ -12,16 +12,21 @@ enum class IssueStateFilter(private val labelZh: String, private val apiZh: Stri
     val label: String get() = tr(labelZh)
     val api: String get() = tr(apiZh) }
 
-/** 排序：search 与 list 两种接口的参数各不相同 */
+/**
+ * 排序：search 与 list 两种接口的参数各不相同。
+ * [Relevance]（相关）是 GitHub 搜索的默认排序：请求不传 sort 即为按相关度，仓库列表接口没有这个概念，
+ * 因此选中它时改走 Search API。
+ */
 @Serializable
-enum class IssueSort(private val labelZh: String, private val fieldZh: String, private val orderZh: String) {
+enum class IssueSort(private val labelZh: String, private val fieldZh: String?, private val orderZh: String?) {
+    Relevance("相关", null, null),
     Newest("最新", "created", "desc"),
     Oldest("最早", "created", "asc"),
     Comments("最多评论", "comments", "desc"),
     Updated("最近更新", "updated", "desc");
     val label: String get() = tr(labelZh)
-    val field: String get() = tr(fieldZh)
-    val order: String get() = tr(orderZh)
+    val field: String? get() = fieldZh?.let(::tr)
+    val order: String? get() = orderZh?.let(::tr)
 }
 
 /** PR 的评审状态 */
@@ -75,7 +80,7 @@ data class IssueQuery(
 
     /** 是否必须使用 Search API（列表接口无法表达的条件） */
     val needsSearch: Boolean
-        get() = hasFilters || involves != null || repo == null || (pulls && sort == IssueSort.Comments)
+        get() = hasFilters || involves != null || repo == null || sort == IssueSort.Relevance || (pulls && sort == IssueSort.Comments)
 
     /** 生成 /search/issues 的 q 参数 */
     fun searchQuery(): String = buildList {

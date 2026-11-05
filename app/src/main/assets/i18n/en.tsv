@@ -2630,3 +2630,13 @@ GitHub 仍在生成周统计，请稍后刷新	GitHub is still generating weekly
 GitHub 没有提供该作者在这个仓库的提交总数	GitHub does not provide this author's total commit count for this repository
 正在读取更早的提交…	Reading older commits…
 提交非常多，只读到了最近的一部分；更早的周显示为缺失。	There are too many commits; only the most recent part was read, and earlier weeks are shown as missing.
+相关	Related
+暂无相关议题	No related issues yet
+添加相关议题	Add related issue
+移除相关议题	Remove related issue
+搜索中…	Searching…
+搜索仓库内的 Issue	Search issues in this repository
+输入关键词后点「搜索」，留空列出全部	Enter keywords and tap Search, or leave it empty to list all
+没有可添加的 Issue	No issues available to add
+已添加相关议题	Related issue added
+已移除相关议题	Related issue removed

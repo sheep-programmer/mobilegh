@@ -27,6 +27,15 @@ object Links {
 
     data class RepositoryLink(val repository: Screen.Repo, val target: Screen, val url: String = "") {
         val label: String get() = "${repository.owner}/${repository.name}"
+
+        /** 提示用的名称：Issue / PR / 讨论带编号，提交带短 SHA，让用户能看出具体打开哪一页。 */
+        val targetLabel: String
+            get() = when (val t = target) {
+                is Screen.IssueDetail -> "$label#${t.number}"
+                is Screen.DiscussionDetail -> "$label#${t.number}"
+                is Screen.CommitDetail -> "$label@${t.sha.take(7)}"
+                else -> label
+            }
     }
 
     data class InputLink(val url: String, val target: Screen)

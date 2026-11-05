@@ -12,6 +12,9 @@ class IssueQueryTest {
         assertFalse(base.copy(sort = IssueSort.Comments).needsSearch)
         // PR 列表接口不支持按评论数排序
         assertTrue(base.copy(pulls = true, sort = IssueSort.Comments).needsSearch)
+        // 列表接口没有「相关」排序，选中时要走 Search API
+        assertTrue(base.copy(sort = IssueSort.Relevance).needsSearch)
+        assertTrue(base.copy(pulls = true, sort = IssueSort.Relevance).needsSearch)
         assertTrue(base.copy(text = "crash").needsSearch)
         assertTrue(base.copy(labels = listOf("bug")).needsSearch)
         assertTrue(IssueQuery(involves = Involvement.Created).needsSearch)
@@ -75,5 +78,8 @@ class IssueQueryTest {
         assertEquals(base.key(), base.copy().key())
         assertEquals("created" to "asc", IssueSort.Oldest.field to IssueSort.Oldest.order)
         assertEquals("comments", IssueSort.Comments.field)
+        // 「相关」不带 sort/order：GitHub 会返回相关度排序
+        assertNull(IssueSort.Relevance.field)
+        assertNull(IssueSort.Relevance.order)
     }
 }

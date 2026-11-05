@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -62,6 +63,8 @@ import com.mobilegh.ui.components.rememberDraft
 import com.mobilegh.ui.components.DraftBinding
 import com.mobilegh.data.Issue
 import com.mobilegh.data.IssueQuery
+import com.mobilegh.data.relatedIssueLabel
+import com.mobilegh.data.relatedIssueRepo
 import com.mobilegh.data.PendingReview
 import com.mobilegh.data.Pull
 import com.mobilegh.data.Review
@@ -208,6 +211,9 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
     val t = data.data
     val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
     val access = ThreadAccess.of(repo.data?.permissions, repo.data?.archived == true, t?.issue?.user?.login, Session.login)
+    /** 相关议题（网页版 Issue 侧栏的 Relationships）；接口不可用时整块隐藏，不影响正文 */
+    val related = rememberLoader("related") { f -> GitHub.relatedIssues(owner, name, number, f) }
+    var relatedPicker by remember { mutableStateOf(false) }
 
     fun reload() = data.load(true)
 
@@ -239,6 +245,24 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
             GitHub.setPullDraft(id, draft)
             ctx.toast(if (draft) tr("已转为草稿") else tr("已标记为可评审"))
         }
+    }
+
+    /** 添加相关议题后同时刷新议题正文（write 会刷新）与相关列表 */
+    fun addRelated(issue: Issue) {
+        if (writing) return
+        write(onSuccess = {
+            relatedPicker = false
+            ctx.toast(tr("已添加相关议题"))
+            related.load(true)
+        }) { GitHub.addRelatedIssue(owner, name, number, issue.id) }
+    }
+
+    fun removeRelated(issue: Issue) {
+        if (writing) return
+        write(onSuccess = {
+            ctx.toast(tr("已移除相关议题"))
+            related.load(true)
+        }) { GitHub.removeRelatedIssue(owner, name, number, issue.id) }
     }
 
     Page(
@@ -339,6 +363,18 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
                 }
                 val copilot = if (!isPull && th.issue.state == "open" && access.write) CopilotAction(copilotBusy) { copilotConfirm = true } else null
                 item { MetaBlock(th.issue, reviewers = th.pull?.let { reviewerStates(it, th.reviews) }, copilot = copilot, onEdit = if (access.editMeta) ({ metaKind = it }) else null) }
+                // 相关议题只在 Issue 上展示（与网页版 Issue 侧栏一致，没有关联时也显示空状态）
+                val rel = related.data
+                if (!isPull && rel != null) {
+                    item(key = "related") {
+                        RelatedCard(
+                            owner = owner, name = name, issues = rel,
+                            canEdit = access.triage, busy = writing,
+                            onAdd = { relatedPicker = true },
+                            onRemove = ::removeRelated,
+                        )
+                    }
+                }
                 item { Spacer(Modifier.height(8.dp)) }
                 val base = "https://github.com/$owner/$name/"
                 val me = Session.login
@@ -481,6 +517,11 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
             write(onSuccess = { deleting = null }) { GitHub.deleteComment(owner, name, cid); ctx.toast(tr("已删除")) }
         }) { Text(tr("删除后无法恢复。"), color = g.fg) }
     }
+    if (relatedPicker) RelatedIssuePicker(
+        owner, name, number, related.data.orEmpty(), busy = writing,
+        onDismiss = { if (!writing) relatedPicker = false },
+        onPick = ::addRelated,
+    )
     stateChange?.let { change ->
         GhDialog(
             change.title, { if (!writing) stateChange = null }, confirm = if (writing) tr("处理中…") else change.confirm,
@@ -530,6 +571,151 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
             // 只有提交成功后才清除草稿
             reviewDraft.submitted(DraftValue(body = body))
         }) { GitHub.submitReview(owner, name, number, ev, body); ctx.toast(tr("审查已提交")) }
+    }
+}
+
+/**
+ * Issue 侧栏的「相关」卡片：列出与当前议题关联的议题，可跳转、添加、移除。
+ * 跨仓库的关联显示 owner/name#123（与 GitHub 网页一致）。
+ */
+@Composable
+private fun RelatedCard(
+    owner: String,
+    name: String,
+    issues: List<Issue>,
+    canEdit: Boolean,
+    busy: Boolean,
+    onAdd: () -> Unit,
+    onRemove: (Issue) -> Unit,
+) {
+    val g = Gh.c
+    val nav = LocalNav.current
+    Column(
+        Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth()
+            .border(1.dp, g.border, RoundedCornerShape(8.dp)),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, top = 10.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Oc(R.drawable.oc_link, g.fgMuted, 16.dp)
+            Spacer(Modifier.width(8.dp))
+            Text(tr("相关"), fontSize = 13.sp, color = g.fgMuted, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.weight(1f))
+            if (canEdit) Text(
+                tr("添加"),
+                Modifier.clickable(enabled = !busy) { onAdd() }.padding(horizontal = 8.dp, vertical = 6.dp),
+                fontSize = 13.sp, color = if (busy) g.fgMuted else g.accent, fontWeight = FontWeight.Medium,
+            )
+        }
+        if (issues.isEmpty()) {
+            Text(
+                tr("暂无相关议题"),
+                Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
+                fontSize = 13.sp, color = g.fgMuted,
+            )
+        } else {
+            issues.forEachIndexed { index, issue ->
+                if (index > 0) HDivider(Modifier.padding(start = 12.dp))
+                val open = issue.state == "open"
+                Row(
+                    Modifier.fillMaxWidth().clickable {
+                        val (o, n) = relatedIssueRepo(issue, owner, name)
+                        nav.push(Screen.IssueDetail(o, n, issue.number, issue.pullRequest != null))
+                    }.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Oc(if (open) R.drawable.oc_issue_opened else R.drawable.oc_issue_closed, if (open) g.success else g.done, 16.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            relatedIssueLabel(issue, owner, name),
+                            fontSize = 12.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(issue.title, fontSize = 14.sp, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (canEdit) {
+                        Spacer(Modifier.width(4.dp))
+                        OcButton(
+                            R.drawable.oc_x_circle, { onRemove(issue) },
+                            tint = g.fgMuted, enabled = !busy, description = tr("移除相关议题"),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 选择要关联的议题：只在当前仓库内搜索，排除当前议题与已经关联的条目 */
+@Composable
+private fun RelatedIssuePicker(
+    owner: String,
+    name: String,
+    current: Int,
+    existing: List<Issue>,
+    busy: Boolean,
+    onDismiss: () -> Unit,
+    onPick: (Issue) -> Unit,
+) {
+    val g = Gh.c
+    val ctx = rememberCtx()
+    val scope = LocalEntry.current.scope
+    var text by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<Issue>?>(null) }
+    var searching by remember { mutableStateOf(false) }
+
+    fun search() {
+        if (searching) return
+        searching = true
+        scope.launch {
+            try {
+                val query = "repo:$owner/$name ${text.trim()} is:issue".trim()
+                results = GitHub.searchIssues(query, 1).items
+                    .filter { it.number != current && existing.none { e -> e.id == it.id } }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                ctx.toast(e.friendly())
+            } finally {
+                searching = false
+            }
+        }
+    }
+
+    GhDialog(
+        tr("添加相关议题"), { if (!busy) onDismiss() },
+        confirm = if (searching) tr("搜索中…") else tr("搜索"),
+        confirmEnabled = !searching && !busy,
+        onConfirm = { search() },
+    ) {
+        Column(Modifier.heightIn(max = 420.dp)) {
+            GhField(text, { text = it }, tr("搜索仓库内的 Issue"), enabled = !busy)
+            Spacer(Modifier.height(8.dp))
+            val found = results
+            when {
+                searching -> Text(tr("搜索中…"), fontSize = 13.sp, color = g.fgMuted)
+                found == null -> Text(tr("输入关键词后点「搜索」，留空列出全部"), fontSize = 13.sp, color = g.fgMuted)
+                found.isEmpty() -> Text(tr("没有可添加的 Issue"), fontSize = 13.sp, color = g.fgMuted)
+                else -> LazyColumn(Modifier.heightIn(max = 340.dp)) {
+                    items(found, key = { it.id }) { issue ->
+                        val open = issue.state == "open"
+                        Row(
+                            Modifier.fillMaxWidth().clickable(enabled = !busy) { onPick(issue) }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Oc(if (open) R.drawable.oc_issue_opened else R.drawable.oc_issue_closed, if (open) g.success else g.done, 16.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("#${issue.number}", fontSize = 12.sp, color = g.fgMuted)
+                                Text(issue.title, fontSize = 14.sp, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

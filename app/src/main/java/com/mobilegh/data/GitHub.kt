@@ -384,6 +384,23 @@ object GitHub {
         return all
     }
     suspend fun pull(o: String, n: String, num: Int, force: Boolean) = Api.get<Pull>("${r(o, n)}/pulls/$num", force, Api.FULL)
+
+    /**
+     * 相关议题（网页版 Issue 侧栏的 Relationships → Relates to）。该接口要求比 2022-11-28 更新的
+     * REST 版本，所以只给这三个请求单独指定版本头，其他接口维持原版本。返回的是标准 Issue 列表，
+     * 可能包含其他仓库的内容（[Issue.repositoryUrl] 指向来源仓库）。
+     */
+    private val RELATED_API = mapOf("X-GitHub-Api-Version" to "2026-03-10")
+
+    suspend fun relatedIssues(o: String, n: String, num: Int, force: Boolean) =
+        Api.get<List<Issue>>("${r(o, n)}/issues/$num/relates_to?per_page=100", force, headers = RELATED_API)
+
+    /** [issueId] 是议题的内部 id（[Issue.id]），不是 number */
+    suspend fun addRelatedIssue(o: String, n: String, num: Int, issueId: Long) =
+        Api.exec("POST", "${r(o, n)}/issues/$num/relates_to", buildJsonObject { put("issue_id", issueId) }, RELATED_API)
+
+    suspend fun removeRelatedIssue(o: String, n: String, num: Int, issueId: Long) =
+        Api.exec("DELETE", "${r(o, n)}/issues/$num/relates_to/$issueId", headers = RELATED_API)
     suspend fun pullFiles(o: String, n: String, num: Int, page: Int) = Api.get<List<CommitFile>>("${r(o, n)}/pulls/$num/files?per_page=50&page=$page")
     suspend fun pullCommits(o: String, n: String, num: Int) = Api.get<List<Commit>>("${r(o, n)}/pulls/$num/commits?per_page=100")
     suspend fun pullReviews(o: String, n: String, num: Int, force: Boolean) = Api.get<List<Review>>("${r(o, n)}/pulls/$num/reviews?per_page=100", force, Api.FULL)

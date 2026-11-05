@@ -39,10 +39,38 @@ class ClipboardLinkTrackerTest {
     @Test fun noteSuppressesSuggestionForContentCopiedInsideTheApp() {
         val tracker = ClipboardLinkTracker()
         tracker.note(100, listOf(text))
-        // 应用内「复制链接」之后再回到前台，不再为同一内容提示跳转
-        assertNull(tracker.inspect(100, listOf(text)))
+        // 应用内「复制链接」的当下不弹提示
+        assertNull(tracker.inspect(100, listOf(text))?.link)
+        assertNull(tracker.inspect(101, listOf(text))?.link)
         // 之后从外部复制的新链接仍然可以提示
-        assertNotNull(tracker.inspect(101, listOf("https://github.com/octocat/Other"))?.link)
+        assertNotNull(tracker.inspect(102, listOf("https://github.com/octocat/Other"))?.link)
+    }
+
+    @Test fun anInAppCopyIsOfferedAfterTheAppReturnsFromBackground() {
+        val tracker = ClipboardLinkTracker()
+        tracker.note(100, listOf(text))
+        assertNull(tracker.inspect(100, listOf(text))?.link)
+        // 退到后台再回来：应用内复制的链接应该像从外部复制的一样被识别，只提示一次
+        tracker.onBackground()
+        assertEquals("octocat/Hello-World", tracker.inspect(100, listOf(text))?.link?.label)
+        tracker.onBackground()
+        assertNull(tracker.inspect(100, listOf(text))?.link)
+    }
+
+    @Test fun aLinkCopiedInAnotherAppWhileInBackgroundIsOfferedOnReturn() {
+        val tracker = ClipboardLinkTracker()
+        assertNotNull(tracker.inspect(100, listOf(text))?.link)
+        // 本次前台会话已经提示过，不因焦点变化再弹
+        assertNull(tracker.inspect(101, listOf("https://github.com/octocat/Other"))?.link)
+        // 用户在别的应用复制了新链接后回来
+        tracker.onBackground()
+        assertEquals(
+            "octocat/Hello-World#31",
+            tracker.inspect(200, listOf("https://github.com/octocat/Hello-World/issues/31"))?.link?.targetLabel,
+        )
+        // 同一条链接不会在切换前后台时反复提示
+        tracker.onBackground()
+        assertNull(tracker.inspect(200, listOf("https://github.com/octocat/Hello-World/issues/31"))?.link)
     }
 
     @Test fun onlyCompleteOrShortGithubLinksAreSuggested() {

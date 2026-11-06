@@ -79,6 +79,8 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="https" android:host="github.com" />
+                <data android:scheme="https" android:host="www.github.com" />
+                <data android:scheme="https" android:host="gist.github.com" />
             </intent-filter>
         </activity>
 

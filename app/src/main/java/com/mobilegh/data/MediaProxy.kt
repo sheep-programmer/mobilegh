@@ -1,5 +1,7 @@
 package com.mobilegh.data
 
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
@@ -15,6 +17,22 @@ object MediaProxy {
 
     /** 视频扩展名，或播放器发出的 Range 请求（图片不会带 Range），都走流式转发。 */
     fun wants(url: String, range: String?): Boolean = range != null || VIDEO_EXT.containsMatchIn(url)
+
+    private val JWT_IN_URL = Regex("jwt=([A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+)")
+
+    /**
+     * 网页里是否含有已过期的一次性媒体令牌。GitHub 给 README 里的图片 / 视频配的地址带短期 JWT，
+     * 缓存的旧 HTML 会让视频请求 404；此时应当重新取一次 README。
+     */
+    internal fun hasExpiredToken(html: String, nowSeconds: Long = System.currentTimeMillis() / 1000): Boolean =
+        JWT_IN_URL.findAll(html).any { m -> tokenExpiry(m.groupValues[1])?.let { it <= nowSeconds } ?: false }
+
+    /** 解析 JWT 里的 exp（秒）；格式不对时返回 null */
+    internal fun tokenExpiry(jwt: String): Long? {
+        val payload = jwt.split('.').getOrNull(1) ?: return null
+        val json = runCatching { String(java.util.Base64.getUrlDecoder().decode(payload), Charsets.UTF_8) }.getOrNull() ?: return null
+        return Regex("\"exp\"\\s*:\\s*(\\d+)").find(json)?.groupValues?.get(1)?.toLongOrNull()
+    }
 
     /** 视频扩展名的链接（如 `<a href="x.mp4">`）：点开时交给原生播放器，而不是当作网页。 */
     fun isVideoLink(url: String): Boolean = VIDEO_EXT.containsMatchIn(url)
@@ -45,11 +63,17 @@ object MediaProxy {
         val request = okhttp3.Request.Builder().url(url).header("Accept", "*/*").apply {
             if (range != null) header("Range", range)
         }.build()
-        val resp = runCatching { http.newCall(request).execute() }.getOrNull() ?: return null
+        val resp = runCatching { http.newCall(request).execute() }.getOrNull()
+        if (resp == null) {
+            AppLog.warn("media", tr("视频请求失败：") + url.substringBefore('?').take(120))
+            return null
+        }
         if (!resp.isSuccessful && resp.code != 206) {
+            AppLog.warn("media", trf("视频请求返回 {0}：{1}", resp.code, url.substringBefore('?').take(120)))
             resp.close()
             return null
         }
+        AppLog.info("media", trf("视频流式转发 {0} range={1}", resp.code, range ?: "-"))
         val keep = listOf("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified")
         val headers = buildMap {
             keep.forEach { name -> resp.header(name)?.let { put(name, it) } }

@@ -9,13 +9,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
@@ -39,6 +44,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.mobilegh.R
 import com.mobilegh.data.GitHub
 import com.mobilegh.ui.theme.Gh
@@ -120,39 +127,49 @@ internal fun replaceMentionText(text: String, cursor: Int, fragment: MentionFrag
     return out to fragment.start + insertion.length
 }
 
-/** Markdown 格式工具栏 + 编辑/预览切换。preview 状态由外部持有，方便预览时替换输入框。 */
+/** 模式栏：编辑 / 预览切换与全屏入口。放在输入框上方，与输入框下方的格式工具栏分开。 */
+@Composable
+fun MarkdownModeBar(
+    preview: Boolean,
+    onPreviewChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    onExpand: (() -> Unit)? = null,
+) {
+    val g = Gh.c
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.background(g.canvasSubtle, RoundedCornerShape(7.dp)).padding(2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SegBtn(R.drawable.oc_pencil, tr("编辑"), !preview) { onPreviewChange(false) }
+            SegBtn(R.drawable.oc_eye, tr("预览"), preview) { onPreviewChange(true) }
+        }
+        Spacer(Modifier.weight(1f))
+        if (onExpand != null) FmtBtn(tr("全屏编辑"), onExpand) { Oc(R.drawable.oc_screen_full, g.fgMuted, 16.dp) }
+    }
+}
+
+/** 格式工具栏：标题、加粗等插入按钮。放在输入框下方，只在编辑时出现。 */
 @Composable
 fun MarkdownToolbar(
     value: TextFieldValue,
     onValueChange: (TextFieldValue) -> Unit,
-    preview: Boolean,
-    onPreviewChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val g = Gh.c
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-            if (!preview) {
-                FmtBtn(tr("标题"), { onValueChange(linePrefix(value, "### ")) }) { Oc(R.drawable.oc_heading, g.fgMuted, 18.dp) }
-                FmtBtn(tr("加粗"), { onValueChange(wrap(value, "**")) }) { Oc(R.drawable.oc_bold, g.fgMuted, 18.dp) }
-                FmtBtn(tr("斜体"), { onValueChange(wrap(value, "_")) }) { Oc(R.drawable.oc_italic, g.fgMuted, 18.dp) }
-                FmtBtn(tr("删除线"), { onValueChange(wrap(value, "~~")) }) { Oc(R.drawable.oc_strikethrough, g.fgMuted, 18.dp) }
-                FmtBtn(tr("行内代码"), { onValueChange(wrap(value, "`")) }) { Oc(R.drawable.oc_code, g.fgMuted, 18.dp) }
-                FmtBtn(tr("链接"), { onValueChange(wrap(value, "[", "](url)")) }) { Oc(R.drawable.oc_link, g.fgMuted, 18.dp) }
-                FmtBtn(tr("引用"), { onValueChange(linePrefix(value, "> ")) }) { Oc(R.drawable.oc_quote, g.fgMuted, 18.dp) }
-                FmtBtn(tr("无序列表"), { onValueChange(linePrefix(value, "- ")) }) { Oc(R.drawable.oc_list_unordered, g.fgMuted, 18.dp) }
-                FmtBtn(tr("有序列表"), { onValueChange(linePrefix(value, "1. ")) }) { Oc(R.drawable.oc_list_ordered, g.fgMuted, 18.dp) }
-                FmtBtn(tr("任务列表"), { onValueChange(linePrefix(value, "- [ ] ")) }) { Oc(R.drawable.oc_checklist, g.fgMuted, 18.dp) }
-                FmtBtn(tr("提及用户"), { onValueChange(insert(value, "@")) }) { Oc(R.drawable.oc_mention, g.fgMuted, 18.dp) }
-            }
-        }
-        // 编辑 / 预览 分段切换
-        Row(
-            Modifier.padding(start = 6.dp).background(g.canvasSubtle, RoundedCornerShape(7.dp)).padding(2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SegBtn(R.drawable.oc_pencil, tr("编辑"), !preview) { onPreviewChange(false) }
-            SegBtn(R.drawable.oc_eye, tr("预览"), preview) { onPreviewChange(true) }
+            FmtBtn(tr("标题"), { onValueChange(linePrefix(value, "### ")) }) { Oc(R.drawable.oc_heading, g.fgMuted, 18.dp) }
+            FmtBtn(tr("加粗"), { onValueChange(wrap(value, "**")) }) { Oc(R.drawable.oc_bold, g.fgMuted, 18.dp) }
+            FmtBtn(tr("斜体"), { onValueChange(wrap(value, "_")) }) { Oc(R.drawable.oc_italic, g.fgMuted, 18.dp) }
+            FmtBtn(tr("删除线"), { onValueChange(wrap(value, "~~")) }) { Oc(R.drawable.oc_strikethrough, g.fgMuted, 18.dp) }
+            FmtBtn(tr("行内代码"), { onValueChange(wrap(value, "`")) }) { Oc(R.drawable.oc_code, g.fgMuted, 18.dp) }
+            FmtBtn(tr("链接"), { onValueChange(wrap(value, "[", "](url)")) }) { Oc(R.drawable.oc_link, g.fgMuted, 18.dp) }
+            FmtBtn(tr("引用"), { onValueChange(linePrefix(value, "> ")) }) { Oc(R.drawable.oc_quote, g.fgMuted, 18.dp) }
+            FmtBtn(tr("无序列表"), { onValueChange(linePrefix(value, "- ")) }) { Oc(R.drawable.oc_list_unordered, g.fgMuted, 18.dp) }
+            FmtBtn(tr("有序列表"), { onValueChange(linePrefix(value, "1. ")) }) { Oc(R.drawable.oc_list_ordered, g.fgMuted, 18.dp) }
+            FmtBtn(tr("任务列表"), { onValueChange(linePrefix(value, "- [ ] ")) }) { Oc(R.drawable.oc_checklist, g.fgMuted, 18.dp) }
+            FmtBtn(tr("提及用户"), { onValueChange(insert(value, "@")) }) { Oc(R.drawable.oc_mention, g.fgMuted, 18.dp) }
         }
     }
 }
@@ -199,6 +216,7 @@ fun MarkdownPreview(text: String, contextRepo: String?, modifier: Modifier = Mod
 
 /**
  * 完整 Markdown 编辑器：格式工具栏 + 编辑/预览切换 + 多行输入。用于新建 Issue、PR 描述等。
+ * 预览和右上角的全屏按钮都在整屏对话框里呈现，不再挤在输入框旁边。
  */
 @Composable
 fun MarkdownEditor(
@@ -210,25 +228,94 @@ fun MarkdownEditor(
     minLines: Int = 6,
 ) {
     val g = Gh.c
-    var preview by remember { mutableStateOf(false) }
+    // null = 关闭；false = 全屏编辑；true = 全屏预览
+    var sheet by remember { mutableStateOf<Boolean?>(null) }
+    val preview = sheet == true
     Column(modifier.fillMaxWidth()) {
-        MarkdownToolbar(value, onValueChange, preview, { preview = it })
+        MarkdownModeBar(preview, { sheet = it }, onExpand = { sheet = false })
         Spacer(Modifier.height(6.dp))
-        if (preview) {
-            Box(
-                Modifier.fillMaxWidth().heightIn(min = (minLines * 22).dp)
-                    .background(g.canvas, RoundedCornerShape(6.dp)),
-            ) { MarkdownPreview(value.text, contextRepo) }
-        } else {
-            OutlinedTextField(
-                value, onValueChange,
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text(placeholder, color = g.fgMuted) },
-                minLines = minLines,
-                shape = RoundedCornerShape(6.dp),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-            )
-            MentionSuggestions(value, onValueChange, contextRepo, Modifier.padding(top = 4.dp))
+        OutlinedTextField(
+            value, onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text(placeholder, color = g.fgMuted) },
+            minLines = minLines,
+            shape = RoundedCornerShape(6.dp),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+        )
+        if (!preview) MarkdownToolbar(value, onValueChange, Modifier.padding(top = 4.dp))
+        MentionSuggestions(value, onValueChange, contextRepo, Modifier.padding(top = 4.dp))
+    }
+    sheet?.let { mode ->
+        MarkdownFullscreenSheet(
+            value = value,
+            onValueChange = onValueChange,
+            preview = mode,
+            onPreviewChange = { sheet = it },
+            contextRepo = contextRepo,
+            placeholder = placeholder,
+            onDismiss = { sheet = null },
+        )
+    }
+}
+
+/**
+ * 整屏 Markdown 工作区：顶栏 + 工具栏 + 编辑框或渲染后的预览。
+ * 预览用整页宽度渲染，长文档可滚动；编辑时占满剩余高度，适合在手机上写长内容。
+ */
+@Composable
+fun MarkdownFullscreenSheet(
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
+    preview: Boolean,
+    onPreviewChange: (Boolean) -> Unit,
+    contextRepo: String?,
+    onDismiss: () -> Unit,
+    placeholder: String = tr("支持 Markdown"),
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    val g = Gh.c
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Column(
+            Modifier.fillMaxSize().background(g.canvas)
+                .statusBarsPadding().navigationBarsPadding().imePadding(),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FmtBtn(tr("关闭"), onDismiss) { Oc(R.drawable.oc_x, g.fgMuted, 18.dp) }
+                Text(
+                    if (preview) tr("预览") else tr("编辑"),
+                    Modifier.weight(1f).padding(start = 2.dp),
+                    color = g.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+                )
+                trailing?.invoke()
+            }
+            HDivider()
+            // 内容占满整屏：工具栏移到底部（键盘上方），不再从上方挤压输入区
+            if (preview) {
+                Column(
+                    Modifier.fillMaxWidth().weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) { MarkdownPreview(value.text, contextRepo) }
+            } else {
+                OutlinedTextField(
+                    value, onValueChange,
+                    Modifier.fillMaxWidth().weight(1f).padding(horizontal = 6.dp, vertical = 4.dp),
+                    placeholder = { Text(placeholder, color = g.fgMuted) },
+                    shape = RoundedCornerShape(6.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+                )
+                MentionSuggestions(value, onValueChange, contextRepo, Modifier.padding(horizontal = 8.dp))
+            }
+            if (!preview) {
+                HDivider()
+                MarkdownToolbar(value, onValueChange, Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+            }
         }
     }
 }

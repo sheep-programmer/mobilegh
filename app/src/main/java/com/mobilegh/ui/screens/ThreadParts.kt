@@ -36,6 +36,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -60,8 +61,10 @@ import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.HtmlView
 import com.mobilegh.ui.components.LabelChip
 import com.mobilegh.ui.components.MarkdownEditor
+import com.mobilegh.ui.components.MarkdownFullscreenSheet
 import com.mobilegh.ui.components.MarkdownPreview
 import com.mobilegh.ui.components.MentionSuggestions
+import com.mobilegh.ui.components.MarkdownModeBar
 import com.mobilegh.ui.components.MarkdownToolbar
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.DraftBinding
@@ -613,12 +616,21 @@ fun CommentComposerBar(
     draft: DraftController,
     placeholder: String = tr("发表评论（支持 Markdown）"),
     onSend: () -> Unit,
+    /** 非空时工具栏显示附件按钮（Issue / PR 评论）；[onAttach] 弹文件选择并负责上传与插入 */
+    onAttach: (() -> Unit)? = null,
 ) {
     val g = Gh.c
+    var fullscreenEdit by remember { mutableStateOf(false) }
+    // 只有正在输入或预览时才显示格式工具栏：平时把空间留给评论框
+    var editing by remember { mutableStateOf(false) }
     Column(Modifier.background(g.header).navigationBarsPadding().imePadding()) {
         HDivider()
-        MarkdownToolbar(value, onValueChange, preview, onPreviewChange, Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
-        if (!preview) MentionSuggestions(value, onValueChange, contextRepo, Modifier.padding(horizontal = 8.dp))
+        // 编辑 / 预览 与全屏入口固定在输入框上方
+        MarkdownModeBar(
+            preview, onPreviewChange,
+            Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            onExpand = { fullscreenEdit = true },
+        )
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             if (preview) {
                 Box(Modifier.weight(1f).heightIn(min = 44.dp, max = 200.dp).verticalScroll(rememberScrollState())) {
@@ -627,17 +639,52 @@ fun CommentComposerBar(
             } else {
                 androidx.compose.material3.OutlinedTextField(
                     value, onValueChange,
-                    Modifier.weight(1f).heightIn(max = 160.dp),
+                    Modifier.weight(1f).heightIn(max = 160.dp).onFocusChanged { editing = it.isFocused },
                     placeholder = { Text(placeholder, color = g.fgMuted) },
                     singleLine = false,
                     shape = RoundedCornerShape(6.dp),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
                 )
             }
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(4.dp))
+            // 附件：发送键左边一个明确的「选择文件」图标
+            if (onAttach != null) {
+                OcButton(R.drawable.oc_paperclip, onAttach, g.fgMuted, description = tr("添加附件"))
+                Spacer(Modifier.width(2.dp))
+            }
             OcButton(R.drawable.oc_paper_airplane, onSend, if (value.text.isBlank()) g.fgMuted else g.accent, enabled = !sending && value.text.isNotBlank())
         }
+        // 格式工具栏放在输入框下方，只在编辑时出现；模式栏（编辑 / 预览 / 全屏）在输入框上方
+        if (editing || preview) {
+            if (!preview) {
+                MentionSuggestions(value, onValueChange, contextRepo, Modifier.padding(horizontal = 8.dp))
+                MarkdownToolbar(value, onValueChange, Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+            }
+        }
         DraftBinding(draft, DraftValue(body = value.text))
+    }
+    val sendButton: @Composable () -> Unit = {
+        if (onAttach != null) OcButton(R.drawable.oc_paperclip, onAttach, g.fgMuted, description = tr("添加附件"))
+        OcButton(
+            R.drawable.oc_paper_airplane, onSend,
+            if (value.text.isBlank()) g.fgMuted else g.accent,
+            enabled = !sending && value.text.isNotBlank(),
+        )
+    }
+    if (preview) {
+        MarkdownFullscreenSheet(
+            value, onValueChange, preview = true, onPreviewChange = { onPreviewChange(it) },
+            contextRepo = contextRepo, onDismiss = { onPreviewChange(false) },
+            placeholder = placeholder, trailing = sendButton,
+        )
+    }
+    if (fullscreenEdit) {
+        MarkdownFullscreenSheet(
+            value, onValueChange, preview = false,
+            onPreviewChange = { if (it) { fullscreenEdit = false; onPreviewChange(true) } },
+            contextRepo = contextRepo, onDismiss = { fullscreenEdit = false },
+            placeholder = placeholder, trailing = sendButton,
+        )
     }
 }
 

@@ -14,6 +14,9 @@ object Links {
         "oauth", "sessions", "organizations", "orgs", "404",
     )
 
+    /** 安全页面里应用支持的三类告警；其余子页（如 advisories）交给浏览器 */
+    private val securityPages = setOf("dependabot", "code-scanning", "secret-scanning")
+
     private val ownerPattern = Regex("[A-Za-z0-9][A-Za-z0-9-]{0,38}")
     private val repoPattern = Regex("[A-Za-z0-9_.-]{1,100}")
     private val bareHost = Regex("(?i)^(?:(?:www\\.)?github\\.com|api\\.github\\.com|raw\\.githubusercontent\\.com|gist\\.github\\.com)/.*$")
@@ -21,6 +24,8 @@ object Links {
     private val shortRepo = Regex("^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$")
     private val markdownLink = Regex("^\\[[^]\\r\\n]*]\\(([^\\s()]+)\\)$")
     private val lineFragment = Regex("L(\\d{1,7})(?:-L?(\\d{1,7}))?")
+    /** 页面内定位锚点：Issue / PR 评论（issuecomment-）与 PR 审查（pullrequestreview-） */
+    private val commentFragment = Regex("(?:issuecomment|pullrequestreview)-(\\d{1,19})")
     private val linksInText = Regex(
         "(?i)(?<![A-Za-z0-9_./:@?=&%#-])(?:https?://(?:(?:www\\.)?github\\.com|api\\.github\\.com|(?:raw\\.githubusercontent\\.com|gist\\.github\\.com))|(?:(?:www\\.)?github\\.com|api\\.github\\.com|(?:raw\\.githubusercontent\\.com|gist\\.github\\.com))|git@github\\.com:|ssh://git@github\\.com/)/?[^\\s<>\"'`()\\[\\]{}，。；！？、：]+",
     )
@@ -46,10 +51,11 @@ object Links {
         // 搜索链接的关键词在查询参数里，要保留；其余链接丢掉 ?tab= 之类的会话参数
         (route(full) as? Screen.Search)?.let { return InputLink(full, it) }
         val url = full.substringBefore('?')
-        // 片段里的 #L 行号在去掉片段前取出，文件链接需要它定位到具体行
-        return fromInput(url)?.let { screen ->
-            InputLink(url, if (screen is Screen.FileView) screen.copy(lines = lineRange(raw)) else screen)
-        }
+        // 只保留决定定位的片段（评论锚点、代码行号、PR 审查评论），其余如 #top 之类的页内锚点仍然丢弃
+        val positional = raw.contains('#') && positionalFragment(raw)
+        val withFragment = if (positional) url + "#" + raw.substringAfter('#') else url
+        // 返回的 url 会被交给 receive 再次解析（外部打开时就是这样），所以它必须带着片段
+        return fromInput(withFragment)?.let { InputLink(withFragment, it) }
     }
 
     fun sharedLink(text: String): InputLink? =
@@ -130,15 +136,35 @@ object Links {
         val (u, segs) = parse(url) ?: return null
         val host = u.host?.lowercase() ?: return null
         val screen = when (host) {
-            "github.com", "www.github.com" -> search(u, segs) ?: web(segs)
+            "github.com", "www.github.com" -> search(u, segs) ?: web(u, segs)
             "api.github.com" -> api(segs)
+            // raw 地址的第三段是分支 / 标签 / 提交，之后是路径；由 BlobScreen 去确认分界
             "raw.githubusercontent.com" ->
-                if (segs.size >= 4 && repository(segs[0], segs[1]) != null) Screen.FileView(segs[0], segs[1], segs.drop(3).joinToString("/"), segs[2]) else null
+                if (segs.size >= 4 && repository(segs[0], segs[1]) != null) Screen.Blob(segs[0], segs[1], segs.drop(2).joinToString("/")) else null
             "gist.github.com" -> segs.getOrNull(1)?.let { Screen.GistDetail(it) } ?: segs.getOrNull(0)?.let { Screen.Gists(it) }
             else -> null
         }
-        // 文件链接的 #L 行号只在这里附加：路径解析本身不关心片段
-        return if (screen is Screen.FileView) screen.copy(lines = lineRange(url)) else screen
+        // 片段只在这里解析：路径解析本身不关心片段
+        return when (screen) {
+            is Screen.Blob -> screen.copy(lines = lineRange(url))
+            is Screen.IssueDetail ->
+                // PR 的行内审查评论（#discussion_rN）在文件变更页里，直接进入那里
+                if (screen.isPull && fragmentOf(url)?.startsWith("discussion_r") == true) Screen.PullFiles(screen.owner, screen.name, screen.number)
+                else screen.copy(commentId = commentAnchor(url))
+            else -> screen
+        }
+    }
+
+    private fun fragmentOf(url: String): String? = runCatching { URI(url.trim()).rawFragment }.getOrNull()
+
+    /** 决定定位位置的片段：评论锚点、代码行号、PR 行内审查评论 */
+    private fun positionalFragment(url: String): Boolean =
+        commentAnchor(url) != null || lineRange(url) != null || fragmentOf(url)?.startsWith("discussion_r") == true
+
+    /** `#issuecomment-123` 或 `#pullrequestreview-123` 里的 id（两者都是 Issue 讨论串里的一条）；没有或格式不对时返回 null */
+    fun commentAnchor(url: String): Long? {
+        val fragment = fragmentOf(url) ?: return null
+        return commentFragment.matchEntire(fragment)?.groupValues?.get(1)?.toLongOrNull()
     }
 
     /**
@@ -146,7 +172,7 @@ object Links {
      * 没有行号或格式不对时返回 null；返回的是闭区间，起始行至少为 1。
      */
     fun lineRange(url: String): IntRange? {
-        val fragment = runCatching { URI(url.trim()).rawFragment }.getOrNull() ?: return null
+        val fragment = fragmentOf(url) ?: return null
         return parseLineFragment(fragment)
     }
 
@@ -157,13 +183,16 @@ object Links {
         return if (start >= 1 && end >= start) start..end else null
     }
 
-    /** github.com/search?q=…&type=… 打开应用内搜索；没有关键词时交给浏览器 */
-    private fun search(u: URI, segs: List<String>): Screen? {
-        if (segs != listOf("search")) return null
-        val params = u.rawQuery.orEmpty().split('&').mapNotNull {
+    private fun queryParams(u: URI): Map<String, String> =
+        u.rawQuery.orEmpty().split('&').mapNotNull {
             val (k, v) = it.split('=', limit = 2).takeIf { p -> p.size == 2 } ?: return@mapNotNull null
             runCatching { k to URLDecoder.decode(v, "UTF-8") }.getOrNull()
         }.toMap()
+
+    /** github.com/search?q=…&type=… 打开应用内搜索；没有关键词时交给浏览器 */
+    private fun search(u: URI, segs: List<String>): Screen? {
+        if (segs != listOf("search")) return null
+        val params = queryParams(u)
         val q = params["q"]?.trim()?.takeIf { it.isNotEmpty() } ?: return null
         val type = when (params["type"]?.lowercase()) {
             "users" -> SearchType.USER
@@ -175,7 +204,16 @@ object Links {
         return Screen.Search(type, q)
     }
 
-    private fun web(segs: List<String>): Screen? {
+    /**
+     * Issues / PR 列表页。带 q 筛选时交给应用内搜索（保留搜索语法，如 is:open label:bug）；
+     * 没有筛选时打开普通列表。
+     */
+    private fun listScreen(u: URI, owner: String, name: String, pulls: Boolean): Screen {
+        val q = queryParams(u)["q"]?.trim()?.takeIf { it.isNotEmpty() } ?: return Screen.Issues(owner, name, pulls)
+        return Screen.Search(if (pulls) SearchType.PR else SearchType.ISSUE, "repo:$owner/$name $q")
+    }
+
+    private fun web(u: URI, segs: List<String>): Screen? {
         if (segs.isEmpty()) return null
         if (segs[0] == "orgs" && segs.size >= 2) return segs[1].takeIf(ownerPattern::matches)?.let(Screen::Org)
         if (segs[0].lowercase() in reserved || !ownerPattern.matches(segs[0])) return null
@@ -184,16 +222,32 @@ object Links {
         val o = repo.owner
         val r = repo.name
         if (segs.size == 2) return Screen.Repo(o, r)
-        val rest = segs.drop(4).joinToString("/")
         return when (segs[2]) {
-            "issues" -> segs.getOrNull(3)?.toIntOrNull()?.let { Screen.IssueDetail(o, r, it, false) } ?: Screen.Issues(o, r, false)
-            "pull" -> segs.getOrNull(3)?.toIntOrNull()?.let { Screen.IssueDetail(o, r, it, true) } ?: Screen.Issues(o, r, true)
-            "pulls" -> Screen.Issues(o, r, true)
-            "commit" -> segs.getOrNull(3)?.let { Screen.CommitDetail(o, r, it) }
+            "issues" -> when (val seg = segs.getOrNull(3)) {
+                "new" -> Screen.NewIssue(o, r)
+                null -> listScreen(u, o, r, pulls = false)
+                else -> seg.toIntOrNull()?.let { Screen.IssueDetail(o, r, it, false) } ?: listScreen(u, o, r, pulls = false)
+            }
+            "pull" -> segs.getOrNull(3)?.toIntOrNull()?.let { num ->
+                // pull/N/files 直接进入文件变更页，而不是讨论串
+                if (segs.getOrNull(4) == "files") Screen.PullFiles(o, r, num) else Screen.IssueDetail(o, r, num, true)
+            } ?: listScreen(u, o, r, pulls = true)
+            "pulls" -> listScreen(u, o, r, pulls = true)
+            // 提交链接可能带 .patch / .diff 后缀，SHA 本身不含点
+            "commit" -> segs.getOrNull(3)?.substringBefore('.')?.takeIf { it.isNotEmpty() }?.let { Screen.CommitDetail(o, r, it) }
             "commits" -> Screen.Commits(o, r, segs.getOrNull(3))
-            "blob" -> if (segs.size >= 5) Screen.FileView(o, r, rest, segs[3]) else Screen.Repo(o, r)
-            "tree" -> if (segs.size >= 4) Screen.Files(o, r, rest, segs[3]) else Screen.Repo(o, r)
-            "releases", "tags" -> Screen.Releases(o, r)
+            // blob / tree / raw 的「分支 + 路径」由 BlobScreen 解析（分支名可能含 /）
+            "blob", "raw" -> if (segs.size >= 4) Screen.Blob(o, r, segs.drop(3).joinToString("/")) else Screen.Repo(o, r)
+            "tree" -> if (segs.size >= 4) Screen.Blob(o, r, segs.drop(3).joinToString("/")) else Screen.Repo(o, r)
+            // 版本链接必须带上版本：/releases/tag/X 与 /releases/download/X/… 定位到 X，/releases/latest 定位到最新版
+            "releases" -> when (segs.getOrNull(3)) {
+                // 标签名未编码时可能含 /，取剩下的全部路径
+                "tag" -> segs.drop(4).joinToString("/").takeIf { it.isNotEmpty() }?.let { Screen.Releases(o, r, it) } ?: Screen.Releases(o, r)
+                "download" -> segs.getOrNull(4)?.let { Screen.Releases(o, r, it) } ?: Screen.Releases(o, r)
+                "latest" -> Screen.Releases(o, r, "latest")
+                else -> Screen.Releases(o, r)
+            }
+            "tags" -> Screen.Releases(o, r)
             "actions" -> if (segs.getOrNull(3) == "runs") segs.getOrNull(4)?.toLongOrNull()?.let { Screen.RunDetail(o, r, it) } else Screen.Actions(o, r)
             "stargazers" -> Screen.Users(UserKind.Stargazers, o, r)
             "watchers" -> Screen.Users(UserKind.Watchers, o, r)
@@ -202,9 +256,21 @@ object Links {
             "graphs", "pulse" -> Screen.Insights(o, r)
             "discussions" -> segs.getOrNull(3)?.toIntOrNull()?.let { Screen.DiscussionDetail(o, r, it) } ?: Screen.Discussions(o, r)
             "compare" -> segs.getOrNull(3)?.split("...", limit = 2)?.takeIf { it.size == 2 && it.all(String::isNotBlank) }?.let { Screen.Compare(o, r, it[0], it[1]) } ?: Screen.Compare(o, r)
-            "wiki", "security", "projects", "milestone", "milestones", "labels", "raw" -> null
+            "wiki" -> wiki(o, r, segs.drop(3))
+            // 安全页面的告警列表在应用内；仓库设置只有根页面在应用内，子页面交给浏览器
+            "security" -> if (segs.size == 3 || segs[3] in securityPages) Screen.SecurityAlerts(o, r) else null
+            "settings" -> if (segs.size == 3) Screen.RepoSettings(o, r) else null
+            "projects", "milestone", "milestones", "labels" -> null
             else -> Screen.Repo(o, r)
         }
+    }
+
+    /** Wiki 页面在应用内打开；新建、编辑、历史等操作页仍交给浏览器 */
+    private fun wiki(owner: String, name: String, rest: List<String>): Screen? {
+        if (rest.isEmpty()) return Screen.Wiki(owner, name)
+        val first = rest.first()
+        if (first.startsWith("_") || first.equals("_new", true) || first.equals("_edit", true)) return null
+        return Screen.Wiki(owner, name, rest.joinToString("/"))
     }
 
     private fun api(segs: List<String>): Screen? {
@@ -218,7 +284,12 @@ object Links {
             "issues" -> segs.getOrNull(4)?.toIntOrNull()?.let { Screen.IssueDetail(o, r, it, false) }
             "pulls" -> segs.getOrNull(4)?.toIntOrNull()?.let { Screen.IssueDetail(o, r, it, true) }
             "commits" -> segs.getOrNull(4)?.let { Screen.CommitDetail(o, r, it) }
-            "releases" -> Screen.Releases(o, r)
+            "releases" -> when (segs.getOrNull(4)) {
+                "tags" -> segs.drop(5).joinToString("/").takeIf { it.isNotEmpty() }?.let { Screen.Releases(o, r, it) } ?: Screen.Releases(o, r)
+                "latest" -> Screen.Releases(o, r, "latest")
+                // /releases/{id}：通知里的 Release 使用数字 id
+                else -> segs.getOrNull(4)?.toLongOrNull()?.let { Screen.Releases(o, r, releaseId = it) } ?: Screen.Releases(o, r)
+            }
             "actions" -> Screen.Actions(o, r)
             else -> Screen.Repo(o, r)
         }

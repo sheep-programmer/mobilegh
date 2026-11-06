@@ -696,6 +696,13 @@ object GitHub {
 
     suspend fun release(o: String, n: String, id: Long, force: Boolean = true) = Api.get<Release>("${r(o, n)}/releases/$id", force)
 
+    /** 按标签名取指定版本（不受列表分页影响）；标签不存在或无权查看时返回 null */
+    suspend fun releaseByTag(o: String, n: String, tag: String, force: Boolean = false): Release? = try {
+        Api.get<Release>("${r(o, n)}/releases/tags/${Api.q(tag)}", force, Api.FULL)
+    } catch (e: ApiException) {
+        if (e.code == 404) null else throw e
+    }
+
     /** 新建 / 编辑 Release；target 只在标签尚不存在时用于创建标签 */
     private fun releaseBody(form: ReleaseEdit) = buildJsonObject {
         put("tag_name", form.tag)

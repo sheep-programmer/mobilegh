@@ -39,12 +39,43 @@ class LinksTest {
     }
 
     @Test fun deepLinksKeepTheirDestinationRatherThanOpeningTheRepositoryHome() {
-        assertEquals(Screen.IssueDetail("octocat", "Hello-World", 42, false), Links.fromInput("github.com/octocat/Hello-World/issues/42#issuecomment-1"))
-        assertEquals(Screen.IssueDetail("octocat", "Hello-World", 7, true), Links.fromInput("https://github.com/octocat/Hello-World/pull/7/files"))
-        assertEquals(Screen.FileView("octocat", "Hello-World", "src/a+b.kt", "main"), Links.fromInput("https://github.com/octocat/Hello-World/blob/main/src/a+b.kt"))
-        assertEquals(Screen.FileView("octocat", "Hello-World", "文档.md", "main"), Links.fromInput("https://raw.githubusercontent.com/octocat/Hello-World/main/%E6%96%87%E6%A1%A3.md"))
-        assertEquals(Screen.Releases("octocat", "Hello-World"), Links.fromInput("https://github.com/octocat/Hello-World/releases/tag/v1"))
+        assertEquals(Screen.IssueDetail("octocat", "Hello-World", 42, false, 1L), Links.fromInput("github.com/octocat/Hello-World/issues/42#issuecomment-1"))
+        assertEquals(Screen.PullFiles("octocat", "Hello-World", 7), Links.fromInput("https://github.com/octocat/Hello-World/pull/7/files"))
+        assertEquals(Screen.Blob("octocat", "Hello-World", "main/src/a+b.kt"), Links.fromInput("https://github.com/octocat/Hello-World/blob/main/src/a+b.kt"))
+        assertEquals(Screen.Blob("octocat", "Hello-World", "main/文档.md"), Links.fromInput("https://raw.githubusercontent.com/octocat/Hello-World/main/%E6%96%87%E6%A1%A3.md"))
         assertEquals(Screen.Profile("octocat"), Links.fromInput("https://github.com/octocat"))
+    }
+
+    @Test fun releaseLinksOpenTheVersionTheyNameNotTheLatestOne() {
+        val repo = "https://github.com/CKopoer/BiliSail"
+        assertEquals(Screen.Releases("CKopoer", "BiliSail", "v1.2.4+1"), Links.fromInput("$repo/releases/tag/v1.2.4%2B1"))
+        assertEquals(Screen.Releases("CKopoer", "BiliSail", "v1.2.4+1"), Links.fromInput("$repo/releases/tag/v1.2.4+1"))
+        assertEquals(Screen.Releases("CKopoer", "BiliSail", "release/1.0"), Links.fromInput("$repo/releases/tag/release%2F1.0"))
+        assertEquals(Screen.Releases("CKopoer", "BiliSail", "v1.2.4+1"), Links.fromInput("$repo/releases/download/v1.2.4%2B1/app.apk"))
+        assertEquals(Screen.Releases("CKopoer", "BiliSail", "latest"), Links.fromInput("$repo/releases/latest"))
+        assertEquals(Screen.Releases("CKopoer", "BiliSail"), Links.fromInput("$repo/releases"))
+        assertEquals(Screen.Releases("CKopoer", "BiliSail"), Links.fromInput("$repo/tags"))
+        assertEquals(Screen.Releases("CKopoer", "BiliSail", "v2"), Links.fromInput("https://api.github.com/repos/CKopoer/BiliSail/releases/tags/v2"))
+        assertEquals(Screen.Releases("CKopoer", "BiliSail", "latest"), Links.fromInput("https://api.github.com/repos/CKopoer/BiliSail/releases/latest"))
+    }
+
+    @Test fun issueCommentAnchorsSurvivePastingAndRouting() {
+        val expected = Screen.IssueDetail("CKopoer", "BiliSail", 69, false, 6663984777L)
+        // 粘贴的链接（剪贴板、分享、Markdown）与直接路由都要保留评论位置
+        assertEquals(expected, Links.route("https://github.com/CKopoer/BiliSail/issues/69#issuecomment-6663984777"))
+        assertEquals(expected, Links.fromInput("https://github.com/CKopoer/BiliSail/issues/69#issuecomment-6663984777"))
+        assertEquals(expected, Links.inputLink("https://github.com/CKopoer/BiliSail/issues/69?notification_referrer_id=1#issuecomment-6663984777")?.target)
+        // 外部打开时 InputLink.url 会被再次解析：解析结果必须与第一次一致，锚点不能丢
+        Links.inputLink("https://github.com/CKopoer/BiliSail/issues/69#issuecomment-6663984777")!!.let { link ->
+            assertEquals(link.target, Links.fromInput(link.url))
+        }
+        Links.inputLink("https://github.com/octocat/Hello-World/blob/main/a.kt#L10-L20")!!.let { link ->
+            assertEquals(Screen.Blob("octocat", "Hello-World", "main/a.kt", 10..20), Links.fromInput(link.url))
+        }
+        assertEquals(expected, Links.sharedLink("看这条 https://github.com/CKopoer/BiliSail/issues/69#issuecomment-6663984777 ：")?.target)
+        assertEquals(expected.copy(isPull = true), Links.route("https://github.com/CKopoer/BiliSail/pull/69#issuecomment-6663984777"))
+        // 没有评论锚点的 Issue 链接不带评论 id
+        assertNull(Links.route("https://github.com/CKopoer/BiliSail/issues/69")?.let { (it as Screen.IssueDetail).commentId })
     }
 
     @Test fun searchQualifiersAndOrdinaryWordsRemainSearchQueries() {
@@ -63,7 +94,22 @@ class LinksTest {
         ).forEach { assertEquals(it, repo, Links.repositoryInText(it)?.repository) }
         assertEquals(Screen.IssueDetail("octocat", "Hello-World", 42, false), Links.repositoryInText("See https://github.com/octocat/Hello-World/issues/42.")?.target)
         assertEquals(repo, Links.repositoryInText("https://api.github.com/repos/octocat/Hello-World")?.repository)
-        assertEquals(repo, Links.repositoryInText("https://github.com/octocat/Hello-World/wiki")?.target)
+        assertEquals(repo, Links.repositoryInText("https://github.com/octocat/Hello-World/wiki")?.repository)
+        assertEquals(Screen.Wiki("octocat", "Hello-World"), Links.repositoryInText("https://github.com/octocat/Hello-World/wiki")?.target)
+    }
+
+    @Test fun wikiPagesStayInTheAppButEditingPagesOpenInTheBrowser() {
+        assertEquals(Screen.Wiki("octocat", "Hello-World"), Links.route("https://github.com/octocat/Hello-World/wiki"))
+        assertEquals(Screen.Wiki("octocat", "Hello-World"), Links.route("https://github.com/octocat/Hello-World/wiki/"))
+        assertEquals(Screen.Wiki("octocat", "Hello-World", "Home"), Links.route("https://github.com/octocat/Hello-World/wiki/Home"))
+        assertEquals(Screen.Wiki("octocat", "Hello-World", "Guide/Install"), Links.route("https://github.com/octocat/Hello-World/wiki/Guide/Install"))
+        assertEquals(Screen.Wiki("octocat", "Hello-World", "中文 页面"), Links.route("https://github.com/octocat/Hello-World/wiki/%E4%B8%AD%E6%96%87%20%E9%A1%B5%E9%9D%A2"))
+        // 新建、编辑、历史等操作页在应用外完成
+        assertNull(Links.route("https://github.com/octocat/Hello-World/wiki/_new"))
+        assertNull(Links.route("https://github.com/octocat/Hello-World/wiki/_edit/Home"))
+        assertNull(Links.route("https://github.com/octocat/Hello-World/wiki/_history"))
+        // 从剪贴板 / 分享进入时同样解析到 wiki 页面
+        assertEquals(Screen.Wiki("octocat", "Hello-World", "Home"), Links.inputLink("https://github.com/octocat/Hello-World/wiki/Home")?.target)
     }
 
     @Test fun unrelatedDomainsProfilesSettingsAndMalformedUrlsAreIgnored() {

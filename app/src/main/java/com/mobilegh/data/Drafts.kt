@@ -14,6 +14,10 @@ import com.mobilegh.i18n.trf
 @Serializable
 data class DraftOption(val key: String, val label: String, val color: String? = null, val avatar: String? = null)
 
+/** 表单草稿里某个字段的答案；用列表而不是 Map，JSON 的键只能是字符串 */
+@Serializable
+data class DraftAnswer(val index: Int, val values: List<String> = emptyList())
+
 @Serializable
 data class DraftValue(
     val title: String = "",
@@ -23,8 +27,12 @@ data class DraftValue(
     val labels: List<DraftOption> = emptyList(),
     val assignees: List<DraftOption> = emptyList(),
     val milestone: DraftOption? = null,
+    /** 新建 Issue 使用：所选模板的文件名与 YAML 表单的答案 */
+    val template: String? = null,
+    val answers: List<DraftAnswer> = emptyList(),
 ) {
-    val empty: Boolean get() = title.isBlank() && body.isBlank() && labels.isEmpty() && assignees.isEmpty() && milestone == null
+    val empty: Boolean get() = title.isBlank() && body.isBlank() && labels.isEmpty() && assignees.isEmpty() &&
+        milestone == null && template == null && answers.isEmpty()
 }
 
 class DraftStore internal constructor(private val storage: LocalRecordStorage) {
@@ -42,6 +50,8 @@ class DraftStore internal constructor(private val storage: LocalRecordStorage) {
     fun save(login: String, context: String, value: DraftValue) {
         require(value.title.length <= 1024 && value.body.length <= 65_536) { tr("草稿太长，无法保存在本机") }
         require(value.labels.size <= 100 && value.assignees.size <= 100) { tr("草稿太长，无法保存在本机") }
+        require((value.template?.length ?: 0) <= 1024 && value.answers.size <= 500) { tr("草稿太长，无法保存在本机") }
+        require(value.answers.all { it.values.size <= 100 && it.values.all { v -> v.length <= 65_536 } }) { tr("草稿太长，无法保存在本机") }
         if (value.empty) clear(login, context) else storage.write(key(login, context), json.encodeToString(value))
     }
     fun clear(login: String, context: String) = storage.remove(key(login, context))

@@ -150,6 +150,8 @@ fun Page(
     onBack: (() -> Unit)? = null,
     /** 副标题（如 owner/repo）可点：仓库内页面用它回到仓库主页，和网页版的面包屑一致 */
     onSubtitleClick: (() -> Unit)? = null,
+    /** 页面内的撤销提示（见 offerUndo）；传入后显示在底部，不占用内容区 */
+    snackbar: androidx.compose.material3.SnackbarHostState? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val nav = LocalNav.current
@@ -180,6 +182,9 @@ fun Page(
                 }
             },
             bottomBar = bottomBar,
+            snackbarHost = {
+                if (snackbar != null) androidx.compose.material3.SnackbarHost(snackbar, Modifier.padding(12.dp))
+            },
             floatingActionButton = {
                 Column(horizontalAlignment = Alignment.End) {
                     floating()

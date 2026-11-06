@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
@@ -84,6 +85,29 @@ internal fun htmlMaxHeightDp(density: Float, widthPx: Int): Int =
 
 /** JS 回报的内容高度（CSS 像素，等同 dp）夹在 [24, maxDp] 之间：未加载时至少 24dp，异常高度不超过上限。 */
 internal fun htmlContentHeightDp(reportedPx: Int, maxDp: Int): Int = reportedPx.coerceIn(24, maxDp)
+
+/**
+ * WebView 量好的内容高度（dp）按内容缓存。HtmlView 滚出列表后会被销毁，再滚回来时重新组合，
+ * 没有这份缓存就会从 24dp 重新长高，前后位置跟着变。键由内容、基址、屏宽、字号组成，内容变了高度自然失效。
+ */
+internal object HtmlHeightCache {
+    private const val MAX_ENTRIES = 400
+    private val map = object : LinkedHashMap<String, Int>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Int>?): Boolean = size > MAX_ENTRIES
+    }
+
+    @Synchronized
+    fun get(key: String): Int? = map[key]
+
+    @Synchronized
+    fun put(key: String, heightDp: Int) {
+        map[key] = heightDp
+    }
+}
+
+/** 高度缓存的键。哈希碰撞只会让首帧高度略有偏差，之后 JS 回报会纠正，所以用哈希而不保存整段 HTML。 */
+internal fun htmlHeightKey(doc: String, baseUrl: String, screenWidthDp: Int, textZoom: Int): String =
+    "${doc.hashCode()}:${doc.length}:$baseUrl:$screenWidthDp:$textZoom"
 
 /** 请求 HtmlView 滚到某个标题锚点。每次请求都是新对象，同一个标题再次点击也会生效。 */
 class HtmlAnchorRequest(val anchor: String)
@@ -178,9 +202,14 @@ fun HtmlView(
     var renderEpoch by remember { mutableIntStateOf(0) }
     val maxHeight = remember(density, measuredWidth) { htmlMaxHeightDp(density, measuredWidth) }
     val heightLimit by rememberUpdatedState(maxHeight)
-    var height by remember { mutableIntStateOf(0) }
     val anchor by rememberUpdatedState(onAnchor)
     val doc = remember(html, dark) { wrapHtml(html, dark) }
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val cacheKey = remember(doc, baseUrl, screenWidthDp, textZoom) { htmlHeightKey(doc, baseUrl, screenWidthDp, textZoom) }
+    val cacheKeyState = rememberUpdatedState(cacheKey)
+    // 高度先取缓存：列表项滚出屏幕再滚回时，WebView 会重建，若从 24dp 重新长高，评论就会上下跳动
+    var height by remember { mutableIntStateOf(HtmlHeightCache.get(cacheKey) ?: 0) }
+    LaunchedEffect(cacheKey) { HtmlHeightCache.get(cacheKey)?.let { height = it } }
     // 在 AndroidView 释放已脱离视图树的实例后销毁，避免提前 destroy 仍附着的 WebView。
     val webRef = remember { arrayOfNulls<WebView>(1) }
     /** 代码块「放大」：非空时弹出全屏代码视图 */
@@ -205,6 +234,8 @@ fun HtmlView(
                     // 手指在正文上拖动会让它内部滚动，顶部就被裁掉；这里把内部滚动位置钉在 0。
                     setOnScrollChangeListener { _, _, y, _, _ -> if (y != 0) scrollTo(0, 0) }
                     settings.javaScriptEnabled = true
+                    // README 里的视频多为静音自动播放；默认要求用户手势时，页面里的播放按钮点了也不生效
+                    settings.mediaPlaybackRequiresUserGesture = false
                     settings.allowFileAccess = false
                     settings.allowContentAccess = false
                     settings.textZoom = textZoom
@@ -221,7 +252,9 @@ fun HtmlView(
                                 warned = true
                                 AppLog.warn("webview", tr("HTML 高度异常：") + v + tr("px，已限制"))
                             }
-                            height = v.coerceIn(24, heightLimit)
+                            val measured = v.coerceIn(24, heightLimit)
+                            height = measured
+                            HtmlHeightCache.put(cacheKeyState.value, measured)
                         }
 
                         @JavascriptInterface
@@ -233,7 +266,10 @@ fun HtmlView(
 
                         /** 点击视频：交给原生全屏播放器（倍速、拖动、保存），WebView 自带的播放器做不到 */
                         @JavascriptInterface
-                        fun video(src: String) = post { if (webRef[0] === this@apply) VideoViewer.open(src) }
+                        fun video(src: String) = post {
+                            // 网页已经释放（滚出屏幕）时忽略，避免给已销毁的页面打开播放器
+                            if (webRef[0] === this@apply) VideoViewer.open(src)
+                        }
 
                         /** 代码块「复制」：代码文本作为参数传入，不拼进 JS 源码 */
                         @JavascriptInterface
@@ -599,9 +635,10 @@ class GhWebClient(
             (host == "githubusercontent.com" || host.endsWith(".githubusercontent.com")) ||
             (host == "github.com" && url.contains("/user-attachments/"))
         if (!handled) return null
-        // 视频和播放器的 Range 请求不进图片缓存：直接从源站流式转发，才能边下边播、拖动进度
+        // 视频交给 WebView 自己的媒体栈：它会按 Range 边下边播，并自己处理解码与缓冲。
+        // 经应用转发（WebResourceResponse）时播放器会一直停在缓冲状态，所以这里必须放行。
         val range = request.requestHeaders.entries.firstOrNull { it.key.equals("Range", true) }?.value
-        if (MediaProxy.wants(url, range)) return mediaResponse(url, range)
+        if (MediaProxy.wants(url, range)) return null
         val r = ImageFetch.fetch(target)
             // 图片链路拿不到（超过 16 MB 的大 GIF、镜像全部失败）时，改从源站流式转发
             ?: return mediaResponse(url, null)
@@ -821,6 +858,13 @@ private fun wrapHtmlDocument(body: String, dark: Boolean, extraTags: String): St
       if(t){Bridge.a(Math.round(t.getBoundingClientRect().top+window.scrollY));}
     }
   },true);
+  // 视频：去掉原生控件（点击会被影子 DOM 吃掉），外层包一层自绘播放图标；点击由上面的监听交给原生播放器
+  document.querySelectorAll('video').forEach(function(v){
+    if(v.parentNode&&v.parentNode.classList&&v.parentNode.classList.contains('vid-wrap')) return;
+    v.removeAttribute('controls'); v.setAttribute('playsinline','');
+    var w=document.createElement('span'); w.className='vid-wrap';
+    v.parentNode.insertBefore(w,v); w.appendChild(v);
+  });
   document.querySelectorAll('img').forEach(function(i){i.addEventListener('load',r);});
 })();
 </script></body></html>
@@ -852,6 +896,13 @@ h3{font-size:1.2em;}h4{font-size:1em;}h5{font-size:.9em;}h6{font-size:.85em;colo
 .markdown-heading{position:relative;}
 .anchor,.octicon-link{display:none!important;}
 img{max-width:100%;box-sizing:border-box;background:transparent;}
+/* 视频按容器宽度缩放；否则会按原始分辨率渲染，右侧被裁掉 */
+video{max-width:100%;height:auto;box-sizing:border-box;background:#000;display:block;}
+/* 视频外面套一层，用自绘的播放图标代替原生控件：原生控件在影子 DOM 里，点击到不了页面脚本 */
+.vid-wrap{position:relative;display:block;max-width:100%;line-height:0;}
+.vid-wrap::after{content:'';position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;background:rgba(0,0,0,.55);pointer-events:none;}
+.vid-wrap::before{content:'';position:absolute;left:50%;top:50%;margin:-14px 0 0 -9px;border-left:24px solid #fff;border-top:14px solid transparent;border-bottom:14px solid transparent;z-index:1;pointer-events:none;}
+iframe{max-width:100%;}
 a img{display:inline-block;}
 p img[align=right]{margin-left:8px;}
 hr{height:.25em;padding:0;margin:24px 0;background:var(--border);border:0;}

@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.BuildConfig
 import com.mobilegh.R
+import com.mobilegh.ui.components.LinkDefaultRow
 import com.mobilegh.data.Api
 import com.mobilegh.data.AppLog
 import com.mobilegh.data.DeviceAuth
@@ -219,6 +220,7 @@ fun SettingsScreen() {
                                 else -> "v${BuildConfig.VERSION_NAME}"
                             },
                         ) { showUpdate = true }
+                        LinkDefaultRow()
                         MenuRow(R.drawable.oc_mark_github, tr("MobileGH 源码"), value = "v${BuildConfig.VERSION_NAME}") { nav.push(Screen.Repo("sheep-programmer", "mobilegh")) }
                     }
                     SectionTitle(tr("GitHub 账号设置"))

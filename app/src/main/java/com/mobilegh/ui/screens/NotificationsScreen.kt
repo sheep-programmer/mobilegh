@@ -61,6 +61,7 @@ import com.mobilegh.data.ThreadApi
 import java.time.Instant
 import com.mobilegh.data.Session
 import com.mobilegh.nav.Links
+import com.mobilegh.data.GitLinks
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
@@ -72,6 +73,7 @@ import com.mobilegh.nav.retain
 import com.mobilegh.ui.Badges
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Chips
+import com.mobilegh.ui.components.rememberTick
 import com.mobilegh.ui.components.Counter
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.EmptyState
@@ -389,7 +391,7 @@ private fun CheckMark(checked: Boolean) {
 
 /** 滑动露出的动作底色：图标 + 文案 */
 @Composable
-private fun SwipeAction(icon: Int, label: String, bg: Color, fg: Color, atEnd: Boolean) {
+internal fun SwipeAction(icon: Int, label: String, bg: Color, fg: Color, atEnd: Boolean) {
     Row(
         Modifier.fillMaxSize().background(bg).padding(horizontal = 16.dp),
         horizontalArrangement = if (atEnd) Arrangement.End else Arrangement.Start,
@@ -424,6 +426,7 @@ private fun NotificationRow(
     val scope = rememberCoroutineScope()
     val unread = state.unread(n)
     val dismiss = rememberSwipeToDismissBoxState()
+    val tick = rememberTick()
     val enabled = !selection && !busy
 
     SwipeToDismissBox(
@@ -446,6 +449,7 @@ private fun NotificationRow(
         onDismiss = { value ->
             // 完成：条目随即被移出列表，滑动状态随条目一起消失
             // 已读 / 未读：条目保留，需要回弹复位
+            tick()
             if (value == SwipeToDismissBoxValue.EndToStart) {
                 onDone()
             } else {
@@ -773,7 +777,15 @@ fun NotificationsScreen() {
                 "RepositoryInvitation" -> Screen.Invitations
                 else -> Screen.Repo(o, r)
             }
-        nav.push(target)
+        val latest = n.subject.latestCommentUrl
+        // 通知对应的最新评论：读出它的网页地址（带 #issuecomment-N 之类的锚点）再定位；取不到时退回主题页
+        if (latest.isNullOrBlank()) {
+            nav.push(target)
+        } else {
+            entry.act({ nav.push(target) }) {
+                nav.push(Links.route(GitLinks.commentWebUrl(latest)) ?: target)
+            }
+        }
     }
 
     /** 取消订阅 / 忽略线程。忽略会记入本机（持久化），之后才能「恢复订阅」 */

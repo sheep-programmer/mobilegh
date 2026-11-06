@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -103,11 +104,11 @@ fun HomeScreen() {
     var creatingBusy by remember { mutableStateOf(false) }
     var creatingError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    // 移出首页收藏前先确认
-    var pendingFavorite by remember { mutableStateOf<FavoriteRepo?>(null) }
+    // 移出收藏后的撤销提示
+    val snackbar = remember { SnackbarHostState() }
 
     Page(
-        tr("首页"), back = false, contentWindowInsets = WindowInsets(0),
+        tr("首页"), back = false, contentWindowInsets = WindowInsets(0), snackbar = snackbar,
         actions = {
             OcButton(R.drawable.oc_plus, { nav.push(Screen.CreateRepo) })
             OcButton(R.drawable.oc_gear, { nav.push(Screen.Settings) })
@@ -142,7 +143,7 @@ fun HomeScreen() {
                                     f, canUp = i > 0, canDown = i < layout.favorites.lastIndex,
                                     onOpen = { nav.push(Screen.Repo(f.owner, f.name)) },
                                     onMove = { d -> HomePrefs.moveFavorite(i, d) },
-                                    onRemove = { pendingFavorite = f },
+                                    onRemove = { removeFavoriteWithUndo(scope, snackbar, i, f) },
                                 )
                             }
                         }
@@ -204,7 +205,6 @@ fun HomeScreen() {
             finally { creatingBusy = false }
         }
     }
-    pendingFavorite?.let { repo -> ConfirmRemoveFavoriteDialog(repo) { pendingFavorite = null } }
 }
 
 /** 我的 Issues / PR（官方网页的 github.com/issues 页面） */

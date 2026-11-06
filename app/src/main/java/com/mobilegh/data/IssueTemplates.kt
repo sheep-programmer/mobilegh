@@ -12,7 +12,29 @@ data class IssueTemplate(
     val assignees: List<String> = emptyList(),
     val body: String = "",
     val form: Boolean = false,
+    /** YAML 表单的字段（按原顺序，含 type: markdown 的说明块）；Markdown 模板为空 */
+    val fields: List<IssueFormField> = emptyList(),
 )
+
+/** 表单里的一个字段；[index] 是它在 body 列表中的位置，作为答案的键（标签可能重复） */
+data class IssueFormField(
+    val index: Int,
+    val type: String,
+    val label: String = "",
+    val description: String = "",
+    val placeholder: String = "",
+    /** input / textarea 的预填值，markdown 块的说明文字 */
+    val value: String = "",
+    /** textarea 指定 render 时，正文用对应语言的代码块包裹 */
+    val render: String = "",
+    val options: List<IssueFormOption> = emptyList(),
+    val multiple: Boolean = false,
+    val required: Boolean = false,
+    /** dropdown 的 default，按选项下标记录 */
+    val defaultSelection: List<Int> = emptyList(),
+)
+
+data class IssueFormOption(val label: String, val required: Boolean = false)
 
 data class ContactLink(val name: String, val url: String, val about: String = "")
 
@@ -74,6 +96,41 @@ object IssueTemplates {
     fun parseForm(file: String, text: String): IssueTemplate? {
         val root = MiniYaml.parse(text.replace("\r\n", "\n").removePrefix("\uFEFF")) as? Map<*, *> ?: return null
         val items = root["body"] as? List<*> ?: emptyList<Any>()
+        val fields = items.mapIndexedNotNull { index, raw ->
+            val item = raw as? Map<*, *> ?: return@mapIndexedNotNull null
+            val type = str(item["type"]).lowercase()
+            if (type !in FORM_TYPES) return@mapIndexedNotNull null
+            val attrs = item["attributes"] as? Map<*, *> ?: emptyMap<String, Any>()
+            val label = str(attrs["label"]).trim()
+            if (type != "markdown" && label.isEmpty()) return@mapIndexedNotNull null
+            val validations = item["validations"] as? Map<*, *>
+            val options = (attrs["options"] as? List<*>).orEmpty().mapNotNull { o ->
+                when (o) {
+                    is Map<*, *> -> str(o["label"]).trim().takeIf { it.isNotEmpty() }
+                        ?.let { IssueFormOption(it, bool(o["required"])) }
+                    else -> str(o).trim().takeIf { it.isNotEmpty() }?.let { IssueFormOption(it) }
+                }
+            }
+            val defaults = when (val d = attrs["default"]) {
+                null -> emptyList()
+                is List<*> -> d.mapNotNull { str(it).trim().toIntOrNull() }
+                else -> listOfNotNull(str(d).trim().toIntOrNull())
+            }
+            val multiple = bool(attrs["multiple"])
+            IssueFormField(
+                index = index,
+                type = type,
+                label = label,
+                description = str(attrs["description"]).trim(),
+                placeholder = str(attrs["placeholder"]),
+                value = str(attrs["value"]),
+                render = str(attrs["render"]).trim(),
+                options = options,
+                multiple = multiple,
+                required = bool(validations?.get("required")),
+                defaultSelection = if (multiple) defaults else defaults.take(1),
+            )
+        }
         val body = buildString {
             items.forEach { raw ->
                 val item = raw as? Map<*, *> ?: return@forEach
@@ -108,7 +165,66 @@ object IssueTemplates {
             assignees = strList(root["assignees"]).map { it.removePrefix("@") },
             body = body.takeIf { it.isNotBlank() } ?: "",
             form = true,
+            fields = fields,
         )
+    }
+
+    /** 表单首次打开时的答案：input / textarea 用 attributes.value，dropdown 用 default */
+    fun defaultAnswers(fields: List<IssueFormField>): Map<Int, List<String>> = fields.mapNotNull { f ->
+        val answer = when (f.type) {
+            "input", "textarea" -> if (f.value.isNotEmpty()) listOf(f.value) else emptyList()
+            "dropdown" -> f.defaultSelection.mapNotNull { f.options.getOrNull(it)?.label }
+            else -> emptyList()
+        }
+        if (answer.isEmpty()) null else f.index to answer
+    }.toMap()
+
+    /** 必填但还没填的字段；checkboxes 的 required 指至少勾选一项 */
+    fun missingRequired(fields: List<IssueFormField>, answers: Map<Int, List<String>>): List<IssueFormField> =
+        fields.filter { f ->
+            val answer = answers[f.index].orEmpty()
+            when {
+                f.type == "markdown" -> false
+                // checkbox 没有字段级必填，必填写在每个选项上（GitHub 的语义）
+                f.type == "checkboxes" -> f.options.any { it.required && it.label !in answer }
+                else -> f.required && answer.none { it.isNotBlank() }
+            }
+        }
+
+    /**
+     * 按 GitHub 的格式把答案写成 Issue 正文：每段一个 `### 标题`，checkbox 用 `- [x]`，
+     * textarea 带 render 时包成代码块；未填写的必填项在提交前已被拦下，这里保留 *_No response_* 占位。
+     * `markdown` 块只是表单里的说明，按 GitHub 的规则不会写进正文。
+     */
+    fun renderBody(fields: List<IssueFormField>, answers: Map<Int, List<String>>): String {
+        val out = StringBuilder()
+        fields.forEach { f ->
+            val answer = answers[f.index].orEmpty().filter { it.isNotBlank() }
+            when (f.type) {
+                "markdown" -> Unit
+                "checkboxes" -> {
+                    if (f.options.isEmpty()) return@forEach
+                    out.append("### ").append(f.label).append("\n\n")
+                    f.options.forEach { o -> out.append(if (o.label in answer) "- [x] " else "- [ ] ").append(o.label).append('\n') }
+                    out.append('\n')
+                }
+                else -> {
+                    if (f.label.isEmpty()) return@forEach
+                    out.append("### ").append(f.label).append("\n\n")
+                    if (answer.isEmpty()) {
+                        // 与 GitHub 一样用斜体占位，不留空的正文段落
+                        out.append("_No response_")
+                    } else {
+                        // 多选下拉在 GitHub 上写成一行，用逗号分隔
+                        val text = if (f.type == "dropdown" && f.multiple) answer.joinToString(", ") else answer.joinToString("\n")
+                        if (f.render.isNotEmpty()) out.append("```").append(f.render).append('\n').append(text.trimEnd()).append("\n```")
+                        else out.append(text.trimEnd())
+                    }
+                    out.append("\n\n")
+                }
+            }
+        }
+        return out.toString().trimEnd().let { if (it.isEmpty()) "" else "$it\n" }
     }
 
     fun parseConfig(text: String): IssueTemplateConfig {
@@ -125,6 +241,15 @@ object IssueTemplates {
     }
 
     private fun baseName(file: String) = file.substringAfterLast('/').substringBeforeLast('.')
+
+    private val FORM_TYPES = setOf("markdown", "input", "textarea", "dropdown", "checkboxes")
+
+    /** YAML 里的 true 会被 MiniYaml 读成字符串 */
+    private fun bool(v: Any?): Boolean = when (v) {
+        null -> false
+        is Boolean -> v
+        else -> str(v).trim().lowercase() in setOf("true", "yes", "1")
+    }
 
     private fun str(v: Any?): String = when (v) {
         null -> ""

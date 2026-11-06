@@ -122,6 +122,12 @@ class HomeLayoutStore internal constructor(private val storage: LocalRecordStora
     fun removeFavorite(login: String, repo: FavoriteRepo) =
         change(login) { l -> l.copy(favorites = l.favorites.filterNot { it.fullName.equals(repo.fullName, true) }) }
 
+    /** 撤销「移出收藏」：按原位放回；已经存在或已达上限时保持不变 */
+    fun restoreFavorite(login: String, index: Int, repo: FavoriteRepo) = change(login) { l ->
+        if (l.isFavorite(repo.owner, repo.name) || l.favorites.size >= HomeLayout.MAX_FAVORITES) l
+        else l.copy(favorites = l.favorites.toMutableList().apply { add(index.coerceIn(0, size), repo) })
+    }
+
     fun moveShortcut(login: String, index: Int, delta: Int) = change(login) { it.copy(shortcuts = it.slots().moved(index, delta)) }
 
     fun setShortcutVisible(login: String, id: String, visible: Boolean) =
@@ -177,6 +183,7 @@ object HomePrefs {
     fun toggleFavorite(owner: String, name: String): Boolean = change { toggleFavorite(it, owner, name) } ?: false
     fun moveFavorite(index: Int, delta: Int) = change { moveFavorite(it, index, delta) }
     fun removeFavorite(repo: FavoriteRepo) = change { removeFavorite(it, repo) }
+    fun restoreFavorite(index: Int, repo: FavoriteRepo) = change { restoreFavorite(it, index, repo) }
     fun moveShortcut(index: Int, delta: Int) = change { moveShortcut(it, index, delta) }
     fun setShortcutVisible(id: String, visible: Boolean) = change { setShortcutVisible(it, id, visible) }
     fun resetShortcuts() = change { resetShortcuts(it) }

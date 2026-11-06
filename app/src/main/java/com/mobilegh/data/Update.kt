@@ -1,5 +1,7 @@
 package com.mobilegh.data
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.os.Build
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,6 +24,14 @@ object Update {
     private const val OWNER = "sheep-programmer"
     private const val REPO = "mobilegh"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /** 界面相关的清理（删除下载记录）需要在主线程执行 */
+    private val mainScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private const val PREFS = "update"
+    private lateinit var prefs: SharedPreferences
+
+    fun init(ctx: Context) {
+        prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    }
 
     data class Info(
         val version: String,
@@ -83,6 +93,8 @@ object Update {
 
     /** 下载并安装；完成后调用方负责触发安装 */
     fun download(info: Info) {
+        // 记下待安装的版本：下次启动时若已是这个版本，说明安装包已经装好，可以删除
+        prefs.edit().putString("pendingFile", info.assetName).putString("pendingVersion", info.version).apply()
         Downloads.start(
             rawUrl = info.url,
             filename = info.assetName,
@@ -91,16 +103,51 @@ object Update {
         )
     }
 
-    /** 版本号比较：按数字段依次比较，允许 "1.2.3" 形式 */
-    fun isNewer(remote: String, current: String): Boolean {
-        val r = remote.split('.', '-', '+').mapNotNull { it.toIntOrNull() }
-        val c = current.split('.', '-', '+').mapNotNull { it.toIntOrNull() }
-        if (r.isEmpty()) return false
-        for (i in 0 until maxOf(r.size, c.size)) {
-            val a = r.getOrElse(i) { 0 }
-            val b = c.getOrElse(i) { 0 }
-            if (a != b) return a > b
+    /**
+     * 启动时调用：上次下载的安装包对应的版本已经在运行，说明更新已装好。
+     * 删除安装包和它的下载记录，释放空间；版本还没到（没装、或取消了）则保留，方便之后再装。
+     */
+    fun removeInstalledPackage(ctx: Context) {
+        val file = prefs.getString("pendingFile", null) ?: return
+        val version = prefs.getString("pendingVersion", null) ?: return
+        if (!shouldRemoveInstalledPackage(version, BuildConfig.VERSION_NAME)) return
+        prefs.edit().clear().apply()
+        mainScope.launch {
+            val installed = Downloads.tasks.filter { it.filename == file && it.state == DownloadState.Complete }
+            installed.forEach { task ->
+                Downloads.deleteFile(ctx, task)
+                Downloads.forget(ctx, task)
+            }
+            if (installed.isNotEmpty()) AppLog.info("update", trf("已删除已安装更新的安装包：{0}", file))
         }
-        return false
     }
+
+    /** 版本号比较：按数字段依次比较，允许 "1.2.3" 形式 */
+    fun isNewer(remote: String, current: String): Boolean = isNewerVersion(remote, current)
+}
+
+/**
+ * 版本号比较：按数字段依次比较，允许 "1.2.3" 形式。
+ * 放在 object 外面：单测不会初始化 [Update]（它依赖 android.os.Build）。
+ */
+internal fun isNewerVersion(remote: String, current: String): Boolean {
+    val r = remote.split('.', '-', '+').mapNotNull { it.toIntOrNull() }
+    val c = current.split('.', '-', '+').mapNotNull { it.toIntOrNull() }
+    if (r.isEmpty()) return false
+    for (i in 0 until maxOf(r.size, c.size)) {
+        val a = r.getOrElse(i) { 0 }
+        val b = c.getOrElse(i) { 0 }
+        if (a != b) return a > b
+    }
+    return false
+}
+
+/**
+ * 上次下载的安装包是否可以删除：记录下来的版本已经不低于当前运行的版本，
+ * 说明新版本已经装好；版本无法识别时保守地保留安装包。
+ */
+internal fun shouldRemoveInstalledPackage(pendingVersion: String?, currentVersion: String): Boolean {
+    if (pendingVersion.isNullOrBlank()) return false
+    if (pendingVersion.none { it.isDigit() }) return false
+    return !isNewerVersion(pendingVersion, currentVersion)
 }

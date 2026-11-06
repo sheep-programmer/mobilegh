@@ -1685,7 +1685,6 @@ CDN · 图片/文件（分支内容可能有缓存）	CDN · images/files (branc
 加速仅用于公开内容：README 图片、源码原文、Release 下载与克隆地址。Token 不会发送给加速节点；私有仓库始终直连。点按节点可手动指定。	Acceleration only serves public content: README images, raw source, release downloads and clone addresses. Your token is never sent to acceleration nodes; private repositories always connect directly. Tap a node to choose it manually.
 添加自定义节点	Add a custom node
 官方	Official
-已启用	Enabled
 选择 Issue 模板	Choose an issue template
 新建 Issue	New issue
 更换模板	Change template
@@ -1699,7 +1698,7 @@ CDN · 图片/文件（分支内容可能有缓存）	CDN · images/files (branc
 空白 Issue	Blank issue
 使用「{0}」会覆盖已填写的标题、正文和元数据。	Using "{0}" overwrites the title, body and metadata you have filled in.
 不使用模板，从空白开始	Don't use a template, start blank
-表单模板会转换为 Markdown 结构，提交前请按小标题填写。	Form templates are converted to a Markdown structure; fill them in by heading before submitting.
+表单模板会显示为可填写的字段，提交时自动整理成 Issue 正文。	Form templates appear as fields to fill in; the Issue body is generated from them when you submit.
 该仓库已关闭空白 Issue，请选择一个模板。	This repository has disabled blank issues, choose a template.
 其他途径	Other ways
 该仓库没有可在应用内使用的模板，请通过上面的链接或网页提交。	This repository has no templates usable in the app, use the link above or submit on the web.
@@ -2640,3 +2639,94 @@ GitHub 没有提供该作者在这个仓库的提交总数	GitHub does not provi
 没有可添加的 Issue	No issues available to add
 已添加相关议题	Related issue added
 已移除相关议题	Related issue removed
+全屏编辑	Edit full screen
+该模板没有需要填写的字段。	This template has no fields to fill in.
+严重	Critical
+高危	High
+中危	Medium
+低危	Low
+分支规则	Branch rules
+规则集	Rulesets
+作用于分支	Applies to branches
+作用于标签	Applies to tags
+作用于推送	Applies to pushes
+作用于仓库	Applies to repository
+生效中	Active
+仅评估	Evaluate only
+已停用	Disabled
+依赖漏洞（Dependabot）	Dependency vulnerabilities (Dependabot)
+代码扫描（Code scanning）	Code scanning
+密钥泄露（Secret scanning）	Leaked secrets (Secret scanning)
+代码扫描告警	Code scanning alert
+疑似泄露的密钥	Possible leaked secret
+没有开放的依赖漏洞	No open dependency vulnerabilities
+没有开放的代码扫描告警	No open code scanning alerts
+没有开放的密钥泄露告警	No open leaked-secret alerts
+告警的处理（关闭、忽略、查看修复建议）请在网页上完成。	Alerts are handled on the web (dismiss, ignore, view fix suggestions).
+规则只读展示。修改规则请在网页的仓库设置中完成。	Rules are shown read-only. Edit them in the repository settings on the web.
+这个仓库没有规则集	This repository has no rulesets
+分支 {0} 没有经典保护规则（或当前账号无权查看）	Branch {0} has no classic protection rules (or this account cannot view them)
+默认分支保护	Default branch protection
+合并前需要审查	Review required before merging
+需要 {0} 人批准	Requires {0} approval(s)
+需要审查，不限人数	Review required, any number
+新提交后撤销批准	Dismiss approvals on new commits
+需要 Code Owner	Requires Code Owner review
+要求状态检查通过	Require status checks to pass
+（需先更新到最新分支）	 (branch must be up to date)
+要求对话已解决	Require conversations resolved
+要求线性提交历史	Require linear history
+管理员同样受约束	Enforce for administrators
+允许强制推送	Allow force pushes
+允许删除分支	Allow branch deletion
+是	Yes
+否	No
+开启自动合并…	Enable auto-merge…
+开启自动合并？	Enable auto-merge?
+开启自动合并	Enable auto-merge
+取消自动合并	Cancel auto-merge
+已开启自动合并	Auto-merge enabled
+必需的检查通过并获得所需审查后，GitHub 会自动按所选方式合并。	Once required checks pass and required reviews are approved, GitHub merges automatically using the chosen method.
+合并提交	Merge commit
+压缩合并	Squash and merge
+变基合并	Rebase and merge
+不支持的合并方式	Unsupported merge method
+附件（{0}）	Assets ({0})
+添加附件	Add asset
+还没有附件	No assets yet
+正在上传 {0}（{1}/{2}）	Uploading {0} ({1}/{2})
+附件已上传	Asset uploaded
+附件上传失败：{0}	Asset upload failed: {0}
+附件上传失败：	Asset upload failed: 
+单个附件不能超过 2 GB	A single asset cannot exceed 2 GB
+无法读取所选文件	Could not read the selected file
+无法读取文件大小	Could not read the file size
+已复制链接	Link copied
+已移出收藏「{0} / {1}」	Removed from favorites: {0} / {1}
+已关闭 #{0}	Closed #{0}
+关闭失败：{0}	Failed to close: {0}
+没有找到版本 {0}	No release found for {0}
+未找到该路径（可能不存在，或分支名与路径无法区分）	Path not found (it may not exist, or the branch name and path cannot be told apart)
+无法识别的评论地址	Unrecognized comment address
+已删除已安装更新的安装包：{0}	Deleted the installed update package: {0}
+用 MobileGH 打开 GitHub 链接？	Open GitHub links with MobileGH?
+设为默认后，点开 github.com 链接会直接用 MobileGH 打开，不再交给官方 GitHub App。	Once set as default, github.com links open directly in MobileGH instead of the official GitHub app.
+同意	Agree
+跳过	Skip
+默认打开链接	Open links by default
+已设为默认	Set as default
+未生效，点此去设置	Not in effect yet, tap to set
+已拒绝，点此设置	Declined, tap to set up
+未设置	Not set
+无法打开系统设置，请到应用信息中设置	Could not open system settings; set it in App info
+已同意，点此设置	Agreed, tap to set up
+已启用	Enabled
+系统仍可能先弹出选择框：选择 MobileGH 并勾选「始终」。在接下来打开的系统设置里，部分机型还需要点「添加链接」把 github.com 加进来。	The system may still show a chooser first: pick MobileGH and tick "Always". In the system settings that open next, some devices also need you to tap "Add link" to add github.com.
+视频请求失败：	Video request failed: 
+视频请求返回 {0}：{1}	Video request returned {0}: {1}
+视频流式转发 {0} range={1}	Video stream proxied {0} range={1}
+只支持图片和视频附件（GitHub 的限制）	Only image and video attachments are supported (a GitHub restriction)
+附件不能超过 10 MB	Attachments cannot exceed 10 MB
+上传成功但没有返回地址	Upload succeeded but no URL was returned
+无法确定所属仓库，请稍后重试	Cannot determine the repository, try again later
+附件已插入	Attachment inserted

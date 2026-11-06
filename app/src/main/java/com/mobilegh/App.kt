@@ -11,6 +11,7 @@ import com.mobilegh.data.Net
 import com.mobilegh.data.Session
 import com.mobilegh.data.Update
 import com.mobilegh.data.History
+import com.mobilegh.data.LinkDefault
 
 class App : Application() {
     override fun onCreate() {
@@ -28,7 +29,11 @@ class App : Application() {
         com.mobilegh.data.MobileApprovalMonitor.reload(this)
         History.init(this)
         com.mobilegh.data.HomePrefs.init(this)
+        Update.init(this)
+        LinkDefault.init(this)
         Downloads.init(this)
+        // 上次更新的安装包：若已是新版本在运行，删除安装包以省空间
+        Update.removeInstalledPackage(this)
         // 启动后台静默检查一次新版本（走加速节点，失败不影响使用）
         Update.checkQuietly()
         // 每次启动静默测速，自动选择最快的加速节点

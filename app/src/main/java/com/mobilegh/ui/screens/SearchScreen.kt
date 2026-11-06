@@ -45,9 +45,11 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -90,6 +92,7 @@ import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.RepoItem
+import com.mobilegh.ui.components.SearchText
 import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.UserItem
 import com.mobilegh.ui.theme.Gh
@@ -233,13 +236,21 @@ private fun SearchBar(
     onSubmit: () -> Unit,
     onOpenFilters: () -> Unit,
 ) {
+    // 从示例、历史或别的页面带关键词进来时，光标要停在末尾，方便直接接着输入
+    var field by remember { mutableStateOf(TextFieldValue(input, TextRange(input.length))) }
+    LaunchedEffect(input) {
+        if (field.text != input) field = TextFieldValue(input, TextRange(input.length))
+    }
     Row(
         Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         OutlinedTextField(
-            value = input,
-            onValueChange = onInput,
+            value = field,
+            onValueChange = {
+                field = it
+                onInput(it.text)
+            },
             modifier = Modifier.weight(1f).semantics { contentDescription = trf("搜索 {0}", SearchType.labels[type]) },
             placeholder = { Text(placeholder(type), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             leadingIcon = { Oc(R.drawable.oc_search, MaterialTheme.colorScheme.onSurfaceVariant, 20.dp) },
@@ -418,10 +429,15 @@ private fun CodeResults(query: String, state: LazyListState) {
             val target = Links.route(hit.htmlUrl) ?: Screen.FileView(hit.repository.owner.login, hit.repository.name, hit.path, hit.repository.defaultBranch)
             nav.pushLink(target)
         }.padding(16.dp)) {
+            // 命中的词加底色，限定符（repo:/language:）不参与高亮
+            val mark = Gh.c.attention.copy(alpha = 0.32f)
             Text(hit.repository.fullName.ifBlank { "${hit.repository.owner.login}/${hit.repository.name}" }, color = Gh.c.fgMuted, fontSize = 12.sp)
-            Text(hit.path, color = Gh.c.accent, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(SearchText.annotated(hit.path, query, mark), color = Gh.c.accent, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             hit.textMatches.firstOrNull()?.fragment?.let {
-                Text(it.take(1200), Modifier.padding(top = 8.dp), fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Gh.c.fg, maxLines = 7, overflow = TextOverflow.Ellipsis)
+                Text(
+                    SearchText.annotated(it.take(1200), query, mark),
+                    Modifier.padding(top = 8.dp), fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Gh.c.fg, maxLines = 7, overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }

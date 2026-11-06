@@ -97,6 +97,7 @@ object History {
             is Screen.Repo -> screen.owner to screen.name
             is Screen.Files -> screen.owner to screen.name
             is Screen.FileView -> screen.owner to screen.name
+            is Screen.Blob -> screen.owner to screen.name
             is Screen.IssueDetail -> screen.owner to screen.name
             is Screen.DiscussionDetail -> screen.owner to screen.name
             else -> null

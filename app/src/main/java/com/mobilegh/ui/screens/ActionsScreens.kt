@@ -335,7 +335,7 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                 val a = arts.data.orEmpty()
                 if (a.isNotEmpty()) {
                     item { com.mobilegh.ui.components.SectionTitle(tr("产物 Artifacts")) }
-                    itemsIndexed(a) { _, art ->
+                    itemsIndexed(a, key = { _, art -> art.id }) { _, art ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Oc(R.drawable.oc_package, g.fgMuted)
                             Spacer(Modifier.width(10.dp))

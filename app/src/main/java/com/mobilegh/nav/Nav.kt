@@ -29,7 +29,11 @@ sealed interface Screen {
     @Serializable data object Root : Screen
     @Serializable data class Repo(val owner: String, val name: String) : Screen
     @Serializable data class Files(val owner: String, val name: String, val path: String, val ref: String?) : Screen
+    /** 仓库 Wiki 的某个 Markdown 页面；page 为空表示首页 */
+    @Serializable data class Wiki(val owner: String, val name: String, val page: String? = null) : Screen
     @Serializable data class FileView(val owner: String, val name: String, val path: String, val ref: String?, @Serializable(with = IntRangeSerializer::class) val lines: IntRange? = null) : Screen
+    /** 分支或路径还不确定的链接（blob、tree、raw）：由 BlobScreen 确定分支、路径，以及它是文件还是目录 */
+    @Serializable data class Blob(val owner: String, val name: String, val rest: String, @Serializable(with = IntRangeSerializer::class) val lines: IntRange? = null) : Screen
     @Serializable data class FileFinder(val owner: String, val name: String, val ref: String?) : Screen
     @Serializable data class CodeSearch(val owner: String, val name: String) : Screen
     /** 独立搜索页：类型、关键词与组合筛选都在其中 */
@@ -52,18 +56,22 @@ sealed interface Screen {
     @Serializable data class Compare(val owner: String, val name: String, val base: String = "HEAD~1", val head: String = "HEAD") : Screen
     /** preset：从首页保存的搜索打开时带入的筛选条件 */
     @Serializable data class Issues(val owner: String, val name: String, val pulls: Boolean, val preset: IssueQuery? = null) : Screen
-    @Serializable data class IssueDetail(val owner: String, val name: String, val number: Int, val isPull: Boolean) : Screen
+    /** [commentId] 来自 `#issuecomment-N` / `#pullrequestreview-N` 链接：打开后滚动到这条评论或审查；为空时停在正文 */
+    @Serializable data class IssueDetail(val owner: String, val name: String, val number: Int, val isPull: Boolean, val commentId: Long? = null) : Screen
     @Serializable data class PullFiles(val owner: String, val name: String, val number: Int) : Screen
     @Serializable data class PullChecks(val owner: String, val name: String, val number: Int, val sha: String) : Screen
     @Serializable data class NewIssue(val owner: String, val name: String) : Screen
     @Serializable data class Actions(val owner: String, val name: String) : Screen
     @Serializable data class RunDetail(val owner: String, val name: String, val runId: Long) : Screen
     @Serializable data class JobLog(val owner: String, val name: String, val jobId: Long, val title: String) : Screen
-    @Serializable data class Releases(val owner: String, val name: String) : Screen
+    /** [tag] 来自 `/releases/tag/…`、`/releases/download/…` 链接：显示并展开这个版本；`latest` 表示最新版本；为空时只列出 */
+    @Serializable data class Releases(val owner: String, val name: String, val tag: String? = null, val releaseId: Long? = null) : Screen
     /** 仓库最近的推送记录：谁推送到了哪个分支 */
     @Serializable data class Pushes(val owner: String, val name: String) : Screen
     @Serializable data class Branches(val owner: String, val name: String) : Screen
     @Serializable data class Insights(val owner: String, val name: String) : Screen
+    @Serializable data class SecurityAlerts(val owner: String, val name: String) : Screen
+    @Serializable data class BranchRules(val owner: String, val name: String) : Screen
     @Serializable data class Contributors(val owner: String, val name: String) : Screen
     @Serializable data class Discussions(val owner: String, val name: String) : Screen
     @Serializable data class DiscussionDetail(val owner: String, val name: String, val number: Int) : Screen
@@ -223,7 +231,9 @@ fun OnTabReselect(tab: Tab, block: suspend () -> Unit) {
 /** 仓库内的页面所属的仓库主页；不属于某个仓库的页面返回 null。 */
 internal fun repoHomeOf(screen: Screen): Screen.Repo? = when (screen) {
     is Screen.Files -> Screen.Repo(screen.owner, screen.name)
+    is Screen.Wiki -> Screen.Repo(screen.owner, screen.name)
     is Screen.FileView -> Screen.Repo(screen.owner, screen.name)
+    is Screen.Blob -> Screen.Repo(screen.owner, screen.name)
     is Screen.FileFinder -> Screen.Repo(screen.owner, screen.name)
     is Screen.CodeSearch -> Screen.Repo(screen.owner, screen.name)
     is Screen.Blame -> Screen.Repo(screen.owner, screen.name)
@@ -247,6 +257,8 @@ internal fun repoHomeOf(screen: Screen): Screen.Repo? = when (screen) {
     is Screen.Pushes -> Screen.Repo(screen.owner, screen.name)
     is Screen.Branches -> Screen.Repo(screen.owner, screen.name)
     is Screen.Insights -> Screen.Repo(screen.owner, screen.name)
+    is Screen.SecurityAlerts -> Screen.Repo(screen.owner, screen.name)
+    is Screen.BranchRules -> Screen.Repo(screen.owner, screen.name)
     is Screen.Contributors -> Screen.Repo(screen.owner, screen.name)
     is Screen.Discussions -> Screen.Repo(screen.owner, screen.name)
     is Screen.DiscussionDetail -> Screen.Repo(screen.owner, screen.name)

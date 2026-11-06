@@ -23,6 +23,7 @@ import com.mobilegh.nav.Links
 import com.mobilegh.nav.NavRestore
 import com.mobilegh.nav.Navigator
 import com.mobilegh.nav.IncomingLinks
+import com.mobilegh.ui.components.LinkDefaultPrompt
 import com.mobilegh.nav.Tab
 import com.mobilegh.widget.WidgetIntents
 import com.mobilegh.widget.Widgets
@@ -133,6 +134,8 @@ class MainActivity : FragmentActivity() {
             LaunchedEffect(AppLock.enabled, AppLock.locked) { updateSecureFlags() }
             MobileGhTheme {
                 AppRoot(nav)
+                // 锁定时不弹出询问，解锁后再问
+                if (!AppLock.locked) LinkDefaultPrompt()
             }
         }
     }

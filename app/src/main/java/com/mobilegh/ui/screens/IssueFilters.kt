@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -21,7 +22,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
@@ -52,9 +58,19 @@ import com.mobilegh.data.IssueSort
 import com.mobilegh.data.IssueStateFilter
 import com.mobilegh.data.ReviewFilter
 import com.mobilegh.data.SAVED_SEARCH_ICONS
+import com.mobilegh.data.Session
+import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
+import com.mobilegh.nav.Pager
 import com.mobilegh.nav.Screen
+import com.mobilegh.nav.friendly
+import com.mobilegh.nav.retain
 import com.mobilegh.nav.rememberPager
+import com.mobilegh.ui.components.offerUndo
+import com.mobilegh.ui.components.rememberCtx
+import com.mobilegh.ui.components.toast
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
@@ -66,8 +82,7 @@ import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.PullItem
 import com.mobilegh.ui.components.Segmented
 import com.mobilegh.ui.components.TextLink
-import com.mobilegh.ui.components.rememberCtx
-import com.mobilegh.ui.components.toast
+import com.mobilegh.ui.components.rememberTick
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.delay
 import com.mobilegh.i18n.tr
@@ -337,28 +352,125 @@ fun IssueResults(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Strin
         val repo = issue.repositoryUrl?.substringAfter("/repos/")?.takeIf { it.contains('/') } ?: "$owner/$name"
         nav.push(Screen.IssueDetail(repo.substringBefore('/'), repo.substringAfter('/'), issue.number, issue.pullRequest != null))
     }
+    val snackbar = retain("issue-results:snackbar") { SnackbarHostState() }
+    Box(Modifier.fillMaxSize()) {
     when {
         q.needsSearch -> {
             val pager = rememberPager("search:${q.key()}") { p, f -> GitHub.searchIssues(q.searchQuery(), p, q.sort.field, q.sort.order, f).items }
+            val close = rememberListCloser(pager, snackbar, key = { it.id }, message = { trf("已关闭 #{0}", it.number) }) { issue ->
+                closeFromAnywhere(issue, owner, name)
+            }
             PagedList(pager, empty = empty, emptyIcon = emptyIcon, emptyAction = emptyAction, onEmptyAction = clear, itemKey = { it.id }) { issue ->
-                IssueItem(issue, repoName = if (q.repo == null) issue.repositoryUrl?.substringAfter("/repos/") else null) { openIssue(issue) }
+                SwipeCloseRow(enabled = canCloseHere(issue.user?.login, issue.state), onClose = { close(issue) }) {
+                    IssueItem(issue, repoName = if (q.repo == null) issue.repositoryUrl?.substringAfter("/repos/") else null) { openIssue(issue) }
+                }
             }
         }
         owner == null || name == null -> {}
         q.pulls -> {
             val sort = if (q.sort == IssueSort.Updated) "updated" else "created"
             val pager = rememberPager("pulls:${q.key()}") { p, f -> GitHub.pulls(owner, name, q.state.api, p, f, sort, q.sort.order ?: "desc") }
+            val close = rememberListCloser(pager, snackbar, key = { it.id }, message = { trf("已关闭 #{0}", it.number) }) { pr ->
+                GitHub.setPullState(owner, name, pr.number, false)
+            }
             PagedList(pager, empty = empty, emptyIcon = emptyIcon, emptyAction = emptyAction, onEmptyAction = clear, itemKey = { it.id }) { pr ->
-                PullItem(pr) { nav.push(Screen.IssueDetail(owner, name, pr.number, true)) }
+                SwipeCloseRow(enabled = canCloseHere(pr.user?.login, pr.state), onClose = { close(pr) }) {
+                    PullItem(pr) { nav.push(Screen.IssueDetail(owner, name, pr.number, true)) }
+                }
             }
         }
         else -> {
             val pager = rememberPager("issues:${q.key()}") { p, f -> GitHub.issues(owner, name, q.state.api, p, f, q.sort.field ?: "created", q.sort.order ?: "desc") }
+            val close = rememberListCloser(pager, snackbar, key = { it.id }, message = { trf("已关闭 #{0}", it.number) }) { issue ->
+                GitHub.setIssueState(owner, name, issue.number, false)
+            }
             PagedList(
                 pager, empty = empty, emptyIcon = emptyIcon, emptyAction = emptyAction, onEmptyAction = clear,
                 itemFilter = { it.pullRequest == null }, itemKey = { it.id },
-            ) { i -> IssueItem(i) { nav.push(Screen.IssueDetail(owner, name, i.number, false)) } }
+            ) { i ->
+                SwipeCloseRow(enabled = canCloseHere(i.user?.login, i.state), onClose = { close(i) }) {
+                    IssueItem(i) { nav.push(Screen.IssueDetail(owner, name, i.number, false)) }
+                }
+            }
         }
+    }
+    SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(12.dp))
+    }
+}
+
+/** 只有自己创建、仍开放的 Issue / PR 才能在列表里左滑关闭；别人的请进详情页操作 */
+private fun canCloseHere(author: String?, state: String): Boolean =
+    state == "open" && author != null && author.equals(Session.login, ignoreCase = true)
+
+/** 搜索结果可能跨仓库：优先用 repository_url 解析出真正的仓库，拿不到时回退到当前页面的仓库 */
+private suspend fun closeFromAnywhere(issue: Issue, owner: String?, name: String?) {
+    val full = issue.repositoryUrl?.substringAfter("/repos/")?.takeIf { it.contains('/') } ?: "${owner.orEmpty()}/${name.orEmpty()}"
+    val o = full.substringBefore('/')
+    val n = full.substringAfter('/')
+    if (issue.pullRequest != null) GitHub.setPullState(o, n, issue.number, false)
+    else GitHub.setIssueState(o, n, issue.number, false)
+}
+
+/** 左滑关闭：可关闭的行才挂手势，其余行保持普通点按 */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SwipeCloseRow(enabled: Boolean, onClose: () -> Unit, content: @Composable () -> Unit) {
+    if (!enabled) {
+        content()
+        return
+    }
+    val g = Gh.c
+    val tick = rememberTick()
+    val dismiss = rememberSwipeToDismissBoxState()
+    SwipeToDismissBox(
+        state = dismiss,
+        enableDismissFromStartToEnd = false,
+        backgroundContent = { SwipeAction(R.drawable.oc_issue_closed, tr("关闭"), g.doneSubtle, g.done, atEnd = true) },
+        onDismiss = { tick(); onClose() },
+    ) {
+        // 前景必须有不透明底色，否则左滑背景（关闭按钮）会透过行的空白处显示
+        Box(Modifier.fillMaxWidth().background(g.canvas)) { content() }
+    }
+}
+
+/**
+ * 左滑关闭的提交流程：先从列表移走，撤销窗口结束后才真正请求 GitHub；
+ * 窗口内点撤销则放回原位，请求失败也放回原位并提示。离开页面时仍会按时提交（与通知页一致）。
+ */
+@Composable
+private fun <T> rememberListCloser(
+    pager: Pager<T>,
+    snackbar: SnackbarHostState,
+    key: (T) -> Any,
+    message: (T) -> String,
+    close: suspend (T) -> Unit,
+): (T) -> Unit {
+    val entry = LocalEntry.current
+    val ctx = rememberCtx()
+    return remember(pager, snackbar, entry, ctx, close) {
+        val closer: (T) -> Unit = { item ->
+            val id = key(item)
+            val index = pager.items.indexOfFirst { key(it) == id }
+            if (index >= 0) {
+                pager.update { it.removeAt(index) }
+                entry.scope.launch {
+                    fun restore() = pager.update { list -> list.add(index.coerceAtMost(list.size), item) }
+                    if (snackbar.offerUndo(message(item))) {
+                        restore()
+                        return@launch
+                    }
+                    try {
+                        close(item)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        restore()
+                        ctx.toast(trf("关闭失败：{0}", e.friendly()))
+                    }
+                }
+            }
+        }
+        closer
     }
 }
 

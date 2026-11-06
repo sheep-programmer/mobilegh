@@ -132,7 +132,15 @@ fun RepoScreen(owner: String, name: String) {
     val g = Gh.c
     val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
     val ref = retain("ref") { mutableStateOf<String?>(null) }
-    val readme = rememberLoader("readme:${ref.value}") { GitHub.readme(owner, name, ref.value, it) }
+    val readme = rememberLoader("readme:${ref.value}") { force ->
+        val html = GitHub.readme(owner, name, ref.value, force)
+        // 缓存里的 README 可能带着已过期的视频令牌（请求会 404），这时重新取一份再渲染
+        if (html != null && force.not() && com.mobilegh.data.MediaProxy.hasExpiredToken(html)) {
+            GitHub.readme(owner, name, ref.value, true)
+        } else {
+            html
+        }
+    }
     val langs = rememberLoader("langs") { GitHub.languages(owner, name) }
     val starStatus = rememberLoader("star-status") { entry.guarded { GitHub.isStarred(owner, name) } }
     val starBusyState = retain("star-busy") { mutableStateOf(false) }
@@ -318,6 +326,9 @@ fun RepoScreen(owner: String, name: String) {
                             add(HomeShortcut(R.drawable.oc_tag, "Releases", g.success, { nav.push(Screen.Releases(owner, name)) }))
                             add(HomeShortcut(R.drawable.oc_people, tr("贡献者"), g.severe, { nav.push(Screen.Contributors(owner, name)) }))
                             add(HomeShortcut(R.drawable.oc_graph, tr("洞察"), g.done, { nav.push(Screen.Insights(owner, name)) }))
+                            // 安全告警需要安全相关的读取权限，分支规则需要管理员权限；没有权限时页面会显示 GitHub 返回的原因
+                            if (canPush || admin) add(HomeShortcut(R.drawable.oc_shield_lock, tr("安全告警"), g.danger, { nav.push(Screen.SecurityAlerts(owner, name)) }))
+                            if (admin) add(HomeShortcut(R.drawable.oc_git_branch, tr("分支规则"), g.success, { nav.push(Screen.BranchRules(owner, name)) }))
                             if (admin) {
                                 add(HomeShortcut(R.drawable.oc_person, tr("协作者"), g.sponsors, { nav.push(Screen.Collaborators(owner, name)) }))
                                 add(HomeShortcut(R.drawable.oc_gear, tr("设置"), g.fgMuted, { nav.push(Screen.RepoSettings(owner, name)) }))
@@ -778,7 +789,7 @@ fun BranchPicker(owner: String, name: String, current: String, onDismiss: () -> 
                     Modifier.fillMaxWidth().heightIn(max = 380.dp).clip(RoundedCornerShape(12.dp))
                         .background(g.canvas, RoundedCornerShape(12.dp)).border(1.dp, g.border, RoundedCornerShape(12.dp)),
                 ) {
-                    itemsIndexed(list) { i, (branch, sha) ->
+                    itemsIndexed(list, key = { _, (branch, _) -> branch }) { i, (branch, sha) ->
                         val selected = branch == current
                         Row(
                             Modifier.fillMaxWidth().clickable { onPick(branch) }.padding(horizontal = 14.dp, vertical = 12.dp),

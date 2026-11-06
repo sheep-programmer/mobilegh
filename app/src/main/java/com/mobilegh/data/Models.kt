@@ -189,6 +189,8 @@ data class Pull(
     val merged: Boolean = false,
     val mergeable: Boolean? = null,
     val mergeableState: String? = null,
+    /** 非空表示已开启自动合并（所选合并方式） */
+    val autoMerge: AutoMergeInfo? = null,
     val mergedAt: String? = null,
     val closedAt: String? = null,
     val createdAt: String? = null,

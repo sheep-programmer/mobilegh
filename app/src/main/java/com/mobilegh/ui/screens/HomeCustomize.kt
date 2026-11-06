@@ -51,6 +51,8 @@ import com.mobilegh.ui.components.Segmented
 import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.toast
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.rememberCoroutineScope
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
@@ -62,9 +64,10 @@ fun HomeCustomizeScreen() {
     val nav = LocalNav.current
     val layout = HomePrefs.layout()
     var creating by remember { mutableStateOf(false) }
-    // 删除、移出、恢复默认都先弹确认框，避免误触后无法撤回
+    // 删除、恢复默认仍先弹确认框；移出收藏改为立即生效 + 撤销提示
     var pendingSearch by remember { mutableStateOf<SavedSearch?>(null) }
-    var pendingFavorite by remember { mutableStateOf<FavoriteRepo?>(null) }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     var confirmReset by remember { mutableStateOf(false) }
     // 复用首页的图标、名称与颜色，保证这里看到的和首页一致
     val builtins = homeShortcuts({}, {}, {}, {}, {}, {}, {}, {}).associateBy { it.id }
@@ -72,6 +75,7 @@ fun HomeCustomizeScreen() {
     Page(
         tr("自定义首页"),
         subtitle = tr("仅保存在本机"),
+        snackbar = snackbar,
         actions = {
             MoreMenu(
                 listOf(
@@ -129,7 +133,7 @@ fun HomeCustomizeScreen() {
                             canUp = i > 0, canDown = i < layout.favorites.lastIndex,
                             onMove = { d -> HomePrefs.moveFavorite(i, d) },
                         ) {
-                            OcButton(R.drawable.oc_trash, { pendingFavorite = f }, g.fgMuted, description = trf("移出首页收藏 {0}", "${f.owner} / ${f.name}"))
+                            OcButton(R.drawable.oc_trash, { removeFavoriteWithUndo(scope, snackbar, i, f) }, g.fgMuted, description = trf("移出首页收藏 {0}", "${f.owner} / ${f.name}"))
                         }
                     }
                 }
@@ -140,7 +144,6 @@ fun HomeCustomizeScreen() {
     if (creating) NewSavedSearchDialog { creating = false }
     if (confirmReset) ConfirmResetShortcutsDialog { confirmReset = false }
     pendingSearch?.let { search -> ConfirmDeleteSearchDialog(search) { pendingSearch = null } }
-    pendingFavorite?.let { repo -> ConfirmRemoveFavoriteDialog(repo) { pendingFavorite = null } }
 }
 
 /** 恢复默认入口前的确认：只重置入口的顺序和显示开关，不删除保存的搜索和收藏仓库 */

@@ -19,5 +19,6 @@ fun rememberDraft(contextKey: String): DraftController {
 fun DraftBinding(controller: DraftController, value: DraftValue) {
     SideEffect { controller.update(value) }
     DisposableEffect(controller) { onDispose { controller.flush() } }
-    Text(controller.error ?: tr("草稿自动保存在本机"), color = if (controller.error != null) Gh.c.danger else Gh.c.fgMuted, fontSize = 11.sp)
+    // 保存本身是静默的；只有读写失败时才占一行提示，避免在每个编辑框下面常驻说明文字
+    controller.error?.let { Text(it, color = Gh.c.danger, fontSize = 11.sp) }
 }

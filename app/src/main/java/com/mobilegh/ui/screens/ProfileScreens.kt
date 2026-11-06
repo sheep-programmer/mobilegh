@@ -285,7 +285,7 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
                     val pins = pinned.data.orEmpty()
                     if (pins.isNotEmpty()) {
                         item { SectionTitle(tr("置顶")) }
-                        items(pins) { PinnedCard(it) }
+                        items(pins, key = { it.owner.login + "/" + it.name }) { PinnedCard(it) }
                     }
                     item { Spacer(Modifier.height(16.dp)) }
                     item {

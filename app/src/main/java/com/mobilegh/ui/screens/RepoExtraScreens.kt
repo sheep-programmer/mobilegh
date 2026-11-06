@@ -105,16 +105,31 @@ import com.mobilegh.ui.components.CompactSearchField
 // ======================= Releases =======================
 
 @Composable
-fun ReleasesScreen(owner: String, name: String) {
+fun ReleasesScreen(owner: String, name: String, tag: String? = null, releaseId: Long? = null) {
     val nav = LocalNav.current
     val ctx = rememberCtx()
     val pager = rememberPager("releases", 10) { p, f -> GitHub.releases(owner, name, p, f) }
     val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
     val latest = rememberLoader("latest") { GitHub.latestRelease(owner, name, it)?.id }
+    // 链接指定的版本单独读取，不依赖列表翻到哪一页，所以不会再落到最新版本上
+    val target = rememberLoader("target:${tag.orEmpty()}:${releaseId ?: ""}") { f ->
+        when {
+            releaseId != null -> GitHub.release(owner, name, releaseId, f)
+            tag == null -> null
+            tag == "latest" -> GitHub.latestRelease(owner, name, f)
+            else -> GitHub.releaseByTag(owner, name, tag, f)
+        }
+    }
     val expanded = retain("expanded") { mutableStateMapOf<Long, Boolean>() }
-    OnRepoChanged(owner, name) { pager.refresh(); latest.refresh() }
+    OnRepoChanged(owner, name) { pager.refresh(); latest.refresh(); target.refresh() }
     val canPush = repo.data?.let { it.permissions?.push == true && !it.archived } == true
     var deleting by remember { mutableStateOf<Release?>(null) }
+    fun menuFor(r: Release): List<MenuAction> = buildList {
+        if (canPush) add(MenuAction(tr("编辑")) { nav.push(Screen.EditRelease(owner, name, r.id)) })
+        if (r.htmlUrl.isNotEmpty()) add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser(r.htmlUrl) })
+        if (canPush) add(MenuAction(tr("删除"), danger = true) { deleting = r })
+    }
+    val targetRelease = target.data
     Page(
         "Releases", subtitle = "$owner/$name", onSubtitleClick = { nav.toRepoHome(owner, name) },
         actions = { if (canPush) OcButton(R.drawable.oc_plus, { nav.push(Screen.EditRelease(owner, name)) }) },
@@ -123,15 +138,26 @@ fun ReleasesScreen(owner: String, name: String) {
             pager, Modifier.padding(pad), empty = tr("还没有发布版本"), divider = false, boxed = false,
             emptyAction = if (canPush) tr("新建 Release") else tr("刷新"),
             onEmptyAction = if (canPush) ({ nav.push(Screen.EditRelease(owner, name)) }) else null,
+            // 指定版本已经放在顶部，列表里不再重复出现
+            itemFilter = targetRelease?.let { t -> { r: Release -> r.id != t.id } },
+            header = {
+                if (tag != null || releaseId != null) item {
+                    when {
+                        targetRelease != null -> ReleaseCard(
+                            owner, name, targetRelease, latest.data == targetRelease.id, expanded[targetRelease.id] != false,
+                            menu = menuFor(targetRelease),
+                        ) { expanded[targetRelease.id] = !(expanded[targetRelease.id] ?: true) }
+                        target.loading -> Loading(Modifier.fillMaxWidth().heightIn(min = 120.dp))
+                        target.error != null -> Text(target.error!!, Modifier.padding(16.dp), color = Gh.c.danger, fontSize = 13.sp)
+                        else -> Text(trf("没有找到版本 {0}", tag ?: "#$releaseId"), Modifier.padding(16.dp), color = Gh.c.fgMuted, fontSize = 13.sp)
+                    }
+                }
+            },
         ) { r ->
             val isLatest = latest.data?.let { it == r.id } ?: (pager.items.firstOrNull() == r)
             ReleaseCard(
                 owner, name, r, isLatest, expanded[r.id] == true,
-                menu = buildList {
-                    if (canPush) add(MenuAction(tr("编辑")) { nav.push(Screen.EditRelease(owner, name, r.id)) })
-                    if (r.htmlUrl.isNotEmpty()) add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser(r.htmlUrl) })
-                    if (canPush) add(MenuAction(tr("删除"), danger = true) { deleting = r })
-                },
+                menu = menuFor(r),
             ) { expanded[r.id] = !(expanded[r.id] ?: false) }
         }
     }
@@ -331,6 +357,8 @@ private fun ReleaseForm(owner: String, name: String, seed: ReleaseSeed, modifier
     var pickTarget by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var generating by remember { mutableStateOf(false) }
+    // 附件跟随 Release 保存在服务端；这里只维护本次页面里已显示的列表（上传成功后追加）
+    var assets by remember(rel?.id) { mutableStateOf(rel?.assets.orEmpty()) }
     var error by remember { mutableStateOf<String?>(null) }
     val canPush = seed.repo.permissions?.push == true && !seed.repo.archived
     val tagName = tag.trim()
@@ -387,6 +415,13 @@ private fun ReleaseForm(owner: String, name: String, seed: ReleaseSeed, modifier
             }
             MarkdownEditor(notes, { notes = it }, placeholder = tr("这个版本有哪些变化（支持 Markdown）"), contextRepo = "$owner/$name", minLines = 8)
             DraftBinding(draft, if (title == seedTitle && notes.text == seedNotes) com.mobilegh.data.DraftValue() else com.mobilegh.data.DraftValue(title, notes.text))
+        }
+        if (rel != null) {
+            Spacer(Modifier.height(8.dp))
+            ReleaseAssetsBlock(
+                owner, name, rel.id, assets, canUpload = canPush && !busy,
+                onUploaded = { assets = assets + it },
+            )
         }
         Spacer(Modifier.height(8.dp))
         SwitchRow(tr("设为预发布"), tr("标记为非正式版本，不会成为最新版本"), prerelease, enabled = !busy) { prerelease = it }

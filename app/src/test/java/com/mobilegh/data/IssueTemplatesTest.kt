@@ -119,6 +119,163 @@ class IssueTemplatesTest {
         assertFalse(t.body.contains("Thanks for taking the time"))
     }
 
+    private val formYaml = """
+        name: Bug Report
+        description: File a bug report.
+        body:
+          - type: markdown
+            attributes:
+              value: |
+                Thanks for taking the time!
+          - type: input
+            attributes:
+              label: Contact Details
+              description: How can we get in touch with you?
+              placeholder: ex. email@example.com
+            validations:
+              required: true
+          - type: textarea
+            id: what-happened
+            attributes:
+              label: What happened?
+              value: "A bug happened!"
+          - type: dropdown
+            attributes:
+              label: Version
+              multiple: true
+              options:
+                - 1.0.2 (Default)
+                - 1.0.3 (Edge)
+              default: 1
+            validations:
+              required: true
+          - type: textarea
+            attributes:
+              label: Logs
+              render: shell
+          - type: checkboxes
+            attributes:
+              label: Code of Conduct
+              options:
+                - label: I agree to follow this project's Code of Conduct
+                - label: I have read the docs
+    """.trimIndent()
+
+    @Test fun issueFormExposesStructuredFields() {
+        val t = IssueTemplates.parseForm("bug.yml", formYaml)!!
+        assertEquals(listOf("markdown", "input", "textarea", "dropdown", "textarea", "checkboxes"), t.fields.map { it.type })
+        assertEquals(listOf(0, 1, 2, 3, 4, 5), t.fields.map { it.index })
+        val contact = t.fields[1]
+        assertEquals("Contact Details", contact.label)
+        assertEquals("How can we get in touch with you?", contact.description)
+        assertEquals("ex. email@example.com", contact.placeholder)
+        assertTrue(contact.required)
+        assertFalse(t.fields[2].required)
+        assertEquals("A bug happened!", t.fields[2].value)
+        val version = t.fields[3]
+        assertTrue(version.multiple)
+        assertTrue(version.required)
+        assertEquals(listOf("1.0.2 (Default)", "1.0.3 (Edge)"), version.options.map { it.label })
+        assertEquals(listOf(1), version.defaultSelection)
+        assertEquals("shell", t.fields[4].render)
+        assertEquals(2, t.fields[5].options.size)
+        // markdown 块没有 label，也要保留在字段列表里
+        assertEquals("markdown", t.fields[0].type)
+        assertTrue(t.fields[0].label.isEmpty())
+    }
+
+    @Test fun formDefaultsRequiredAndBodyRendering() {
+        val fields = IssueTemplates.parseForm("bug.yml", formYaml)!!.fields
+        val defaults = IssueTemplates.defaultAnswers(fields)
+        assertEquals(mapOf(2 to listOf("A bug happened!"), 3 to listOf("1.0.3 (Edge)")), defaults)
+        // 必填：联系人未填、下拉已选；checkbox 未要求
+        assertEquals(listOf(1), IssueTemplates.missingRequired(fields, defaults).map { it.index })
+
+        val answers = defaults + mapOf(1 to listOf("me@example.com"), 5 to listOf("I have read the docs"))
+        assertTrue(IssueTemplates.missingRequired(fields, answers).isEmpty())
+        val body = IssueTemplates.renderBody(fields, answers)
+        assertEquals(
+            """
+            ### Contact Details
+
+            me@example.com
+
+            ### What happened?
+
+            A bug happened!
+
+            ### Version
+
+            1.0.3 (Edge)
+
+            ### Logs
+
+            _No response_
+
+            ### Code of Conduct
+
+            - [ ] I agree to follow this project's Code of Conduct
+            - [x] I have read the docs
+            """.trimIndent() + "\n",
+            body,
+        )
+    }
+
+    @Test fun formTextareaRenderWrapsAnswerInCodeFence() {
+        val fields = IssueTemplates.parseForm(
+            "x.yml",
+            """
+            name: X
+            body:
+              - type: textarea
+                attributes:
+                  label: Logs
+                  render: shell
+            """.trimIndent(),
+        )!!.fields
+        assertEquals("### Logs\n\n```shell\necho hi\n```\n", IssueTemplates.renderBody(fields, mapOf(0 to listOf("echo hi"))))
+    }
+
+    @Test fun multipleDropdownJoinsSelectionsOnOneLine() {
+        val fields = IssueTemplates.parseForm(
+            "x.yml",
+            """
+            name: X
+            body:
+              - type: dropdown
+                attributes:
+                  label: Platforms
+                  multiple: true
+                  options: [Android, iOS, Web]
+            """.trimIndent(),
+        )!!.fields
+        assertEquals("### Platforms\n\nAndroid, Web\n", IssueTemplates.renderBody(fields, mapOf(0 to listOf("Android", "Web"))))
+    }
+
+    @Test fun requiredCheckboxOptionsBlockSubmissionUntilChecked() {
+        val fields = IssueTemplates.parseForm(
+            "x.yml",
+            """
+            name: X
+            body:
+              - type: checkboxes
+                attributes:
+                  label: Before submitting
+                  options:
+                    - label: I searched existing issues
+                      required: true
+                    - label: Send me updates
+            """.trimIndent(),
+        )!!.fields
+        assertEquals(listOf(0), IssueTemplates.missingRequired(fields, emptyMap()).map { it.index })
+        assertEquals(listOf(0), IssueTemplates.missingRequired(fields, mapOf(0 to listOf("Send me updates"))).map { it.index })
+        assertTrue(IssueTemplates.missingRequired(fields, mapOf(0 to listOf("I searched existing issues"))).isEmpty())
+        assertEquals(
+            "### Before submitting\n\n- [x] I searched existing issues\n- [ ] Send me updates\n",
+            IssueTemplates.renderBody(fields, mapOf(0 to listOf("I searched existing issues"))),
+        )
+    }
+
     @Test fun configReadsBlankIssuesAndContactLinks() {
         val c = IssueTemplates.parseConfig(
             """

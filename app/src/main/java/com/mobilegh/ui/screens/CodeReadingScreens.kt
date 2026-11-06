@@ -46,14 +46,16 @@ fun CodeSearchScreen(owner: String, name: String) {
                 onSearch = { submit() },
                 trailing = { FieldAction(R.drawable.oc_search, tr("搜索代码内容")) { submit() } })
             if (query.isBlank()) EmptyState(tr("输入关键词搜索该仓库的默认分支"), R.drawable.oc_search)
-            else CodeSearchResults(CodeReading.searchQuery(query, owner, name))
+            else CodeSearchResults(CodeReading.searchQuery(query, owner, name), highlight = query)
         }
     }
 }
 
 @Composable
-fun CodeSearchResults(query: String) {
+fun CodeSearchResults(query: String, highlight: String = query) {
     val nav = LocalNav.current
+    // 用户输入里有 language:/path: 等限定符，高亮只用自由文本部分
+    val mark = Gh.c.attention.copy(alpha = 0.32f)
     var total by remember(query) { mutableIntStateOf(0) }
     var incomplete by remember(query) { mutableStateOf(false) }
     val pager = rememberPager("code-search:$query") { page, force ->
@@ -70,8 +72,15 @@ fun CodeSearchResults(query: String) {
             nav.pushLink(target)
         }.padding(16.dp)) {
             Text(hit.repository.fullName.ifBlank { "${hit.repository.owner.login}/${hit.repository.name}" }, color = Gh.c.fgMuted, fontSize = 12.sp)
-            Text(hit.path, color = Gh.c.accent, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            hit.textMatches.firstOrNull()?.fragment?.let { Text(it.take(1200), Modifier.padding(top = 8.dp), fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Gh.c.fg, maxLines = 7, overflow = TextOverflow.Ellipsis) }
+            Text(SearchText.annotated(hit.path, highlight, mark), color = Gh.c.accent, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            hit.textMatches.firstOrNull()?.fragment?.let { f ->
+                Text(
+                    SearchText.annotated(f.take(1200), highlight, mark),
+                    Modifier.padding(top = 8.dp),
+                    fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Gh.c.fg,
+                    maxLines = 7, overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

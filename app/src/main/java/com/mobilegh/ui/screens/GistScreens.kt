@@ -247,7 +247,7 @@ fun GistDetailScreen(id: String) {
         },
         bottomBar = {
             if (d != null && signedIn) {
-                CommentComposerBar(comment, { comment = it }, previewComment, { previewComment = it }, null, sending, draft) {
+                CommentComposerBar(comment, { comment = it }, previewComment, { previewComment = it }, null, sending, draft, onSend = {
                     if (comment.text.isBlank() || sending) return@CommentComposerBar
                     sending = true
                     val submitted = DraftValue(body = comment.text)
@@ -261,7 +261,7 @@ fun GistDetailScreen(id: String) {
                         comments.load(true)
                         nav.refreshGistLists()
                     }) { GitHub.addGistComment(id, submitted.body.trim()) }
-                }
+                })
             }
         },
     ) { pad ->

@@ -1,5 +1,7 @@
 package com.mobilegh.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -7,13 +9,19 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,18 +29,23 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
+import com.mobilegh.data.DraftAnswer
 import com.mobilegh.data.DraftOption
 import com.mobilegh.data.DraftValue
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.IssueFormField
 import com.mobilegh.data.IssueTemplate
 import com.mobilegh.data.IssueTemplateSet
+import com.mobilegh.data.IssueTemplates
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
@@ -49,9 +62,11 @@ import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.MarkdownEditor
 import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MenuGroup
+import com.mobilegh.ui.components.MarkdownPreview
 import com.mobilegh.ui.components.MenuIcon
 import com.mobilegh.ui.components.MoreMenu
 import com.mobilegh.ui.components.Oc
+import com.mobilegh.ui.components.RadioRow
 import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.openBrowser
@@ -70,12 +85,21 @@ internal data class NewIssueMeta(
 )
 
 /** 标题、正文与元数据组成的草稿：既是持久化内容，也用于判断是否有未提交的输入 */
-internal fun newIssueDraft(title: String, body: String, meta: NewIssueMeta): DraftValue = DraftValue(
+internal fun newIssueDraft(
+    title: String,
+    body: String,
+    meta: NewIssueMeta,
+    template: String? = null,
+    answers: Map<Int, List<String>> = emptyMap(),
+): DraftValue = DraftValue(
     title = title,
     body = body,
     labels = meta.labels.map { it.toDraftOption() },
     assignees = meta.assignees.map { it.toDraftOption() },
     milestone = meta.milestone?.toDraftOption(),
+    template = template,
+    answers = answers.filterValues { it.any { v -> v.isNotBlank() } }
+        .map { DraftAnswer(it.key, it.value) }.sortedBy { it.index },
 )
 
 /** 从草稿恢复元数据（颜色、头像随草稿一起保存） */
@@ -87,6 +111,9 @@ internal fun DraftValue.toNewIssueMeta(): NewIssueMeta = NewIssueMeta(
 
 private fun MetaOpt.toDraftOption() = DraftOption(key = key, label = label, color = color, avatar = avatar)
 private fun DraftOption.toMetaOpt() = MetaOpt(key = key, label = label, avatar = avatar, color = color)
+
+/** 必填字段在标签后加星号，与 GitHub 表单一致 */
+private fun IssueFormField.requiredLabel(): String = if (required) "$label *" else label
 
 /** 选择器中「空白 Issue」对应的 key */
 private const val BLANK = ""
@@ -103,8 +130,11 @@ fun NewIssueScreen(owner: String, name: String) {
     val draft = rememberDraft("new-issue:${owner.lowercase()}/${name.lowercase()}")
     var title by rememberSaveable { mutableStateOf(draft.initial.title) }
     var body by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(draft.initial.body)) }
-    // 有未提交的草稿时直接回到编辑，不再弹模板选择
-    var picked by rememberSaveable { mutableStateOf<String?>(if (!draft.initial.empty) BLANK else null) }
+    // 有未提交的草稿时直接回到编辑，不再弹模板选择；表单草稿还要带回模板
+    var picked by rememberSaveable { mutableStateOf<String?>(if (!draft.initial.empty) (draft.initial.template ?: BLANK) else null) }
+    // YAML 表单的答案：键是字段在 body 列表中的下标
+    val savedAnswers = remember(draft) { draft.initial.answers.associate { it.index to it.values } }
+    var answers by retain("new-issue-answers") { mutableStateOf(savedAnswers) }
     // 「更换模板」前所用的模板，选回同一个时保留已填写的内容
     var lastPicked by rememberSaveable { mutableStateOf<String?>(null) }
     // 元数据随草稿保存：页面重开或进程被回收后仍能恢复标签、指派人与里程碑
@@ -121,13 +151,30 @@ fun NewIssueScreen(owner: String, name: String) {
 
     fun apply(t: IssueTemplate?) {
         title = t?.title.orEmpty()
-        body = TextFieldValue(t?.body.orEmpty())
         meta = NewIssueMeta(
             labels = t?.labels.orEmpty().map { MetaOpt(it, it) },
             assignees = t?.assignees.orEmpty().map { MetaOpt(it, it) },
         )
         picked = t?.file ?: BLANK
+        val fields = t?.fields.orEmpty()
+        if (fields.isNotEmpty()) {
+            // 换模板时保留同一模板的已填答案，其它模板的下标没有意义
+            val kept = if (t != null && draft.initial.template == t.file) savedAnswers else emptyMap()
+            answers = IssueTemplates.defaultAnswers(fields) +
+                kept.filterKeys { key -> fields.any { it.index == key } }
+            body = TextFieldValue("")
+        } else {
+            answers = emptyMap()
+            body = TextFieldValue(t?.body.orEmpty())
+        }
     }
+
+    val template = set?.templates?.firstOrNull { it.file == picked }
+    val formFields = template?.fields.orEmpty()
+    val isForm = formFields.isNotEmpty()
+    // 表单不直接编辑 Markdown：提交时按字段生成正文
+    val formBody = if (isForm) IssueTemplates.renderBody(formFields, answers) else body.text
+    val missing = if (isForm) IssueTemplates.missingRequired(formFields, answers) else emptyList()
 
     val chooser = picked == null && set?.hasChooser == true
     Page(
@@ -140,10 +187,10 @@ fun NewIssueScreen(owner: String, name: String) {
         when {
             // 模板读取失败时不阻塞，直接按空白 Issue 填写
             picked == null && set == null && templates.error == null -> Loading(Modifier.padding(pad).fillMaxSize())
-            chooser -> TemplateChooser(set!!, Modifier.padding(pad)) { t ->
+            chooser -> TemplateChooser(set, Modifier.padding(pad)) { t ->
                 val key = t?.file ?: BLANK
                 // 标题、正文或任一元数据有内容都算已填写，套用模板前需要确认
-                val dirty = !newIssueDraft(title, body.text, meta).empty
+                val dirty = !newIssueDraft(title, formBody, meta).empty
                 when {
                     key == lastPicked -> picked = key
                     dirty -> confirmTemplate = t ?: IssueTemplate(BLANK, "")
@@ -151,7 +198,6 @@ fun NewIssueScreen(owner: String, name: String) {
                 }
             }
             else -> Column(Modifier.padding(pad).imePadding().verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) {
-                val template = set?.templates?.firstOrNull { it.file == picked }
                 if (template != null) {
                     Row(Modifier.padding(horizontal = 16.dp).padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Oc(R.drawable.oc_file, Gh.c.fgMuted, 14.dp)
@@ -161,11 +207,17 @@ fun NewIssueScreen(owner: String, name: String) {
                 }
                 GhField(title, { title = it }, tr("标题"), Modifier.padding(horizontal = 16.dp))
                 Spacer(Modifier.height(12.dp))
-                MarkdownEditor(
-                    body, { body = it }, placeholder = tr("描述（支持 Markdown）"), contextRepo = "$owner/$name", minLines = 8,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-                DraftBinding(draft, newIssueDraft(title, body.text, meta))
+                if (isForm) {
+                    FormFields(formFields, answers, "$owner/$name", Modifier.padding(horizontal = 16.dp)) { index, values ->
+                        answers = if (values.isEmpty()) answers - index else answers + (index to values)
+                    }
+                } else {
+                    MarkdownEditor(
+                        body, { body = it }, placeholder = tr("描述（支持 Markdown）"), contextRepo = "$owner/$name", minLines = 8,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+                DraftBinding(draft, newIssueDraft(title, formBody, meta, template?.file, answers))
                 Spacer(Modifier.height(12.dp))
                 MetaRows(
                     labels = meta.labels.map { it.label to it.color.orEmpty() },
@@ -183,10 +235,20 @@ fun NewIssueScreen(owner: String, name: String) {
                     Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                     fontSize = 12.sp, lineHeight = 16.sp, color = if (canSetMeta == false) Gh.c.attention else Gh.c.fgMuted,
                 )
+                if (missing.isNotEmpty()) {
+                    Text(
+                        trf("请填写：{0}", missing.joinToString("、") { it.label }),
+                        Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                        fontSize = 12.sp, lineHeight = 16.sp, color = Gh.c.attention,
+                    )
+                }
                 Spacer(Modifier.height(12.dp))
-                GhButton(tr("提交"), Modifier.padding(horizontal = 16.dp).fillMaxWidth(), primary = true, enabled = title.isNotBlank() && !busy) {
+                GhButton(
+                    tr("提交"), Modifier.padding(horizontal = 16.dp).fillMaxWidth(), primary = true,
+                    enabled = title.isNotBlank() && !busy && missing.isEmpty(),
+                ) {
                     busy = true
-                    val submitted = newIssueDraft(title, body.text, meta)
+                    val submitted = newIssueDraft(title, formBody, meta, template?.file, answers)
                     val m = meta
                     draft.update(submitted)
                     entry.act({ busy = false; ctx.toast(it) }) {
@@ -243,7 +305,7 @@ private fun TemplateChooser(set: IssueTemplateSet, modifier: Modifier, onPick: (
         }
         if (set.templates.any { it.form }) {
             Text(
-                tr("表单模板会转换为 Markdown 结构，提交前请按小标题填写。"),
+                tr("表单模板会显示为可填写的字段，提交时自动整理成 Issue 正文。"),
                 Modifier.padding(horizontal = 16.dp, vertical = 6.dp), fontSize = 12.sp, lineHeight = 16.sp, color = g.fgMuted,
             )
         }
@@ -286,5 +348,138 @@ private fun ChooserRow(icon: Int, title: String, desc: String?, onClick: () -> U
         }
         Spacer(Modifier.width(6.dp))
         Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
+    }
+}
+
+// ---------- YAML Issue 表单 ----------
+
+/** 按字段类型渲染表单：markdown 说明块用 GitHub 渲染，文本类直接输入，选项类点选 */
+@Composable
+private fun FormFields(
+    fields: List<IssueFormField>,
+    answers: Map<Int, List<String>>,
+    contextRepo: String?,
+    modifier: Modifier = Modifier,
+    onAnswer: (Int, List<String>) -> Unit,
+) {
+    val g = Gh.c
+    Column(modifier.fillMaxWidth()) {
+        fields.forEach { f ->
+            val answer = answers[f.index].orEmpty()
+            when (f.type) {
+                "markdown" -> if (f.value.isNotBlank()) {
+                    Column(Modifier.fillMaxWidth().padding(bottom = 10.dp)) { MarkdownPreview(f.value, contextRepo) }
+                }
+                "input" -> GhField(
+                    value = answer.firstOrNull().orEmpty(),
+                    onValueChange = { onAnswer(f.index, listOf(it)) },
+                    label = f.requiredLabel(),
+                    labelAbove = true,
+                    description = f.description.ifBlank { null },
+                    placeholder = f.placeholder.ifBlank { null },
+                    modifier = Modifier.padding(bottom = 14.dp),
+                )
+                "textarea" -> Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+                    FieldLabel(f)
+                    // 自己持有 TextFieldValue，避免每次重组把光标挪到开头
+                    var field by remember(f.index, f.value) { mutableStateOf(TextFieldValue(answer.joinToString("\n"))) }
+                    LaunchedEffect(answer) {
+                        val text = answer.joinToString("\n")
+                        if (field.text != text) field = TextFieldValue(text, TextRange(text.length))
+                    }
+                    MarkdownEditor(
+                        field, { field = it; onAnswer(f.index, listOf(it.text)) },
+                        contextRepo = contextRepo, minLines = 5,
+                        placeholder = f.placeholder.ifBlank { tr("支持 Markdown") },
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+                "dropdown" -> Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+                    FieldLabel(f)
+                    DropdownAnswer(f, answer, Modifier.padding(top = 6.dp)) { onAnswer(f.index, it) }
+                }
+                "checkboxes" -> Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+                    FieldLabel(f)
+                    f.options.forEach { o ->
+                        val checked = o.label in answer
+                        CheckRow(o.label, checked, Modifier.padding(top = 4.dp)) {
+                            onAnswer(f.index, if (checked) answer - o.label else answer + o.label)
+                        }
+                    }
+                }
+            }
+        }
+        if (fields.none { it.type != "markdown" }) {
+            Text(tr("该模板没有需要填写的字段。"), fontSize = 12.sp, color = g.fgMuted)
+        }
+    }
+}
+
+@Composable
+private fun FieldLabel(f: IssueFormField) {
+    val g = Gh.c
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(f.label, fontSize = 13.sp, color = g.fg, fontWeight = FontWeight.SemiBold)
+        if (f.required) Text(" *", fontSize = 13.sp, color = g.danger)
+    }
+    if (f.description.isNotBlank()) {
+        Text(f.description, Modifier.padding(top = 2.dp), fontSize = 12.sp, lineHeight = 16.sp, color = g.fgMuted)
+    }
+}
+
+@Composable
+private fun CheckRow(label: String, checked: Boolean, modifier: Modifier = Modifier, onToggle: () -> Unit) {
+    val g = Gh.c
+    Row(
+        modifier.fillMaxWidth().toggleable(checked, role = Role.Checkbox, onValueChange = { onToggle() })
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(
+            checked, null,
+            colors = CheckboxDefaults.colors(checkedColor = g.accent, uncheckedColor = g.fgMuted, checkmarkColor = g.canvas),
+        )
+        Text(label, Modifier.padding(start = 6.dp), fontSize = 14.sp, color = g.fg)
+    }
+}
+
+@Composable
+private fun DropdownAnswer(field: IssueFormField, answer: List<String>, modifier: Modifier = Modifier, onChange: (List<String>) -> Unit) {
+    val g = Gh.c
+    var open by remember { mutableStateOf(false) }
+    Row(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).background(g.canvasSubtle)
+            .border(1.dp, g.border, RoundedCornerShape(6.dp)).clickable { open = true }
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            answer.joinToString(", ").ifBlank { tr("请选择") },
+            Modifier.weight(1f), fontSize = 14.sp,
+            color = if (answer.isEmpty()) g.fgMuted else g.fg,
+            maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
+        Oc(R.drawable.oc_chevron_down, g.fgMuted, 14.dp)
+    }
+    if (!open) return
+    GhDialog(
+        field.label,
+        onDismiss = { open = false },
+        confirm = tr("完成"),
+        onConfirm = if (field.multiple) ({ open = false }) else null,
+    ) {
+        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            field.options.forEach { o ->
+                if (field.multiple) {
+                    val checked = o.label in answer
+                    CheckRow(o.label, checked) { onChange(if (checked) answer - o.label else answer + o.label) }
+                } else {
+                    RadioRow(o.label in answer, o.label) {
+                        onChange(listOf(o.label))
+                        open = false
+                    }
+                }
+            }
+        }
     }
 }

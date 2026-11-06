@@ -70,6 +70,20 @@ class HomeLayoutTest {
         assertThrows(IllegalArgumentException::class.java) { store.toggleFavorite("alice", "bad owner", "x") }
     }
 
+    @Test fun undoingARemovedFavoriteRestoresItsOriginalPosition() {
+        store.toggleFavorite("alice", "mona", "one")
+        store.toggleFavorite("alice", "mona", "two")
+        store.toggleFavorite("alice", "mona", "three")
+        val two = FavoriteRepo("mona", "two")
+        store.removeFavorite("alice", two)
+        assertEquals(listOf("mona/one", "mona/three"), store.read("alice").favorites.map { it.fullName })
+        store.restoreFavorite("alice", 1, two)
+        assertEquals(listOf("mona/one", "mona/two", "mona/three"), store.read("alice").favorites.map { it.fullName })
+        // 已经存在时不重复加入
+        store.restoreFavorite("alice", 0, two)
+        assertEquals(3, store.read("alice").favorites.size)
+    }
+
     @Test fun corruptOrInvalidStoredDataFallsBackSafely() {
         storage.values["home:alice"] = "{broken"
         assertEquals(HomeLayout(), store.read("alice"))

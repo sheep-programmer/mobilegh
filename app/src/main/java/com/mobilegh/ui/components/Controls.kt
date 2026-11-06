@@ -150,6 +150,8 @@ fun GhField(
     leading: (@Composable () -> Unit)? = null,
     // 表单里 label 放在输入框上方常驻，避免空值时只剩一行灰字分不清是标签还是提示
     labelAbove: Boolean = false,
+    /** labelAbove 时显示在标签下方的说明文字 */
+    description: String? = null,
 ) {
     val g = Gh.c
     val field: @Composable (Modifier) -> Unit = { m ->
@@ -182,7 +184,13 @@ fun GhField(
     if (labelAbove) {
         Column(modifier.fillMaxWidth()) {
             // 标签文字只做视觉展示，语义名称挂到输入框本身，读屏聚焦输入框时能读出字段名
-            Text(label, Modifier.padding(start = 4.dp, bottom = 6.dp).clearAndSetSemantics {}, fontSize = 13.sp, color = g.fg)
+            Text(label, Modifier.padding(start = 4.dp, bottom = if (description == null) 6.dp else 2.dp).clearAndSetSemantics {}, fontSize = 13.sp, color = g.fg)
+            if (description != null) {
+                Text(
+                    description, Modifier.padding(start = 4.dp, end = 4.dp, bottom = 6.dp),
+                    fontSize = 12.sp, lineHeight = 16.sp, color = g.fgMuted,
+                )
+            }
             field(Modifier.fillMaxWidth().semantics { contentDescription = label })
         }
     } else {
@@ -193,8 +201,9 @@ fun GhField(
 @Composable
 fun SwitchRow(title: String, desc: String? = null, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
     val g = Gh.c
+    val tick = rememberTick()
     Row(
-        Modifier.fillMaxWidth().toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
+        Modifier.fillMaxWidth().toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = { tick(); onChange(it) })
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -229,9 +238,10 @@ fun Segmented(options: List<String>, selected: Int, modifier: Modifier = Modifie
 @Composable
 fun RadioRow(selected: Boolean, title: String, desc: String? = null, enabled: Boolean = true, onClick: () -> Unit) {
     val g = Gh.c
+    val tick = rememberTick()
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
-            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = { if (!selected) tick(); onClick() })
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

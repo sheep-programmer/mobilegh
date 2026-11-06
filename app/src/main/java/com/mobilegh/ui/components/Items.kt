@@ -1,6 +1,8 @@
 package com.mobilegh.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -10,12 +12,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -44,13 +52,30 @@ import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trc
 import com.mobilegh.i18n.trf
 
+/** 长按列表行弹出的链接操作：复制、分享、用外部浏览器打开 */
+@Composable
+fun LinkActionsMenu(expanded: Boolean, onDismiss: () -> Unit, url: String) {
+    val ctx = LocalContext.current
+    val g = Gh.c
+    DropdownMenu(expanded, onDismissRequest = onDismiss, containerColor = g.canvas) {
+        DropdownMenuItem(text = { Text(tr("复制链接"), color = g.fg) }, onClick = { onDismiss(); ctx.copy(url, tr("已复制链接")) })
+        DropdownMenuItem(text = { Text(tr("分享"), color = g.fg) }, onClick = { onDismiss(); ctx.share(url) })
+        DropdownMenuItem(text = { Text(tr("在浏览器打开"), color = g.fg) }, onClick = { onDismiss(); ctx.openBrowser(url) })
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun RepoItem(repo: Repo, showOwner: Boolean = true, extra: String? = null) {
     val nav = LocalNav.current
     val g = Gh.c
+    var menu by remember { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxWidth().clickable { nav.push(Screen.Repo(repo.owner.login, repo.name)) }.padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth()
+            .combinedClickable(onClick = { nav.push(Screen.Repo(repo.owner.login, repo.name)) }, onLongClick = if (repo.htmlUrl.isBlank()) null else ({ menu = true }))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
+        LinkActionsMenu(menu, { menu = false }, repo.htmlUrl)
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (showOwner) {
                 Avatar(repo.owner.avatarUrl, 18.dp, square = repo.owner.type == "Organization")
@@ -119,13 +144,20 @@ fun UserItem(user: User, subtitle: String? = null) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun IssueItem(issue: Issue, repoName: String? = null, onClick: () -> Unit) {
     val g = Gh.c
     val isPull = issue.pullRequest != null
     val st = issueState(issue.state, issue.stateReason, isPull, issue.pullRequest?.mergedAt != null, issue.draft)
     val (icon, color, statusText) = stateVisual(st)
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp)) {
+    var menu by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = if (issue.htmlUrl.isBlank()) null else ({ menu = true }))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        LinkActionsMenu(menu, { menu = false }, issue.htmlUrl)
         // 状态图标带上文字（开启/已关闭/草稿等），行的整体读屏描述才包含状态
         Oc(icon, color, 16.dp, Modifier.padding(top = 2.dp), contentDescription = statusText)
         Spacer(Modifier.width(10.dp))
@@ -151,6 +183,7 @@ fun IssueItem(issue: Issue, repoName: String? = null, onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PullItem(pr: Pull, onClick: () -> Unit) {
     val g = Gh.c
@@ -159,7 +192,13 @@ fun PullItem(pr: Pull, onClick: () -> Unit) {
     // 审查与 CI 状态由列表页加载时后台补充；未到达或读取失败时这里为 null，行上不显示
     val statuses by PullRequestStatuses.flow.collectAsState()
     val status = statuses[PullRequestStatuses.key(Session.generation, pr.nodeId)]
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp)) {
+    var menu by remember { mutableStateOf(false) }
+    Row(
+        Modifier.fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = if (pr.htmlUrl.isBlank()) null else ({ menu = true }))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        LinkActionsMenu(menu, { menu = false }, pr.htmlUrl)
         // 状态图标带上文字（开启/已合并/草稿等），行的整体读屏描述才包含状态
         Oc(icon, color, 16.dp, Modifier.padding(top = 2.dp), contentDescription = statusText)
         Spacer(Modifier.width(10.dp))

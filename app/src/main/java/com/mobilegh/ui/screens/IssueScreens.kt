@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -45,6 +46,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import androidx.compose.ui.text.input.TextFieldValue
+import com.mobilegh.data.CommentAttachments
+import com.mobilegh.data.RepoGovernance
 import com.mobilegh.data.Api
 import com.mobilegh.data.Checks
 import com.mobilegh.data.Comment
@@ -91,6 +94,7 @@ import com.mobilegh.ui.components.LoadBox
 import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MoreMenu
 import com.mobilegh.ui.components.Oc
+import com.mobilegh.ui.components.rememberCommentAttachments
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
@@ -168,11 +172,12 @@ private class StateChange(
 internal fun prCheckoutCommand(number: Int): String = "git fetch origin pull/$number/head:pr-$number && git checkout pr-$number"
 
 @Composable
-fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean) {
+fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean, commentId: Long? = null) {
     val g = Gh.c
     val nav = LocalNav.current
     val entry = LocalEntry.current
     val ctx = rememberCtx()
+    val listState = rememberLazyListState()
     val data = rememberLoader("thread") { f ->
         coroutineScope {
             val i = async { GitHub.issue(owner, name, number, f) }
@@ -194,6 +199,7 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
     var previewComment by remember { mutableStateOf(false) }
     var sending by retain("thread:sending") { mutableStateOf(false) }
     var mergeDialog by remember { mutableStateOf(false) }
+    var autoMergeDialog by remember { mutableStateOf(false) }
     var reviewDialog by remember { mutableStateOf(false) }
     /** 待确认的关闭 / 重新开启操作；null 表示没有待确认的操作 */
     var stateChange by remember { mutableStateOf<StateChange?>(null) }
@@ -211,6 +217,13 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
     val t = data.data
     val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
     val access = ThreadAccess.of(repo.data?.permissions, repo.data?.archived == true, t?.issue?.user?.login, Session.login)
+    val attachLauncher = rememberCommentAttachments(repo?.data?.id) { url, alt ->
+        // 插入到光标处；视频用原生播放器的链接形式，图片保持 GitHub 的 Markdown 图语法
+        val snippet = if (CommentAttachments.VIDEO_EXT.contains(alt.substringAfterLast('.', "").lowercase())) url else "![${alt}](${url})"
+        val at = comment.selection.min.coerceIn(0, comment.text.length)
+        val text = comment.text.substring(0, at) + "\n" + snippet + "\n" + comment.text.substring(at)
+        comment = TextFieldValue(text, androidx.compose.ui.text.TextRange(at + snippet.length + 2))
+    }
     /** 相关议题（网页版 Issue 侧栏的 Relationships）；接口不可用时整块隐藏，不影响正文 */
     val related = rememberLoader("related") { f -> GitHub.relatedIssues(owner, name, number, f) }
     var relatedPicker by remember { mutableStateOf(false) }
@@ -276,6 +289,15 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
                         if (open && pr != null && !pr.merged) {
                             if (pr.draft) { if (access.toggleDraft) add(MenuAction(tr("标记为可评审")) { setDraft(false) }) }
                             else if (access.merge) add(MenuAction(tr("合并 Pull Request…")) { mergeDialog = true })
+                            // 自动合并：草稿不能开启；取消时作者本人也可以操作
+                            if (!pr.draft && access.merge && pr.autoMerge == null) {
+                                add(MenuAction(tr("开启自动合并…")) { autoMergeDialog = true })
+                            }
+                            if (pr.autoMerge != null && (access.merge || access.author)) {
+                                add(MenuAction(tr("取消自动合并")) {
+                                    write { RepoGovernance.setAutoMerge(pr.nodeId, null) }
+                                })
+                            }
                             // 不能审查自己的 PR
                             if (!access.author) add(MenuAction(tr("提交审查…")) { reviewDialog = true })
                             if (access.editMeta) add(MenuAction(tr("请求审查…")) { metaKind = "reviewers" })
@@ -322,37 +344,52 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
         },
         bottomBar = {
             if (t != null && !t.issue.locked) {
-                CommentComposerBar(comment, { comment = it }, previewComment, { previewComment = it }, "$owner/$name", sending, draft) {
-                    if (comment.text.isBlank() || sending) return@CommentComposerBar
-                    sending = true
-                    val submitted = DraftValue(body = comment.text)
-                    draft.update(submitted)
-                    // 不跟随页面的作用域：离开页面时请求照常完成。若仍绑定页面，离开会取消请求，
-                    // 而服务器可能已经写入，用户再发一次就会重复。草稿只在服务器确认后清除。
-                    Drafts.scope.launch {
-                        try {
-                            GitHub.addComment(owner, name, number, submitted.body.trim())
-                            withContext(Dispatchers.Main.immediate) {
-                                draft.submitted(submitted)
-                                if (comment.text == submitted.body) comment = TextFieldValue()
-                                previewComment = false
-                                ctx.toast(tr("评论已发布"))
-                                reload()
+                CommentComposerBar(
+                    comment, { comment = it }, previewComment, { previewComment = it },
+                    "$owner/$name", sending, draft,
+                    onAttach = if (!isPull || access.write || access.triage || access.author) ({ attachLauncher.pick() }) else null,
+                    onSend = {
+                        if (comment.text.isBlank() || sending) return@CommentComposerBar
+                        sending = true
+                        val submitted = DraftValue(body = comment.text)
+                        draft.update(submitted)
+                        // 不跟随页面的作用域：离开页面时请求照常完成。若仍绑定页面，离开会取消请求，
+                        // 而服务器可能已经写入，用户再发一次就会重复。草稿只在服务器确认后清除。
+                        Drafts.scope.launch {
+                            try {
+                                GitHub.addComment(owner, name, number, submitted.body.trim())
+                                withContext(Dispatchers.Main.immediate) {
+                                    draft.submitted(submitted)
+                                    if (comment.text == submitted.body) comment = TextFieldValue()
+                                    previewComment = false
+                                    ctx.toast(tr("评论已发布"))
+                                    reload()
+                                }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Throwable) {
+                                withContext(Dispatchers.Main.immediate) { ctx.toast(e.friendly()) }
+                            } finally {
+                                withContext(Dispatchers.Main.immediate) { sending = false }
                             }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Throwable) {
-                            withContext(Dispatchers.Main.immediate) { ctx.toast(e.friendly()) }
-                        } finally {
-                            withContext(Dispatchers.Main.immediate) { sending = false }
                         }
-                    }
-                }
+                    },
+                )
             }
         },
+
     ) { pad ->
         LoadBox(data, Modifier.padding(pad).fillMaxSize()) { th ->
-            LazyColumn(Modifier.fillMaxSize()) {
+            // 从 #issuecomment-N 链接进来：评论加载后滚动到它。
+            // 列表项顺序固定为：标题、元数据、（Issue 才有的）相关议题、间距、正文，之后才是按时间排好的评论与审查
+            val anchorIndex = commentId?.let { id ->
+                val before = 4 + if (!isPull && related.data != null) 1 else 0
+                val timeline = (th.comments.map { it.createdAt to it as Any } + th.reviews.filter { it.state != "PENDING" }.map { it.submittedAt to it as Any })
+                    .sortedBy { it.first ?: "" }
+                timeline.indexOfFirst { val e = it.second; (e as? Comment)?.id == id || (e as? Review)?.id == id }.takeIf { it >= 0 }?.let { before + it }
+            }
+            LaunchedEffect(anchorIndex) { anchorIndex?.let { listState.animateScrollToItem(it) } }
+            LazyColumn(Modifier.fillMaxSize(), state = listState) {
                 item {
                     ThreadHeader(
                         owner, name, th,
@@ -554,6 +591,13 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean)
             } else {
                 ctx.toast(tr("已合并"))
             }
+        }
+    }
+    if (autoMergeDialog && pr != null) AutoMergeDialog(busy = writing, onDismiss = { autoMergeDialog = false }) { method ->
+        autoMergeDialog = false
+        write {
+            RepoGovernance.setAutoMerge(pr.nodeId, method)
+            ctx.toast(tr("已开启自动合并"))
         }
     }
     if (reviewDialog) ReviewDialog(

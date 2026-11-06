@@ -22,3 +22,17 @@ class HtmlViewFullHeightTest {
         assertEquals(91_134, htmlContentHeightDp(1_383_282, 91_134))
     }
 }
+
+class HtmlHeightCacheTest {
+    @Test fun measuredHeightIsRememberedForTheSameContent() {
+        val key = com.mobilegh.ui.components.htmlHeightKey("<p>hi</p>", "https://github.com/a/b/", 400, 100)
+        com.mobilegh.ui.components.HtmlHeightCache.put(key, 320)
+        assertEquals(320, com.mobilegh.ui.components.HtmlHeightCache.get(key))
+    }
+
+    @Test fun differentWidthOrFontSizeUsesADifferentEntry() {
+        val base = com.mobilegh.ui.components.htmlHeightKey("<p>hi</p>", "https://github.com/", 400, 100)
+        assertEquals(false, base == com.mobilegh.ui.components.htmlHeightKey("<p>hi</p>", "https://github.com/", 360, 100))
+        assertEquals(false, base == com.mobilegh.ui.components.htmlHeightKey("<p>hi</p>", "https://github.com/", 400, 130))
+    }
+}

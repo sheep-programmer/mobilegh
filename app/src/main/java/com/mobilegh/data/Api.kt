@@ -20,10 +20,14 @@ import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.Headers
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okio.BufferedSink
+import okio.source
 import java.io.File
 import java.io.InputStream
 import java.io.IOException
@@ -201,6 +205,37 @@ object Api {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * 上传二进制内容（如 Release 附件）：[open] 每次调用返回一个新的输入流，内容边读边发，不整个读进内存。
+     * 鉴权规则与 [call] 相同：只把 Token 发给 GitHub 自己的域名。
+     */
+    /** [customBody] 非空时直接使用（如 multipart），否则按 [open] 流式发送 */
+    suspend fun uploadRaw(target: String, mediaType: String, size: Long, open: () -> InputStream, customBody: RequestBody? = null): Resp {
+        val body = customBody ?: object : RequestBody() {
+            override fun contentType() = mediaType.toMediaTypeOrNull()
+            override fun contentLength() = size
+            override fun writeTo(sink: BufferedSink) {
+                open().use { sink.writeAll(it.source()) }
+            }
+        }
+        val rb = Request.Builder().url(url(target)).post(body)
+        val callToken = Session.token
+        val requestHost = rb.build().url.host
+        if (callToken != null && (requestHost in AUTH_HOSTS || requestHost == Net.apiHost)) {
+            rb.header("Authorization", "Bearer $callToken")
+        }
+        rb.header("Accept", "application/vnd.github+json")
+        val response = try {
+            http.routed().newCall(rb.build()).await()
+        } catch (e: IOException) {
+            AppLog.warn("network", tr("附件上传失败：") + target.take(120), e)
+            throw ApiException(-1, e.networkHint() ?: tr("网络连接失败，请稍后重试"))
+        }
+        return withContext(Dispatchers.IO) {
+            response.use { Resp(it.code, it.body.string(), it.headers) }
         }
     }
 

@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,8 +35,10 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,6 +65,11 @@ fun CompactSearchField(
 ) {
     val g = Gh.c
     var focused by remember { mutableStateOf(false) }
+    // String 重载在重新组合时会把光标放到 0；这里自己持有 TextFieldValue，首次显示和外部重置都落在末尾
+    var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+    LaunchedEffect(value) {
+        if (field.text != value) field = TextFieldValue(value, TextRange(value.length))
+    }
     // 与搜索页的搜索框一致：全圆角胶囊
     val shape = RoundedCornerShape(28.dp)
     Row(
@@ -74,7 +82,11 @@ fun CompactSearchField(
         Oc(R.drawable.oc_search, g.fgMuted, 18.dp)
         Spacer(Modifier.width(8.dp))
         BasicTextField(
-            value, onValueChange,
+            field,
+            {
+                field = it
+                onValueChange(it.text)
+            },
             Modifier.weight(1f).onFocusChanged { focused = it.isFocused }.semantics { contentDescription = label },
             singleLine = true,
             textStyle = TextStyle(fontSize = 14.sp, color = g.fg),
@@ -83,7 +95,7 @@ fun CompactSearchField(
             keyboardActions = KeyboardActions(onSearch = { onSearch?.invoke() }),
             decorationBox = { inner ->
                 Box(Modifier.padding(vertical = 10.dp), contentAlignment = Alignment.CenterStart) {
-                    if (value.isEmpty()) Text(
+                    if (field.text.isEmpty()) Text(
                         hint?.let { "$label · $it" } ?: label,
                         color = g.fgMuted, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )

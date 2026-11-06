@@ -20,6 +20,35 @@ class DraftsTest {
         assertTrue(store.load("alice", "one").empty)
         assertEquals("two", store.load("alice", "two").body)
     }
+    @Test fun formDraftsKeepTemplateAndFieldAnswers() {
+        val value = DraftValue(
+            title = "Crash",
+            template = "bug.yml",
+            labels = listOf(DraftOption("bug", "bug", "#d73a4a")),
+            answers = listOf(DraftAnswer(1, listOf("me@example.com")), DraftAnswer(3, listOf("A", "B")), DraftAnswer(5)),
+        )
+        store.save("alice", "new-issue:mona/repo", value)
+        val loaded = DraftStore(storage).load("alice", "new-issue:mona/repo")
+        assertEquals(value, loaded)
+        assertEquals("bug.yml", loaded.template)
+        assertEquals(listOf(1, 3, 5), loaded.answers.map { it.index })
+        assertFalse(loaded.empty)
+        // 只有模板名也算草稿，重新进入时能回到同一张表单
+        assertFalse(DraftValue(template = "bug.yml").empty)
+        // 表单答案在保存前会过滤掉空值，所以只要带答案就算有内容
+        assertFalse(DraftValue(answers = listOf(DraftAnswer(1))).empty)
+        assertTrue(DraftValue(answers = emptyList()).empty)
+    }
+    @Test fun oversizedAnswersRejectedWithoutLosingTheSavedDraft() {
+        store.save("alice", "one", DraftValue(template = "bug.yml", answers = listOf(DraftAnswer(1, listOf("keep")))))
+        assertThrows(IllegalArgumentException::class.java) {
+            store.save("alice", "one", DraftValue(answers = listOf(DraftAnswer(1, List(101) { "x" }))))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            store.save("alice", "one", DraftValue(template = "x".repeat(1025)))
+        }
+        assertEquals(listOf("keep"), store.load("alice", "one").answers.single().values)
+    }
     @Test fun oversizedDraftDoesNotOverwriteSavedText() {
         store.save("alice", "one", DraftValue(body = "saved"))
         assertThrows(IllegalArgumentException::class.java) { store.save("alice", "one", DraftValue(body = "x".repeat(65_537))) }

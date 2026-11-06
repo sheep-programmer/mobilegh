@@ -28,8 +28,13 @@ import com.mobilegh.data.HomePrefs
 import com.mobilegh.data.SavedSearch
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.MenuIcon
+import com.mobilegh.ui.components.offerUndo
 import com.mobilegh.ui.components.rememberCtx
+import com.mobilegh.ui.components.rememberTick
 import com.mobilegh.ui.components.toast
+import androidx.compose.material3.SnackbarHostState
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -136,6 +141,7 @@ fun arrangedShortcuts(layout: HomeLayout, builtins: List<HomeShortcut>, onSearch
 @Composable
 fun HomeFavoriteRow(repo: FavoriteRepo, canUp: Boolean, canDown: Boolean, onOpen: () -> Unit, onMove: (Int) -> Unit, onRemove: () -> Unit) {
     val g = Gh.c
+    val tick = rememberTick()
     var menu by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth()
@@ -155,9 +161,9 @@ fun HomeFavoriteRow(repo: FavoriteRepo, canUp: Boolean, canDown: Boolean, onOpen
         Spacer(Modifier.width(6.dp))
         Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
         DropdownMenu(menu, { menu = false }, containerColor = g.canvas) {
-            if (canUp) DropdownMenuItem(text = { Text(tr("上移"), color = g.fg) }, onClick = { menu = false; onMove(-1) })
-            if (canDown) DropdownMenuItem(text = { Text(tr("下移"), color = g.fg) }, onClick = { menu = false; onMove(1) })
-            DropdownMenuItem(text = { Text(tr("移出首页收藏"), color = g.danger) }, onClick = { menu = false; onRemove() })
+            if (canUp) DropdownMenuItem(text = { Text(tr("上移"), color = g.fg) }, onClick = { menu = false; tick(); onMove(-1) })
+            if (canDown) DropdownMenuItem(text = { Text(tr("下移"), color = g.fg) }, onClick = { menu = false; tick(); onMove(1) })
+            DropdownMenuItem(text = { Text(tr("移出首页收藏"), color = g.danger) }, onClick = { menu = false; tick(); onRemove() })
         }
     }
 }
@@ -308,15 +314,14 @@ fun HomeAchievementsRow(badges: List<Achievement>?, error: String?, onOpen: () -
     }
 }
 
-/** 移出首页收藏前的确认；收藏仓库本身不受影响 */
-@Composable
-fun ConfirmRemoveFavoriteDialog(repo: FavoriteRepo, onDismiss: () -> Unit) {
-    val g = Gh.c
-    GhDialog(tr("移出首页收藏？"), onDismiss, confirm = tr("移出"), danger = true, onConfirm = {
-        HomePrefs.removeFavorite(repo)
-        onDismiss()
-    }) {
-        Text(trf("「{0} / {1}」会从首页收藏中移除，仓库本身不受影响。", repo.owner, repo.name), color = g.fg)
+/**
+ * 移出首页收藏：立即生效，撤销窗口内可按原位放回。收藏只存在本机，不需要等待提交，所以不用延后写入。
+ * 仓库本身不受影响。
+ */
+fun removeFavoriteWithUndo(scope: CoroutineScope, snackbar: SnackbarHostState, index: Int, repo: FavoriteRepo) {
+    HomePrefs.removeFavorite(repo)
+    scope.launch {
+        if (snackbar.offerUndo(trf("已移出收藏「{0} / {1}」", repo.owner, repo.name))) HomePrefs.restoreFavorite(index, repo)
     }
 }
 

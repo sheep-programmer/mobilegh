@@ -31,23 +31,37 @@ import kotlinx.coroutines.delay
 internal data class ScrollProgress(val size: Float, val offset: Float)
 
 /**
- * 按可见项的平均高度估算滚动进度：列表项高度差异很大时位置是近似值，但滑块能反映大致进度。
- * 内容不足一屏时返回 null，不显示滚动条。
+ * 估算滚动进度。[knownSizes] 是已经见过的项的真实高度（下标 → px）：见过的项用真实高度，没见过的项用已知项的中位数。
+ * 不用平均值：一段很长的 README 会把平均值拉高，整个列表被算得过长，滑块就一下子跳到底部。
+ * 滑块到顶或到底时直接贴边（最后一项完整可见即视为到底），不依赖估算。内容不足一屏时返回 null。
  */
-internal fun scrollProgress(state: LazyListState): ScrollProgress? {
-    val info = state.layoutInfo
-    val visible = info.visibleItemsInfo
-    val viewport = (info.viewportEndOffset - info.viewportStartOffset).toFloat()
-    if (info.totalItemsCount == 0 || visible.isEmpty() || viewport <= 0f) return null
-    val averageItem = visible.map { it.size }.average().toFloat().coerceAtLeast(1f)
-    val content = info.totalItemsCount * averageItem
-    val scrollable = content - viewport
+internal fun estimateScrollProgress(
+    total: Int,
+    viewportPx: Float,
+    firstIndex: Int,
+    firstOffsetPx: Int,
+    knownSizes: Map<Int, Int>,
+    atEnd: Boolean,
+): ScrollProgress? {
+    if (total <= 0 || viewportPx <= 0f || knownSizes.isEmpty()) return null
+    val sorted = knownSizes.values.sorted()
+    val estimate = sorted[sorted.size / 2].coerceAtLeast(1)
+    var before = 0f
+    var content = 0f
+    // 按项逐个累加：列表项通常不多，这里的开销可以忽略
+    for (i in 0 until total) {
+        val s = (knownSizes[i] ?: estimate).toFloat()
+        if (i < firstIndex) before += s
+        content += s
+    }
+    val scrollable = content - viewportPx
     if (scrollable <= 0f) return null
-    val position = state.firstVisibleItemIndex * averageItem + state.firstVisibleItemScrollOffset
-    return ScrollProgress(
-        size = (viewport / content).coerceIn(0.05f, 1f),
-        offset = (position / scrollable).coerceIn(0f, 1f),
-    )
+    val offset = when {
+        atEnd -> 1f
+        firstIndex == 0 && firstOffsetPx <= 0 -> 0f
+        else -> ((before + firstOffsetPx) / scrollable).coerceIn(0f, 1f)
+    }
+    return ScrollProgress(size = (viewportPx / content).coerceIn(0.05f, 1f), offset = offset)
 }
 
 /**
@@ -66,7 +80,20 @@ fun BoxScope.ListScrollIndicator(state: LazyListState, modifier: Modifier = Modi
             visible = false
         }
     }
-    val progress = scrollProgress(state) ?: return
+    // 见过的项高度按下标记下来（滚出屏幕的项也保留），供估算使用
+    val known = remember(state) { HashMap<Int, Int>() }
+    val info = state.layoutInfo
+    info.visibleItemsInfo.forEach { known[it.index] = it.size }
+    val last = info.visibleItemsInfo.lastOrNull()
+    val atEnd = last != null && last.index == info.totalItemsCount - 1 && last.offset + last.size <= info.viewportEndOffset
+    val progress = estimateScrollProgress(
+        total = info.totalItemsCount,
+        viewportPx = (info.viewportEndOffset - info.viewportStartOffset).toFloat(),
+        firstIndex = state.firstVisibleItemIndex,
+        firstOffsetPx = state.firstVisibleItemScrollOffset,
+        knownSizes = known,
+        atEnd = atEnd,
+    ) ?: return
     AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut(),
         modifier = modifier.align(Alignment.CenterEnd).fillMaxHeight()) {
         BoxWithConstraints(Modifier.fillMaxHeight().padding(vertical = 8.dp).width(8.dp)) {

@@ -373,7 +373,8 @@ object Downloads {
         AppLog.info("download", started.filename + tr(" 使用节点：") + source.nodeName + tr("；地址主机：") + (Uri.parse(source.url).host ?: "unknown"))
         val partial = partialFile(started)
         val result = try {
-            engine.run(source.url, source.headers, partial, onProgress = { done, total -> scope.launch { progress(key, done, total) } })
+            // 大文件先探测 Range 支持：支持就并行分段，更快；否则退回单连接续传
+            engine.runParallel(source.url, source.headers, partial, onProgress = { done, total -> scope.launch { progress(key, done, total) } })
         } catch (e: CancellationException) {
             onInterrupted(key)
             throw e

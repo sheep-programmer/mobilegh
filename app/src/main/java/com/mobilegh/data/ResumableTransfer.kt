@@ -8,6 +8,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -47,6 +48,42 @@ class ResumableTransfer(
         val result = transfer(url, headers, partial, maxAttempts, progress)
         progress.finish(partial.length())
         result
+    }
+
+    /**
+     * 先探测总长与 Range 支持：支持则交给 [SegmentedTransfer] 并行分段（大文件明显更快），
+     * 不支持或探测失败就按原有的整文件续传走。
+     */
+    suspend fun runParallel(
+        url: String,
+        headers: Map<String, String>,
+        partial: File,
+        onProgress: (downloaded: Long, total: Long) -> Unit,
+        segments: SegmentedTransfer = SegmentedTransfer(client),
+    ): TransferResult = withContext(Dispatchers.IO) {
+        val probe = Request.Builder().url(url)
+            .header("Accept-Encoding", "identity")
+            .header("Range", "bytes=0-0")
+            .apply { headers.forEach { (n, v) -> header(n, v) } }
+            .build()
+        val probeResult = try {
+            client.newCall(probe).await().use { resp ->
+                val total = CONTENT_RANGE_TOTAL.find(resp.header("Content-Range").orEmpty())
+                    ?.groupValues?.get(1)?.toLongOrNull()
+                if (resp.code == 206 && total != null && total > SegmentPlan.MIN_SEGMENT) total else null
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: IOException) {
+            null
+        }
+        if (probeResult == null) {
+            run(url, headers, partial, onProgress = onProgress)
+        } else {
+            // 分段不需要 partial 里的旧字节：整段重来反而干净
+            partial.delete()
+            segments.run(url, headers, partial, probeResult, onProgress)
+        }
     }
 
     private suspend fun transfer(

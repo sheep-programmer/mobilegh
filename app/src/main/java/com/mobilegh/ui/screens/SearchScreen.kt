@@ -152,6 +152,8 @@ fun SearchScreen(initialType: Int = SearchType.REPO, initialQuery: String = "") 
     val query = SearchQuery.build(type, submitted, filters)
     val ready = SearchQuery.hasCriteria(type, submitted, filters)
     val listState = rememberLazyListState()
+    // 上一次显示的查询：用于判断条件是否变化（状态会随页面一起保存，返回时不会被当成新搜索）
+    var shownQuery by rememberSaveable { mutableStateOf<String?>(null) }
 
     Page(tr("搜索"), back = true) { pad ->
         Column(Modifier.padding(pad).consumeWindowInsets(pad).imePadding().fillMaxSize()) {
@@ -213,8 +215,12 @@ fun SearchScreen(initialType: Int = SearchType.REPO, initialQuery: String = "") 
             recordSearch(type, submitted, it)
         }) { filterDialog = false }
     }
-    // 新关键词或筛选条件都从首条结果展示，避免沿用上次搜索的滚动位置
-    LaunchedEffect(type, query) { listState.scrollToItem(0) }
+    // 搜索条件真正变化时（新关键词、新筛选）从首条结果展示。
+    // 从仓库详情等页面返回时，界面状态被恢复、查询未变：保持原来的滚动位置，不回到顶部。
+    LaunchedEffect(query) {
+        if (shownQuery != null && shownQuery != query) listState.scrollToItem(0)
+        shownQuery = query
+    }
 }
 
 private fun placeholder(type: Int): String = when (type) {

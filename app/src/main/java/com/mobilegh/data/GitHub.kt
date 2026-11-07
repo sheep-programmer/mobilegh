@@ -1,5 +1,7 @@
 package com.mobilegh.data
 
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -365,6 +367,45 @@ object GitHub {
      */
     suspend fun issues(o: String, n: String, state: String, page: Int, force: Boolean, sort: String = "created", direction: String = "desc") =
         Api.get<List<Issue>>("${r(o, n)}/issues?state=$state&sort=$sort&direction=$direction&per_page=$PER&page=$page", force)
+    /**
+     * 开放中的 Issue 数（不含 PR）。用搜索接口统计，与网页上 Issues 页的 Open 计数一致。
+     * 仓库的 open_issues_count 与此常差 1，所以不用它直接减 PR 得出 Issue 数。
+     */
+    suspend fun openIssueCount(o: String, n: String, force: Boolean = false): Int =
+        searchIssues("repo:$o/$n is:issue is:open", page = 1, force = force).totalCount
+
+    /**
+     * 开放中的 PR 数量。GitHub 的 open_issues_count 把 PR 也算在内，真正的 Issue 数要减掉它。
+     * per_page=1 时 Link 头里 rel="last" 的页码就是总数；没有 Link 头时只可能是 0 或 1 条。
+     */
+    suspend fun openPullCount(o: String, n: String, force: Boolean = false): Int =
+        countList("${r(o, n)}/pulls?state=open&per_page=1&page=1", force)
+
+    /** 发布数（已发布的 Release）。 */
+    suspend fun releaseCount(o: String, n: String, force: Boolean = false): Int =
+        countList("${r(o, n)}/releases?per_page=1&page=1", force)
+
+    /** 贡献者数（含匿名贡献者，与网页 Contributors 计数一致）。 */
+    suspend fun contributorCount(o: String, n: String, force: Boolean = false): Int =
+        countList("${r(o, n)}/contributors?anon=1&per_page=1&page=1", force)
+
+    /** 开放中的讨论数。讨论只能用 GraphQL 统计；未开启讨论时返回 0。 */
+    suspend fun discussionCount(o: String, n: String, force: Boolean = false): Int {
+        val data = Api.graphql(
+            "query(\$o: String!, \$n: String!) { repository(owner: \$o, name: \$n) { discussions(states: [OPEN], first: 1) { totalCount } } }",
+            mapOf("o" to o, "n" to n),
+        )
+        val discussions = (data["repository"] as? JsonObject)?.get("discussions") as? JsonObject
+        return discussions?.get("totalCount")?.jsonPrimitive?.intOrNull ?: 0
+    }
+
+    /** 列表接口发一次 per_page=1 的请求，取总数（见 [listTotal]）。 */
+    private suspend fun countList(path: String, force: Boolean): Int {
+        val resp = Api.call("GET", path, force = force)
+        Api.ensureOk(resp)
+        return listTotal(resp.headers["Link"], resp.body)
+    }
+
     /** sort: created / updated / popularity / long-running */
     /** 每页读完后在后台补充这一页 PR 的审查与 CI 状态（一页一个 GraphQL 请求，失败不影响列表） */
     suspend fun pulls(o: String, n: String, state: String, page: Int, force: Boolean, sort: String = "updated", direction: String = "desc") =
@@ -933,4 +974,10 @@ object GitHub {
 
     /** 与官方 App 不同，这里可以直接看到 Token 所拥有的全部 scope */
     suspend fun tokenScopes(): String? = Api.call("GET", "/user", force = true).headers["x-oauth-scopes"]
+}
+
+/** 列表接口的总数（per_page=1 时）：Link 头里 rel="last" 的页码就是总数；没有 Link 头时只可能是 0 或 1 条。纯函数，便于单测。 */
+internal fun listTotal(linkHeader: String?, body: String): Int {
+    val last = linkHeader?.let { Regex("[?&]page=(\\d+)[^>]*>;\\s*rel=\"last\"").find(it) }
+    return last?.groupValues?.get(1)?.toIntOrNull() ?: if (body.isBlank() || body.trim() == "[]") 0 else 1
 }

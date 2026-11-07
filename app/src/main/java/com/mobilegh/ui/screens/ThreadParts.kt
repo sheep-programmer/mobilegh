@@ -417,7 +417,7 @@ private fun MetaOptionList(
             if (single) Row(
                 Modifier.fillMaxWidth().clickable(enabled = enabled) { selected.clear() }, verticalAlignment = Alignment.CenterVertically,
             ) {
-                RadioButton(selected.isEmpty(), { selected.clear() }, enabled = enabled, colors = RadioButtonDefaults.colors(selectedColor = g.btnPrimary))
+                RadioButton(selected.isEmpty(), { selected.clear() }, enabled = enabled)
                 Text(noneLabel, color = g.fgMuted, fontSize = 14.sp)
             }
             opts.forEach { o ->
@@ -429,8 +429,8 @@ private fun MetaOptionList(
                 val locked = optionLocked(single, selected.size, on, maxSelect)
                 val itemEnabled = enabled && !locked
                 Row(Modifier.fillMaxWidth().clickable(enabled = itemEnabled) { flip() }, verticalAlignment = Alignment.CenterVertically) {
-                    if (single) RadioButton(on, { flip() }, enabled = enabled, colors = RadioButtonDefaults.colors(selectedColor = g.btnPrimary))
-                    else Checkbox(on, { flip() }, enabled = itemEnabled, colors = CheckboxDefaults.colors(checkedColor = g.btnPrimary))
+                    if (single) RadioButton(on, { flip() }, enabled = enabled)
+                    else Checkbox(on, { flip() }, enabled = itemEnabled)
                     if (o.avatar != null) { Avatar(o.avatar, 22.dp); Spacer(Modifier.width(8.dp)) }
                     if (o.color != null) LabelChip(o.label, o.color) else Text(o.label, color = g.fg, fontSize = 14.sp)
                 }

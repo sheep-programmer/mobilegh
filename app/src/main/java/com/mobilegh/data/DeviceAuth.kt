@@ -22,6 +22,7 @@ sealed interface DevicePoll {
 /** Public OAuth device flow. Never inherits API tokens, web cookies or mirror settings. */
 object DeviceAuth {
     /** 应用全部功能所需的权限范围。参考 gh CLI：repo 含私有库读写，delete_repo 才能删库，project 才能写看板 */
+    // Dependabot、代码扫描、密钥泄露告警接口都接受 repo 权限（实测 X-Accepted-OAuth-Scopes），不需要单独的 security_events
     const val SCOPES = "repo read:org notifications user gist workflow project delete_repo"
     val REQUIRED_SCOPES = SCOPES.split(" ")
 

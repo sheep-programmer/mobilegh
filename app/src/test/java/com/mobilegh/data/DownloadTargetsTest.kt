@@ -1,6 +1,8 @@
 package com.mobilegh.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -22,6 +24,14 @@ class DownloadTargetsTest {
         preferred: String = "a",
         speeds: Map<String, Long> = emptyMap(),
     ) = orderDownloadTargets(candidates, url, latency, failed, preferred, direct, speeds).map { it.nodeId }
+
+    @Test fun issueAttachmentsAreDirectOnly() {
+        // 实测所有公共代理对 user-attachments 附件返回 404 / 403 / 301 / HTML 错误页，不能进候选
+        assertFalse(isProxyableDownloadUrl("https://github.com/user-attachments/files/34461663/bilisail_pid.sanitized.log.txt"))
+        assertTrue(isProxyableDownloadUrl("https://github.com/owner/repo/releases/download/v1/app.apk"))
+        assertTrue(isProxyableDownloadUrl("https://raw.githubusercontent.com/owner/repo/main/a.txt"))
+        assertFalse(isProxyableDownloadUrl("https://example.com/file.zip"))
+    }
 
     @Test fun directIsAlwaysTheLastResort() {
         assertEquals(listOf("a", "direct"), order(listOf(nodeA)))

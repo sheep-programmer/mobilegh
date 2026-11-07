@@ -254,8 +254,8 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
             MoreMenu(
                 listOfNotNull(
                     if (isSelf) MenuAction(tr("编辑资料")) { nav.push(Screen.EditProfile) } else null,
-                    MenuAction(tr("分享")) { ctx.share("https://github.com/$login") },
                     MenuAction(tr("复制链接")) { ctx.copy("https://github.com/$login") },
+                    MenuAction(tr("分享")) { ctx.share("https://github.com/$login") },
                     MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$login") },
                 ),
             )
@@ -481,8 +481,9 @@ fun OrgScreen(login: String) {
             MoreMenu(listOf(
                 MenuAction(tr("成员")) { nav.push(Screen.Users(UserKind.Members, login)) },
                 MenuAction(tr("项目")) { nav.push(Screen.Projects(ProjectOwnerKind.Org, login)) },
-                MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$login") },
+                MenuAction(tr("复制链接")) { ctx.copy("https://github.com/$login") },
                 MenuAction(tr("分享")) { ctx.share("https://github.com/$login") },
+                MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$login") },
             ))
         },
     ) { pad ->

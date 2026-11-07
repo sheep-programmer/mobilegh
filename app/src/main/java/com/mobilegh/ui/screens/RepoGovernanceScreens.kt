@@ -62,6 +62,7 @@ import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.RadioRow
 import com.mobilegh.ui.components.Loading
+import com.mobilegh.ui.components.MenuGroup
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.Pill
@@ -176,22 +177,30 @@ private fun <T> AlertSection(title: String, loader: Loader<List<T>>, emptyText: 
     SectionTitle(title)
     val list = loader.data
     val error = loader.error
-    when {
-        list != null -> Card(Modifier.padding(horizontal = 16.dp)) {
-            if (list.isEmpty()) {
-                Text(emptyText, Modifier.padding(14.dp), fontSize = 13.sp, color = g.fgMuted)
-            } else {
-                Column {
-                    list.forEachIndexed { i, a ->
-                        if (i > 0) HDivider()
-                        row(a)
-                    }
+    // 与设置页一致：整组放在一个圆角分组里；空状态和错误都是组内的一行说明，不再单独套描边卡片
+    MenuGroup {
+        when {
+            list != null && list.isNotEmpty() -> Column {
+                list.forEachIndexed { i, a ->
+                    if (i > 0) HDivider()
+                    row(a)
                 }
             }
+            list != null -> GroupNote(emptyText, g.fgMuted)
+            error != null -> GroupNote(error, g.fgMuted)
+            else -> Loading(Modifier.fillMaxWidth().heightIn(min = 60.dp))
         }
-        error != null -> Text(error, Modifier.padding(horizontal = 16.dp), fontSize = 13.sp, color = g.danger)
-        else -> Loading(Modifier.fillMaxWidth().heightIn(min = 60.dp))
     }
+}
+
+/** 分组里的一行说明文字（空状态、不可用原因） */
+@Composable
+private fun GroupNote(text: String, color: Color) {
+    Text(
+        text,
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+        fontSize = 13.sp, lineHeight = 18.sp, color = color,
+    )
 }
 
 @Composable

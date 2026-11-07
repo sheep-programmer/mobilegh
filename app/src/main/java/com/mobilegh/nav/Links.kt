@@ -260,6 +260,8 @@ object Links {
             // 安全页面的告警列表在应用内；仓库设置只有根页面在应用内，子页面交给浏览器
             "security" -> if (segs.size == 3 || segs[3] in securityPages) Screen.SecurityAlerts(o, r) else null
             "settings" -> if (segs.size == 3) Screen.RepoSettings(o, r) else null
+            // 合并队列页（/owner/repo/queue）：应用内列出队列中的 PR，不再落到仓库首页
+            "queue" -> if (segs.size == 3) Screen.MergeQueue(o, r) else null
             "projects", "milestone", "milestones", "labels" -> null
             else -> Screen.Repo(o, r)
         }

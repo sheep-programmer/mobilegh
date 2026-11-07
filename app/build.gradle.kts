@@ -42,8 +42,8 @@ android {
         applicationId = "com.mobilegh"
         minSdk = 26
         targetSdk = 36
-        versionCode = 45
-        versionName = "0.32.0"
+        versionCode = 46
+        versionName = "0.33.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GITHUB_CLIENT_ID", "\"$clientId\"")
         buildConfigField("String", "GITHUB_CLIENT_SETTINGS_URL", "\"$clientSettingsUrl\"")
@@ -141,5 +141,6 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.zxing.core)
+    implementation(libs.jsoup)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

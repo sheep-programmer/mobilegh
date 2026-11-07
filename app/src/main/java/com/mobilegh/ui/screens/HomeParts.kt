@@ -101,7 +101,11 @@ private fun HomeStat(value: String, label: String) {
 }
 
 /** id 对应 [BuiltinShortcut.id] 或保存的搜索的 slot id，用于按用户布局排序 */
-data class HomeShortcut(@DrawableRes val icon: Int, val label: String, val color: Color, val onClick: () -> Unit, val id: String = label)
+data class HomeShortcut(
+    @DrawableRes val icon: Int, val label: String, val color: Color, val onClick: () -> Unit, val id: String = label,
+    /** 非空时在图标右上角显示角标（与 GitHub 标签页的计数一致），标签文字保持干净 */
+    val count: Int? = null,
+)
 
 /** 首页默认的八个入口；颜色取自 Primer，暗色模式用对应的亮色版本 */
 @Composable
@@ -182,8 +186,19 @@ fun HomeShortcuts(items: List<HomeShortcut>) {
                             .padding(vertical = 10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Box(Modifier.size(44.dp).background(s.color.copy(alpha = if (Gh.c.dark) 0.18f else 0.11f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                            Oc(s.icon, s.color, 22.dp)
+                        Box(Modifier.size(44.dp)) {
+                            Box(Modifier.matchParentSize().background(s.color.copy(alpha = if (Gh.c.dark) 0.18f else 0.11f), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
+                                Oc(s.icon, s.color, 22.dp)
+                            }
+                            s.count?.let { n ->
+                                Text(
+                                    fmtCount(n),
+                                    Modifier.align(Alignment.TopEnd).offset(x = 10.dp, y = (-6).dp)
+                                        .background(Gh.c.neutralMuted, RoundedCornerShape(10.dp))
+                                        .padding(horizontal = 6.dp, vertical = 1.dp),
+                                    fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.SemiBold, color = Gh.c.fg,
+                                )
+                            }
                         }
                         Spacer(Modifier.height(6.dp))
                         Text(s.label, fontSize = 12.sp, lineHeight = 16.sp, color = Gh.c.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)

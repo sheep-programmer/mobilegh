@@ -251,7 +251,7 @@ object Net {
      * 手动选定的节点只按用户的选择来（不擅自换），关闭加速时只有直连。
      */
     fun downloadTargets(url: String): List<DownloadTarget> {
-        if (mode == 2 || !isGithubDownload(url)) return listOf(DownloadTarget(DIRECT.id, DIRECT.name, url))
+        if (mode == 2 || !isProxyable(url)) return listOf(DownloadTarget(DIRECT.id, DIRECT.name, url))
         val preferred = dlNode()
         val candidates = if (mode == 1) listOf(preferred) else nodes
         return orderDownloadTargets(candidates, url, latency, downloadFailed, downloadOkId ?: preferred.id, speeds = speeds)
@@ -417,13 +417,12 @@ object Net {
         return if (node.type == NodeType.Prefix) build(node, o, r, ref, encodedPath) else null
     }
 
-    private fun isGithubDownload(url: String) = url.startsWith("https://github.com/") || url.startsWith("https://raw.githubusercontent.com/") ||
-        url.startsWith("https://gist.githubusercontent.com/") || url.startsWith("https://codeload.github.com/")
+    private fun isProxyable(url: String) = isProxyableDownloadUrl(url)
 
     /** Release 资源 / 源码压缩包下载链接 */
     fun download(url: String): String {
         val n = dlNode()
-        return if (n.type == NodeType.Prefix && isGithubDownload(url)) n.base + url else url
+        return if (n.type == NodeType.Prefix && isProxyable(url)) n.base + url else url
     }
 
     /** 加速克隆地址（仅代理类节点支持 git clone） */
@@ -548,6 +547,18 @@ object Net {
 
     fun nodeName(id: String) = byId(id)?.name ?: id
 }
+
+/** 属于 GitHub 下载内容的地址（Release、源码包、raw、gist 原文）。 */
+internal fun isGithubDownloadUrl(url: String) = url.startsWith("https://github.com/") || url.startsWith("https://raw.githubusercontent.com/") ||
+    url.startsWith("https://gist.githubusercontent.com/") || url.startsWith("https://codeload.github.com/")
+
+/**
+ * 能否经转发类代理下载。
+ *
+ * Issue / 评论里上传的附件（github.com/user-attachments/…）不被任何公共代理支持：实测返回 404、403、
+ * 301 跳转，或者一个 200 的 HTML 错误页。这类地址只走直连，避免白白换节点。
+ */
+internal fun isProxyableDownloadUrl(url: String): Boolean = isGithubDownloadUrl(url) && !url.contains("/user-attachments/")
 
 /**
  * Release 资源的下载地址。

@@ -12,6 +12,7 @@ import android.provider.MediaStore
 import android.os.Environment
 import android.webkit.MimeTypeMap
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -29,6 +30,7 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import okhttp3.ConnectionPool
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -209,7 +211,18 @@ object Downloads {
     private val privateHttp by lazy { OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector()).followRedirects(false).followSslRedirects(false).build() }
     private val transferHttp by lazy {
         OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector())
-            .connectTimeout(20, TimeUnit.SECONDS).readTimeout(60, TimeUnit.SECONDS).build()
+            // 读超时 20 秒：网络切换后旧连接会静默失效，太长的超时会让每次重试都卡住很久
+            .connectTimeout(20, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS)
+            // 多段并行要同时开多条连接。OkHttp 默认每个主机最多 5 个请求，会把线程数悄悄压到 5，所以这里放开到设置的上限
+            // 只用 HTTP/1.1：HTTP/2 会把所有 Range 请求复用到同一条 TCP 连接上，镜像对单条连接限速，
+            // 分段就没有并行效果。HTTP/1.1 下每个分块各自建立连接，才能真正并发下载。
+            .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
+            .dispatcher(okhttp3.Dispatcher().apply {
+                maxRequests = 64
+                maxRequestsPerHost = SegmentPlan.MAX_SEGMENTS * 2
+            })
+            .connectionPool(ConnectionPool(SegmentPlan.MAX_SEGMENTS * 2, 5, TimeUnit.MINUTES))
+            .build()
     }
     private val engine by lazy { ResumableTransfer(transferHttp) }
     /** 没有进度的任务从什么时候开始卡住的（只记内存，用于判断该换节点了） */
@@ -251,11 +264,16 @@ object Downloads {
     /** 仅 Wi-Fi 下载（默认关闭）：开启后计费网络下不开始新的下载，进行中的会继续 */
     var wifiOnly by mutableStateOf(false)
         private set
+    /** 单个下载同时使用的连接数（分段数）；1 即单连接续传。设置页可改，默认 [SegmentPlan.DEFAULT_SEGMENTS] */
+    var threads by mutableIntStateOf(SegmentPlan.DEFAULT_SEGMENTS)
+        private set
 
     fun init(ctx: Context) {
         context = ctx.applicationContext
         prefs = context.getSharedPreferences("downloads", Context.MODE_PRIVATE)
         wifiOnly = prefs.getBoolean("wifiOnly", false)
+        threads = prefs.getInt("threads", SegmentPlan.DEFAULT_SEGMENTS).takeIf { it in SegmentPlan.THREAD_CHOICES }
+            ?: SegmentPlan.DEFAULT_SEGMENTS
         droppedRecords = prefs.getInt("dropped", 0)
         tasks.clear()
         runCatching {
@@ -277,6 +295,13 @@ object Downloads {
     fun changeWifiOnly(on: Boolean) {
         wifiOnly = on
         prefs.edit().putBoolean("wifiOnly", on).apply()
+    }
+
+    /** 设置单个下载的连接数；只接受 [SegmentPlan.THREAD_CHOICES] 中的值，其它值忽略 */
+    fun changeThreads(n: Int) {
+        if (n !in SegmentPlan.THREAD_CHOICES) return
+        threads = n
+        prefs.edit().putInt("threads", n).apply()
     }
 
     fun setForeground(visible: Boolean) {
@@ -374,7 +399,13 @@ object Downloads {
         val partial = partialFile(started)
         val result = try {
             // 大文件先探测 Range 支持：支持就并行分段，更快；否则退回单连接续传
-            engine.runParallel(source.url, source.headers, partial, onProgress = { done, total -> scope.launch { progress(key, done, total) } })
+            engine.runParallel(
+                source.url, source.headers, partial,
+                onProgress = { done, total -> scope.launch { progress(key, done, total) } },
+                segments = SegmentedTransfer(transferHttp, maxSegments = threads),
+                // 经加速节点下载时，HTML 页面不是文件内容（代理的错误页），必须判为失败而不是存成文件
+                rejectHtml = source.nodeId != null && source.nodeId != Net.DIRECT.id,
+            )
         } catch (e: CancellationException) {
             onInterrupted(key)
             throw e
@@ -395,7 +426,10 @@ object Downloads {
     private fun onInterrupted(key: String) {
         val current = tasks.firstOrNull { it.key == key } ?: return
         when {
-            current.state == DownloadState.Cancelled -> partialFile(current).delete()
+            current.state == DownloadState.Cancelled -> {
+                partialFile(current).delete()
+                SegmentedTransfer.cleanup(partialFile(current))
+            }
             key in pausing -> {
                 pausing.remove(key)
                 transfers.remove(key)
@@ -435,8 +469,9 @@ object Downloads {
         transfers.remove(key)
         val task = tasks.firstOrNull { it.key == key } ?: return
         if (task.state == DownloadState.Cancelled) return
-        // 可以重试的错误先换下一个节点；节点都试过了才显示错误（部分文件保留，重新下载时从断点继续）
-        if (result.retryable && rotate(task, result.message)) return
+        // 任何失败都先换下一个候选节点：代理可能对某个文件返回 404、403 或错误页，而直连还没试过。
+        // 节点都试过了才显示错误（部分文件保留，重新下载时从断点继续）
+        if (rotate(task, result.message)) return
         AppLog.warn("download", task.filename + "：" + result.message + (result.httpCode?.let { " (HTTP $it)" } ?: ""))
         reportAllFailed(task)
         val message = failureText(result.httpCode, result.retryable)
@@ -676,7 +711,10 @@ object Downloads {
         update(current.copy(state = DownloadState.Cancelled, message = null, paused = false))
         save()
         val job = transfers.remove(current.key)
-        if (job != null) job.cancel() else scope.launch(Dispatchers.IO) { partialFile(current).delete() }
+        if (job != null) job.cancel() else scope.launch(Dispatchers.IO) {
+            partialFile(current).delete()
+            SegmentedTransfer.cleanup(partialFile(current))
+        }
         pump()
     }
 
@@ -689,7 +727,9 @@ object Downloads {
             return
         }
         tasks.firstOrNull { it.key == task.key }?.let { current ->
-            update(current.copy(state = DownloadState.Queued, paused = false, message = null))
+            // 重试时从第一个候选节点重新开始：网络变了，之前排在后面的节点可能已经能用了（私有下载只有一条地址）
+            val first = if (current.isPrivate) current.attempt else 0
+            update(current.copy(state = DownloadState.Queued, paused = false, message = null, attempt = first))
             save(); pump()
         }
     }

@@ -1,5 +1,12 @@
 package com.mobilegh.ui.components
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextLayoutResult
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicReference
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -119,7 +126,12 @@ private fun parse(s: String, b: AnnotatedString.Builder, g: GhColors) {
                 if (close < 0 || end < 0 || s.substring(i + 1, close).contains('\n')) { plain.append(c); i++ } else {
                     flush()
                     b.pushStyle(SpanStyle(color = g.accent))
+                    // 保留链接地址（作为注解），长按时才能复制；只认绝对的网页地址
+                    val target = s.substring(close + 2, end).trim().substringBefore(' ')
+                    val linked = target.startsWith("https://") || target.startsWith("http://")
+                    if (linked) b.pushStringAnnotation(MD_LINK_TAG, target)
                     parse(s.substring(i + 1, close), b, g)
+                    if (linked) b.pop()
                     b.pop()
                     i = end + 1
                 }
@@ -135,7 +147,15 @@ private fun parse(s: String, b: AnnotatedString.Builder, g: GhColors) {
     flush()
 }
 
-/** 支持行内 Markdown 的文本 */
+/** 链接地址注解的标签 */
+internal const val MD_LINK_TAG = "md-link"
+
+/**
+ * 支持行内 Markdown 的文本。
+ *
+ * [linkLongPress] 为 true（默认）时，长按带链接的文字会弹出链接菜单（复制 / 分享 / 浏览器打开）。
+ * 所在的行本身有长按菜单时要关掉，否则两个菜单同时出现。
+ */
 @Composable
 fun MdText(
     text: String,
@@ -145,8 +165,34 @@ fun MdText(
     fontWeight: FontWeight? = null,
     maxLines: Int = Int.MAX_VALUE,
     lineHeight: TextUnit = TextUnit.Unspecified,
+    linkLongPress: Boolean = true,
 ) {
     val g = Gh.c
     val a = remember(text, g.dark) { mdInline(text, g) }
-    Text(a, modifier, color = color, fontSize = fontSize, fontWeight = fontWeight, maxLines = maxLines, overflow = TextOverflow.Ellipsis, lineHeight = lineHeight)
+    val layoutRef = remember { AtomicReference<TextLayoutResult?>(null) }
+    val linkModifier = if (!linkLongPress) Modifier else Modifier.pointerInput(a) {
+        awaitEachGesture {
+            // 只观察按下，不消费：普通点按仍然交给父级（比如整行的点击）
+            val down = awaitFirstDown(requireUnconsumed = false)
+            // 在超时之前抬起或移开，就不是长按；超时后才判断是否落在链接上
+            val ended = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) { waitForUpOrCancellation(); true }
+            if (ended != null) return@awaitEachGesture
+            val layout = layoutRef.get() ?: return@awaitEachGesture
+            val offset = layout.getOffsetForPosition(down.position)
+            val url = a.getStringAnnotations(MD_LINK_TAG, offset, offset).firstOrNull()?.item ?: return@awaitEachGesture
+            LinkMenu.show(url)
+            down.consume()
+            // 消费到抬手为止，避免父级把这次长按再当成别的操作
+            do {
+                val event = awaitPointerEvent()
+                event.changes.forEach { it.consume() }
+            } while (event.changes.any { it.pressed })
+        }
+    }
+    Text(
+        a,
+        modifier.then(linkModifier),
+        color = color, fontSize = fontSize, fontWeight = fontWeight, maxLines = maxLines, overflow = TextOverflow.Ellipsis, lineHeight = lineHeight,
+        onTextLayout = { layoutRef.set(it) },
+    )
 }

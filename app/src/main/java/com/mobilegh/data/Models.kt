@@ -156,6 +156,7 @@ data class Issue(
     val repositoryUrl: String? = null,
     val authorAssociation: String? = null,
     val reactions: Reactions? = null,
+    @SerialName("node_id") val nodeId: String? = null,
 )
 
 @Serializable
@@ -169,6 +170,7 @@ data class Comment(
     val authorAssociation: String? = null,
     val htmlUrl: String = "",
     val reactions: Reactions? = null,
+    @SerialName("node_id") val nodeId: String? = null,
 )
 
 @Serializable

@@ -251,6 +251,11 @@ object Api {
         code == 401 -> tr("认证失败：Token 无效或已过期")
         code == 403 && msg?.contains("rate limit", true) == true -> tr("API 调用次数已达上限，请稍后再试")
         code == 403 && msg?.contains("SAML", true) == true -> tr("该组织启用了 SAML SSO，请在 GitHub 网页上为 Token 授权 SSO")
+        // 安全功能未开启（如 Dependabot 告警被关闭）时 GitHub 返回英文原文，这里给出可理解的中文原因
+        code == 403 && msg?.contains("disabled", true) == true -> tr("该仓库未启用此功能，或当前 Token 没有查看权限")
+        code == 403 && msg?.contains("not authorized", true) == true -> tr("没有查看此内容的权限，请确认 Token 包含所需的权限")
+        // 仓库没有代码扫描分析时 GitHub 返回 404 "no analysis found"：这不是权限问题，要先在仓库里配置 CodeQL 工作流
+        code == 404 && msg?.contains("no analysis found", true) == true -> tr("该仓库还没有代码扫描分析，需要先在仓库里配置 CodeQL 工作流")
         code == 404 -> tr("未找到内容（可能不存在或 Token 没有权限）")
         code == 409 && msg != null -> msg
         code == 422 -> trf("请求无效：{0}", msg ?: "")

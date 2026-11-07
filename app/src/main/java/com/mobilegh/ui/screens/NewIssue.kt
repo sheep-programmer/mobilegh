@@ -1,5 +1,14 @@
 package com.mobilegh.ui.screens
 
+import com.mobilegh.ui.components.MdText
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.runtime.key
+import com.mobilegh.ui.components.attachmentMarkdown
+import com.mobilegh.ui.components.insertAtCursor
+import com.mobilegh.ui.components.rememberCommentAttachments
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -142,14 +151,17 @@ fun NewIssueScreen(owner: String, name: String) {
     var editing by remember { mutableStateOf<String?>(null) }
     var confirmTemplate by remember { mutableStateOf<IssueTemplate?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var createMore by rememberSaveable { mutableStateOf(false) }
     val templates = rememberLoader("issue-templates") { GitHub.issueTemplates(owner, name, it) }
     val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
+    // 正文的附件（图片 / 视频）上传后插入到光标处，和网页版一样
+    val bodyAttach = rememberCommentAttachments(repo.data?.id) { url, alt -> body = insertAtCursor(body, attachmentMarkdown(url, alt)) }
     val set = templates.data
     val perms = repo.data?.permissions
     // 读不到仓库信息时不下结论，只给一般说明
     val canSetMeta: Boolean? = perms?.let { it.push || it.maintain || it.admin }
 
-    fun apply(t: IssueTemplate?) {
+    fun apply(t: IssueTemplate?, keepAnswers: Boolean = true) {
         title = t?.title.orEmpty()
         meta = NewIssueMeta(
             labels = t?.labels.orEmpty().map { MetaOpt(it, it) },
@@ -159,7 +171,7 @@ fun NewIssueScreen(owner: String, name: String) {
         val fields = t?.fields.orEmpty()
         if (fields.isNotEmpty()) {
             // 换模板时保留同一模板的已填答案，其它模板的下标没有意义
-            val kept = if (t != null && draft.initial.template == t.file) savedAnswers else emptyMap()
+            val kept = if (keepAnswers && t != null && draft.initial.template == t.file) savedAnswers else emptyMap()
             answers = IssueTemplates.defaultAnswers(fields) +
                 kept.filterKeys { key -> fields.any { it.index == key } }
             body = TextFieldValue("")
@@ -176,12 +188,53 @@ fun NewIssueScreen(owner: String, name: String) {
     val formBody = if (isForm) IssueTemplates.renderBody(formFields, answers) else body.text
     val missing = if (isForm) IssueTemplates.missingRequired(formFields, answers) else emptyList()
 
+    /** 提交新建 Issue。「创建更多」时留在页面里清空成同一模板的空白表单，否则打开新 Issue。 */
+    fun submit() {
+        busy = true
+        val submitted = newIssueDraft(title, formBody, meta, template?.file, answers)
+        val m = meta
+        draft.update(submitted)
+        entry.act({ busy = false; ctx.toast(it) }) {
+            val i = GitHub.createIssue(
+                owner, name, submitted.title.trim(), submitted.body,
+                labels = m.labels.map { it.key },
+                assignees = m.assignees.map { it.key },
+                milestone = m.milestone?.key?.toIntOrNull(),
+            )
+            draft.submitted(submitted)
+            // 新 Issue 会出现在列表里：已打开的列表页要刷新
+            nav.refreshRetained { s -> s is Screen.Issues && s.owner.equals(owner, true) && s.name.equals(name, true) }
+            if (createMore) {
+                busy = false
+                ctx.toast(trf("已创建 {0}", "#${i.number}"))
+                apply(template, keepAnswers = false)
+            } else {
+                nav.replace(Screen.IssueDetail(owner, name, i.number, false))
+            }
+        }
+    }
+
     val chooser = picked == null && set?.hasChooser == true
     Page(
         if (chooser) tr("选择 Issue 模板") else tr("新建 Issue"),
-        subtitle = "$owner/$name",
+        // 与网页版标题一致：「仓库: 模板名」
+        subtitle = template?.name?.takeIf { it.isNotBlank() }?.let { "$owner/$name: $it" } ?: "$owner/$name",
         actions = {
             if (!chooser && set?.hasChooser == true) MoreMenu(listOf(MenuAction(tr("更换模板")) { lastPicked = picked; picked = null }))
+        },
+        bottomBar = {
+            if (!chooser) {
+                // 网页版的底部栏：左边「创建更多」，右边「取消」「创建 Issue」
+                Column(Modifier.fillMaxWidth().background(Gh.c.header).navigationBarsPadding().imePadding()) {
+                    HDivider()
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CheckRow(tr("创建更多"), createMore, Modifier.weight(1f)) { createMore = !createMore }
+                        GhButton(tr("取消")) { nav.pop() }
+                        Spacer(Modifier.width(8.dp))
+                        GhButton(tr("创建 Issue"), primary = true, enabled = title.isNotBlank() && !busy && missing.isEmpty()) { submit() }
+                    }
+                }
+            }
         },
     ) { pad ->
         when {
@@ -198,23 +251,17 @@ fun NewIssueScreen(owner: String, name: String) {
                 }
             }
             else -> Column(Modifier.padding(pad).imePadding().verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) {
-                if (template != null) {
-                    Row(Modifier.padding(horizontal = 16.dp).padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Oc(R.drawable.oc_file, Gh.c.fgMuted, 14.dp)
-                        Spacer(Modifier.width(6.dp))
-                        Text(trf("模板：{0}", template.name), fontSize = 13.sp, color = Gh.c.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
                 GhField(title, { title = it }, tr("标题"), Modifier.padding(horizontal = 16.dp))
                 Spacer(Modifier.height(12.dp))
                 if (isForm) {
-                    FormFields(formFields, answers, "$owner/$name", Modifier.padding(horizontal = 16.dp)) { index, values ->
+                    FormFields(formFields, answers, "$owner/$name", repo.data?.id, Modifier.padding(horizontal = 16.dp)) { index, values ->
                         answers = if (values.isEmpty()) answers - index else answers + (index to values)
                     }
                 } else {
                     MarkdownEditor(
                         body, { body = it }, placeholder = tr("描述（支持 Markdown）"), contextRepo = "$owner/$name", minLines = 8,
                         modifier = Modifier.padding(horizontal = 16.dp),
+                        framed = true, onAttach = { bodyAttach.pick() }, uploading = bodyAttach.uploading,
                     )
                 }
                 DraftBinding(draft, newIssueDraft(title, formBody, meta, template?.file, answers))
@@ -242,28 +289,6 @@ fun NewIssueScreen(owner: String, name: String) {
                         fontSize = 12.sp, lineHeight = 16.sp, color = Gh.c.attention,
                     )
                 }
-                Spacer(Modifier.height(12.dp))
-                GhButton(
-                    tr("提交"), Modifier.padding(horizontal = 16.dp).fillMaxWidth(), primary = true,
-                    enabled = title.isNotBlank() && !busy && missing.isEmpty(),
-                ) {
-                    busy = true
-                    val submitted = newIssueDraft(title, formBody, meta, template?.file, answers)
-                    val m = meta
-                    draft.update(submitted)
-                    entry.act({ busy = false; ctx.toast(it) }) {
-                        val i = GitHub.createIssue(
-                            owner, name, submitted.title.trim(), submitted.body,
-                            labels = m.labels.map { it.key },
-                            assignees = m.assignees.map { it.key },
-                            milestone = m.milestone?.key?.toIntOrNull(),
-                        )
-                        draft.submitted(submitted)
-                        // 新 Issue 会出现在列表里：已打开的列表页要刷新
-                        nav.refreshRetained { s -> s is Screen.Issues && s.owner.equals(owner, true) && s.name.equals(name, true) }
-                        nav.replace(Screen.IssueDetail(owner, name, i.number, false))
-                    }
-                }
             }
         }
     }
@@ -284,70 +309,57 @@ fun NewIssueScreen(owner: String, name: String) {
     }
 }
 
-/** 模板选择：各模板、空白 Issue（仓库允许时）和 config.yml 中的外部链接 */
+/** 模板选择：与网页版一致，一个列表里依次是模板、空白 Issue（仓库允许时）和 config.yml 的外部链接。模板用箭头，外部链接用外链图标。 */
 @Composable
 private fun TemplateChooser(set: IssueTemplateSet, modifier: Modifier, onPick: (IssueTemplate?) -> Unit) {
     val g = Gh.c
     val ctx = rememberCtx()
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
-        if (set.templates.isNotEmpty() || set.config.blankIssuesEnabled) {
+    val rows = buildList {
+        set.templates.forEach { t -> add(ChooserRow(false, t.name, t.about.ifBlank { null }) { onPick(t) }) }
+        if (set.config.blankIssuesEnabled) add(ChooserRow(false, tr("空白 Issue"), tr("不使用模板，从空白开始")) { onPick(null) })
+        set.config.contactLinks.forEach { l -> add(ChooserRow(true, l.name, l.about.ifBlank { l.url }) { ctx.openBrowser(l.url) }) }
+    }
+    // 与网页版一致：一个带描边的圆角列表，上方是「模板与表单」分组标题；外链与模板在同一列表里
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp)) {
+        if (rows.isEmpty()) {
+            Text(tr("该仓库没有可在应用内使用的模板，请通过网页提交。"), fontSize = 14.sp, color = g.fgMuted)
+        } else {
+            Text(tr("模板与表单"), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
             Spacer(Modifier.height(8.dp))
-            MenuGroup {
-                set.templates.forEachIndexed { i, t ->
-                    if (i > 0) HDivider()
-                    ChooserRow(if (t.form) R.drawable.oc_issue_opened else R.drawable.oc_file, t.name, t.about.ifBlank { null }) { onPick(t) }
-                }
-                if (set.config.blankIssuesEnabled) {
-                    if (set.templates.isNotEmpty()) HDivider()
-                    ChooserRow(R.drawable.oc_note, tr("空白 Issue"), tr("不使用模板，从空白开始")) { onPick(null) }
-                }
-            }
-        }
-        if (set.templates.any { it.form }) {
-            Text(
-                tr("表单模板会显示为可填写的字段，提交时自动整理成 Issue 正文。"),
-                Modifier.padding(horizontal = 16.dp, vertical = 6.dp), fontSize = 12.sp, lineHeight = 16.sp, color = g.fgMuted,
-            )
-        }
-        if (!set.config.blankIssuesEnabled) {
-            Text(
-                tr("该仓库已关闭空白 Issue，请选择一个模板。"),
-                Modifier.padding(horizontal = 16.dp, vertical = 6.dp), fontSize = 12.sp, lineHeight = 16.sp, color = g.fgMuted,
-            )
-        }
-        if (set.config.contactLinks.isNotEmpty()) {
-            SectionTitle(tr("其他途径"))
-            MenuGroup {
-                set.config.contactLinks.forEachIndexed { i, l ->
-                    if (i > 0) HDivider()
-                    ChooserRow(R.drawable.oc_link_external, l.name, l.about.ifBlank { l.url }) { ctx.openBrowser(l.url) }
+            Column(
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .border(1.dp, g.border, RoundedCornerShape(6.dp))
+                    .background(g.canvas),
+            ) {
+                rows.forEachIndexed { i, row ->
+                    if (i > 0) HDivider(Modifier.padding(start = 16.dp))
+                    ChooserItem(row)
                 }
             }
-        }
-        if (set.templates.isEmpty() && !set.config.blankIssuesEnabled) {
-            Text(
-                tr("该仓库没有可在应用内使用的模板，请通过上面的链接或网页提交。"),
-                Modifier.padding(horizontal = 16.dp, vertical = 12.dp), fontSize = 13.sp, color = g.fgMuted,
-            )
         }
     }
 }
 
+/** 模板选择页的一行：外部链接为 true 时用外链图标，否则用箭头 */
+private class ChooserRow(val external: Boolean, val title: String, val desc: String?, val onClick: () -> Unit)
+
 @Composable
-private fun ChooserRow(icon: Int, title: String, desc: String?, onClick: () -> Unit) {
+private fun ChooserItem(row: ChooserRow) {
     val g = Gh.c
     Row(
-        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = row.onClick).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MenuIcon(icon, g.fgMuted)
-        Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (desc != null) Text(desc, fontSize = 12.sp, lineHeight = 16.sp, color = g.fgMuted, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Text(row.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = g.fg, lineHeight = 20.sp)
+            row.desc?.let {
+                Spacer(Modifier.height(2.dp))
+                MdText(it, fontSize = 13.sp, lineHeight = 18.sp, color = g.fgMuted, maxLines = 3)
+            }
         }
-        Spacer(Modifier.width(6.dp))
-        Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
+        Spacer(Modifier.width(12.dp))
+        Oc(if (row.external) R.drawable.oc_link_external else R.drawable.oc_chevron_right, g.fgMuted, 16.dp)
     }
 }
 
@@ -359,6 +371,7 @@ private fun FormFields(
     fields: List<IssueFormField>,
     answers: Map<Int, List<String>>,
     contextRepo: String?,
+    repoId: Long?,
     modifier: Modifier = Modifier,
     onAnswer: (Int, List<String>) -> Unit,
 ) {
@@ -370,29 +383,41 @@ private fun FormFields(
                 "markdown" -> if (f.value.isNotBlank()) {
                     Column(Modifier.fillMaxWidth().padding(bottom = 10.dp)) { MarkdownPreview(f.value, contextRepo) }
                 }
-                "input" -> GhField(
-                    value = answer.firstOrNull().orEmpty(),
-                    onValueChange = { onAnswer(f.index, listOf(it)) },
-                    label = f.requiredLabel(),
-                    labelAbove = true,
-                    description = f.description.ifBlank { null },
-                    placeholder = f.placeholder.ifBlank { null },
-                    modifier = Modifier.padding(bottom = 14.dp),
-                )
-                "textarea" -> Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+                "input" -> Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
                     FieldLabel(f)
-                    // 自己持有 TextFieldValue，避免每次重组把光标挪到开头
-                    var field by remember(f.index, f.value) { mutableStateOf(TextFieldValue(answer.joinToString("\n"))) }
-                    LaunchedEffect(answer) {
-                        val text = answer.joinToString("\n")
-                        if (field.text != text) field = TextFieldValue(text, TextRange(text.length))
-                    }
-                    MarkdownEditor(
-                        field, { field = it; onAnswer(f.index, listOf(it.text)) },
-                        contextRepo = contextRepo, minLines = 5,
-                        placeholder = f.placeholder.ifBlank { tr("支持 Markdown") },
-                        modifier = Modifier.padding(top = 6.dp),
+                    OutlinedTextField(
+                        value = answer.firstOrNull().orEmpty(),
+                        onValueChange = { onAnswer(f.index, listOf(it)) },
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                        singleLine = true,
+                        shape = RoundedCornerShape(6.dp),
+                        placeholder = f.placeholder.takeIf { it.isNotBlank() }?.let { { Text(it, color = g.fgMuted, fontSize = 14.sp) } },
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None),
                     )
+                }
+                // key：每个多行字段各自持有附件状态，字段顺序变化时不串用
+                "textarea" -> key(f.index) {
+                    Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+                        FieldLabel(f)
+                        // 自己持有 TextFieldValue，避免每次重组把光标挪到开头
+                        var field by remember(f.index, f.value) { mutableStateOf(TextFieldValue(answer.joinToString("\n"))) }
+                        LaunchedEffect(answer) {
+                            val text = answer.joinToString("\n")
+                            if (field.text != text) field = TextFieldValue(text, TextRange(text.length))
+                        }
+                        // 附件插入到这个字段的光标处（与网页版表单一致）
+                        val attach = rememberCommentAttachments(repoId) { url, alt ->
+                            field = insertAtCursor(field, attachmentMarkdown(url, alt))
+                            onAnswer(f.index, listOf(field.text))
+                        }
+                        MarkdownEditor(
+                            field, { field = it; onAnswer(f.index, listOf(it.text)) },
+                            contextRepo = contextRepo, minLines = 5,
+                            placeholder = f.placeholder.ifBlank { tr("支持 Markdown") },
+                            modifier = Modifier.padding(top = 6.dp),
+                            framed = true, onAttach = { attach.pick() }, uploading = attach.uploading,
+                        )
+                    }
                 }
                 "dropdown" -> Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
                     FieldLabel(f)
@@ -419,11 +444,12 @@ private fun FormFields(
 private fun FieldLabel(f: IssueFormField) {
     val g = Gh.c
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(f.label, fontSize = 13.sp, color = g.fg, fontWeight = FontWeight.SemiBold)
-        if (f.required) Text(" *", fontSize = 13.sp, color = g.danger)
+        Text(f.label, fontSize = 14.sp, color = g.fg, fontWeight = FontWeight.SemiBold)
+        if (f.required) Text(" *", fontSize = 14.sp, color = g.danger, fontWeight = FontWeight.SemiBold)
     }
     if (f.description.isNotBlank()) {
-        Text(f.description, Modifier.padding(top = 2.dp), fontSize = 12.sp, lineHeight = 16.sp, color = g.fgMuted)
+        // 说明里的 [文字](链接) 按 Markdown 显示，与网页版一致
+        MdText(f.description, Modifier.padding(top = 2.dp), fontSize = 13.sp, lineHeight = 18.sp, color = g.fgMuted)
     }
 }
 

@@ -198,6 +198,21 @@ fun SettingsScreen() {
                 SettingsPage.Storage -> {
                     SectionTitle(tr("存储"))
                     MenuGroup {
+                        val threadChoices = com.mobilegh.data.SegmentPlan.THREAD_CHOICES
+                        val threadLabels = threadChoices.map { trf("{0} 线程", it) }
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            MenuIcon(R.drawable.oc_download, Gh.c.attention)
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(tr("下载线程数"), fontSize = 15.sp, color = Gh.c.fg)
+                                Text(tr("单个文件同时开几条连接，大文件越多越快；1 为单连接"), fontSize = 12.sp, color = Gh.c.fgMuted)
+                            }
+                            Dropdown(
+                                threadLabels[threadChoices.indexOf(Downloads.threads).coerceAtLeast(0)],
+                                threadLabels,
+                                { Downloads.changeThreads(threadChoices[it]) },
+                            )
+                        }
                         MenuRow(R.drawable.oc_download, tr("下载记录"), count = Downloads.activeCount.takeIf { it > 0 }) { Downloads.showHistory = true }
                         MenuRow(R.drawable.oc_log, tr("日志与诊断"), value = AppLog.entries.size.toString() + tr(" 条")) { nav.push(Screen.Logs) }
                         MenuRow(R.drawable.oc_trash, tr("清除缓存")) {

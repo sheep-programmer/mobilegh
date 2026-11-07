@@ -40,6 +40,7 @@ import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
+import com.mobilegh.ui.components.addLinkActions
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.DiffModeToggle
@@ -94,7 +95,7 @@ fun CompareScreen(owner: String, name: String, initialBase: String = "HEAD~1", i
     Page(tr("比较版本"), subtitle = "$owner/$name", actions = {
         MoreMenu(buildList {
             add(MenuAction(tr("输入提交 SHA")) { dialog = 3 })
-            add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$owner/$name/compare/${com.mobilegh.data.Api.q(base)}...${com.mobilegh.data.Api.q(head)}") })
+            addLinkActions(ctx, "https://github.com/$owner/$name/compare/${com.mobilegh.data.Api.q(base)}...${com.mobilegh.data.Api.q(head)}")
             if (canDeleteHead) add(MenuAction(tr("删除分支"), danger = true) { deleting = Branch(name = head) })
         })
     }) { pad ->

@@ -171,12 +171,14 @@ fun IssueFilterBar(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Str
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // 固定选项的字段点开即下拉菜单；作者、指派人、标签、里程碑需要仓库候选项，点开是选择弹窗
+            // 「我的 Issues」里「相关」已经是顶部分段，这里的排序不再提供「相关」（没有关键词时按相关度排序没有意义）
+            val sorts = if (segments) IssueSort.entries.filter { it != IssueSort.Relevance } else IssueSort.entries
             FilterMenuChip(
                 label = trf("排序：{0}", query.sort.label),
                 description = trf("{0}：{1}", tr("排序"), query.sort.label),
                 selected = query.sort != IssueSort.Newest,
-                options = IssueSort.entries.map { it.label },
-            ) { onChange(query.copy(sort = IssueSort.entries[it])) }
+                options = sorts.map { it.label },
+            ) { onChange(query.copy(sort = sorts[it])) }
             if (owner != null && name != null) {
                 FilterValueChip(
                     label = query.author?.let { trf("作者：{0}", it) } ?: tr("作者"),
@@ -340,6 +342,7 @@ fun IssueResults(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Strin
         q.involves == Involvement.Created -> trf("没有你创建的 {0}", noun)
         q.involves == Involvement.Assigned -> trf("没有指派给你的 {0}", noun)
         q.involves == Involvement.Mentioned -> trf("没有提及你的 {0}", noun)
+        q.involves == Involvement.Involved -> trf("没有与你相关的 {0}", noun)
         q.involves == Involvement.ReviewRequested -> trf("没有请求你评审的 {0}", noun)
         q.state == IssueStateFilter.Open -> trf("没有开放的 {0}", noun)
         q.state == IssueStateFilter.Closed -> trf("没有已关闭的 {0}", noun)

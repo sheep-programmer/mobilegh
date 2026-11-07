@@ -1,5 +1,8 @@
 package com.mobilegh.ui.components
 
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.Image
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ActivityNotFoundException
@@ -13,7 +16,9 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -85,6 +90,37 @@ internal fun htmlMaxHeightDp(density: Float, widthPx: Int): Int =
 
 /** JS 回报的内容高度（CSS 像素，等同 dp）夹在 [24, maxDp] 之间：未加载时至少 24dp，异常高度不超过上限。 */
 internal fun htmlContentHeightDp(reportedPx: Int, maxDp: Int): Int = reportedPx.coerceIn(24, maxDp)
+
+/**
+ * 显示网页内容（排版完成后调用，之后再调用无效）。
+ * 不做淡入：占位色块与网页内容必须在同一帧切换，否则中间会出现一帧空白。
+ */
+internal fun WebView.revealHtml() {
+    if (alpha < 1f) alpha = 1f
+}
+
+/** 网页还没排版好时显示的骨架条：静态、与正文同宽同高，表示加载中，而不是空白。 */
+@Composable
+private fun HtmlSkeleton() {
+    val bar = Gh.c.border
+    Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        listOf(1f, 0.92f, 0.78f, 0.96f, 0.6f).forEach { fraction ->
+            Box(Modifier.fillMaxWidth(fraction).height(10.dp).background(bar, RoundedCornerShape(5.dp)))
+        }
+    }
+}
+
+/**
+ * 网页还没排版好时的初始高度（dp）：按纯文字长度与图片数量估算，避免从 24dp 开始、排完再整块长高。
+ * 估算只用来占位，排版完成后 JS 回报的真实高度会替换它。
+ */
+internal fun htmlEstimateHeightDp(html: String, widthDp: Int, maxDp: Int): Int {
+    val text = html.replace(Regex("<[^>]+>"), "").length
+    val charsPerLine = (widthDp / 8).coerceAtLeast(10)
+    val lines = (text + charsPerLine - 1) / charsPerLine
+    val images = Regex("<img[\\s>]").findAll(html).count()
+    return (lines * 22 + images * 160 + 16).coerceIn(48, maxDp)
+}
 
 /**
  * WebView 量好的内容高度（dp）按内容缓存。HtmlView 滚出列表后会被销毁，再滚回来时重新组合，
@@ -179,7 +215,7 @@ internal fun webLinkAction(url: String): WebLinkAction {
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun HtmlView(
+internal fun WebHtmlView(
     html: String,
     modifier: Modifier = Modifier,
     baseUrl: String = "https://github.com/",
@@ -207,9 +243,14 @@ fun HtmlView(
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val cacheKey = remember(doc, baseUrl, screenWidthDp, textZoom) { htmlHeightKey(doc, baseUrl, screenWidthDp, textZoom) }
     val cacheKeyState = rememberUpdatedState(cacheKey)
-    // 高度先取缓存：列表项滚出屏幕再滚回时，WebView 会重建，若从 24dp 重新长高，评论就会上下跳动
-    var height by remember { mutableIntStateOf(HtmlHeightCache.get(cacheKey) ?: 0) }
+    // 之前滚出屏幕时留下的快照：有的话先显示它，WebView 重新排版好之后再覆盖
+    val snapshot = remember(cacheKey) { HtmlSnapshotCache.get(cacheKey) }
+    // 高度先取缓存；没有缓存时用估算值占位。列表项滚出再滚回时 WebView 会重建，若从小高度重新长高，内容就会跳动
+    val estimatedDp = remember(html, screenWidthDp, maxHeight) { htmlEstimateHeightDp(html, screenWidthDp, maxHeight) }
+    var height by remember { mutableIntStateOf(HtmlHeightCache.get(cacheKey) ?: estimatedDp) }
     LaunchedEffect(cacheKey) { HtmlHeightCache.get(cacheKey)?.let { height = it } }
+    // 网页内容是否已经排版好并显示：没有快照、也没排好时，正文区域显示静态占位，而不是透明的空白
+    val webReady = remember { mutableStateOf(false) }
     // 在 AndroidView 释放已脱离视图树的实例后销毁，避免提前 destroy 仍附着的 WebView。
     val webRef = remember { arrayOfNulls<WebView>(1) }
     /** 代码块「放大」：非空时弹出全屏代码视图 */
@@ -222,11 +263,31 @@ fun HtmlView(
     }
     // 渲染进程退出后换一个 key 重建 WebView；最多重建两次，避免某个页面反复崩溃时无限循环
     key(renderEpoch) {
+        Box(
+            modifier
+                .fillMaxWidth()
+                .onSizeChanged { if (it.width != measuredWidth) measuredWidth = it.width }
+                // Modifier.height 会把高度夹进父级的最大约束；fullHeight 时改用 requiredHeight，由外层裁剪。
+                .then(
+                    htmlContentHeightDp(height, maxHeight).dp.let { h ->
+                        if (fullHeight) Modifier.requiredHeight(h) else Modifier.height(h)
+                    },
+                ),
+        ) {
+        // 加载占位：静态的骨架条，不做动画。快照或排版完成后直接替换，只发生这一次切换，中间不会出现空白
+        if (snapshot == null && !webReady.value) HtmlSkeleton()
+        snapshot?.let { bitmap ->
+            Image(bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+        }
         AndroidView(
             factory = { c ->
                 WebView(c).apply {
                     webRef[0] = this
                     setBackgroundColor(0)
+                    // 内容排版完成前保持透明，再淡入：否则滚动时能看见未排版的半成品页面（列表里的闪烁）
+                    alpha = 0f
+                    // 兜底：页面没报告高度时也要显示出来
+                    postDelayed({ revealHtml(); webReady.value = true }, 1500)
                     isVerticalScrollBarEnabled = false
                     isHorizontalScrollBarEnabled = false
                     overScrollMode = WebView.OVER_SCROLL_NEVER
@@ -239,6 +300,17 @@ fun HtmlView(
                     settings.allowFileAccess = false
                     settings.allowContentAccess = false
                     settings.textZoom = textZoom
+                    // 长按正文里的链接：弹出复制 / 分享 / 浏览器打开。其它长按（选中文字等）保持 WebView 原来的行为
+                    setOnLongClickListener {
+                        val hit = hitTestResult
+                        val target = hit.extra
+                        if (hit.type == WebView.HitTestResult.SRC_ANCHOR_TYPE && !target.isNullOrBlank()) {
+                            LinkMenu.show(target)
+                            true
+                        } else {
+                            false
+                        }
+                    }
                     addJavascriptInterface(object {
                         /** 同一个 WebView 只记一次：页面里有循环图片时高度会反复超限 */
                         @Volatile private var warned = false
@@ -255,6 +327,10 @@ fun HtmlView(
                             val measured = v.coerceIn(24, heightLimit)
                             height = measured
                             HtmlHeightCache.put(cacheKeyState.value, measured)
+                            this@apply.revealHtml()
+                            webReady.value = true
+                            // 排版完成后在主线程上把网页画进位图，供再次滚入时作为占位（只画 WebView 自己，不带屏幕上的其它控件）
+                            this@apply.postDelayed({ this@apply.captureSnapshot(cacheKeyState.value) }, 300)
                         }
 
                         @JavascriptInterface
@@ -287,6 +363,7 @@ fun HtmlView(
                 }
             },
             onRelease = { wv ->
+                // 离开屏幕前留一张快照：再次滚入时先显示它，而不是空白等待重新排版
                 // 重建时新的 WebView 可能先于旧的释放登记；只清理自己
                 if (webRef[0] === wv) webRef[0] = null
                 wv.removeJavascriptInterface("Bridge")
@@ -301,17 +378,9 @@ fun HtmlView(
                     wv.loadDataWithBaseURL(baseUrl, doc, "text/html", "utf-8", null)
                 }
             },
-            modifier = modifier
-                .fillMaxWidth()
-                .onSizeChanged { if (it.width != measuredWidth) measuredWidth = it.width }
-                // Modifier.height 会把高度夹进父级的最大约束；折叠的 README 父级上限只有 480dp，WebView 会被压低并内部滚动。
-                // fullHeight 时改用 requiredHeight，忽略父级约束，由外层裁剪。
-                .then(
-                    htmlContentHeightDp(height, maxHeight).dp.let { h ->
-                        if (fullHeight) Modifier.requiredHeight(h) else Modifier.height(h)
-                    },
-                ),
+            modifier = Modifier.fillMaxSize(),
         )
+        }
     }
     codeZoom.value?.let { code -> CodeZoomDialog(code) { codeZoom.value = null } }
     diagramZoom.value?.let { req -> DiagramZoomDialog(req.kind, req.src, dark) { diagramZoom.value = null } }
@@ -599,25 +668,8 @@ class GhWebClient(
         // 子框架的跳转保持系统默认，避免页面内部的 about:blank、data: 等误触发提示或页面跳转
         if (!request.isForMainFrame) return false
         val url = request.url.toString()
-        when (val action = webLinkAction(url)) {
-            is WebLinkAction.Native -> nav.pushLink(action.screen)
-            WebLinkAction.Browser -> ctx.openBrowser(url)
-            WebLinkAction.System -> openSystemLink(url)
-            WebLinkAction.Unsupported -> ctx.toast(tr("无法打开此链接"))
-        }
+        openHtmlLink(ctx, nav, url)
         return true
-    }
-
-    /** mailto 交给邮件应用（ACTION_SENDTO），tel 交给拨号盘（ACTION_DIAL，不需要通话权限）；没有可处理的应用时提示。 */
-    private fun openSystemLink(url: String) {
-        val action = if (externalLinkKind(url) == ExternalLinkKind.Phone) Intent.ACTION_DIAL else Intent.ACTION_SENDTO
-        val intent = Intent(action, Uri.parse(url))
-        if (ctx !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        try {
-            ctx.startActivity(intent)
-        } catch (e: ActivityNotFoundException) {
-            ctx.toast(tr("无法打开此链接"))
-        }
     }
 
     /**
@@ -751,7 +803,30 @@ fun wrapHtml(body: String, dark: Boolean): String {
         if (Regex("data-type=\"(geojson|topojson)\"").containsMatchIn(body)) append("<script src='$GEO_SCRIPT_URL'></script>")
         if (body.contains("data-type=\"stl\"")) append("<script src='$STL_SCRIPT_URL'></script>")
     }
-    return wrapHtmlDocument(body, dark, tags)
+    return wrapHtmlDocument(fixCjkAutolinks(body), dark, tags)
+}
+
+/** 全角标点：GitHub 的自动链接会把紧跟在网址后面的全角标点也算进网址（如「网址，基于」）。 */
+internal val CJK_LINK_CUT = Regex("[，。！？；：、）》」』】]")
+private val AUTOLINK_ANCHOR = Regex("<a href=\"([^\"]*)\">(https?://[^<]*)</a>")
+
+/**
+ * 把被全角标点「吸进」网址的自动链接截断：链接只包到第一个全角标点之前，后面的文字恢复成普通文字。
+ * 只处理链接文字本身就是网址的情况；其它链接原样保留。
+ */
+internal fun fixCjkAutolinks(html: String): String = AUTOLINK_ANCHOR.replace(html) { m ->
+    val href = m.groupValues[1]
+    val text = m.groupValues[2]
+    val cut = CJK_LINK_CUT.find(text)?.range?.first ?: return@replace m.value
+    val url = text.substring(0, cut)
+    val rest = text.substring(cut)
+    val encodedRest = java.net.URLEncoder.encode(rest, "UTF-8")
+    val newHref = when {
+        href.endsWith(encodedRest) -> href.dropLast(encodedRest.length)
+        href.startsWith(url) -> url
+        else -> href
+    }
+    "<a href=\"$newHref\">$url</a>$rest"
 }
 
 private fun wrapHtmlDocument(body: String, dark: Boolean, extraTags: String): String = """

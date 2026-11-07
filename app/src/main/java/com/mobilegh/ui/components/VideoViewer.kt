@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -43,8 +44,11 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.mobilegh.R
+import com.mobilegh.data.VideoRoute
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * 点击 README / Issue 里的视频后打开的全屏播放器。
@@ -83,16 +87,20 @@ internal fun VideoViewerContent(src: String, onPlayer: (ExoPlayer) -> Unit = {})
     val fileName = remember(src) { src.substringBefore('?').substringAfterLast('/').ifBlank { "video.mp4" } }
     var speed by remember { mutableFloatStateOf(1f) }
     // 播放器跟随对话框生命周期：关闭时释放，避免后台继续占用解码器和网络
-    val player = remember(src) {
-        ExoPlayer.Builder(ctx).build().apply {
-            setMediaItem(MediaItem.fromUri(Uri.parse(src)))
-            prepare()
-            playWhenReady = true
-        }
-    }
+    val player = remember(src) { ExoPlayer.Builder(ctx).build() }
     DisposableEffect(player) {
         onPlayer(player)
         onDispose { player.release() }
+    }
+    // 先选线路（加速节点或原地址）再开始加载；选择出错时直接用原地址，不影响播放
+    LaunchedEffect(player) {
+        val playable = runCatching { VideoRoute.pick(src) }.getOrDefault(src)
+        // ExoPlayer 只能在主线程访问；选线路时可能切到了后台线程，这里切回主线程再操作播放器
+        withContext(Dispatchers.Main) {
+            player.setMediaItem(MediaItem.fromUri(Uri.parse(playable)))
+            player.prepare()
+            player.playWhenReady = true
+        }
     }
 
     Column(Modifier.fillMaxSize().background(Color.Black)) {

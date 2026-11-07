@@ -63,12 +63,11 @@ fun ClipboardLinkHost(nav: Navigator, modifier: Modifier = Modifier) {
                 val item = clip.getItemAt(i)
                 (item.text ?: item.uri?.toString())?.take(65_536)?.toString()
             }
-            val timestamp = clip?.description?.timestamp ?: 0
             if (!suggest) {
-                nav.clipboardLinks.note(timestamp, texts)
+                nav.clipboardLinks.note(texts)
                 return
             }
-            val update = nav.clipboardLinks.inspect(timestamp, texts) ?: return
+            val update = nav.clipboardLinks.inspect(texts) ?: return
             pending = update.link?.takeUnless { it.target == nav.top.screen }
         }
         val inspectLater = Runnable { inspect(suggest = true) }

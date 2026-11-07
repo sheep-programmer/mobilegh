@@ -1,11 +1,24 @@
 package com.mobilegh.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -52,26 +65,45 @@ fun LinkDefaultPrompt() {
                 color = g.fgMuted, fontSize = 14.sp, lineHeight = 20.sp,
             )
         },
+        // 三个操作都用圆角框：拒绝、跳过为描边，同意为绿色实心（与应用里的主按钮一致）
         confirmButton = {
-            TextButton({
-                show = false
-                LinkDefault.set(LinkDefault.Status.Accepted)
-                openLinkSettings(ctx)
-            }) { Text(tr("同意"), color = g.accent) }
-        },
-        dismissButton = {
-            Row {
-                TextButton({
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                PromptButton(tr("拒绝"), filled = false, color = g.fgMuted) {
                     show = false
                     LinkDefault.set(LinkDefault.Status.Declined)
-                }) { Text(tr("拒绝"), color = g.fgMuted) }
-                TextButton({
+                }
+                PromptButton(tr("跳过"), filled = false, color = g.fgMuted) {
                     show = false
                     LinkDefault.set(LinkDefault.Status.Skipped)
-                }) { Text(tr("跳过"), color = g.fgMuted) }
+                }
+                PromptButton(tr("同意"), filled = true, color = Color.White) {
+                    show = false
+                    LinkDefault.set(LinkDefault.Status.Accepted)
+                    openLinkSettings(ctx)
+                }
             }
         },
+        dismissButton = null,
     )
+}
+
+/** 弹窗里的圆角按钮：filled 为绿色实心，否则白底描边 */
+@Composable
+private fun PromptButton(text: String, filled: Boolean, color: Color, onClick: () -> Unit) {
+    val g = Gh.c
+    val shape = RoundedCornerShape(6.dp)
+    val bg = if (filled) g.btnPrimary else g.canvas
+    Box(
+        Modifier
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, if (filled) g.btnPrimary else g.border, shape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = color, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+    }
 }
 
 /** 设置页里的一行：显示当前是否已是默认打开方式，点按去系统设置。回到应用时重新检查。 */

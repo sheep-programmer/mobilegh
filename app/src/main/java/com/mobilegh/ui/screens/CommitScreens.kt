@@ -39,6 +39,7 @@ import com.mobilegh.nav.Screen
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
 import com.mobilegh.nav.retain
+import com.mobilegh.ui.components.addLinkActions
 import com.mobilegh.ui.components.RegisterScrollTop
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.DiffLine
@@ -130,12 +131,11 @@ fun CommitDetailScreen(owner: String, name: String, sha: String) {
     Page(
         trf("提交 {0}", sha.take(7)), subtitle = "$owner/$name",
         actions = {
-            MoreMenu(listOf(
-                MenuAction(tr("复制 SHA")) { ctx.copy(sha) },
-                MenuAction(tr("浏览此版本的文件")) { nav.push(Screen.Files(owner, name, "", sha)) },
-                MenuAction(tr("分享")) { ctx.share("https://github.com/$owner/$name/commit/$sha") },
-                MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$owner/$name/commit/$sha") },
-            ))
+            MoreMenu(buildList {
+                add(MenuAction(tr("复制 SHA")) { ctx.copy(sha) })
+                add(MenuAction(tr("浏览此版本的文件")) { nav.push(Screen.Files(owner, name, "", sha)) })
+                addLinkActions(ctx, "https://github.com/$owner/$name/commit/$sha")
+            })
         },
     ) { pad ->
         LoadBox(data, Modifier.padding(pad).fillMaxSize()) { (c, files) ->

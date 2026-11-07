@@ -111,6 +111,16 @@ fun DropdownButton(label: String, modifier: Modifier = Modifier, active: Boolean
 
 data class MenuAction(val text: String, val danger: Boolean = false, val onClick: () -> Unit)
 
+/**
+ * 「更多」菜单里统一的链接操作，顺序固定：复制链接、分享、在浏览器打开。
+ * 所有页面的链接菜单都用它，避免有的有「复制链接」、有的没有。
+ */
+fun MutableList<MenuAction>.addLinkActions(ctx: android.content.Context, url: String) {
+    add(MenuAction(com.mobilegh.i18n.tr("复制链接")) { ctx.copy(url, com.mobilegh.i18n.tr("已复制链接")) })
+    add(MenuAction(com.mobilegh.i18n.tr("分享")) { ctx.share(url) })
+    add(MenuAction(com.mobilegh.i18n.tr("在浏览器打开")) { ctx.openBrowser(url) })
+}
+
 /** 右上角"更多"菜单 */
 @Composable
 fun MoreMenu(actions: List<MenuAction>, tint: Color = Gh.c.fg) {
@@ -276,14 +286,16 @@ fun GhDialog(
         modifier = Modifier.border(1.dp, g.border, RoundedCornerShape(12.dp)),
         title = { Text(title, fontWeight = FontWeight.SemiBold, fontSize = 18.sp) },
         text = { content() },
+        // 与网页版弹窗一致：确认是绿色主按钮，危险操作是红色描边按钮，取消是白底描边的默认按钮。
+        // 之前用的是蓝色文字按钮，和页面里的按钮风格对不上。
         confirmButton = {
             if (onConfirm != null) {
-                TextButton(onConfirm, enabled = confirmEnabled) {
-                    Text(confirm, color = if (!confirmEnabled) g.fgMuted else if (danger) g.danger else g.accent, fontWeight = FontWeight.SemiBold)
-                }
+                GhButton(confirm, primary = !danger, danger = danger, enabled = confirmEnabled, onClick = onConfirm)
             }
         },
-        dismissButton = { TextButton(onDismiss, enabled = dismissEnabled) { Text(if (onConfirm == null) tr("关闭") else tr("取消"), color = g.fgMuted) } },
+        dismissButton = {
+            GhButton(if (onConfirm == null) tr("关闭") else tr("取消"), enabled = dismissEnabled, onClick = onDismiss)
+        },
     )
 }
 

@@ -30,6 +30,12 @@ class LinksRoutingTest {
         assertEquals(Screen.Search(SearchType.PR, "repo:octocat/Hello-World is:open"), Links.route("$repo/pulls?q=is%3Aopen"))
     }
 
+    @Test fun mergeQueuePageOpensInTheApp() {
+        // 网页 /owner/repo/queue 是合并队列（不是 Actions 产物）
+        assertEquals(Screen.MergeQueue("rust-lang", "rust-clippy"), Links.route("https://github.com/rust-lang/rust-clippy/queue"))
+        assertNull(Links.route("$repo/queue/extra"))
+    }
+
     @Test fun securityAndSettingsRootsOpenInTheApp() {
         assertEquals(Screen.SecurityAlerts("octocat", "Hello-World"), Links.route("$repo/security"))
         assertEquals(Screen.SecurityAlerts("octocat", "Hello-World"), Links.route("$repo/security/dependabot"))

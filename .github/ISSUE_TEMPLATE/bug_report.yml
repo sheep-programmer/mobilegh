@@ -1,0 +1,169 @@
+name: 问题反馈 / Bug 报告
+description: 应用崩溃、功能异常、显示错误或性能问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你花时间填写。信息越完整，越容易定位问题。
+        **请勿在问题中粘贴 Token、密钥、账号密码或个人隐私信息**，导出的日志提交前请先检查并删除这些内容。
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前检查
+      options:
+        - label: 我已搜索过现有 Issue，没有找到相同的问题
+          required: true
+        - label: 我已使用最新版本复测（或确认该问题在最新版本仍然存在）
+          required: true
+        - label: 我已阅读 README 中的说明，确认这不是预期行为
+          required: true
+
+  - type: input
+    id: app_version
+    attributes:
+      label: 应用版本
+      description: 版本号，例如 0.32.0（可以在应用的关于页面或安装包文件名中找到）
+      placeholder: "0.32.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install_source
+    attributes:
+      label: 安装来源
+      options:
+        - GitHub Release 安装包（APK）
+        - 自行构建（debug / release）
+        - 其他（请在补充信息中说明）
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: 设备型号
+      description: 手机或平板的品牌与型号
+      placeholder: "例如 Pixel 8、小米 14、三星 Galaxy S24"
+    validations:
+      required: true
+
+  - type: input
+    id: android_version
+    attributes:
+      label: Android 系统版本
+      description: 设置 → 关于手机 中的 Android 版本号
+      placeholder: "例如 Android 14"
+    validations:
+      required: true
+
+  - type: input
+    id: rom
+    attributes:
+      label: 系统界面（ROM）与版本
+      description: 如 HyperOS、OneUI、ColorOS、MIUI、原生 Android 等，没有可以留空
+      placeholder: "例如 HyperOS 2.0"
+
+  - type: dropdown
+    id: network
+    attributes:
+      label: 网络环境
+      description: 访问 GitHub 的方式。下载、图片加载等问题常与网络有关
+      options:
+        - 直连 GitHub
+        - 使用代理 / VPN
+        - 使用应用内的加速节点
+        - 不确定 / 不适用
+    validations:
+      required: true
+
+  - type: dropdown
+    id: problem_type
+    attributes:
+      label: 问题类型
+      options:
+        - 应用崩溃或闪退
+        - 功能不正常（操作无反应、结果错误）
+        - 界面显示错误（文字、布局、颜色、深色模式）
+        - 性能问题（卡顿、闪烁、发热、耗电）
+        - 下载或上传失败
+        - 其他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: reproducibility
+    attributes:
+      label: 复现频率
+      options:
+        - 每次都能复现
+        - 偶尔出现
+        - 只出现过一次
+    validations:
+      required: true
+
+  - type: input
+    id: page
+    attributes:
+      label: 出现问题的页面
+      description: 例如「仓库首页」「Issue #123 详情」「设置 → 存储与诊断」
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 从打开应用开始，一步一步写出操作，越具体越好
+      placeholder: |
+        1. 打开应用，进入「搜索」
+        2. 输入关键词 android compose，选择「仓库」
+        3. 向下滑动到第 20 条
+        4. 点击某个仓库，再返回
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+      description: 你认为应该发生什么
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么。如有报错文字，请原样复制
+    validations:
+      required: true
+
+  - type: textarea
+    id: media
+    attributes:
+      label: 截图或录屏
+      description: 可以直接把图片或视频拖拽到这里。涉及个人信息请先打码
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 应用日志
+      description: |
+        崩溃或网络问题请附上日志。导出方法：设置 → 存储与诊断 → 日志与诊断 → 导出全部日志，然后把内容粘贴在下面（可以用代码块包裹）。
+        提交前请删除日志中的 Token 或其他敏感信息。
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: other
+    attributes:
+      label: 其他信息
+      description: 其他可能相关的情况，例如是否刚更新过、是否改过设置、是否只在特定仓库出现
+    validations:
+      required: false

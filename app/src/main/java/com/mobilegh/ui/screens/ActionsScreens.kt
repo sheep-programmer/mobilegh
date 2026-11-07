@@ -50,6 +50,7 @@ import com.mobilegh.nav.OnRepoChanged
 import com.mobilegh.data.RepoWrite
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
+import com.mobilegh.ui.components.addLinkActions
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Chips
@@ -140,7 +141,7 @@ fun ActionsScreen(owner: String, name: String) {
                     if (canRun) add(MenuAction(tr("运行此工作流")) { run(w) })
                     if (w.path.startsWith(".github/workflows/")) add(MenuAction(tr("查看工作流文件")) { nav.push(Screen.FileView(owner, name, w.path, null)) })
                 }
-                add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$owner/$name/actions") })
+                addLinkActions(ctx, "https://github.com/$owner/$name/actions")
             })
         },
     ) { pad ->
@@ -235,7 +236,7 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
         r?.let { "${it.name} #${it.runNumber}" } ?: tr("运行详情"), subtitle = "$owner/$name",
         actions = {
             MoreMenu(buildList {
-                r?.let { add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser(it.htmlUrl) }) }
+                r?.let { addLinkActions(ctx, it.htmlUrl) }
                 r?.let { add(MenuAction(tr("复制提交 SHA")) { ctx.copy(it.headSha) }) }
             })
         },
@@ -299,7 +300,7 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                                 Text(j.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = g.fg, modifier = Modifier.weight(1f))
                                 Text(fmtDuration(j.startedAt, j.completedAt), fontSize = 12.sp, color = g.fgMuted)
                                 Spacer(Modifier.width(6.dp))
-                                Text(tr("日志"), fontSize = 12.sp, color = g.accent, modifier = Modifier.clickable { nav.push(Screen.JobLog(owner, name, j.id, j.name)) })
+                                Text(tr("日志"), fontSize = 12.sp, color = g.accent, modifier = Modifier.clickable { nav.push(Screen.JobLog(owner, name, j.id, runId = runId, title = j.name)) })
                             }
                             if (expanded) {
                                 HDivider()
@@ -309,7 +310,7 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                                     j.steps.forEachIndexed { index, s ->
                                         val (si, scol) = runVisual(s.status, s.conclusion)
                                         Row(
-                                            Modifier.fillMaxWidth().clickable { nav.push(Screen.JobLog(owner, name, j.id, j.name + " · " + s.name)) }
+                                            Modifier.fillMaxWidth().clickable { nav.push(Screen.JobLog(owner, name, j.id, runId = runId, title = j.name + " · " + s.name)) }
                                                 .padding(start = 34.dp, end = 12.dp, top = 7.dp, bottom = 7.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
@@ -325,7 +326,7 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                                     }
                                 }
                                 GhButton(tr("打开终端日志"), Modifier.padding(start = 34.dp, end = 12.dp, top = 4.dp, bottom = 10.dp).fillMaxWidth(), icon = R.drawable.oc_log) {
-                                    nav.push(Screen.JobLog(owner, name, j.id, j.name))
+                                    nav.push(Screen.JobLog(owner, name, j.id, runId = runId, title = j.name))
                                 }
                             }
                             Spacer(Modifier.height(6.dp))
@@ -392,7 +393,7 @@ private fun terminalPalette(dark: Boolean) = if (dark) TerminalPalette(
 )
 
 @Composable
-fun JobLogScreen(owner: String, name: String, jobId: Long, title: String) {
+fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId: Long = 0) {
     val g = Gh.c
     val t = terminalPalette(g.dark)
     val ctx = rememberCtx()
@@ -426,7 +427,7 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String) {
                 MenuAction(if (showTs) tr("隐藏时间戳") else tr("显示时间戳")) { showTs = !showTs },
                 MenuAction(if (Session.codeWrap) tr("关闭自动换行") else tr("自动换行")) { Session.toggleWrap() },
                 MenuAction(tr("复制全部日志")) { log.data?.let { l -> ctx.copy(l.joinToString("\n") { it.text }) } },
-                MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$owner/$name/actions/runs/0/job/$jobId") },
+                MenuAction(tr("在浏览器打开")) { ctx.openBrowser(if (runId > 0) "https://github.com/$owner/$name/actions/runs/$runId/job/$jobId" else "https://github.com/$owner/$name/actions") },
             ))
         },
         floating = {

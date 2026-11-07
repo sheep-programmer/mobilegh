@@ -2730,3 +2730,40 @@ GitHub 没有提供该作者在这个仓库的提交总数	GitHub does not provi
 上传成功但没有返回地址	Upload succeeded but no URL was returned
 无法确定所属仓库，请稍后重试	Cannot determine the repository, try again later
 附件已插入	Attachment inserted
+合并队列	Merge queue
+这个仓库的默认分支没有启用合并队列。	The default branch of this repository has no merge queue enabled.
+合并队列是空的。	The merge queue is empty.
+（PR 已不可见）	(PR no longer visible)
+入队 {0}	Queued {0}
+等待检查	Waiting for checks
+无法合并	Cannot merge
+已锁定	Locked
+{0} 线程	{0} threads
+下载线程数	Download threads
+单个文件同时开几条连接，大文件越多越快；1 为单连接	Connections per file. More is faster for large files; 1 means a single connection.
+点击添加图片或视频	Click to add images or videos
+正在上传 {0}…	Uploading {0}…
+创建 Issue	Create issue
+创建更多	Create more
+GitHub 不允许用 Token 上传附件（上传只接受网页登录），请在网页上添加附件	GitHub does not accept token uploads for attachments (uploads require a web sign-in). Please add the attachment on the web.
+只支持图片和视频附件	Only image and video attachments are supported
+该仓库没有可在应用内使用的模板，请通过网页提交。	This repository has no templates available in the app. Please submit on the web.
+编辑记录	Edit history
+正文编辑记录	Body edit history
+评论编辑记录	Comment edit history
+没有编辑记录	No edit history
+{0} 编辑于 {1}	{0} edited {1}
+模板与表单	Templates and forms
+该仓库未启用此功能，或当前 Token 没有查看权限	This feature is not enabled for this repository, or the current token cannot view it
+没有查看此内容的权限，请确认 Token 包含所需的权限	You don't have permission to view this. Make sure the token has the required scopes
+该仓库还没有代码扫描分析，需要先在仓库里配置 CodeQL 工作流	No code scanning analysis yet. Set up a CodeQL workflow in this repository first
+没有与你相关的 {0}	No {0} involving you
+管理协作者	Manage collaborators
+需要先登录 GitHub 网页账号才能添加附件	Sign in to your GitHub account on the web to add attachments
+附件上传失败（HTTP {0}）	Attachment upload failed (HTTP {0})
+上传策略缺少地址	Upload policy is missing its URL
+上传策略缺少表单字段	Upload policy is missing form fields
+上传策略缺少确认地址	Upload policy is missing the confirmation URL
+上传策略缺少确认令牌	Upload policy is missing the confirmation token
+登录 GitHub（用于添加附件）	Sign in to GitHub (to add attachments)
+视频	Video

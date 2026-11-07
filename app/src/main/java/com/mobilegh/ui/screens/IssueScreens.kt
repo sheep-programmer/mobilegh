@@ -1,5 +1,9 @@
 package com.mobilegh.ui.screens
 
+import com.mobilegh.ui.components.Loading
+import com.mobilegh.data.ContentEdits
+import com.mobilegh.ui.components.attachmentMarkdown
+import com.mobilegh.ui.components.insertAtCursor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,6 +20,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import com.mobilegh.ui.components.cappedFlingBehavior
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -206,6 +211,9 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
     var metaKind by remember { mutableStateOf<String?>(null) }
     /** 正在编辑的评论：id=null 表示编辑 Issue/PR 正文 */
     var editing by remember { mutableStateOf<Pair<Long?, String>?>(null) }
+    /** 编辑记录：非空时打开对话框，值为 (GraphQL 节点 id, 标题) */
+    var revisionsOf by remember { mutableStateOf<Pair<String, String>?>(null) }
+    revisionsOf?.let { (id, title) -> EditHistoryDialog(id, title) { revisionsOf = null } }
     /** 标题栏就地编辑；null 表示未进入编辑 */
     var editTitle by remember { mutableStateOf<String?>(null) }
     var deleting by remember { mutableStateOf<Long?>(null) }
@@ -217,12 +225,9 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
     val t = data.data
     val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
     val access = ThreadAccess.of(repo.data?.permissions, repo.data?.archived == true, t?.issue?.user?.login, Session.login)
+    // 插入到光标处；视频用原生播放器的链接形式，图片保持 GitHub 的 Markdown 图语法（与新建 Issue 共用）
     val attachLauncher = rememberCommentAttachments(repo?.data?.id) { url, alt ->
-        // 插入到光标处；视频用原生播放器的链接形式，图片保持 GitHub 的 Markdown 图语法
-        val snippet = if (CommentAttachments.VIDEO_EXT.contains(alt.substringAfterLast('.', "").lowercase())) url else "![${alt}](${url})"
-        val at = comment.selection.min.coerceIn(0, comment.text.length)
-        val text = comment.text.substring(0, at) + "\n" + snippet + "\n" + comment.text.substring(at)
-        comment = TextFieldValue(text, androidx.compose.ui.text.TextRange(at + snippet.length + 2))
+        comment = insertAtCursor(comment, attachmentMarkdown(url, alt))
     }
     /** 相关议题（网页版 Issue 侧栏的 Relationships）；接口不可用时整块隐藏，不影响正文 */
     val related = rememberLoader("related") { f -> GitHub.relatedIssues(owner, name, number, f) }
@@ -389,7 +394,7 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
                 timeline.indexOfFirst { val e = it.second; (e as? Comment)?.id == id || (e as? Review)?.id == id }.takeIf { it >= 0 }?.let { before + it }
             }
             LaunchedEffect(anchorIndex) { anchorIndex?.let { listState.animateScrollToItem(it) } }
-            LazyColumn(Modifier.fillMaxSize(), state = listState) {
+            LazyColumn(Modifier.fillMaxSize(), state = listState, flingBehavior = cappedFlingBehavior()) {
                 item {
                     ThreadHeader(
                         owner, name, th,
@@ -427,6 +432,8 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
                         th.issue.user, th.issue.createdAt, assoc(th.issue.authorAssociation), th.issue.bodyHtml ?: th.pull?.bodyHtml, base,
                         menu = buildList {
                             add(MenuAction(tr("引用回复")) { quote(th.issue.user?.login, body) })
+                            th.issue.nodeId?.takeIf { th.issue.updatedAt != null && th.issue.updatedAt != th.issue.createdAt }
+                                ?.let { id -> add(MenuAction(tr("编辑记录")) { revisionsOf = id to tr("正文编辑记录") }) }
                             // 这里只编辑正文；标题改由标题旁的铅笔直接编辑（见 ThreadHeader）
                             if (th.issue.user?.login == me) add(MenuAction(tr("编辑正文")) { editing = null to body.orEmpty() })
                             add(MenuAction(tr("复制链接")) { ctx.copy(url) })
@@ -453,6 +460,8 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
                                     add(MenuAction(tr("编辑")) { editing = e.id to e.body.orEmpty() })
                                     add(MenuAction(tr("删除"), danger = true) { deleting = e.id })
                                 }
+                                e.nodeId?.takeIf { e.updatedAt != null && e.updatedAt != e.createdAt }
+                                    ?.let { id -> add(MenuAction(tr("编辑记录")) { revisionsOf = id to tr("评论编辑记录") }) }
                                 add(MenuAction(tr("复制链接")) { ctx.copy(e.htmlUrl) })
                             },
                         ) {
@@ -907,7 +916,7 @@ private fun MergeDialog(pr: Pull, busy: Boolean, onDismiss: () -> Unit, onMerge:
             if (canDelete) {
                 Spacer(Modifier.height(4.dp))
                 Row(Modifier.fillMaxWidth().clickable(enabled = !busy) { deleteBranch = !deleteBranch }, verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(deleteBranch, { deleteBranch = it }, enabled = !busy, colors = CheckboxDefaults.colors(checkedColor = g.btnPrimary))
+                    Checkbox(deleteBranch, { deleteBranch = it }, enabled = !busy)
                     Column {
                         Text(tr("合并后删除分支"), fontSize = 14.sp, color = g.fg)
                         Text(pr.head.ref, fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -969,7 +978,7 @@ private fun ReviewDialog(
             Spacer(Modifier.height(8.dp))
             listOf("APPROVE" to tr("批准"), "REQUEST_CHANGES" to tr("请求修改"), "COMMENT" to tr("仅评论")).forEach { (k, v) ->
                 Row(Modifier.fillMaxWidth().clickable(enabled = !busy) { ev = k }, verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(ev == k, { ev = k }, enabled = !busy, colors = RadioButtonDefaults.colors(selectedColor = g.btnPrimary))
+                    RadioButton(ev == k, { ev = k }, enabled = !busy)
                     Text(v, color = g.fg)
                 }
             }
@@ -983,4 +992,30 @@ private fun ReviewDialog(
             onDiscard()
         },
     )
+}
+
+/** 编辑记录：列出正文 / 评论的历史版本，最新在前；内容与网页版 "Viewing edit" 一致 */
+@Composable
+private fun EditHistoryDialog(nodeId: String, title: String, onDismiss: () -> Unit) {
+    val g = Gh.c
+    var result by remember(nodeId) { mutableStateOf<Result<List<ContentEdits.Revision>>?>(null) }
+    LaunchedEffect(nodeId) { result = runCatching { ContentEdits.load(nodeId) } }
+    val loaded = result
+    GhDialog(title, onDismiss, confirm = tr("关闭"), onConfirm = onDismiss) {
+        when {
+            loaded == null -> Loading(Modifier.fillMaxWidth().heightIn(min = 80.dp))
+            loaded.isFailure -> Text(loaded.exceptionOrNull()?.message ?: tr("加载失败"), fontSize = 13.sp, color = g.danger)
+            loaded.getOrNull().isNullOrEmpty() -> Text(tr("没有编辑记录"), fontSize = 13.sp, color = g.fgMuted)
+            else -> Column(Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+                loaded.getOrThrow().forEachIndexed { i, r ->
+                    if (i > 0) HDivider()
+                    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+                        Text(trf("{0} 编辑于 {1}", r.editor ?: "—", relTime(r.createdAt)), fontSize = 12.sp, color = g.fgMuted)
+                        Spacer(Modifier.height(4.dp))
+                        MdText(r.body.orEmpty(), fontSize = 14.sp, lineHeight = 20.sp, color = g.fg)
+                    }
+                }
+            }
+        }
+    }
 }

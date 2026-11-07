@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import com.mobilegh.ui.components.cappedFlingBehavior
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -61,6 +62,7 @@ import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.retain
 import com.mobilegh.nav.guarded
 import com.mobilegh.nav.sameAccount
+import com.mobilegh.ui.components.addLinkActions
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.ErrorState
@@ -142,6 +144,13 @@ fun RepoScreen(owner: String, name: String) {
         }
     }
     val langs = rememberLoader("langs") { GitHub.languages(owner, name) }
+    // 开放中的 Issue / PR 数：Issue 走搜索（与网页计数一致），PR 走 Link 头；搜索不可用时 Issue 数退回公式
+    val openIssues = rememberLoader("open-issues") { GitHub.openIssueCount(owner, name, it) }
+    val openPulls = rememberLoader("open-pulls") { GitHub.openPullCount(owner, name, it) }
+    // 发布、讨论、贡献者的计数，显示在对应入口的角标上（0 不显示）
+    val releaseCount = rememberLoader("release-count") { GitHub.releaseCount(owner, name, it) }
+    val discussionCount = rememberLoader("discussion-count") { GitHub.discussionCount(owner, name, it) }
+    val contributorCount = rememberLoader("contributor-count") { GitHub.contributorCount(owner, name, it) }
     val starStatus = rememberLoader("star-status") { entry.guarded { GitHub.isStarred(owner, name) } }
     val starBusyState = retain("star-busy") { mutableStateOf(false) }
     var starBusy by starBusyState
@@ -179,8 +188,6 @@ fun RepoScreen(owner: String, name: String) {
             // Fork 是仓库页最常用的操作之一，直接放在标题栏，不用藏进三点菜单
             OcButton(R.drawable.oc_repo_forked, { showFork = true }, enabled = r != null, description = tr("Fork 此仓库"))
             MoreMenu(buildList {
-                add(MenuAction(tr("分享")) { ctx.share("https://github.com/$owner/$name") })
-                add(MenuAction(tr("复制链接")) { ctx.copy("https://github.com/$owner/$name") })
                 add(MenuAction(tr("克隆地址…")) { showClone = true })
                 // 和网页上 Code → Download ZIP 一样：把当前分支/标签的源码打包下来，不用 clone
                 if (r != null) add(MenuAction(tr("下载源码 zip")) {
@@ -208,7 +215,7 @@ fun RepoScreen(owner: String, name: String) {
                         .onSuccess { ctx.toast(tr("已加入首页收藏")) }
                         .onFailure { ctx.toast(it.message ?: tr("收藏失败")) }
                 })
-                add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$owner/$name") })
+                addLinkActions(ctx, "https://github.com/$owner/$name")
                 if (admin) add(MenuAction(tr("仓库设置")) { nav.push(Screen.RepoSettings(owner, name)) })
             })
         },
@@ -226,7 +233,7 @@ fun RepoScreen(owner: String, name: String) {
                     pendingAnchorY = null
                     listState.animateScrollToItem(readmeIndex, with(density) { (y + 64).dp.roundToPx() })
                 }
-                LazyColumn(Modifier.fillMaxSize(), state = listState) {
+                LazyColumn(Modifier.fillMaxSize(), state = listState, flingBehavior = cappedFlingBehavior()) {
                     item { RepoHeader(r) }
                     item {
                         // Star / Watch / Fork
@@ -317,14 +324,16 @@ fun RepoScreen(owner: String, name: String) {
                         // 协作与管理入口：四列图标网格，和首页「我的工作」一致，不再占一整屏竖排长菜单
                         SectionTitle(tr("协作与管理"))
                         HomeShortcuts(buildList {
-                            // GitHub 的 open_issues_count 把 PR 也算在内，所以这里的数字会比 Issue 列表多
-                            add(HomeShortcut(R.drawable.oc_issue_opened, "Issues ${fmtCount(r.openIssuesCount)}", g.success, { nav.push(Screen.Issues(owner, name, false)) }, id = "Issues"))
-                            add(HomeShortcut(R.drawable.oc_git_pull_request, "PR", g.accent, { nav.push(Screen.Issues(owner, name, true)) }))
+                            // 加载中不显示角标，避免数字先跳再变；搜索失败时才退回 open_issues_count 减 PR（可能差 1）
+                            val issueCount = openIssues.data
+                                ?: openPulls.data?.takeIf { openIssues.error != null }?.let { (r.openIssuesCount - it).coerceAtLeast(0) }
+                            add(HomeShortcut(R.drawable.oc_issue_opened, "Issues", g.success, { nav.push(Screen.Issues(owner, name, false)) }, id = "Issues", count = issueCount))
+                            add(HomeShortcut(R.drawable.oc_git_pull_request, "Pull Requests", g.accent, { nav.push(Screen.Issues(owner, name, true)) }, id = "Pulls", count = openPulls.data))
                             add(HomeShortcut(R.drawable.oc_play, "Actions", g.fgMuted, { nav.push(Screen.Actions(owner, name)) }))
                             add(HomeShortcut(R.drawable.oc_table, tr("项目"), g.success, { nav.push(Screen.Projects(ProjectOwnerKind.Repo, owner, name)) }))
-                            if (r.hasDiscussions) add(HomeShortcut(R.drawable.oc_comment_discussion, tr("讨论"), g.done, { nav.push(Screen.Discussions(owner, name)) }))
-                            add(HomeShortcut(R.drawable.oc_tag, "Releases", g.success, { nav.push(Screen.Releases(owner, name)) }))
-                            add(HomeShortcut(R.drawable.oc_people, tr("贡献者"), g.severe, { nav.push(Screen.Contributors(owner, name)) }))
+                            if (r.hasDiscussions) add(HomeShortcut(R.drawable.oc_comment_discussion, tr("讨论"), g.done, { nav.push(Screen.Discussions(owner, name)) }, count = discussionCount.data?.takeIf { it > 0 }))
+                            add(HomeShortcut(R.drawable.oc_tag, "Releases", g.success, { nav.push(Screen.Releases(owner, name)) }, count = releaseCount.data?.takeIf { it > 0 }))
+                            add(HomeShortcut(R.drawable.oc_people, tr("贡献者"), g.severe, { nav.push(Screen.Contributors(owner, name)) }, count = contributorCount.data?.takeIf { it > 0 }))
                             add(HomeShortcut(R.drawable.oc_graph, tr("洞察"), g.done, { nav.push(Screen.Insights(owner, name)) }))
                             // 安全告警需要安全相关的读取权限，分支规则需要管理员权限；没有权限时页面会显示 GitHub 返回的原因
                             if (canPush || admin) add(HomeShortcut(R.drawable.oc_shield_lock, tr("安全告警"), g.danger, { nav.push(Screen.SecurityAlerts(owner, name)) }))

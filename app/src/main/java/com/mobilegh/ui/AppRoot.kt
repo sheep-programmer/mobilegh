@@ -1,5 +1,8 @@
 package com.mobilegh.ui
 
+import androidx.compose.ui.Alignment
+import com.mobilegh.ui.components.GitHubWebLoginHost
+import com.mobilegh.ui.components.LinkMenuHost
 import android.app.Activity
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
@@ -193,38 +196,46 @@ private fun Main(nav: Navigator) {
         }
     }
 
-    Scaffold(
-        containerColor = Gh.c.canvas,
-        contentWindowInsets = WindowInsets(0),
-        bottomBar = { if (nav.stack.isEmpty()) RootNavigationBar(nav) },
-        snackbarHost = {
-            val insets = if (nav.stack.isEmpty()) Modifier else Modifier.navigationBarsPadding()
-            ClipboardLinkHost(nav, insets.imePadding())
-        },
-    ) { pad ->
-        AnimatedContent(
-            modifier = Modifier.padding(pad),
-            targetState = nav.stack.lastOrNull(),
-            contentKey = { it?.id ?: "root" },
-            transitionSpec = {
-                if (nav.lastWasPush) {
-                    (slideInHorizontally(tween(220)) { it / 4 } + fadeIn(tween(220))) togetherWith fadeOut(tween(120))
+    // 剪贴板提示与链接菜单叠在最上层，任何页面（包括详情页自己的 Scaffold）都不会把它们挡住
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
+            containerColor = Gh.c.canvas,
+            contentWindowInsets = WindowInsets(0),
+            bottomBar = { if (nav.stack.isEmpty()) RootNavigationBar(nav) },
+        ) { pad ->
+            AnimatedContent(
+                modifier = Modifier.padding(pad),
+                targetState = nav.stack.lastOrNull(),
+                contentKey = { it?.id ?: "root" },
+                transitionSpec = {
+                    if (nav.lastWasPush) {
+                        (slideInHorizontally(tween(220)) { it / 4 } + fadeIn(tween(220))) togetherWith fadeOut(tween(120))
+                    } else {
+                        fadeIn(tween(180)) togetherWith (slideOutHorizontally(tween(200)) { it / 4 } + fadeOut(tween(200)))
+                    }
+                },
+                label = "nav",
+            ) { entry ->
+                if (entry == null) {
+                    RootTabs(nav, holder)
                 } else {
-                    fadeIn(tween(180)) togetherWith (slideOutHorizontally(tween(200)) { it / 4 } + fadeOut(tween(200)))
-                }
-            },
-            label = "nav",
-        ) { entry ->
-            if (entry == null) {
-                RootTabs(nav, holder)
-            } else {
-                CompositionLocalProvider(LocalEntry provides entry) {
-                    holder.SaveableStateProvider(entry.id) {
-                        Box(Modifier.fillMaxSize().background(Gh.c.canvas)) { ScreenHost(entry.screen) }
+                    CompositionLocalProvider(LocalEntry provides entry) {
+                        holder.SaveableStateProvider(entry.id) {
+                            Box(Modifier.fillMaxSize().background(Gh.c.canvas)) { ScreenHost(entry.screen) }
+                        }
                     }
                 }
             }
         }
+    // 根页面底部有标签栏，提示要抬高到标签栏之上；详情页没有标签栏
+    ClipboardLinkHost(
+        nav,
+        Modifier.align(Alignment.BottomCenter)
+            .padding(bottom = if (nav.stack.isEmpty()) 80.dp else 0.dp)
+            .navigationBarsPadding().imePadding(),
+    )
+    LinkMenuHost()
+    GitHubWebLoginHost()
     }
 }
 
@@ -317,12 +328,13 @@ private fun ScreenHost(s: Screen) {
         is Screen.NewIssue -> NewIssueScreen(s.owner, s.name)
         is Screen.Actions -> ActionsScreen(s.owner, s.name)
         is Screen.RunDetail -> RunDetailScreen(s.owner, s.name, s.runId)
-        is Screen.JobLog -> JobLogScreen(s.owner, s.name, s.jobId, s.title)
+        is Screen.JobLog -> JobLogScreen(s.owner, s.name, s.jobId, s.title, s.runId)
         is Screen.Releases -> ReleasesScreen(s.owner, s.name, s.tag, s.releaseId)
         is Screen.Pushes -> PushesScreen(s.owner, s.name)
         is Screen.Branches -> BranchesScreen(s.owner, s.name)
         is Screen.Insights -> InsightsScreen(s.owner, s.name)
         is Screen.SecurityAlerts -> SecurityAlertsScreen(s.owner, s.name)
+        is Screen.MergeQueue -> MergeQueueScreen(s.owner, s.name)
         is Screen.BranchRules -> BranchRulesScreen(s.owner, s.name)
         is Screen.Contributors -> ContributorsScreen(s.owner, s.name)
         is Screen.Discussions -> DiscussionsScreen(s.owner, s.name)

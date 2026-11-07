@@ -9,6 +9,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.LaunchedEffect
 import com.mobilegh.nav.Loader
 import com.mobilegh.nav.retain
+import com.mobilegh.ui.components.addLinkActions
 import com.mobilegh.ui.components.CompactSearchField
 import com.mobilegh.ui.components.FieldAction
 import com.mobilegh.ui.components.LineFocus
@@ -120,7 +121,7 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
                 }
                 add(MenuAction(tr("复制路径")) { ctx.copy(path.ifEmpty { "/" }) })
                 add(MenuAction(tr("查找仓库文件")) { nav.push(Screen.FileFinder(owner, name, ref)) })
-                add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$owner/$name/tree/${ref ?: "HEAD"}/$path") })
+                addLinkActions(ctx, "https://github.com/$owner/$name/tree/${ref ?: "HEAD"}/$path")
             })
         },
     ) { pad ->
@@ -275,9 +276,8 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?, line
                 add(MenuAction(tr("文件历史")) { nav.push(Screen.Commits(owner, name, ref, path)) })
                 add(MenuAction(tr("逐行归因（Blame）")) { nav.push(Screen.Blame(owner, name, path, ref)) })
                 add(MenuAction(tr("复制路径")) { ctx.copy(path) })
-                add(MenuAction(tr("分享链接")) { ctx.share("https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/$path") })
+                addLinkActions(ctx, "https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/$path")
                 add(MenuAction(tr("查看原始文件")) { ctx.openBrowser(if (downloadPrivate) rawWebUrl else rawUrl) })
-                add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/$path") })
                 if (canPush) add(MenuAction(tr("删除文件"), danger = true) { deleting = true })
             })
         },

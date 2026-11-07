@@ -6,32 +6,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SegmentPlanTest {
-    @Test fun smallOrUnsupportedFilesUseASingleSegment() {
-        assertEquals(listOf(0L..-1L), SegmentPlan.plan(10, rangesSupported = false))
-        assertEquals(listOf(0L until 1), SegmentPlan.plan(1, true))
-        assertEquals(listOf(0L until SegmentPlan.MIN_SEGMENT), SegmentPlan.plan(SegmentPlan.MIN_SEGMENT, true))
+    @Test fun aFileNeedsAtLeastTwoMinimumPiecesToBeSplit() {
+        assertFalse(SegmentPlan.worthSplitting(SegmentPlan.MIN_PIECE))
+        assertTrue(SegmentPlan.worthSplitting(2 * SegmentPlan.MIN_PIECE))
     }
 
-    @Test fun bigFilesSplitIntoEvenRangesCoveringEverything() {
-        val total = 40L * 1024 * 1024
-        val parts = SegmentPlan.plan(total, true)
-        assertEquals(4, parts.size)
-        // 各段连续且拼起来正好覆盖全文件
-        assertEquals(0L, parts.first().first)
-        assertEquals(total - 1, parts.last().last)
-        parts.zipWithNext().forEach { (a, b) -> assertEquals(a.last + 1, b.first) }
-        // 每段至少 8 MiB
-        parts.forEach { assertTrue(it.last - it.first + 1 >= SegmentPlan.MIN_SEGMENT) }
+    @Test fun piecesCoverTheWholeFileWithoutGapsOrOverlap() {
+        val total = 40L * 1024 * 1024 + 5
+        val pieces = SegmentPlan.pieces(total, 3L * 1024 * 1024)
+        assertEquals(0L, pieces.first().first)
+        assertEquals(total - 1, pieces.last().last)
+        pieces.zipWithNext().forEach { (a, b) -> assertEquals(a.last + 1, b.first) }
+        assertEquals(total, pieces.sumOf { it.last - it.first + 1 })
     }
 
-    @Test fun remaindersGoToTheFirstSegmentsAndCapAtMaxSegments() {
-        // 10 MiB 只够分成 1 段（每段至少 8 MiB）；16 MiB 分成 2 段
-        assertEquals(1, SegmentPlan.plan(10L * 1024 * 1024 + 7, true).size)
-        val parts = SegmentPlan.plan(16L * 1024 * 1024 + 3, true)
-        assertEquals(2, parts.size)
-        assertEquals(16L * 1024 * 1024 + 3, parts.sumOf { it.last - it.first + 1 })
-        // 请求的段数超过文件能分出的数量时按 8 MiB 一段截住
-        assertEquals(2, SegmentPlan.plan(16L * 1024 * 1024, true, segments = 4).size)
+    @Test fun pieceSizeGivesEachConnectionSeveralPiecesAndStaysWithinLimits() {
+        // 大文件：夹在最大分块
+        assertEquals(SegmentPlan.MAX_PIECE, SegmentPlan.pieceSize(1024L * 1024 * 1024, 8))
+        // 小文件：夹在最小分块
+        assertEquals(SegmentPlan.MIN_PIECE, SegmentPlan.pieceSize(8L * 1024 * 1024, 8))
+        // 中间值：32 MiB 给 4 条连接，每条约两块 → 4 MiB
+        assertEquals(4L * 1024 * 1024, SegmentPlan.pieceSize(32L * 1024 * 1024, 4))
+    }
+
+    @Test fun threadChoicesAreWithinLimitsAndIncludeSingleConnection() {
+        assertTrue(1 in SegmentPlan.THREAD_CHOICES)
+        assertTrue(SegmentPlan.DEFAULT_SEGMENTS in SegmentPlan.THREAD_CHOICES)
+        assertTrue(SegmentPlan.THREAD_CHOICES.all { it in 1..SegmentPlan.MAX_SEGMENTS })
     }
 }
 

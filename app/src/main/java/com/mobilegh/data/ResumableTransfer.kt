@@ -32,6 +32,10 @@ private val UNSATISFIED_RANGE_TOTAL = Regex("""bytes\s+\*/(\d+)""")
 /** 可重试的 HTTP 状态码，供重试耗尽后填充 Failed.httpCode */
 private class RetryableHttpException(val code: Int) : IOException("HTTP $code")
 
+/** 响应是否是 HTML 页面。GitHub 的文件、压缩包和 Release 资源都不是 text/html，所以它只可能是代理的错误页。 */
+internal fun isHtmlResponse(response: Response): Boolean =
+    response.header("Content-Type")?.trimStart()?.lowercase()?.startsWith("text/html") == true
+
 /** 断点续传下载：partial 文件保留已写入字节，重试与取消都从它继续 */
 class ResumableTransfer(
     private val client: OkHttpClient,
@@ -42,10 +46,11 @@ class ResumableTransfer(
         headers: Map<String, String>,
         partial: File,
         maxAttempts: Int = 3,
+        rejectHtml: Boolean = false,
         onProgress: (downloaded: Long, total: Long) -> Unit,
     ): TransferResult = withContext(Dispatchers.IO) {
         val progress = Progress(onProgress)
-        val result = transfer(url, headers, partial, maxAttempts, progress)
+        val result = transfer(url, headers, partial, maxAttempts, progress, rejectHtml)
         progress.finish(partial.length())
         result
     }
@@ -60,7 +65,10 @@ class ResumableTransfer(
         partial: File,
         onProgress: (downloaded: Long, total: Long) -> Unit,
         segments: SegmentedTransfer = SegmentedTransfer(client),
+        rejectHtml: Boolean = false,
     ): TransferResult = withContext(Dispatchers.IO) {
+        // 线程数设为 1 时不探测，直接单连接续传
+        if (segments.maxSegments <= 1) return@withContext run(url, headers, partial, onProgress = onProgress)
         val probe = Request.Builder().url(url)
             .header("Accept-Encoding", "identity")
             .header("Range", "bytes=0-0")
@@ -70,19 +78,22 @@ class ResumableTransfer(
             client.newCall(probe).await().use { resp ->
                 val total = CONTENT_RANGE_TOTAL.find(resp.header("Content-Range").orEmpty())
                     ?.groupValues?.get(1)?.toLongOrNull()
-                if (resp.code == 206 && total != null && total > SegmentPlan.MIN_SEGMENT) total else null
+                if (resp.code == 206 && total != null && SegmentPlan.worthSplitting(total)) total else null
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (_: IOException) {
-            null
+        } catch (e: IOException) {
+            // 网络不通（比如刚从 WiFi 切到流量）：报告为可重试失败，由上层换节点。
+            // 不能退回单连接从头下，那样已经下好的分段会被白白重来。
+            currentCoroutineContext().ensureActive()
+            return@withContext TransferResult.Failed(e.message ?: "probe failed", retryable = true)
         }
         if (probeResult == null) {
-            run(url, headers, partial, onProgress = onProgress)
+            // 服务器不支持分段（或文件很小）：按单连接续传，分段残留的文件不再使用
+            SegmentedTransfer.cleanup(partial)
+            run(url, headers, partial, rejectHtml = rejectHtml, onProgress = onProgress)
         } else {
-            // 分段不需要 partial 里的旧字节：整段重来反而干净
-            partial.delete()
-            segments.run(url, headers, partial, probeResult, onProgress)
+            segments.run(url, headers, partial, probeResult, rejectHtml = rejectHtml, onProgress = onProgress)
         }
     }
 
@@ -92,12 +103,13 @@ class ResumableTransfer(
         partial: File,
         maxAttempts: Int,
         progress: Progress,
+        rejectHtml: Boolean,
     ): TransferResult {
         var failures = 0
         while (true) {
             try {
                 // null 表示需要从 0 重新请求（不计入重试次数）
-                return fetch(url, headers, partial, progress) ?: continue
+                return fetch(url, headers, partial, progress, rejectHtml) ?: continue
             } catch (e: IOException) {
                 // 取消会关闭连接并产生 IOException，这里统一转为 CancellationException
                 currentCoroutineContext().ensureActive()
@@ -118,6 +130,7 @@ class ResumableTransfer(
         headers: Map<String, String>,
         partial: File,
         progress: Progress,
+        rejectHtml: Boolean,
     ): TransferResult? = coroutineScope {
         val offset = partial.length()
         val request = Request.Builder()
@@ -137,13 +150,13 @@ class ResumableTransfer(
             }
         }
         try {
-            call.await().use { response -> consume(response, partial, offset, progress) }
+            call.await().use { response -> consume(response, partial, offset, progress, rejectHtml) }
         } finally {
             watcher.cancel()
         }
     }
 
-    private fun consume(response: Response, partial: File, offset: Long, progress: Progress): TransferResult? {
+    private fun consume(response: Response, partial: File, offset: Long, progress: Progress, rejectHtml: Boolean): TransferResult? {
         val code = response.code
         if (code == 416) {
             if (offset == 0L) return TransferResult.Failed("HTTP 416 without a Range request", retryable = false, httpCode = code)
@@ -162,7 +175,14 @@ class ResumableTransfer(
             return TransferResult.Failed("HTTP $code", retryable = false, httpCode = code)
         }
 
-        // 206 从 offset 追加；200 表示服务器忽略了 Range，需要截断重来
+        // 经加速节点下载时，代理的错误页常以 200 返回 HTML；那不是文件内容，直接失败，交给上层换节点
+        if (rejectHtml && isHtmlResponse(response)) return TransferResult.Failed("HTML response", retryable = false)
+
+        // 经加速节点续传时，节点若忽略 Range 返回整文件（200），截断重来会把已下好的字节全部丢掉（即「又从头下」）。
+        // 这里判为可重试失败，由上层换到下一个候选节点（直连 GitHub 支持 Range），已下的部分保留。
+        if (rejectHtml && code == 200 && offset > 0) return TransferResult.Failed("proxy ignored Range", retryable = true)
+
+        // 206 从 offset 追加；200 表示服务器忽略了 Range，需要截断重来（直连或私有下载的最后兜底）
         val start = if (code == 206) offset else 0L
         val total = if (code == 206) {
             CONTENT_RANGE_TOTAL.find(response.header("Content-Range").orEmpty())

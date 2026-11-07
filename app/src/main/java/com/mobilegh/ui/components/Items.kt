@@ -100,7 +100,7 @@ fun RepoItem(repo: Repo, showOwner: Boolean = true, extra: String? = null) {
         }
         if (!repo.description.isNullOrBlank()) {
             Spacer(Modifier.height(4.dp))
-            MdText(repo.description, fontSize = 14.sp, color = g.fgMuted, maxLines = 2)
+            MdText(repo.description, fontSize = 14.sp, color = g.fgMuted, maxLines = 2, linkLongPress = false)
         }
         Spacer(Modifier.height(8.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -163,7 +163,7 @@ fun IssueItem(issue: Issue, repoName: String? = null, onClick: () -> Unit) {
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             if (repoName != null) Text("$repoName #${issue.number}", fontSize = 12.sp, color = g.fgMuted)
-            MdText(issue.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 3)
+            MdText(issue.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 3, linkLongPress = false)
             if (issue.labels.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -203,7 +203,7 @@ fun PullItem(pr: Pull, onClick: () -> Unit) {
         Oc(icon, color, 16.dp, Modifier.padding(top = 2.dp), contentDescription = statusText)
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            MdText(pr.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 3)
+            MdText(pr.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 3, linkLongPress = false)
             if (pr.labels.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

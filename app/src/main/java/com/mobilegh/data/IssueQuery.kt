@@ -45,6 +45,8 @@ enum class Involvement(private val labelZh: String, private val qualifierZh: Str
     Created("创建的", "author:@me"),
     Assigned("指派给我", "assignee:@me"),
     Mentioned("提及我", "mentions:@me"),
+    // 与我相关：创建、指派、提及或评论过的全部 Issue / PR（GitHub 的 involves 限定符）
+    Involved("相关", "involves:@me"),
     ReviewRequested("评审请求", "review-requested:@me", pullsOnly = true);
     val label: String get() = tr(labelZh)
     val qualifier: String get() = tr(qualifierZh)

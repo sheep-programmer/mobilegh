@@ -219,7 +219,21 @@ fun MobileGhTheme(content: @Composable () -> Unit) {
         surfaceBright = g.canvasSubtle,
         outline = g.border,
         outlineVariant = g.borderMuted,
+        // 下面这些不映射就会沿用 Material 默认的紫色 / 粉色：tertiary 与 errorContainer 会出现在
+        // Chip、Radio、进度条、对话框等组件里，surfaceTint 会给有阴影的面板染上紫色。
+        // Primer 的界面是扁平的，所以 surfaceTint 置为透明。
+        tertiary = g.accent,
+        onTertiary = Color.White,
+        tertiaryContainer = g.accentSubtle,
+        onTertiaryContainer = g.accent,
         error = g.danger,
+        onError = Color.White,
+        errorContainer = g.dangerSubtle,
+        onErrorContainer = g.danger,
+        surfaceTint = Color.Transparent,
+        inverseSurface = g.fg,
+        inverseOnSurface = g.canvas,
+        inversePrimary = g.accentSubtle,
     )
     val t = Typography()
     val typo = t.copy(

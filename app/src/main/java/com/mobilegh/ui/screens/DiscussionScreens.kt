@@ -10,6 +10,7 @@ import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.Navigator
 import com.mobilegh.nav.guarded
 import com.mobilegh.nav.write
+import com.mobilegh.ui.components.addLinkActions
 import com.mobilegh.ui.components.MarkdownEditor
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.SectionTitle
@@ -370,8 +371,7 @@ fun DiscussionDetailScreen(
             val d = t?.discussion
             if (d != null && d.viewerCanUpdate) add(MenuAction(tr("编辑讨论")) { editingDiscussion = true })
             add(MenuAction(tr("刷新")) { reload() })
-            add(MenuAction(tr("复制链接")) { ctx.copy(url) })
-            add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser(url) })
+            addLinkActions(ctx, url)
             if (d != null && d.viewerCanDelete) add(MenuAction(tr("删除讨论"), danger = true) { deletingDiscussion = true })
         })
     }) { padding ->

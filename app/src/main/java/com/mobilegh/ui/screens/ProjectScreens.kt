@@ -78,6 +78,8 @@ import com.mobilegh.nav.friendly
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
 import com.mobilegh.nav.retain
+import com.mobilegh.ui.components.share
+import com.mobilegh.ui.components.addLinkActions
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.Counter
@@ -220,6 +222,7 @@ fun ProjectDetailScreen(id: String, title: String) {
             if (d != null && d.url.isNotBlank()) MoreMenu(listOf(
                 MenuAction(tr("刷新")) { project.refresh() },
                 MenuAction(tr("复制链接")) { ctx.copy(d.url) },
+                MenuAction(tr("分享")) { ctx.share(d.url) },
                 MenuAction(tr("在浏览器打开")) { ctx.openBrowser(d.url) },
             ))
         },
@@ -296,8 +299,7 @@ private fun ProjectBody(
     fun actions(item: ProjectItem): List<MenuAction> = buildList {
         if (canUpdate && groupField != null) add(MenuAction(tr("移动到…")) { moving = item })
         if (item.url != null) {
-            add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser(item.url) })
-            add(MenuAction(tr("复制链接")) { ctx.copy(item.url) })
+            addLinkActions(ctx, item.url)
         }
         if (canUpdate) add(MenuAction(tr("从项目移除"), danger = true) { removing = item })
     }

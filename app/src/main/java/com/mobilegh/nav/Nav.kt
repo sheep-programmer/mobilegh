@@ -63,7 +63,7 @@ sealed interface Screen {
     @Serializable data class NewIssue(val owner: String, val name: String) : Screen
     @Serializable data class Actions(val owner: String, val name: String) : Screen
     @Serializable data class RunDetail(val owner: String, val name: String, val runId: Long) : Screen
-    @Serializable data class JobLog(val owner: String, val name: String, val jobId: Long, val title: String) : Screen
+    @Serializable data class JobLog(val owner: String, val name: String, val jobId: Long, val title: String, val runId: Long = 0) : Screen
     /** [tag] 来自 `/releases/tag/…`、`/releases/download/…` 链接：显示并展开这个版本；`latest` 表示最新版本；为空时只列出 */
     @Serializable data class Releases(val owner: String, val name: String, val tag: String? = null, val releaseId: Long? = null) : Screen
     /** 仓库最近的推送记录：谁推送到了哪个分支 */
@@ -71,6 +71,8 @@ sealed interface Screen {
     @Serializable data class Branches(val owner: String, val name: String) : Screen
     @Serializable data class Insights(val owner: String, val name: String) : Screen
     @Serializable data class SecurityAlerts(val owner: String, val name: String) : Screen
+    /** 合并队列（网页 /owner/repo/queue） */
+    @Serializable data class MergeQueue(val owner: String, val name: String) : Screen
     @Serializable data class BranchRules(val owner: String, val name: String) : Screen
     @Serializable data class Contributors(val owner: String, val name: String) : Screen
     @Serializable data class Discussions(val owner: String, val name: String) : Screen
@@ -258,6 +260,7 @@ internal fun repoHomeOf(screen: Screen): Screen.Repo? = when (screen) {
     is Screen.Branches -> Screen.Repo(screen.owner, screen.name)
     is Screen.Insights -> Screen.Repo(screen.owner, screen.name)
     is Screen.SecurityAlerts -> Screen.Repo(screen.owner, screen.name)
+    is Screen.MergeQueue -> Screen.Repo(screen.owner, screen.name)
     is Screen.BranchRules -> Screen.Repo(screen.owner, screen.name)
     is Screen.Contributors -> Screen.Repo(screen.owner, screen.name)
     is Screen.Discussions -> Screen.Repo(screen.owner, screen.name)

@@ -1,5 +1,7 @@
 package com.mobilegh.ui.screens
 
+import com.mobilegh.ui.components.MenuRow
+import com.mobilegh.ui.components.MenuGroup
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -48,6 +50,7 @@ import com.mobilegh.nav.retain
 import com.mobilegh.nav.OnRepoChanged
 import com.mobilegh.data.ReleaseEdit
 import com.mobilegh.data.RepoWrite
+import com.mobilegh.ui.components.addLinkActions
 import com.mobilegh.ui.components.DraftBinding
 import com.mobilegh.ui.components.MarkdownEditor
 import com.mobilegh.ui.components.MenuAction
@@ -126,7 +129,7 @@ fun ReleasesScreen(owner: String, name: String, tag: String? = null, releaseId: 
     var deleting by remember { mutableStateOf<Release?>(null) }
     fun menuFor(r: Release): List<MenuAction> = buildList {
         if (canPush) add(MenuAction(tr("编辑")) { nav.push(Screen.EditRelease(owner, name, r.id)) })
-        if (r.htmlUrl.isNotEmpty()) add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser(r.htmlUrl) })
+        if (r.htmlUrl.isNotEmpty()) addLinkActions(ctx, r.htmlUrl)
         if (canPush) add(MenuAction(tr("删除"), danger = true) { deleting = r })
     }
     val targetRelease = target.data
@@ -632,6 +635,7 @@ private fun SettingsForm(r: Repo, reload: () -> Unit) {
     // 「允许 Fork」开关待确认的目标值；确认后才真正提交
     var forkTarget by remember { mutableStateOf(false) }
     var deleteBusy by remember { mutableStateOf(false) }
+    var inviting by remember { mutableStateOf(false) }
     val o = r.owner.login
 
     fun patch(msg: String, vararg kv: Pair<String, Any>) {
@@ -681,6 +685,11 @@ private fun SettingsForm(r: Repo, reload: () -> Unit) {
         SwitchRow(tr("模板仓库"), tr("允许他人以此仓库为模板创建新仓库"), r.isTemplate) { patch(tr("已更新"), "is_template" to it) }
         SwitchRow(tr("允许 Fork"), tr("仅对私有仓库/组织仓库有效"), r.allowForking) { forkTarget = it; confirm = "forking" }
 
+        SectionTitle(tr("协作者"))
+        MenuGroup {
+            MenuRow(R.drawable.oc_person, tr("邀请协作者")) { inviting = true }
+            MenuRow(R.drawable.oc_person, tr("管理协作者")) { nav.push(Screen.Collaborators(o, r.name)) }
+        }
         SectionTitle(tr("危险操作"))
         Card(Modifier.padding(horizontal = 16.dp)) {
             Column {
@@ -693,6 +702,7 @@ private fun SettingsForm(r: Repo, reload: () -> Unit) {
         }
     }
 
+    if (inviting) InviteCollaboratorDialog(o, r.name, { inviting = false })
     when (confirm) {
         "visibility" -> GhDialog(tr("更改可见性"), { confirm = null }, confirm = tr("确认"), danger = true, onConfirm = {
             confirm = null
@@ -768,6 +778,29 @@ private fun DangerRow(title: String, desc: String, action: String, onClick: () -
 
 // ======================= 协作者 =======================
 
+/** 邀请协作者对话框：仓库设置与协作者页共用。输入 GitHub 用户名并选择权限，发送邀请后调用 onSent。 */
+@Composable
+fun InviteCollaboratorDialog(owner: String, name: String, onDismiss: () -> Unit, onSent: () -> Unit = {}) {
+    val g = Gh.c
+    val entry = LocalEntry.current
+    val ctx = rememberCtx()
+    var login by remember { mutableStateOf("") }
+    var perm by remember { mutableStateOf(2) }
+    val perms = listOf("pull", "triage", "push", "maintain", "admin")
+    GhDialog(tr("邀请协作者"), onDismiss, confirm = tr("发送邀请"), confirmEnabled = login.isNotBlank(), onConfirm = {
+        onDismiss()
+        entry.act({ ctx.toast(it) }, onSent) { GitHub.addCollaborator(owner, name, login.trim().removePrefix("@"), perms[perm]); ctx.toast(tr("邀请已发送")) }
+    }) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            GhField(login, { login = it }, tr("GitHub 用户名"))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(tr("权限："), color = g.fgMuted, fontSize = 14.sp)
+                Dropdown(permZh(perms[perm]), perms.map(::permZh), { perm = it })
+            }
+        }
+    }
+}
+
 @Composable
 fun CollaboratorsScreen(owner: String, name: String) {
     val g = Gh.c
@@ -816,23 +849,7 @@ fun CollaboratorsScreen(owner: String, name: String) {
             }
         }
     }
-    if (adding) {
-        var login by remember { mutableStateOf("") }
-        var perm by remember { mutableStateOf(2) }
-        val perms = listOf("pull", "triage", "push", "maintain", "admin")
-        GhDialog(tr("邀请协作者"), { adding = false }, confirm = tr("发送邀请"), confirmEnabled = login.isNotBlank(), onConfirm = {
-            adding = false
-            entry.act({ ctx.toast(it) }, ::reload) { GitHub.addCollaborator(owner, name, login.trim().removePrefix("@"), perms[perm]); ctx.toast(tr("邀请已发送")) }
-        }) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                GhField(login, { login = it }, tr("GitHub 用户名"))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(tr("权限："), color = g.fgMuted, fontSize = 14.sp)
-                    Dropdown(permZh(perms[perm]), perms.map(::permZh), { perm = it })
-                }
-            }
-        }
-    }
+    if (adding) InviteCollaboratorDialog(owner, name, { adding = false }, ::reload)
     removing?.let { u ->
         GhDialog(tr("移除协作者"), { removing = null }, confirm = tr("移除"), danger = true, onConfirm = {
             removing = null

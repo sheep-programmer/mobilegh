@@ -1,4 +1,4 @@
-MobileGH v0.4.0：新增贡献热力图明细与成分饼状图、README 双指缩放阅读模式、Issue 编辑历史查看与删除；优化代码复制不带行号、标签气泡编辑及多项界面交互。
+MobileGH v0.40.0：新增贡献热力图明细与成分饼状图、README 双指缩放阅读模式、Issue 编辑历史查看与删除；优化代码复制不带行号、标签气泡编辑及多项界面交互。
 
 ### 贡献与统计
 
@@ -29,8 +29,8 @@ MobileGH v0.4.0：新增贡献热力图明细与成分饼状图、README 双指�
 
 | 安装包 | 架构 / 说明 | SHA256 |
 |---|---|---|
-| `app-arm64-v8a-release.apk` | 推荐，适用于主流现代 64 位手机 | `1c187117f3d930e2da1dda54f447b6a13160642b8da4a6190fd99744a5f6dc36` |
-| `app-armeabi-v7a-release.apk` | 适用于较老 32 位 Android 设备 | `a720fe3577d1b3cf808384acc633435e0579e0804a565c74a438a0288b6e589c` |
-| `app-universal-release.apk` | 通用全架构包 | `9c7491a1b2801e8ffd34bac286f74494a66a1071e9a1defdaf2f3478c5ca260b` |
-| `app-x86_64-release.apk` | 适用于 PC 模拟器 / x86_64 设备 | `d2f97448cc29924500b917175fe43d675d78189d6a7ad753bf03c11dc06f7bb8` |
+| `app-arm64-v8a-release.apk` | 推荐，适用于主流现代 64 位手机 | `326ad816cdc6edf178e47a8618c96eeb60c907471dadc09d00a12bc2d88e30ff` |
+| `app-armeabi-v7a-release.apk` | 适用于较老 32 位 Android 设备 | `8a619307f62a2e2ede31511f0443b910c1ec8b20ce4e4094bfe6b0f1df23170f` |
+| `app-universal-release.apk` | 通用全架构包 | `49881b3d8f042a3953b46c6048e31ca0b50e81a3439cc0a868a7a0d1cfcc13ee` |
+| `app-x86_64-release.apk` | 适用于 PC 模拟器 / x86_64 设备 | `f3e0488fe2ff9f4644aeebb31bf82caa7ed7f8bc9621888d7e6d1e6368838801` |
 

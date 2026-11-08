@@ -61,11 +61,11 @@ object Update {
         private set
 
     /** 查询最新 Release，挑出匹配当前架构的 APK */
-    suspend fun check(): Info? {
+    suspend fun check(force: Boolean = true): Info? {
         checking = true
         error = null
         return try {
-            val rel = GitHub.latestRelease(OWNER, REPO, false) ?: return null.also { available = null }
+            val rel = GitHub.latestRelease(OWNER, REPO, force) ?: return null.also { available = null }
             val version = rel.tagName.trimStart('v', 'V')
             val apk = rel.assets.filter { it.name.endsWith(".apk", ignoreCase = true) }
             val asset = apk.firstOrNull { it.name.contains(abi, ignoreCase = true) }
@@ -105,7 +105,7 @@ object Update {
     /** 启动后静默检查一次，有新版本再提示 */
     fun checkQuietly() {
         if (checking || available != null) return
-        scope.launch { runCatching { check() } }
+        scope.launch { runCatching { check(force = false) } }
     }
 
     /** 下载并安装；完成后调用方负责触发安装 */

@@ -3,6 +3,7 @@ package com.mobilegh.ui.screens
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -32,11 +33,12 @@ internal fun RepoFeedScreen(kind: RepoKind, login: String, name: String) {
         if (kind == RepoKind.Org) GitHub.orgRepos(login, order, page, force)
         else GitHub.userRepos(login, order, page, force)
     }
+    val state = rememberLazyListState()
     Page(repoFeedTitle(kind), subtitle = repoPageSubtitle(login, name)) { pad ->
         Column(Modifier.padding(pad)) {
             Row(Modifier.padding(12.dp)) { Dropdown(SORTS[sort].second, SORTS.map { it.second }, { sort = it }) }
             HDivider()
-            PagedList(pager, empty = tr("没有可见的仓库"), emptyIcon = R.drawable.oc_repo) { RepoItem(it) }
+            PagedList(pager, state = state, itemKey = { it.id }, empty = tr("没有可见的仓库"), emptyIcon = R.drawable.oc_repo) { RepoItem(it) }
         }
     }
 }
@@ -44,11 +46,14 @@ internal fun RepoFeedScreen(kind: RepoKind, login: String, name: String) {
 /** Fork 列表：GitHub 按最新创建排序，没有自己的排序菜单 */
 @Composable
 internal fun ForkListScreen(login: String, name: String) {
+    val state = rememberLazyListState()
     val pager = rememberPager("rl:forks:$login:$name") { page, force -> GitHub.forks(login, name, page, force) }
     Page("Fork", subtitle = repoPageSubtitle(login, name)) { pad ->
         Column(Modifier.padding(pad)) {
             PagedList(
                 pager,
+                state = state,
+                itemKey = { it.id },
                 empty = tr("还没有人 Fork 这个仓库"),
                 emptyIcon = R.drawable.oc_repo,
             ) { RepoItem(it, extra = relTime(it.createdAt).takeIf { t -> t.isNotEmpty() }?.let { t -> trf("创建于 {0}", t) }) }

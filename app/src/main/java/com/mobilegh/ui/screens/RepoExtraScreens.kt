@@ -4,8 +4,18 @@ import com.mobilegh.ui.components.MenuRow
 import com.mobilegh.ui.components.verticalScrollWithBar
 import com.mobilegh.ui.components.ScrollbarLazyColumn
 import com.mobilegh.ui.components.MenuGroup
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -107,6 +118,16 @@ import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trc
 import com.mobilegh.i18n.trf
 import com.mobilegh.ui.components.CompactSearchField
+import com.mobilegh.data.User
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
 
 // ======================= Releases =======================
 
@@ -632,6 +653,140 @@ internal fun repoSettingsPatch(r: Repo, name: String, description: String, homep
     }
 
 /**
+ * 标签/主题（Topics）气泡编辑器：
+ * 气泡式展示当前标签，点按气泡直接移除，下方支持单项输入并通过加号或回车快速添加。
+ */
+@Composable
+fun TopicsEditor(
+    topics: List<String>,
+    onTopicsChange: (List<String>) -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val g = Gh.c
+    var input by rememberSaveable { mutableStateOf("") }
+
+    fun addTag(raw: String) {
+        val tags = raw.split(',', '，', ' ', ';', '；')
+            .map { it.trim().lowercase().replace(' ', '-') }
+            .filter { it.isNotEmpty() }
+        val toAdd = tags.filter { it !in topics }
+        if (toAdd.isNotEmpty()) {
+            onTopicsChange(topics + toAdd)
+        }
+        input = ""
+    }
+
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(tr("主题标签（Topics）"), fontSize = 13.sp, fontWeight = FontWeight.Medium, color = g.fg)
+
+        // 标签气泡流式排列区域：有标签时渲染独立卡片
+        if (topics.isNotEmpty()) {
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(g.canvasSubtle)
+                    .border(1.dp, g.border, RoundedCornerShape(10.dp))
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                topics.forEach { topic ->
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(g.accent.copy(alpha = if (g.dark) 0.22f else 0.12f))
+                            .border(1.dp, g.accent.copy(alpha = 0.35f), RoundedCornerShape(50))
+                            .clickable(enabled = enabled) {
+                                onTopicsChange(topics - topic)
+                            }
+                            .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            topic,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = g.accent,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Box(
+                            Modifier
+                                .size(16.dp)
+                                .clip(CircleShape)
+                                .background(g.accent.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Oc(R.drawable.oc_x, g.accent, 10.dp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // 添加标签输入框与加号按钮
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            GhField(
+                value = input,
+                onValueChange = {
+                    if (',' in it || '，' in it || ' ' in it || '\n' in it) {
+                        addTag(it)
+                    } else {
+                        input = it.lowercase()
+                    }
+                },
+                label = tr("新标签名称"),
+                placeholder = tr("输入标签名称"),
+                modifier = Modifier.weight(1f),
+                enabled = enabled,
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.None,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(onDone = {
+                    if (input.isNotBlank()) addTag(input)
+                }),
+            )
+            Box(
+                Modifier
+                    .height(56.dp)
+                    .width(52.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (input.isNotBlank() && enabled) g.accent else g.canvasSubtle)
+                    .border(
+                        1.dp,
+                        if (input.isNotBlank() && enabled) g.accent else g.border,
+                        RoundedCornerShape(10.dp),
+                    )
+                    .clickable(enabled = input.isNotBlank() && enabled) {
+                        addTag(input)
+                    }
+                    .semantics { contentDescription = tr("添加标签") },
+                contentAlignment = Alignment.Center,
+            ) {
+                Oc(
+                    R.drawable.oc_plus,
+                    if (input.isNotBlank() && enabled) androidx.compose.ui.graphics.Color.White else g.fgMuted,
+                    20.dp,
+                )
+            }
+        }
+
+        Text(
+            tr("点按标签气泡即可直接移除；单个标签仅限小写字母、数字和连字符"),
+            fontSize = 11.sp,
+            color = g.fgMuted,
+            modifier = Modifier.padding(start = 2.dp),
+        )
+    }
+}
+
+/**
  * 仓库页上直接编辑描述、网址和主题（与网页版「Edit repository details」一致）。
  * 和设置页共用 [repoSettingsPatch]：只提交改动过的字段。
  */
@@ -641,7 +796,7 @@ fun EditRepoDetailsDialog(r: Repo, onDismiss: () -> Unit, onSaved: () -> Unit) {
     val ctx = rememberCtx()
     var desc by rememberSaveable(r.id) { mutableStateOf(r.description.orEmpty()) }
     var home by rememberSaveable(r.id) { mutableStateOf(r.homepage.orEmpty()) }
-    var topics by rememberSaveable(r.id) { mutableStateOf(r.topics.joinToString(", ")) }
+    var topics by rememberSaveable(r.id) { mutableStateOf(r.topics) }
     var saving by remember { mutableStateOf(false) }
     val o = r.owner.login
     GhDialog(
@@ -652,7 +807,7 @@ fun EditRepoDetailsDialog(r: Repo, onDismiss: () -> Unit, onSaved: () -> Unit) {
             entry.act({ saving = false; ctx.toast(it) }) {
                 val patch = repoSettingsPatch(r, r.name, desc.trim(), home.trim(), r.defaultBranch)
                 if (patch.isNotEmpty()) GitHub.updateRepo(o, r.name, patch)
-                val list = topics.split(',', '，', ' ').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+                val list = topics.map { it.trim().lowercase() }.filter { it.isNotEmpty() }
                 if (list != r.topics) GitHub.setTopics(o, r.name, list)
                 RepoWrite.changed(o, r.name)
                 saving = false
@@ -664,7 +819,7 @@ fun EditRepoDetailsDialog(r: Repo, onDismiss: () -> Unit, onSaved: () -> Unit) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             GhField(desc, { desc = it }, tr("描述"), Modifier.fillMaxWidth(), singleLine = false, minLines = 2)
             GhField(home, { home = it }, tr("主页网址"), Modifier.fillMaxWidth())
-            GhField(topics, { topics = it }, tr("Topics（逗号分隔）"), Modifier.fillMaxWidth())
+            TopicsEditor(topics = topics, onTopicsChange = { topics = it }, enabled = !saving)
         }
     }
 }
@@ -678,7 +833,7 @@ private fun SettingsForm(r: Repo, reload: () -> Unit) {
     var newName by rememberSaveable(r.id) { mutableStateOf(r.name) }
     var desc by rememberSaveable(r.id) { mutableStateOf(r.description.orEmpty()) }
     var home by rememberSaveable(r.id) { mutableStateOf(r.homepage.orEmpty()) }
-    var topics by rememberSaveable(r.id) { mutableStateOf(r.topics.joinToString(", ")) }
+    var topics by rememberSaveable(r.id) { mutableStateOf(r.topics) }
     var branch by rememberSaveable(r.id) { mutableStateOf(r.defaultBranch) }
     var saving by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<String?>(null) }
@@ -704,7 +859,7 @@ private fun SettingsForm(r: Repo, reload: () -> Unit) {
             // 而同一请求里的改名、描述却已经生效，界面就会「改成功了却报错」
             val patch = repoSettingsPatch(r, newName, desc, home, branch)
             val updated = if (patch.isEmpty()) r else GitHub.updateRepo(o, r.name, patch)
-            val list = topics.split(',', '，', ' ').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+            val list = topics.map { it.trim().lowercase() }.filter { it.isNotEmpty() }
             if (list != r.topics) GitHub.setTopics(o, updated.name, list)
             saving = false
             ctx.toast(tr("已保存"))
@@ -718,7 +873,7 @@ private fun SettingsForm(r: Repo, reload: () -> Unit) {
             GhField(newName, { newName = it.replace(' ', '-') }, tr("仓库名称"))
             GhField(desc, { desc = it }, tr("描述"), singleLine = false)
             GhField(home, { home = it }, tr("主页网址"))
-            GhField(topics, { topics = it }, tr("Topics（逗号分隔）"))
+            TopicsEditor(topics = topics, onTopicsChange = { topics = it }, enabled = !saving)
             GhField(branch, { branch = it }, tr("默认分支"))
             GhButton(tr("保存修改"), Modifier.fillMaxWidth(), primary = true, enabled = !saving) {
                 // 改名会改变仓库地址，先确认；其余字段直接保存
@@ -826,23 +981,242 @@ private fun DangerRow(title: String, desc: String, action: String, onClick: () -
 
 // ======================= 协作者 =======================
 
-/** 邀请协作者对话框：仓库设置与协作者页共用。输入 GitHub 用户名并选择权限，发送邀请后调用 onSent。 */
+/** 邀请协作者对话框：支持模糊搜索 GitHub 用户/昵称，实时展现候选人列表，选择后支持配置权限并进行二次确认 */
 @Composable
 fun InviteCollaboratorDialog(owner: String, name: String, onDismiss: () -> Unit, onSent: () -> Unit = {}) {
     val g = Gh.c
     val entry = LocalEntry.current
     val ctx = rememberCtx()
-    var login by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<User>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+    var selectedUser by remember { mutableStateOf<User?>(null) }
     var perm by remember { mutableStateOf(2) }
     val perms = listOf("pull", "triage", "push", "maintain", "admin")
-    GhDialog(tr("邀请协作者"), onDismiss, confirm = tr("发送邀请"), confirmEnabled = login.isNotBlank(), onConfirm = {
-        onDismiss()
-        entry.act({ ctx.toast(it) }, onSent) { GitHub.addCollaborator(owner, name, login.trim().removePrefix("@"), perms[perm]); ctx.toast(tr("邀请已发送")) }
-    }) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            GhField(login, { login = it }, tr("GitHub 用户名"))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(tr("权限："), color = g.fgMuted, fontSize = 14.sp)
+    var confirmTarget by remember { mutableStateOf<Pair<String, String?>?>(null) } // targetLogin to targetName
+
+    // 边搜边出（防抖 300ms 模糊搜索 GitHub 用户）
+    LaunchedEffect(query) {
+        val q = query.trim().removePrefix("@")
+        if (q.isBlank()) {
+            results = emptyList()
+            searching = false
+            return@LaunchedEffect
+        }
+        kotlinx.coroutines.delay(300)
+        searching = true
+        try {
+            val res = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                GitHub.searchUsers(q, 1)
+            }
+            results = res.items
+        } catch (_: Throwable) {
+            results = emptyList()
+        } finally {
+            searching = false
+        }
+    }
+
+    // 二次确认对话框
+    confirmTarget?.let { (targetLogin, targetName) ->
+        GhDialog(
+            title = tr("确认邀请协作者"),
+            onDismiss = { confirmTarget = null },
+            confirm = tr("确认发送邀请"),
+            onConfirm = {
+                confirmTarget = null
+                onDismiss()
+                entry.act({ ctx.toast(it) }, onSent) {
+                    GitHub.addCollaborator(owner, name, targetLogin, perms[perm])
+                    ctx.toast(trf("已向 {0} 发送协作者邀请", targetLogin))
+                }
+            },
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    trf("确定邀请「{0}」成为 {1}/{2} 的协作者吗？", targetLogin, owner, name),
+                    color = g.fg,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 15.sp,
+                )
+                if (!targetName.isNullOrBlank()) {
+                    Text(trf("用户昵称/全名：{0}", targetName), color = g.fgMuted, fontSize = 13.sp)
+                }
+                Text(
+                    trf("分配权限：{0} ({1})", permZh(perms[perm]), perms[perm]),
+                    color = g.accent,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+    }
+
+    val canSend = selectedUser != null || query.trim().removePrefix("@").isNotBlank()
+
+    GhDialog(
+        title = tr("邀请协作者"),
+        onDismiss = onDismiss,
+        confirm = tr("下一步"),
+        confirmEnabled = canSend,
+        onConfirm = {
+            val u = selectedUser
+            if (u != null) {
+                confirmTarget = u.login to u.name
+            } else {
+                val rawLogin = query.trim().removePrefix("@")
+                if (rawLogin.isNotBlank()) {
+                    confirmTarget = rawLogin to null
+                }
+            }
+        },
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            // 已选中用户卡片，或搜索框
+            val currentSelected = selectedUser
+            if (currentSelected != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(g.accent.copy(alpha = 0.08f))
+                        .border(1.dp, g.accent.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Avatar(currentSelected.avatarUrl, 36.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(currentSelected.login, color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        if (!currentSelected.name.isNullOrBlank()) {
+                            Text(currentSelected.name, color = g.fgMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(g.canvasSubtle)
+                            .border(1.dp, g.borderMuted, RoundedCornerShape(6.dp))
+                            .clickable {
+                                selectedUser = null
+                            }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    ) {
+                        Text(tr("更换"), fontSize = 12.sp, color = g.fgMuted)
+                    }
+                }
+            } else {
+                // 搜索输入框（支持搜用户名、昵称等）
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(g.canvasSubtle, RoundedCornerShape(8.dp))
+                        .border(1.dp, g.borderMuted, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Oc(R.drawable.oc_search, g.fgMuted, 16.dp)
+                    Spacer(Modifier.width(8.dp))
+                    BasicTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        textStyle = TextStyle(color = g.fg, fontSize = 14.sp),
+                        decorationBox = { innerTextField ->
+                            if (query.isEmpty()) {
+                                Text(tr("搜索用户名或昵称…"), color = g.fgMuted, fontSize = 14.sp)
+                            }
+                            innerTextField()
+                        },
+                    )
+                    if (searching) {
+                        CircularProgressIndicator(Modifier.size(16.dp), color = g.accent, strokeWidth = 2.dp)
+                    } else if (query.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable { query = "" }
+                                .padding(2.dp),
+                        ) {
+                            Oc(R.drawable.oc_x, g.fgMuted, 14.dp)
+                        }
+                    }
+                }
+
+                // 搜索结果候选列表（边搜边出，类似 GitHub 官方网页）
+                if (query.isNotBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp),
+                    ) {
+                        if (searching && results.isEmpty()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(tr("正在搜索…"), color = g.fgMuted, fontSize = 13.sp)
+                            }
+                        } else if (results.isEmpty()) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text(tr("未搜到精确匹配的用户"), color = g.fgMuted, fontSize = 12.sp)
+                                Text(trf("可以直接点击下一步邀请「{0}」", query.trim().removePrefix("@")), color = g.accent, fontSize = 12.sp)
+                            }
+                        } else {
+                            val searchScroll = rememberLazyListState()
+                            ScrollbarLazyColumn(
+                                state = searchScroll,
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                items(results, key = { it.login }) { u ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(g.canvasSubtle.copy(alpha = 0.5f))
+                                            .border(1.dp, g.borderMuted.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                selectedUser = u
+                                                query = ""
+                                            }
+                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Avatar(u.avatarUrl, 28.dp)
+                                        Spacer(Modifier.width(10.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(u.login, color = g.fg, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                            if (!u.name.isNullOrBlank()) {
+                                                Text(u.name, color = g.fgMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                        }
+                                        Oc(R.drawable.oc_plus, g.accent, 14.dp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 权限选择
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(tr("分配权限："), color = g.fgMuted, fontSize = 14.sp)
+                Spacer(Modifier.weight(1f))
                 Dropdown(permZh(perms[perm]), perms.map(::permZh), { perm = it })
             }
         }

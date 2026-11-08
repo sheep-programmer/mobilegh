@@ -34,10 +34,12 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,7 +49,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -69,6 +76,8 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -97,6 +106,45 @@ fun Oc(@DrawableRes icon: Int, tint: Color = Gh.c.fgMuted, size: Dp = 16.dp, mod
     Icon(painterResource(icon), contentDescription, modifier.size(size), tint = tint)
 }
 
+/**
+ * 悬浮文字提示：长按触发悬浮气泡，松开或点击外部自动关闭。
+ * 适配移动端触控，采用与应用主题一致的悬浮卡片风格。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GhTooltip(
+    tooltip: String?,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    if (tooltip.isNullOrBlank()) {
+        content()
+        return
+    }
+    val tooltipState = rememberTooltipState()
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
+        tooltip = {
+            PlainTooltip(
+                modifier = Modifier.border(1.dp, Gh.c.border, RoundedCornerShape(6.dp)),
+                shape = RoundedCornerShape(6.dp),
+                containerColor = Gh.c.canvasSubtle,
+                contentColor = Gh.c.fg,
+            ) {
+                Text(
+                    text = tooltip,
+                    color = Gh.c.fg,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                )
+            }
+        },
+        state = tooltipState,
+        modifier = modifier,
+        content = content,
+    )
+}
+
 @Composable
 fun OcButton(@DrawableRes icon: Int, onClick: () -> Unit, tint: Color = Gh.c.fg, enabled: Boolean = true, description: String? = null) {
     val label = description ?: when (icon) {
@@ -112,10 +160,11 @@ fun OcButton(@DrawableRes icon: Int, onClick: () -> Unit, tint: Color = Gh.c.fg,
         R.drawable.oc_eye -> tr("查看")
         R.drawable.oc_check -> tr("完成")
         R.drawable.oc_checklist -> tr("全部完成")
-        R.drawable.oc_repo -> tr("仓库")
+        R.drawable.oc_repo -> tr("按仓库分组")
         R.drawable.oc_trash -> tr("删除")
         R.drawable.oc_pencil -> tr("编辑")
         R.drawable.oc_filter -> tr("筛选")
+        R.drawable.oc_filter_remove -> tr("清除筛选")
         R.drawable.oc_download -> tr("下载")
         R.drawable.oc_history -> tr("提交历史")
         R.drawable.oc_git_branch -> tr("分支")
@@ -129,10 +178,32 @@ fun OcButton(@DrawableRes icon: Int, onClick: () -> Unit, tint: Color = Gh.c.fg,
         R.drawable.oc_arrow_down -> tr("下移")
         R.drawable.oc_paper_airplane -> tr("发送")
         R.drawable.oc_play -> tr("运行")
+        R.drawable.oc_repo_forked -> tr("Fork")
+        R.drawable.oc_scan -> tr("扫码")
+        R.drawable.oc_paperclip -> tr("添加附件")
+        R.drawable.oc_code -> tr("代码")
+        R.drawable.oc_heading -> tr("标题")
+        R.drawable.oc_bold -> tr("加粗")
+        R.drawable.oc_italic -> tr("斜体")
+        R.drawable.oc_strikethrough -> tr("删除线")
+        R.drawable.oc_link -> tr("链接")
+        R.drawable.oc_quote -> tr("引用")
+        R.drawable.oc_list_unordered -> tr("无序列表")
+        R.drawable.oc_list_ordered -> tr("有序列表")
+        R.drawable.oc_mention -> tr("提及用户")
+        R.drawable.oc_screen_full -> tr("全屏编辑")
+        R.drawable.oc_share_android -> tr("分享")
+        R.drawable.oc_bell -> tr("通知")
+        R.drawable.oc_bookmark -> tr("收藏")
+        R.drawable.oc_bookmark_fill -> tr("取消收藏")
+        R.drawable.oc_book -> tr("Wiki")
+        R.drawable.oc_wrap_text -> tr("自动换行")
         else -> tr("操作")
     }
-    IconButton(onClick = onClick, enabled = enabled) {
-        Icon(painterResource(icon), label, Modifier.size(20.dp), tint = if (enabled) tint else Gh.c.fgMuted)
+    GhTooltip(label) {
+        IconButton(onClick = onClick, enabled = enabled) {
+            Icon(painterResource(icon), label, Modifier.size(20.dp), tint = if (enabled) tint else Gh.c.fgMuted)
+        }
     }
 }
 
@@ -558,6 +629,65 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier, trailing: @Composa
     Row(modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 20.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = Gh.c.fg, modifier = Modifier.weight(1f))
         trailing()
+    }
+}
+
+/**
+ * 节标题右侧的操作文字圆框按钮：浅色背景 + 圆角边框 + 文字标签 + 长按提示。
+ * 替代纯图标或裸文字，文字一目了然，圆框具备明确的边界与触控手感。
+ */
+@Composable
+fun SectionActionChip(
+    text: String,
+    modifier: Modifier = Modifier,
+    tooltip: String? = null,
+    onClick: () -> Unit,
+) {
+    val g = Gh.c
+    GhTooltip(tooltip ?: text) {
+        Box(
+            modifier
+                .clip(RoundedCornerShape(50))
+                .background(g.canvasSubtle)
+                .border(1.dp, g.border, RoundedCornerShape(50))
+                .clickable(onClick = onClick)
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = g.fg,
+            )
+        }
+    }
+}
+
+/**
+ * 节标题右侧的操作圆圈按钮：圆形浅色背景 + 图标 + 长按悬浮提示。
+ * 替代裸文字链接，与 README 大纲、通知筛选等圆圈风格一致。
+ */
+@Composable
+fun SectionActionCircle(
+    @DrawableRes icon: Int,
+    tooltip: String,
+    modifier: Modifier = Modifier,
+    tint: Color = Gh.c.accent,
+    onClick: () -> Unit,
+) {
+    GhTooltip(tooltip) {
+        Box(
+            modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(tint.copy(alpha = if (Gh.c.dark) 0.18f else 0.12f))
+                .clickable(onClick = onClick)
+                .semantics { contentDescription = tooltip },
+            contentAlignment = Alignment.Center,
+        ) {
+            Oc(icon, tint, 16.dp)
+        }
     }
 }
 

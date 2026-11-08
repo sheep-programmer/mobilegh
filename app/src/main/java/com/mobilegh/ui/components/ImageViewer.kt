@@ -21,6 +21,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -88,14 +91,20 @@ object ImageViewer {
         private set
     var title by mutableStateOf("")
         private set
+    var linkUrl by mutableStateOf<String?>(null)
+        private set
 
-    fun open(src: String, alt: String = "") {
+    fun open(src: String, alt: String = "", link: String? = null) {
         if (src.isBlank() || src.startsWith("data:")) return
         url = src
         title = alt.ifBlank { fileName(src) }
+        linkUrl = link
     }
 
-    fun close() { url = null }
+    fun close() {
+        url = null
+        linkUrl = null
+    }
 
     fun fileName(src: String): String =
         src.substringBefore('?').substringBefore('#').trimEnd('/').substringAfterLast('/')
@@ -211,6 +220,7 @@ private fun ImageViewerContent(url: String, title: String) {
         }
 
         if (showBars) {
+            val link = ImageViewer.linkUrl
             Row(
                 Modifier.fillMaxWidth().background(Color(0x99000000)).statusBarsPadding().padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -220,11 +230,29 @@ private fun ImageViewerContent(url: String, title: String) {
                     title, color = Color.White, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
                 )
+                if (!link.isNullOrBlank()) {
+                    Row(
+                        Modifier
+                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+                            .background(Color(0x33FFFFFF))
+                            .clickable { ctx.openBrowser(link) }
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Oc(R.drawable.oc_link_external, Color.White, 14.dp)
+                        Spacer(Modifier.width(4.dp))
+                        Text(tr("打开外链"), color = Color.White, fontSize = 12.sp)
+                    }
+                    Spacer(Modifier.width(4.dp))
+                }
                 MoreMenu(
-                    listOf(
-                        MenuAction(tr("在浏览器打开")) { ctx.openBrowser(url) },
-                        MenuAction(tr("复制图片链接")) { ctx.copy(url, tr("链接已复制")) },
-                    ),
+                    buildList {
+                        add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser(url) })
+                        add(MenuAction(tr("复制图片链接")) { ctx.copy(url, tr("链接已复制")) })
+                        if (!link.isNullOrBlank()) {
+                            add(MenuAction(tr("复制外链")) { ctx.copy(link, tr("链接已复制")) })
+                        }
+                    },
                     tint = Color.White,
                 )
             }

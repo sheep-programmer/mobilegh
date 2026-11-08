@@ -84,6 +84,9 @@ fun DownloadHost() {
             }
         }) { Text(trf("只删除手机上的「{0}」，GitHub 上的内容不受影响，删除后无法恢复。", task.filename), color = g.fg, fontSize = 14.sp) }
     }
+    Downloads.inspectedFile?.let { info ->
+        FileInfoDialog(info) { Downloads.inspectedFile = null }
+    }
     val selected = Downloads.tasks.firstOrNull { it.key == Downloads.selectedKey }
     if (selected != null) {
         // 记录是完成的，但文件已经不在手机上：不再显示「下载完成」，改为提供重新下载
@@ -433,13 +436,7 @@ private fun DownloadProgress(task: DownloadTask) {
 }
 
 /** 下载前查看的文件信息 */
-data class FileInfo(
-    val name: String,
-    val url: String,
-    val isPrivate: Boolean,
-    val details: List<Pair<String, String>>,
-    val mimeType: String? = null,
-)
+typealias FileInfo = com.mobilegh.data.FileInfo
 
 /**
  * 点资源先弹出详情：完整文件名（可选中复制）、大小、类型、下载次数、时间等，

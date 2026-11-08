@@ -21,13 +21,24 @@ import androidx.compose.ui.unit.sp
 val ChartBubbleSpace = 48.dp
 
 /**
- * 让图表响应手指：点按、长按都会选中手指下的那一列，左右拖动时选中项跟着走。
+ * 让图表响应手指：点按、长按都会选中手指下的那一列，左右拖动时选中项跟着走。双击可触发 [onDoubleTap]。
  * [count] 是列数；每一列等宽，按横坐标换算出下标，并通过 [onSelect] 回调。
  */
-fun Modifier.chartSelect(count: Int, onSelect: (Int) -> Unit): Modifier = this
-    .pointerInput(count) {
+fun Modifier.chartSelect(
+    count: Int,
+    onDoubleTap: ((Int) -> Unit)? = null,
+    onSelect: (Int) -> Unit,
+): Modifier = this
+    .pointerInput(count, onDoubleTap) {
         detectTapGestures(
             onTap = { o -> if (count > 0) onSelect(columnAt(o.x, size.width, count)) },
+            onDoubleTap = if (onDoubleTap != null) { o ->
+                if (count > 0) {
+                    val idx = columnAt(o.x, size.width, count)
+                    onSelect(idx)
+                    onDoubleTap(idx)
+                }
+            } else null,
             onLongPress = { o -> if (count > 0) onSelect(columnAt(o.x, size.width, count)) },
         )
     }

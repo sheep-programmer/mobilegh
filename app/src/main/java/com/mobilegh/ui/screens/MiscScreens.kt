@@ -409,6 +409,7 @@ private fun AppearanceSettings() {
     SectionTitle(tr("阅读"))
     MenuGroup {
         SwitchRow(tr("代码自动换行"), tr("查看源码和日志时自动折行"), Session.codeWrap) { Session.toggleWrap() }
+        SwitchRow(tr("回到顶部按钮"), tr("列表向下翻过第一屏后，在右下角显示按钮"), Session.scrollToTopButton) { Session.chooseScrollToTopButton(it) }
     }
 }
 
@@ -461,7 +462,7 @@ private fun QuotaSection() {
             // 与应用所需权限比对，缺什么、影响什么、怎么补，一眼可见（细粒度 Token 无 scope 列表，不报缺失）
             val granted = DeviceAuth.parseScopes(scopes.data?.takeIf { it.isNotBlank() })
             LaunchedEffect(scopes.data) { if (granted != null) Session.applyScopes(granted) }
-            val missingScopes = DeviceAuth.missingScopes(granted)
+            val missingScopes = Session.missingScopes
             if (missingScopes.isNotEmpty()) {
                 Text(trf("缺少 {0} 项权限，以下功能不可用：", missingScopes.size), fontSize = 13.sp, fontWeight = FontWeight.Medium, color = g.attention)
                 missingScopes.forEach {

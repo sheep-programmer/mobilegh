@@ -56,12 +56,14 @@ import com.mobilegh.i18n.trf
 @Composable
 fun LinkActionsMenu(expanded: Boolean, onDismiss: () -> Unit, url: String) {
     val ctx = LocalContext.current
-    val g = Gh.c
-    DropdownMenu(expanded, onDismissRequest = onDismiss, containerColor = g.canvas) {
-        DropdownMenuItem(text = { Text(tr("复制链接"), color = g.fg) }, onClick = { onDismiss(); ctx.copy(url, tr("已复制链接")) })
-        DropdownMenuItem(text = { Text(tr("分享"), color = g.fg) }, onClick = { onDismiss(); ctx.share(url) })
-        DropdownMenuItem(text = { Text(tr("在浏览器打开"), color = g.fg) }, onClick = { onDismiss(); ctx.openBrowser(url) })
+    val actions = remember(url) {
+        listOf(
+            MenuAction(tr("复制链接"), icon = R.drawable.oc_copy) { ctx.copy(url, tr("已复制链接")) },
+            MenuAction(tr("分享"), icon = R.drawable.oc_share_android) { ctx.share(url) },
+            MenuAction(tr("在浏览器打开"), icon = R.drawable.oc_globe) { ctx.openBrowser(url) },
+        )
     }
+    CardDropdownMenu(expanded = expanded, onDismissRequest = onDismiss, actions = actions)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -280,9 +282,16 @@ fun EventItem(e: Event) {
     }
 }
 
-/** 动态分类（用于按类型筛选信息流） */
-enum class EventCat(private val labelZh: String) { All("全部"), Push("提交"), Pr("PR"), Issue("Issue"), Release("发布"), Social("Star/Fork"), Other("其他");
-    val label: String get() = trc(labelZh, "cat") }
+/** 动态分类（用于按类型筛选信息流，去掉无意义的「其他」） */
+enum class EventCat(private val labelZh: String) {
+    All("全部"), Push("提交"), Pr("PR"), Issue("Issue"), Release("发布"), Social("Star/Fork"), Other("其他");
+    val label: String get() = trc(labelZh, "cat")
+
+    companion object {
+        /** 供用户筛选的选项集合（去掉无意义的「其他」） */
+        val filterOptions = listOf(All, Push, Pr, Issue, Release, Social)
+    }
+}
 
 fun eventCat(e: Event): EventCat = when (e.type) {
     "PushEvent", "CreateEvent", "DeleteEvent", "GollumEvent", "CommitCommentEvent" -> EventCat.Push
@@ -292,6 +301,17 @@ fun eventCat(e: Event): EventCat = when (e.type) {
     "ReleaseEvent" -> EventCat.Release
     "WatchEvent", "ForkEvent", "PublicEvent" -> EventCat.Social
     else -> EventCat.Other
+}
+
+/**
+ * 推送动态点开后要打开的位置：这次推送本身的提交范围（before → head），而不是整个分支的提交历史。
+ * 新建分支时 before 是全零，没有可比较的基准，退回该分支的提交列表；缺少 head 时同样退回。
+ */
+internal fun pushEventTarget(o: String, r: String, branch: String?, payload: kotlinx.serialization.json.JsonObject): Screen {
+    val before = payload.str("before")?.takeIf { it.isNotBlank() && it.any { c -> c != '0' } }
+    val head = payload.str("head")
+    return if (before != null && !head.isNullOrBlank()) Screen.Compare(o, r, base = before, head = head)
+    else Screen.Commits(o, r, branch)
 }
 
 private data class EventDesc(val icon: Int, val action: String, val detail: String?, val target: Screen)
@@ -312,11 +332,12 @@ private fun describeEvent(e: Event, o: String, r: String): EventDesc {
             val branch = p.str("ref")?.removePrefix("refs/heads/")
             val commits = (p["commits"] as? kotlinx.serialization.json.JsonArray)?.mapNotNull { it.str("message")?.lineSequence()?.firstOrNull() }
             val size = p.int("size") ?: commits?.size
+            val target = pushEventTarget(o, r, branch, p)
             EventDesc(
                 R.drawable.oc_repo_push,
                 trf("推送{0}到 {1} @", size?.let { trf(" {0} 个提交", it) } ?: "", branch ?: ""),
                 commits?.take(3)?.joinToString("\n") { "• $it" },
-                Screen.Commits(o, r, branch),
+                target,
             )
         }
         "IssuesEvent" -> {

@@ -531,6 +531,7 @@ data class Step(val name: String = "", val status: String = "", val conclusion: 
 @Serializable
 data class Job(
     val id: Long = 0,
+    val runId: Long = 0,
     val name: String = "",
     val status: String = "",
     val conclusion: String? = null,

@@ -18,7 +18,7 @@ class NativeHtmlParserTest {
         val h = parse("<h2 dir=\"auto\"><a id=\"user-content-为什么用它\" class=\"anchor\" href=\"#为什么用它\"></a>为什么用它</h2>")
             .blocks.single() as HtmlBlock.Heading
         assertEquals(2, h.level)
-        assertEquals(listOf("为什么用它"), h.anchors)
+        assertTrue(h.anchors.contains("为什么用它"))
         assertEquals("为什么用它", plain(h.inlines))
     }
 
@@ -189,5 +189,63 @@ class NativeHtmlBadgeTest {
     @Test fun textBetweenImagesKeepsParagraphFlow() {
         val blocks = parse("<p>版本 <img src=\"https://img.shields.io/x.svg\" height=\"20\"> 发布</p>").blocks
         assertTrue(blocks.single() is HtmlBlock.Paragraph)
+    }
+
+    @Test fun sponsorLogosWithHeightBecomeOneFlowRowNotInlineText() {
+        // magpie README 赞助商：<a><img width=144 height=36></a> 多张，中间有空格和 <br>；塞进文字行会上下重叠
+        val html = "<p><a href=\"https://a\"><img src=\"a.svg\" width=\"144\" height=\"36\"></a>  " +
+            "<a href=\"https://b\"><img src=\"b.svg\" width=\"144\" height=\"36\"></a><br>\n" +
+            "<a href=\"https://c\"><img src=\"c.png\" width=\"144\" height=\"36\"></a></p>"
+        val row = parse(html).blocks.single() as HtmlBlock.ImageRow
+        assertEquals(3, row.images.size)
+        assertEquals(listOf(144, 144, 144), row.images.map { it.width })
+    }
+
+    @Test fun singleLogoWithHeightKeepsWidthAndTextMixedTallImageSplits() {
+        val logo = parse("<p><img src=\"l.png\" width=\"144\" height=\"36\"></p>").blocks.single() as HtmlBlock.Image
+        assertEquals(144, logo.width)
+        val blocks = parse("<p>前 <img src=\"l.png\" width=\"100\" height=\"36\"> 后</p>").blocks
+        assertTrue(blocks.any { it is HtmlBlock.Image })
+        val small = parse("<p>前 <img src=\"i.png\" height=\"16\"> 后</p>").blocks.single()
+        assertTrue(small is HtmlBlock.Paragraph)
+    }
+
+    @Test fun tableCellKeepsScreenshotAsImageInline() {
+        val t = parse("<table><thead><tr><th>A</th></tr></thead><tbody><tr><td><img src=\"s.png\" alt=\"s\"><br>首页</td></tr></tbody></table>")
+            .blocks.single() as HtmlBlock.Table
+        val img = t.rows[0][0].filterIsInstance<Inline.Image>().single()
+        assertEquals(null, img.height)
+        assertEquals(false, HtmlParser.isInlineImage(img))
+    }
+
+    @Test fun centeredDivKeepsAlignmentForHeadingTextAndImages() {
+        val html = "<div align=\"center\"><p><img src=\"logo.png\" width=\"120\"></p><h1>MobileGH</h1><p>简介</p></div><p>左对齐</p>"
+        val blocks = parse(html).blocks
+        assertEquals(2, blocks.size)
+        val box = blocks[0] as HtmlBlock.Aligned
+        assertEquals(BlockAlign.Center, box.align)
+        assertEquals(3, box.blocks.size)
+        assertTrue(box.blocks[0] is HtmlBlock.Image)
+        assertTrue(box.blocks[1] is HtmlBlock.Heading)
+        assertTrue(blocks[1] is HtmlBlock.Paragraph)
+    }
+
+    @Test fun centerTagAndTextAlignStyleAreRecognised() {
+        assertTrue(parse("<center><p>x</p></center>").blocks.single() is HtmlBlock.Aligned)
+        assertEquals(BlockAlign.Center, (parse("<p style=\"text-align: center\">x</p>").blocks.single() as HtmlBlock.Aligned).align)
+        assertEquals(BlockAlign.End, (parse("<p align=\"right\">x</p>").blocks.single() as HtmlBlock.Aligned).align)
+    }
+
+    @Test fun imageLinkToImageFileOpensViewerDirectly() {
+        val row = parse("<p><a href=\"docs/s/01.png\"><img src=\"docs/s/01.png\" width=\"220\"></a> <a href=\"docs/s/02.png\"><img src=\"docs/s/02.png\" width=\"220\"></a></p>")
+            .blocks.single() as HtmlBlock.ImageRow
+        assertTrue(row.images.all { it.link == null && it.viewSrc == null })
+        // 缩略图链接到大图：看图器显示大图；blob 页面地址换成 raw
+        val thumb = parse("<p><a href=\"https://github.com/a/b/blob/main/big.png\"><img src=\"small.png\"></a></p>").blocks.single() as HtmlBlock.Image
+        assertEquals(null, thumb.link)
+        assertEquals("https://github.com/a/b/raw/main/big.png", thumb.viewSrc)
+        // 链接到普通页面的图片仍然是链接
+        val page = parse("<p><a href=\"https://x.io/page\"><img src=\"p.png\"></a></p>").blocks.single() as HtmlBlock.Image
+        assertEquals("https://x.io/page", page.link)
     }
 }

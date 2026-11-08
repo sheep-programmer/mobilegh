@@ -12,10 +12,10 @@
 
 Things the official GitHub app does not show or do on a phone, MobileGH does:
 
-- **Contribution heatmap**: the full yearly graph plus active days, best day and streaks, which the official mobile app does not show
+- **Contribution heatmap**: the full yearly graph plus active days, best day and streaks, which the official mobile app does not show; inspect daily and weekly contribution breakdowns and pie charts
 - **Repositories you joined**: including repositories you were invited to collaborate on, not only the ones you created
 - **Traffic insights**: views / clones line charts; tap or long-press to read the exact value of any day
-- **Side-by-side diffs**: commits, branch comparisons and PR file changes can be viewed old-left / new-right, or switched back to a unified view
+- **Side-by-side diffs**: commits, branch comparisons and PR file changes can be viewed old-left / new-right, or switched back to a unified view; copying code automatically excludes line numbers
 - **Actions logs**: read job logs with warning highlights, trigger `workflow_dispatch`, re-run and cancel from your phone
 - **Large uploads**: pick files or folders on the phone and upload them as a single commit; files over 100 MiB automatically go through Git LFS
 - **English and Chinese UI**: switch any time in Settings; Simplified Chinese is the default
@@ -58,17 +58,18 @@ All screenshots are generated with a fictional test account (`mona`, `octocat`, 
 
 ### Browsing and reading
 
-- **Repositories**: rendered README (including relative-path images), syntax highlighting, Markdown / image preview, branch and tag switching; tap an image to zoom, save or share
-- **Code reading**: file-name / path finder in a repository, in-repository and global code search, line-by-line blame, jump to a line or commit
+- **Repositories**: rendered README (including relative-path images) with **pinch-to-zoom full-screen reading mode**; tap an image to zoom even if wrapped in a link; repository topics with interactive chip editing
+- **Code reading**: file-name / path finder in a repository, in-repository and global code search, line-by-line blame, jump to a line or commit; **copying code skips line numbers** automatically
 - **Diffs**: commits, branch / tag / SHA comparison and PR file changes all offer "Unified / Split" views; split is old-left / new-right with changed lines aligned side by side. Files are collapsed by default, and a notice appears when GitHub's compare API hits its 300-file limit
-- **Contributors**: cumulative commits, time ranges, whole-week trends, lines added / deleted, share, active weeks; on the weekly bar chart, tap or drag to see the value above the bar, with previous / next week buttons below
+- **Contributors & Heatmap breakdown**: cumulative commits, time ranges, whole-week trends, lines added / deleted, share, active weeks; **double-tap any day on the heatmap to view daily and weekly breakdowns with pie chart / list views**
 - **Chart readouts**: commit activity, weekday distribution and traffic line charts all show a bubble with the value and date when you tap, long-press or drag
-- **Public achievements, contribution heatmap, profile editing, organizations and their activity, Gists, Releases, Projects boards**
+- **Public achievements, profile editing, organizations and their activity, Gists, Releases, Projects boards**
 - **GitHub-style lists**: private repositories everywhere show the same gray outlined "Private" badge with a lock; Star lists, user rows and commit rows follow GitHub's layout
 
 ### Issues and pull requests
 
 - Lists, threads, comments, closing, merging, reviews and file-change diffs; filters for state, author, assignee, label, milestone, review state and drafts, plus sorting and search; "My issues / PRs" are grouped by created / assigned / mentioned / review requested
+- **Edit history**: inspect full edit history of issue bodies and comments, and delete specific revisions on demand
 - New issues read the repository's templates (including issue forms and config.yml) and can set labels, assignees and a milestone; open issues can be assigned to Copilot
 - PR review: inline comments (resolved / outdated), comment on a tapped line, code suggestions, per-file "viewed" progress, check summary, requesting reviews, draft ↔ ready conversion, a merge message and branch deletion on merge
 - Native Discussions: categories, answered filter, create and reply, upvote, mark answers, edit and delete

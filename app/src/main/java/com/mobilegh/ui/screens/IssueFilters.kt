@@ -8,6 +8,7 @@ import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -360,6 +361,7 @@ fun IssueResults(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Strin
         nav.push(Screen.IssueDetail(repo.substringBefore('/'), repo.substringAfter('/'), issue.number, issue.pullRequest != null))
     }
     val snackbar = retain("issue-results:snackbar") { SnackbarHostState() }
+    val listState = rememberLazyListState()
     Box(Modifier.fillMaxSize()) {
     when {
         q.needsSearch -> {
@@ -369,7 +371,7 @@ fun IssueResults(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Strin
             val close = rememberListCloser(pager, snackbar, key = { it.id }, message = { trf("已关闭 #{0}", it.number) }) { issue ->
                 closeFromAnywhere(issue, owner, name)
             }
-            PagedList(pager, empty = empty, emptyIcon = emptyIcon, emptyAction = emptyAction, onEmptyAction = clear, itemKey = { it.id }) { issue ->
+            PagedList(pager, state = listState, empty = empty, emptyIcon = emptyIcon, emptyAction = emptyAction, onEmptyAction = clear, itemKey = { it.id }) { issue ->
                 SwipeCloseRow(enabled = canCloseHere(issue.user?.login, issue.state), onClose = { close(issue) }) {
                     IssueItem(issue, repoName = if (q.repo == null) issue.repositoryUrl?.substringAfter("/repos/") else null) { openIssue(issue) }
                 }
@@ -384,7 +386,7 @@ fun IssueResults(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Strin
             val close = rememberListCloser(pager, snackbar, key = { it.id }, message = { trf("已关闭 #{0}", it.number) }) { pr ->
                 GitHub.setPullState(owner, name, pr.number, false)
             }
-            PagedList(pager, empty = empty, emptyIcon = emptyIcon, emptyAction = emptyAction, onEmptyAction = clear, itemKey = { it.id }) { pr ->
+            PagedList(pager, state = listState, empty = empty, emptyIcon = emptyIcon, emptyAction = emptyAction, onEmptyAction = clear, itemKey = { it.id }) { pr ->
                 SwipeCloseRow(enabled = canCloseHere(pr.user?.login, pr.state), onClose = { close(pr) }) {
                     PullItem(pr) { nav.push(Screen.IssueDetail(owner, name, pr.number, true)) }
                 }
@@ -402,7 +404,7 @@ fun IssueResults(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Strin
             OnRepoChanged(owner, name, RepoWrite.ISSUES) { pinned.refresh() }
             val pins = pinned.data.orEmpty().takeIf { !q.hasFilters && q.state != IssueStateFilter.Closed }.orEmpty()
             PagedList(
-                pager, empty = empty, emptyIcon = emptyIcon, emptyAction = emptyAction, onEmptyAction = clear,
+                pager, state = listState, empty = empty, emptyIcon = emptyIcon, emptyAction = emptyAction, onEmptyAction = clear,
                 itemFilter = { it.pullRequest == null }, itemKey = { it.id },
                 header = {
                     if (pins.isNotEmpty()) item(key = "pinned") { PinnedIssues(pins) { n -> nav.push(Screen.IssueDetail(owner, name, n, false)) } }

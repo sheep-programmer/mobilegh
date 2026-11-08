@@ -39,6 +39,7 @@ import com.mobilegh.data.IssueQuery
 import com.mobilegh.data.Session
 import com.mobilegh.data.StarListAccount
 import com.mobilegh.data.UserLists
+import com.mobilegh.data.UserStatusApi
 import com.mobilegh.data.Web
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.RepoKind
@@ -51,12 +52,14 @@ import com.mobilegh.nav.retain
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import com.mobilegh.ui.components.Card
+import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MenuGroup
 import com.mobilegh.ui.components.MoreMenu
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.EventCat
 import com.mobilegh.ui.components.EventItem
+import com.mobilegh.ui.components.parseInstant
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.eventCat
 import com.mobilegh.ui.components.IssueItem
@@ -64,7 +67,9 @@ import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.SectionTitle
+import com.mobilegh.ui.components.SectionActionChip
 import com.mobilegh.ui.components.TextLink
+import com.mobilegh.ui.components.UserStatusBottomSheet
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
 
@@ -86,6 +91,8 @@ fun HomeScreen() {
         }
     }
     com.mobilegh.ui.components.RefreshProfileOnChange(me)
+    val userStatus = rememberLoader("home-status:$login") { runCatching { UserStatusApi.getStatus(login, isViewer = true) }.getOrNull() }
+    var showStatusSheet by remember { mutableStateOf(false) }
     val invites = rememberLoader("inv") { f ->
         GitHub.repoInvitations(f).size + runCatching { GitHub.orgInvitations(f).size }.getOrDefault(0)
     }
@@ -105,6 +112,8 @@ fun HomeScreen() {
             onLists = { nav.push(Screen.StarLists(login)) },
             onGists = { nav.push(Screen.Gists(null)) },
             onRecent = { nav.push(Screen.RecentRepositories) },
+            onFavorites = { nav.push(Screen.Favorites) },
+            onSaved = { nav.push(Screen.Saved) },
         ),
     ) { nav.push(savedSearchScreen(it.query)) }
     com.mobilegh.nav.OnTabReselect(Tab.Home) { state.animateScrollToItem(0) }
@@ -127,15 +136,17 @@ fun HomeScreen() {
             feed, Modifier.padding(pad).fillMaxSize(), state,
             empty = tr("关注一些开发者或 Star 一些仓库后，这里会显示动态"),
             emptyIcon = R.drawable.oc_pulse, emptyAction = tr("去探索"), onEmptyAction = { nav.select(Tab.Explore) },
-            onRefresh = { me.refresh(); invites.refresh(); contrib.refresh(); lists.refresh(); badges.refresh() },
+            onRefresh = { me.refresh(); userStatus.refresh(); invites.refresh(); contrib.refresh(); lists.refresh(); badges.refresh() },
             // 非「全部」分类是本地过滤，关闭自动翻页，避免稀有分类连续拉取空页；底部保留「加载更多」
             autoLoad = cat == EventCat.All,
             itemFilter = { cat == EventCat.All || eventCat(it) == cat },
+            // 按发生时间倒序严格排列，确保最新动态排在最上方
+            itemSort = compareByDescending<com.mobilegh.data.Event> { parseInstant(it.createdAt)?.toEpochMilli() ?: Long.MIN_VALUE },
             itemKey = { it.id },
             header = {
-                item { HomeProfile(login, me.data, Session.avatar) { nav.select(Tab.Me) } }
+                item { HomeProfile(login, me.data, Session.avatar, userStatus.data, onSetStatus = { showStatusSheet = true }) { nav.select(Tab.Me) } }
                 invites.data?.takeIf { it > 0 }?.let { n -> item { HomeInviteBanner(n) { nav.push(Screen.Invitations) } } }
-                item { SectionTitle(tr("我的工作")) { TextLink(tr("编辑")) { nav.push(Screen.HomeCustomize) } } }
+                item { SectionTitle(tr("我的工作")) { SectionActionChip(tr("编辑"), tooltip = tr("自定义快捷入口")) { nav.push(Screen.HomeCustomize) } } }
                 item {
                     if (shortcuts.isEmpty()) {
                         Text(tr("所有快捷入口都已隐藏，点「编辑」可重新显示"), Modifier.padding(horizontal = 16.dp), fontSize = 13.sp, color = g.fgMuted)
@@ -143,49 +154,8 @@ fun HomeScreen() {
                         HomeShortcuts(shortcuts)
                     }
                 }
-                // 与官方 App 一致：收藏区始终显示；没有收藏时给出说明和添加入口
-                item {
-                    SectionTitle(tr("收藏仓库")) {
-                        Row {
-                            TextLink(tr("添加")) { nav.push(Screen.AddFavorites) }
-                            if (layout.favorites.isNotEmpty()) {
-                                Spacer(Modifier.width(16.dp))
-                                TextLink(tr("编辑")) { nav.push(Screen.HomeCustomize) }
-                            }
-                        }
-                    }
-                }
-                if (layout.favorites.isEmpty()) {
-                    item {
-                        Card(Modifier.padding(horizontal = 16.dp)) {
-                            Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Oc(R.drawable.oc_star, g.fgMuted, 24.dp)
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    tr("把常用仓库加入收藏，在首页一键打开，不用每次搜索。"),
-                                    color = g.fgMuted, fontSize = 13.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                )
-                                Spacer(Modifier.height(12.dp))
-                                GhButton(tr("添加收藏"), primary = true) { nav.push(Screen.AddFavorites) }
-                            }
-                        }
-                    }
-                } else {
-                    item {
-                        MenuGroup {
-                            layout.favorites.forEachIndexed { i, f ->
-                                HomeFavoriteRow(
-                                    f, canUp = i > 0, canDown = i < layout.favorites.lastIndex,
-                                    onOpen = { nav.push(Screen.Repo(f.owner, f.name)) },
-                                    onMove = { d -> HomePrefs.moveFavorite(i, d) },
-                                    onRemove = { removeFavoriteWithUndo(scope, snackbar, i, f) },
-                                )
-                            }
-                        }
-                    }
-                }
                 // 贡献详情在「我的」页的贡献活动区块里，所以按钮文字如实写成查看全部贡献
-                item { SectionTitle(tr("贡献")) { TextLink(tr("查看全部贡献")) { nav.select(Tab.Me) } } }
+                item { SectionTitle(tr("贡献")) { SectionActionChip(tr("详情"), tooltip = tr("查看全部贡献")) { nav.select(Tab.Me) } } }
                 item {
                     Card(Modifier.padding(horizontal = 16.dp)) {
                         Column {
@@ -196,7 +166,7 @@ fun HomeScreen() {
                     }
                 }
                 // 这里列的是 GitHub Star 列表（与「我的」里的 Star 列表是同一批），不是首页的收藏仓库
-                item { SectionTitle(tr("Star 列表")) { TextLink(tr("全部")) { nav.push(Screen.StarLists(login)) } } }
+                item { SectionTitle(tr("Star 列表")) { SectionActionChip(tr("全部"), tooltip = tr("全部 Star 列表")) { nav.push(Screen.StarLists(login)) } } }
                 item {
                     // 首页和列表页共用搜索/排序状态，两处看到的顺序一致
                     val listBrowser = rememberSharedListBrowser("home-lists:$login")
@@ -220,9 +190,15 @@ fun HomeScreen() {
                         )
                     }
                 }
-                item { SectionTitle(tr("动态")) }
                 item {
-                    Chips(EventCat.entries.map { it.label }, EventCat.entries.indexOf(cat)) { cat = EventCat.entries[it] }
+                    SectionTitle(tr("动态"), trailing = {
+                        Dropdown(
+                            label = cat.label,
+                            options = EventCat.filterOptions.map { it.label },
+                            onSelect = { cat = EventCat.filterOptions[it] },
+                            active = cat != EventCat.All,
+                        )
+                    })
                 }
             },
         ) { EventItem(it) }
@@ -239,6 +215,13 @@ fun HomeScreen() {
             } catch (cancelled: CancellationException) { throw cancelled } catch (failure: Exception) { creatingError = failure.friendly() }
             finally { creatingBusy = false }
         }
+    }
+    if (showStatusSheet) {
+        UserStatusBottomSheet(
+            current = userStatus.data,
+            onDismiss = { showStatusSheet = false },
+            onSaved = { userStatus.refresh(); me.refresh() },
+        )
     }
 }
 

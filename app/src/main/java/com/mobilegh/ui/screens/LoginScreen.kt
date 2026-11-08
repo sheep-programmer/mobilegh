@@ -80,6 +80,7 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
                 currentCoroutineContext().ensureActive()
                 checkAccount(v.user)
                 Session.signIn(result.token, v.user, result.refreshToken, result.expiresIn, BuildConfig.GITHUB_CLIENT_ID, scopes = v.scopes)
+                GitHubWebLogin.close()
                 AppLog.info("auth", tr("OAuth 登录成功"))
             },
             tokenLogin = { clean ->
@@ -88,6 +89,9 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
                 checkAccount(v.user)
                 Session.signIn(clean, v.user, scopes = v.scopes)
                 AppLog.info("auth", tr("Token 登录成功"))
+                if (!GitHubWebLogin.hasSession()) {
+                    GitHubWebLogin.request(tr("登录 GitHub（同步网页会话）"))
+                }
             },
             now = { SystemClock.elapsedRealtime() },
         )
@@ -97,15 +101,17 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
     var remaining by remember { mutableIntStateOf(0) }
     var retryIn by remember { mutableIntStateOf(0) }
 
-    BackHandler(device != null) { flow.cancel() }
+    BackHandler(device != null) {
+        flow.cancel()
+        GitHubWebLogin.close()
+    }
     BackHandler(logs) { logs = false }
     BackHandler(menu && !logs && !authenticator) { menu = false }
     LaunchedEffect(device) {
         if (device == null) return@LaunchedEffect
-        // 参考同类客户端：拿到验证码后自动复制并打开浏览器，减少手动步骤
-        ctx.copy(device.userCode, trf("验证码 {0} 已复制，请在浏览器粘贴", device.userCode))
-        runCatching { ctx.openBrowser(device.verificationUri) }
-            .onFailure { flow.notice = trf("浏览器未能打开，请手动访问 {0}", device.verificationUri) }
+        // 自动复制验证码并在应用内无缝打开授权页面（双线同步）
+        ctx.copy(device.userCode, trf("验证码 {0} 已复制，请在页面粘贴", device.userCode))
+        GitHubWebLogin.request(tr("输入授权码（双线同步）"), device.verificationUri)
         while (isActive) {
             val nowMs = SystemClock.elapsedRealtime()
             remaining = ((flow.deadline - nowMs).coerceAtLeast(0) / 1000).toInt()
@@ -179,7 +185,9 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
                             enabled = !busy && !approvalSetup.busy, icon = R.drawable.oc_mark_github) {
                             approvalStartError = null
                             runCatching { MobileApprovalOAuth.begin(ctx, if (reauthorizing) ApprovalOAuthPurpose.Reauthorize else ApprovalOAuthPurpose.SignIn) }
-                                .onSuccess { ctx.openBrowser(it) }
+                                .onSuccess { authUrl ->
+                                    GitHubWebLogin.request(tr("GitHub 授权登录（双线同步）"), authUrl)
+                                }
                                 .onFailure { approvalStartError = it.message?.takeIf { m -> m.isNotBlank() } ?: tr("无法开始 GitHub 授权，请重试") }
                         }
                         approvalStartError?.let { InlineError(it) }
@@ -190,7 +198,7 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
                         approvalSetup.error?.let {
                             InlineError(it, retry = if (approvalSetup.canRetry) ({ MobileApprovalOAuth.retry(ctx) }) else null)
                         }
-                        TextLink(tr("使用设备授权码登录")) { flow.authorize() }
+                        TextLink(tr("使用设备授权码登录（网页授权 · 支持 Projects 权限）")) { flow.authorize() }
                     }
                 }
             }
@@ -202,9 +210,11 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
                     Text(d.userCode, fontSize = 28.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = g.accent)
                     if (!flow.confirming) Text(trf("{0}:{1} 后过期", remaining / 60, (remaining % 60).toString().padStart(2, '0')), color = g.fgMuted, fontSize = 12.sp)
                     Text(tr("此码填写在浏览器；验证数字可在下方输入并批准。"), color = g.fgMuted, fontSize = 12.sp)
-                    GhButton(tr("复制并打开 GitHub"), Modifier.fillMaxWidth(), primary = true, enabled = !flow.confirming, icon = R.drawable.oc_link_external) {
-                        ctx.copy(d.userCode); ctx.openBrowser(d.verificationUri)
+                    GhButton(tr("在应用内打开授权"), Modifier.fillMaxWidth(), primary = true, enabled = !flow.confirming, icon = R.drawable.oc_shield_lock) {
+                        ctx.copy(d.userCode, trf("验证码 {0} 已复制，请在页面粘贴", d.userCode))
+                        GitHubWebLogin.request(tr("输入授权码（双线同步）"), d.verificationUri)
                     }
+                    TextLink(tr("在系统外部浏览器打开")) { ctx.copy(d.userCode); ctx.openBrowser(d.verificationUri) }
                     TextLink(tr("仅复制验证码")) { ctx.copy(d.userCode) }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = g.fgMuted)

@@ -1,6 +1,7 @@
 package com.mobilegh.ui
 
 import androidx.compose.ui.Alignment
+import com.mobilegh.ui.components.ExternalLinkDialogHost
 import com.mobilegh.ui.components.GitHubWebLoginHost
 import com.mobilegh.ui.components.LinkMenuHost
 import android.app.Activity
@@ -239,6 +240,7 @@ private fun Main(nav: Navigator) {
             .navigationBarsPadding().imePadding(),
     )
     LinkMenuHost()
+    ExternalLinkDialogHost()
     GitHubWebLoginHost()
     }
 }
@@ -332,7 +334,7 @@ private fun ScreenHost(s: Screen) {
         is Screen.NewIssue -> NewIssueScreen(s.owner, s.name)
         is Screen.Actions -> ActionsScreen(s.owner, s.name)
         is Screen.RunDetail -> RunDetailScreen(s.owner, s.name, s.runId)
-        is Screen.JobLog -> JobLogScreen(s.owner, s.name, s.jobId, s.title, s.runId)
+        is Screen.JobLog -> JobLogScreen(s.owner, s.name, s.jobId, s.title, s.runId, s.stepNumber)
         is Screen.Releases -> ReleasesScreen(s.owner, s.name, s.tag, s.releaseId)
         is Screen.Pushes -> PushesScreen(s.owner, s.name)
         is Screen.Branches -> BranchesScreen(s.owner, s.name)
@@ -367,6 +369,8 @@ private fun ScreenHost(s: Screen) {
         Screen.Logs -> LogsScreen()
         Screen.Drafts -> DraftsScreen()
         Screen.AddFavorites -> AddFavoritesScreen()
+        Screen.Favorites -> FavoritesScreen()
+        Screen.Saved -> SavedScreen()
         Screen.Authenticator -> AuthenticatorScreen()
         Screen.OrgDiagnostics -> OrgDiagnosticsScreen()
         Screen.CreateRepo -> CreateRepoScreen()

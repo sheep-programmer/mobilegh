@@ -70,4 +70,10 @@ class LinksRoutingTest {
         // 无关的页内锚点不影响打开的页面
         assertEquals(Screen.IssueDetail("octocat", "Hello-World", 7, true, null), Links.route("$repo/pull/7#top"))
     }
+
+    @Test fun userAttachmentsAndFileDownloadLinksDoNotRouteToRepo() {
+        assertNull(Links.route("https://github.com/user-attachments/files/34540973/ios-unsigned.zip"))
+        assertNull(Links.route("https://github.com/user-attachments/assets/12345"))
+        assertNull(Links.route("https://github.com/octocat/Hello-World/files/34540973/test.zip"))
+    }
 }

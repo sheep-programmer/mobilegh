@@ -13,7 +13,7 @@ import com.mobilegh.i18n.trf
 
 /** 首页「我的工作」里的内置入口；顺序即默认布局 */
 enum class BuiltinShortcut(val id: String) {
-    Issues("issues"), Pulls("pulls"), Repos("repos"), Orgs("orgs"),
+    Issues("issues"), Pulls("pulls"), Favorites("favorites"), Saved("saved"), Repos("repos"), Orgs("orgs"),
     Stars("stars"), Lists("lists"), Gists("gists"), Recent("recent");
 
     companion object {
@@ -25,7 +25,7 @@ enum class BuiltinShortcut(val id: String) {
 val SAVED_SEARCH_ICONS = listOf("search", "issue", "pr", "bug", "tag", "milestone", "mention", "eye", "flame", "zap", "star", "bookmark")
 
 @Serializable
-data class FavoriteRepo(val owner: String, val name: String) {
+data class FavoriteRepo(val owner: String, val name: String, val nodeId: String? = null) {
     val fullName: String get() = "$owner/$name"
 }
 
@@ -57,7 +57,7 @@ data class HomeLayout(
     fun search(slotId: String): SavedSearch? = searches.firstOrNull { searchSlotId(it.id) == slotId }
 
     companion object {
-        const val MAX_FAVORITES = 30
+        const val MAX_FAVORITES = 25
         const val MAX_SEARCHES = 12
         const val MAX_NAME = 24
         fun searchSlotId(id: String) = "search:$id"
@@ -122,6 +122,11 @@ class HomeLayoutStore internal constructor(private val storage: LocalRecordStora
     fun removeFavorite(login: String, repo: FavoriteRepo) =
         change(login) { l -> l.copy(favorites = l.favorites.filterNot { it.fullName.equals(repo.fullName, true) }) }
 
+    /** 直接设置收藏列表（用于从云端同步全量列表） */
+    fun setFavorites(login: String, favorites: List<FavoriteRepo>) = change(login) {
+        it.copy(favorites = favorites.filter { f -> repoName.matches(f.fullName) }.distinctBy { f -> f.fullName.lowercase() }.take(HomeLayout.MAX_FAVORITES))
+    }
+
     /** 撤销「移出收藏」：按原位放回；已经存在或已达上限时保持不变 */
     fun restoreFavorite(login: String, index: Int, repo: FavoriteRepo) = change(login) { l ->
         if (l.isFavorite(repo.owner, repo.name) || l.favorites.size >= HomeLayout.MAX_FAVORITES) l
@@ -181,6 +186,7 @@ object HomePrefs {
     }
 
     fun toggleFavorite(owner: String, name: String): Boolean = change { toggleFavorite(it, owner, name) } ?: false
+    fun setFavorites(favorites: List<FavoriteRepo>) = change { setFavorites(it, favorites) }
     fun moveFavorite(index: Int, delta: Int) = change { moveFavorite(it, index, delta) }
     fun removeFavorite(repo: FavoriteRepo) = change { removeFavorite(it, repo) }
     fun restoreFavorite(index: Int, repo: FavoriteRepo) = change { restoreFavorite(it, index, repo) }

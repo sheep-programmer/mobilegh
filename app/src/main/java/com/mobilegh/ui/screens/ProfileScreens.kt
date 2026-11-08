@@ -1,11 +1,14 @@
 package com.mobilegh.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -19,6 +22,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -26,12 +31,17 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -39,11 +49,16 @@ import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.Contributions
 import com.mobilegh.data.Event
+import com.mobilegh.ui.components.Oc
+import com.mobilegh.ui.components.ReadmeZoomDialog
+import com.mobilegh.ui.components.onPinchToZoom
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.PinnedRepo
 import com.mobilegh.data.ProjectOwnerKind
 import com.mobilegh.data.Session
 import com.mobilegh.data.User
+import com.mobilegh.data.UserStatus
+import com.mobilegh.data.UserStatusApi
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Loader
@@ -59,10 +74,19 @@ import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.BarChart
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Chips
+import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.ErrorState
+import com.mobilegh.ui.components.EventCat
 import com.mobilegh.ui.components.EventItem
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
+import com.mobilegh.ui.components.GhField
+import com.mobilegh.ui.components.DayContributionSheet
+import com.mobilegh.ui.components.ContributionPieSheet
+import com.mobilegh.ui.components.buildContributionSlices
+import com.mobilegh.ui.components.WeekdayContributionSheet
+import com.mobilegh.data.ContribDay
+import com.mobilegh.data.ContribWeek
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.Heatmap
 import com.mobilegh.ui.components.IconText
@@ -72,6 +96,7 @@ import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MenuRow
 import com.mobilegh.ui.components.MenuGroup
 import com.mobilegh.ui.components.MoreMenu
+import com.mobilegh.ui.components.HtmlView
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
@@ -80,13 +105,16 @@ import com.mobilegh.ui.components.RatioRow
 import com.mobilegh.ui.components.RegisterScrollTop
 import com.mobilegh.ui.components.RepoItem
 import com.mobilegh.ui.components.SectionTitle
+import com.mobilegh.ui.components.SectionActionChip
 import com.mobilegh.ui.components.StatCell
 import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.UserItem
+import com.mobilegh.ui.components.UserStatusBottomSheet
 import com.mobilegh.ui.components.VisibilityBadge
 import com.mobilegh.ui.components.parseInstant
 import com.mobilegh.ui.components.contribStats
 import com.mobilegh.ui.components.copy
+import com.mobilegh.ui.components.ExternalLinkDialog
 import com.mobilegh.ui.components.fmtCount
 import com.mobilegh.ui.components.fmtDate
 import com.mobilegh.ui.components.fmtSize
@@ -103,7 +131,7 @@ import com.mobilegh.i18n.trf
 
 // ======================= 贡献热力图 =======================
 
-class ContribState(scope: CoroutineScope, private val login: String) {
+class ContribState(scope: CoroutineScope, val login: String) {
     var year by mutableStateOf<Int?>(null)
     var years by mutableStateOf<List<Int>>(emptyList())
     val loader: Loader<Contributions> = Loader(scope) {
@@ -126,6 +154,34 @@ fun ContributionBody(state: ContribState, full: Boolean) {
     val g = Gh.c
     val nav = LocalNav.current
     val c = state.loader.data
+    var inspectingDay by remember { mutableStateOf<Pair<ContribDay, ContribWeek>?>(null) }
+    var inspectingWeekday by remember { mutableStateOf<Int?>(null) }
+
+    inspectingDay?.let { (day, week) ->
+        DayContributionSheet(
+            login = state.login,
+            day = day,
+            week = week,
+            onDismiss = { inspectingDay = null },
+            onPickDay = { inspectingDay = it to week },
+        )
+    }
+
+    if (c != null) {
+        inspectingWeekday?.let { wd ->
+            WeekdayContributionSheet(
+                login = state.login,
+                weekday = wd,
+                cal = c.contributionCalendar,
+                onDismiss = { inspectingWeekday = null },
+                onPickDay = { day, week ->
+                    inspectingWeekday = null
+                    inspectingDay = day to week
+                },
+            )
+        }
+    }
+
     Column(Modifier.padding(vertical = 12.dp)) {
         Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -133,17 +189,25 @@ fun ContributionBody(state: ContribState, full: Boolean) {
                 fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = g.fg, modifier = Modifier.weight(1f),
             )
             if (state.loader.loading) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = g.fgMuted)
-        }
-        if (full && state.years.size > 1) {
-            Chips(listOf(tr("最近一年")) + state.years.map { "$it" }, state.year?.let { state.years.indexOf(it) + 1 } ?: 0) { i ->
-                state.select(if (i == 0) null else state.years[i - 1])
+            if (full && state.years.size > 1) {
+                val yearOptions = listOf(tr("最近一年")) + state.years.map { "$it" }
+                Spacer(Modifier.width(8.dp))
+                Dropdown(
+                    label = state.year?.toString() ?: tr("最近一年"),
+                    options = yearOptions,
+                    onSelect = { i -> state.select(if (i == 0) null else state.years[i - 1]) },
+                    active = state.year != null,
+                )
             }
-        } else {
-            Spacer(Modifier.height(10.dp))
         }
+        Spacer(Modifier.height(10.dp))
         when {
             c != null -> {
-                Heatmap(c.contributionCalendar, Modifier.padding(horizontal = 12.dp))
+                Heatmap(
+                    c.contributionCalendar,
+                    Modifier.padding(horizontal = 12.dp),
+                    onDoubleTapDay = { day, week -> inspectingDay = day to week },
+                )
                 val st = contribStats(c.contributionCalendar)
                 Spacer(Modifier.height(8.dp))
                 HDivider()
@@ -156,28 +220,79 @@ fun ContributionBody(state: ContribState, full: Boolean) {
                 }
                 if (full) {
                     HDivider()
+                    var showPieSheet by remember { mutableStateOf(false) }
+                    var pieInitialIndex by remember { mutableIntStateOf(-1) }
+                    val total = c.totalCommitContributions + c.totalPullRequestContributions + c.totalIssueContributions +
+                        c.totalPullRequestReviewContributions + c.totalRepositoryContributions
+                    val slices = remember(c, g) {
+                        buildContributionSlices(
+                            commits = c.totalCommitContributions,
+                            prs = c.totalPullRequestContributions,
+                            reviews = c.totalPullRequestReviewContributions,
+                            issues = c.totalIssueContributions,
+                            repos = c.totalRepositoryContributions,
+                            g = g,
+                        )
+                    }
+
                     Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                        val total = c.totalCommitContributions + c.totalPullRequestContributions + c.totalIssueContributions +
-                            c.totalPullRequestReviewContributions + c.totalRepositoryContributions
-                        Text(tr("贡献构成"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = g.fg)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(tr("贡献构成"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = g.fg, modifier = Modifier.weight(1f))
+                            SectionActionChip(
+                                text = tr("饼状图"),
+                                tooltip = tr("查看饼状图构成分析"),
+                                onClick = {
+                                    pieInitialIndex = -1
+                                    showPieSheet = true
+                                },
+                            )
+                        }
                         Spacer(Modifier.height(4.dp))
-                        RatioRow(tr("提交 Commits"), c.totalCommitContributions, total, g.success)
-                        RatioRow(tr("拉取请求 Pull Requests"), c.totalPullRequestContributions, total, g.accent)
-                        RatioRow(tr("代码审查 Review"), c.totalPullRequestReviewContributions, total, g.done)
-                        RatioRow(tr("议题 Issues"), c.totalIssueContributions, total, g.attention)
-                        RatioRow(tr("新建仓库"), c.totalRepositoryContributions, total, g.fgMuted)
+                        RatioRow(tr("提交 Commits"), c.totalCommitContributions, total, g.success, onClick = { pieInitialIndex = 0; showPieSheet = true })
+                        RatioRow(tr("拉取请求 Pull Requests"), c.totalPullRequestContributions, total, g.accent, onClick = { pieInitialIndex = 1; showPieSheet = true })
+                        RatioRow(tr("代码审查 Review"), c.totalPullRequestReviewContributions, total, g.done, onClick = { pieInitialIndex = 2; showPieSheet = true })
+                        RatioRow(tr("议题 Issues"), c.totalIssueContributions, total, g.attention, onClick = { pieInitialIndex = 3; showPieSheet = true })
+                        RatioRow(tr("新建仓库"), c.totalRepositoryContributions, total, g.fgMuted, onClick = { pieInitialIndex = 4; showPieSheet = true })
                         if (c.restrictedContributionsCount > 0) {
                             Text(trf("另有 {0} 次私有贡献（对你不可见）", c.restrictedContributionsCount), fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(top = 4.dp))
                         }
                         st.best?.let { Text(trf("单日最高：{0}，{1} 次", it.date, it.contributionCount), fontSize = 12.sp, color = g.fgMuted, modifier = Modifier.padding(top = 4.dp)) }
 
+                        if (showPieSheet) {
+                            ContributionPieSheet(
+                                title = tr("全年贡献构成分析"),
+                                slices = slices,
+                                total = total,
+                                restrictedCount = c.restrictedContributionsCount,
+                                initialSelectedIndex = pieInitialIndex,
+                                onDismiss = { showPieSheet = false },
+                            )
+                        }
+
                         Spacer(Modifier.height(14.dp))
                         Text(tr("一周中的活跃分布"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = g.fg)
                         Spacer(Modifier.height(8.dp))
-                        BarChart(st.byWeekday.toList(), g.success, height = 64.dp, labels = listOf(tr("周日"), tr("周一"), tr("周二"), tr("周三"), tr("周四"), tr("周五"), tr("周六")), unit = tr(" 次贡献"))
+                        BarChart(
+                            st.byWeekday.toList(),
+                            g.success,
+                            height = 64.dp,
+                            labels = listOf(tr("周日"), tr("周一"), tr("周二"), tr("周三"), tr("周四"), tr("周五"), tr("周六")),
+                            unit = tr(" 次贡献"),
+                            onDoubleTap = { wd -> inspectingWeekday = wd },
+                        )
                         Row(Modifier.fillMaxWidth()) {
-                            listOf(tr("日"), tr("一"), tr("二"), tr("三"), tr("四"), tr("五"), tr("六")).forEach {
-                                Text(it, Modifier.weight(1f), fontSize = 11.sp, color = g.fgMuted, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                            listOf(tr("日"), tr("一"), tr("二"), tr("三"), tr("四"), tr("五"), tr("六")).forEachIndexed { idx, label ->
+                                Text(
+                                    label,
+                                    Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable { inspectingWeekday = idx }
+                                        .padding(vertical = 4.dp),
+                                    fontSize = 11.sp,
+                                    color = g.fgMuted,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                )
                             }
                         }
                         if (c.commitContributionsByRepository.isNotEmpty()) {
@@ -232,6 +347,9 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
     val contrib = rememberContrib(login)
     val pinned = rememberLoader("pinned:$login") { runCatching { GitHub.pinned(login) }.getOrDefault(emptyList()) }
     val orgs = rememberLoader("orgs:$login") { if (isSelf) GitHub.myOrgs(it) else GitHub.userOrgs(login, it) }
+    val profileReadme = rememberLoader("readme:$login") { force -> runCatching { GitHub.readme(login, login, null, force) }.getOrNull() }
+    val userStatus = rememberLoader("status:$login") { runCatching { UserStatusApi.getStatus(login, isViewer = isSelf) }.getOrNull() }
+    var showStatusDialog by remember { mutableStateOf(false) }
     val following = retain("following:$login") { mutableStateOf<Boolean?>(null) }
     // 状态查询失败要记下来并给出重试；LaunchedEffect 只在登录名变化时跑一次，否则关注按钮会一直禁用
     val followFailed = retain("following-failed:$login") { mutableStateOf(false) }
@@ -265,10 +383,15 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
         when {
             u == null && user.error != null -> ErrorState(user.error!!, Modifier.padding(pad).fillMaxSize()) { user.load(true) }
             u == null -> Loading(Modifier.padding(pad).fillMaxSize())
-            else -> PullToRefreshBox(user.refreshing, { user.refresh(); contrib.refresh(); pinned.refresh(); orgs.refresh() }, Modifier.padding(pad)) {
+            else -> PullToRefreshBox(user.refreshing, { user.refresh(); contrib.refresh(); pinned.refresh(); orgs.refresh(); profileReadme.refresh(); userStatus.refresh() }, Modifier.padding(pad)) {
                 RegisterScrollTop(state)
                 ScrollbarLazyColumn(Modifier.fillMaxSize(), state = state) {
-                    item { ProfileHeader(u, isSelf, following.value, followFailed.value, onRetryFollow = { followFailed.value = false; followRetry++ }) { on ->
+                    item { ProfileHeader(
+                        u, isSelf, following.value, followFailed.value,
+                        status = userStatus.data,
+                        onEditStatus = if (isSelf) ({ showStatusDialog = true }) else null,
+                        onRetryFollow = { followFailed.value = false; followRetry++ },
+                    ) { on ->
                         following.value = on
                         entry.act({ following.value = !on; ctx.toast(it) }) { GitHub.follow(login, on) }
                     } }
@@ -281,7 +404,10 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
                         }
                     }
                     item { AchievementsStrip(login, self = isSelf) }
-                    item { SectionTitle(tr("贡献活动")) { com.mobilegh.ui.components.TextLink(tr("动态")) { nav.push(Screen.Activity(login)) } } }
+                    profileReadme.data?.let { html ->
+                        item { ProfileReadmeCard(login, html) }
+                    }
+                    item { SectionTitle(tr("贡献活动")) { SectionActionChip(text = tr("动态"), tooltip = tr("动态")) { nav.push(Screen.Activity(login)) } } }
                     item { Card(Modifier.padding(horizontal = 16.dp)) { ContributionBody(contrib, full = true) } }
                     val pins = pinned.data.orEmpty()
                     if (pins.isNotEmpty()) {
@@ -349,6 +475,13 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
             }
         }
     }
+    if (showStatusDialog) {
+        UserStatusBottomSheet(
+            current = userStatus.data,
+            onDismiss = { showStatusDialog = false },
+            onSaved = { userStatus.refresh() },
+        )
+    }
 }
 
 /** 其他用户主页的「组织」行去向：自己的组织走组织页，只有一个直接进入，多个或没有则弹出列表 */
@@ -371,7 +504,14 @@ private fun Info(k: String, v: String) {
 
 @Composable
 private fun ProfileHeader(
-    u: User, isSelf: Boolean, following: Boolean?, followFailed: Boolean, onRetryFollow: () -> Unit, onFollow: (Boolean) -> Unit,
+    u: User,
+    isSelf: Boolean,
+    following: Boolean?,
+    followFailed: Boolean,
+    status: UserStatus? = null,
+    onEditStatus: (() -> Unit)? = null,
+    onRetryFollow: () -> Unit,
+    onFollow: (Boolean) -> Unit,
 ) {
     val g = Gh.c
     val nav = LocalNav.current
@@ -386,6 +526,37 @@ private fun ProfileHeader(
                     Text(u.login, fontSize = 18.sp, color = g.fgMuted)
                     if (u.siteAdmin) { Spacer(Modifier.width(6.dp)); Pill("Staff", g.done) }
                 }
+                if (status != null && !status.isEmpty) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        Modifier
+                            .border(1.dp, g.border, RoundedCornerShape(16.dp))
+                            .background(g.canvasSubtle, RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable(enabled = onEditStatus != null) { onEditStatus?.invoke() }
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        if (status.displayEmoji.isNotBlank()) Text(status.displayEmoji, fontSize = 13.sp)
+                        if (!status.message.isNullOrBlank()) Text(status.message, fontSize = 12.sp, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (status.indicatesLimitedAvailability) Pill(tr("忙碌"), g.attention)
+                    }
+                } else if (isSelf && onEditStatus != null) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        Modifier
+                            .border(1.dp, g.borderMuted, RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable { onEditStatus() }
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text("💬", fontSize = 12.sp)
+                        Text(tr("设置状态"), fontSize = 12.sp, color = g.fgMuted)
+                    }
+                }
             }
         }
         if (!u.bio.isNullOrBlank()) {
@@ -399,7 +570,8 @@ private fun ProfileHeader(
             u.company?.takeIf { it.isNotBlank() }?.let { IconText(R.drawable.oc_organization, it, g.fg, maxLines = wrap) }
             u.location?.takeIf { it.isNotBlank() }?.let { IconText(R.drawable.oc_location, it, g.fg, maxLines = wrap) }
             u.blog?.takeIf { it.isNotBlank() }?.let { b ->
-                IconText(R.drawable.oc_link, b, g.accent, Modifier.clickable { ctx.openBrowser(if (b.startsWith("http")) b else "https://$b") }, bold = true, maxLines = wrap)
+                val u = if (b.startsWith("http")) b else "https://$b"
+                IconText(R.drawable.oc_link, b, g.accent, Modifier.clickable { ExternalLinkDialog.show(u, b) }, bold = true, maxLines = wrap)
             }
             u.email?.takeIf { it.isNotBlank() }?.let { IconText(R.drawable.oc_mail, it, g.fg, Modifier.clickable { ctx.copy(it) }, maxLines = wrap) }
             u.twitterUsername?.takeIf { it.isNotBlank() }?.let { IconText(R.drawable.oc_mention, "@$it", g.fg) }
@@ -478,6 +650,7 @@ fun OrgScreen(login: String) {
     var sort by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
     val sorts = listOf("pushed" to tr("最近推送"), "updated" to tr("最近更新"), "full_name" to tr("名称"), "created" to tr("创建时间"))
     val repos = rememberPager("orgrepos:$login:$sort") { p, f -> GitHub.orgRepos(login, sorts[sort].first, p, f) }
+    val state = rememberLazyListState()
     Page(
         org.data?.name ?: login, subtitle = tr("组织"),
         actions = {
@@ -490,7 +663,7 @@ fun OrgScreen(login: String) {
             ))
         },
     ) { pad ->
-        PagedList(repos, Modifier.padding(pad), empty = tr("没有可见的仓库"), onRefresh = { org.refresh() }, header = {
+        PagedList(repos, Modifier.padding(pad), state = state, itemKey = { it.id }, empty = tr("没有可见的仓库"), onRefresh = { org.refresh() }, header = {
             item {
                 val o = org.data
                 Column(Modifier.padding(16.dp)) {
@@ -511,7 +684,8 @@ fun OrgScreen(login: String) {
                         // 同一行放两个长文本时，窄屏下都会被挤成省略号；改为各占一行并允许折行
                         o?.location?.takeIf { it.isNotBlank() }?.let { IconText(R.drawable.oc_location, it, maxLines = Int.MAX_VALUE) }
                         o?.blog?.takeIf { it.isNotBlank() }?.let { b ->
-                            IconText(R.drawable.oc_link, b, g.accent, Modifier.clickable { ctx.openBrowser(if (b.startsWith("http")) b else "https://$b") }, maxLines = Int.MAX_VALUE)
+                            val u = if (b.startsWith("http")) b else "https://$b"
+                            IconText(R.drawable.oc_link, b, g.accent, Modifier.clickable { ExternalLinkDialog.show(u, b) }, maxLines = Int.MAX_VALUE)
                         }
                     }
                     Spacer(Modifier.height(10.dp))
@@ -556,8 +730,9 @@ fun UsersScreen(kind: UserKind, a: String, b: String) {
             UserKind.Members -> GitHub.orgMembers(a, p, f)
         }
     }
+    val state = rememberLazyListState()
     Page(title, subtitle = if (b.isNotEmpty()) "$a/$b" else a) { pad ->
-        PagedList(pager, Modifier.padding(pad)) { u ->
+        PagedList(pager, Modifier.padding(pad), state = state, itemKey = { it.id }) { u ->
             UserItem(u, subtitle = u.contributions?.let { trf("{0} 次提交", it) })
         }
     }
@@ -567,21 +742,93 @@ fun UsersScreen(kind: UserKind, a: String, b: String) {
 fun ActivityScreen(login: String) {
     val pager = rememberPager("events:$login") { p, f -> GitHub.userEvents(login, p, f) }
     var cat by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(com.mobilegh.ui.components.EventCat.All) }
-    Page(tr("动态"), subtitle = login) { pad ->
-        Column(Modifier.padding(pad)) {
-            Chips(com.mobilegh.ui.components.EventCat.entries.map { it.label }, com.mobilegh.ui.components.EventCat.entries.indexOf(cat)) {
-                cat = com.mobilegh.ui.components.EventCat.entries[it]
+    val state = rememberLazyListState()
+    Page(
+        tr("动态"),
+        subtitle = login,
+        actions = {
+            Dropdown(
+                label = cat.label,
+                options = EventCat.filterOptions.map { it.label },
+                onSelect = { cat = EventCat.filterOptions[it] },
+                active = cat != EventCat.All,
+            )
+        },
+    ) { pad ->
+        PagedList(
+            pager, Modifier.padding(pad), state = state, empty = tr("最近 90 天没有动态"),
+            itemKey = { it.id },
+            // 按发生时间倒序严格排列；没有时间的事件放到最后
+            itemSort = compareByDescending<Event> { parseInstant(it.createdAt)?.toEpochMilli() ?: Long.MIN_VALUE },
+            // 非「全部」分类是本地过滤：关闭自动翻页，避免稀有分类连续拉取空页；底部保留「加载更多」
+            autoLoad = cat == com.mobilegh.ui.components.EventCat.All,
+            itemFilter = { cat == com.mobilegh.ui.components.EventCat.All || com.mobilegh.ui.components.eventCat(it) == cat },
+        ) { EventItem(it) }
+    }
+}
+
+@Composable
+private fun ProfileReadmeCard(login: String, html: String) {
+    val g = Gh.c
+    var expanded by rememberSaveable(login) { mutableStateOf(true) }
+    var zoomOpen by remember { mutableStateOf(false) }
+    var zoomScale by remember { mutableFloatStateOf(1.5f) }
+    Card(
+        Modifier
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .then(if (expanded) Modifier.onPinchToZoom { ratio ->
+                zoomScale = ratio.coerceIn(1.2f, 3.0f)
+                zoomOpen = true
+            } else Modifier),
+    ) {
+        Column {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                com.mobilegh.ui.components.Oc(R.drawable.oc_book, g.fgMuted, 16.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "$login / README.md",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                    color = g.fg,
+                    modifier = Modifier.weight(1f),
+                )
+                if (expanded) {
+                    Box(
+                        Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .clickable { zoomOpen = true },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Oc(R.drawable.oc_screen_full, g.fg, 14.dp)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(if (expanded) tr("收起") else tr("展开"), fontSize = 12.sp, color = g.accent)
             }
-            HDivider()
-            PagedList(
-                pager, empty = tr("最近 90 天没有动态"),
-                itemKey = { it.id },
-                // 按发生时间倒序严格排列；没有时间的事件放到最后
-                itemSort = compareByDescending<Event> { parseInstant(it.createdAt)?.toEpochMilli() ?: Long.MIN_VALUE },
-                // 非「全部」分类是本地过滤：关闭自动翻页，避免稀有分类连续拉取空页；底部保留「加载更多」
-                autoLoad = cat == com.mobilegh.ui.components.EventCat.All,
-                itemFilter = { cat == com.mobilegh.ui.components.EventCat.All || com.mobilegh.ui.components.eventCat(it) == cat },
-            ) { EventItem(it) }
+            if (expanded) {
+                HDivider()
+                Box(Modifier.padding(14.dp)) {
+                    HtmlView(html, baseUrl = "https://github.com/$login/$login/blob/main/")
+                }
+            }
         }
+    }
+    if (zoomOpen) {
+        ReadmeZoomDialog(
+            html = html,
+            baseUrl = "https://github.com/$login/$login/blob/main/",
+            initialScale = zoomScale,
+            onDismiss = {
+                zoomOpen = false
+                zoomScale = 1.5f
+            },
+        )
     }
 }

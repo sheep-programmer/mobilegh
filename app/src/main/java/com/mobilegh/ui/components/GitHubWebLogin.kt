@@ -1,6 +1,8 @@
 package com.mobilegh.ui.components
 
+import android.content.Context
 import android.webkit.CookieManager
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
@@ -24,38 +26,46 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.mobilegh.R
+import com.mobilegh.data.MobileApprovalOAuth
 import com.mobilegh.data.WebAttachmentUploader
 import com.mobilegh.i18n.tr
 import com.mobilegh.ui.theme.Gh
 
 /**
- * 应用内的 GitHub 网页登录，只用于附件上传。
+ * 应用内的 GitHub 网页会话登录，用于附件上传及网页端独有功能（如删除编辑历史）。
  * 在应用里打开 github.com 登录页，用户自己输入账号密码（应用不接触密码）；登录成功后
- * WebView 的 cookie 即为网页会话，附件上传时只随 github.com 请求发送。
+ * WebView 的 cookie 即为网页会话，只随 github.com 网页私有请求发送。
  */
 object GitHubWebLogin {
     var url by mutableStateOf<String?>(null)
         private set
+    var title by mutableStateOf<String?>(null)
+        private set
     private var onDone: (() -> Unit)? = null
 
     /** 当前 WebView 里是否已有 GitHub 登录会话 */
-    fun hasSession(): Boolean = WebAttachmentUploader.hasSession(CookieManager.getInstance().getCookie("https://github.com"))
+    fun hasSession(): Boolean = runCatching {
+        WebAttachmentUploader.hasSession(CookieManager.getInstance().getCookie("https://github.com"))
+    }.getOrDefault(false)
 
     /** 需要登录时调用：打开登录页，登录成功后执行 [done]（只执行一次） */
-    fun request(done: () -> Unit) {
+    fun request(customTitle: String? = null, urlToOpen: String = "https://github.com/login", done: () -> Unit = {}) {
         onDone = done
-        url = "https://github.com/login"
+        title = customTitle
+        url = urlToOpen
     }
 
     fun close() {
         url = null
+        title = null
         onDone = null
     }
 
     internal fun loggedIn() {
-        CookieManager.getInstance().flush()
+        runCatching { CookieManager.getInstance().flush() }
         val callback = onDone
         url = null
+        title = null
         onDone = null
         callback?.invoke()
     }
@@ -77,7 +87,7 @@ fun GitHubWebLoginHost() {
             ) {
                 OcButton(R.drawable.oc_x, { GitHubWebLogin.close() }, g.fg, description = tr("关闭"))
                 Text(
-                    tr("登录 GitHub（用于添加附件）"),
+                    GitHubWebLogin.title ?: tr("登录 GitHub（用于网页会话与附件）"),
                     Modifier.padding(horizontal = 6.dp),
                     color = g.fg, fontSize = 15.sp,
                 )
@@ -90,9 +100,33 @@ fun GitHubWebLoginHost() {
                         settings.domStorageEnabled = true
                         CookieManager.getInstance().setAcceptCookie(true)
                         webViewClient = object : WebViewClient() {
-                            // 登录成功会跳转到 GitHub 首页并写入会话 cookie：页面加载完成时检查
+                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                val u = request?.url?.toString() ?: return false
+                                return handleRedirect(u, c)
+                            }
+
+                            @Deprecated("Deprecated in Java")
+                            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                                if (url == null) return false
+                                return handleRedirect(url, c)
+                            }
+
+                            private fun handleRedirect(u: String, context: Context): Boolean {
+                                if (MobileApprovalOAuth.handles(u)) {
+                                    runCatching { CookieManager.getInstance().flush() }
+                                    MobileApprovalOAuth.complete(context, u)
+                                    GitHubWebLogin.close()
+                                    return true
+                                }
+                                return false
+                            }
+
                             override fun onPageFinished(view: WebView?, url: String?) {
-                                if (GitHubWebLogin.hasSession()) GitHubWebLogin.loggedIn()
+                                val opening = GitHubWebLogin.url.orEmpty()
+                                val isPureLogin = opening.startsWith("https://github.com/login") && !opening.contains("/device") && !opening.contains("/oauth")
+                                if (isPureLogin && GitHubWebLogin.hasSession()) {
+                                    GitHubWebLogin.loggedIn()
+                                }
                             }
                         }
                         loadUrl(address)

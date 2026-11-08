@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,6 +10,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -16,96 +22,122 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
-import com.mobilegh.data.Event
+import com.mobilegh.data.Branch
+import com.mobilegh.data.CommitPush
 import com.mobilegh.data.GitHub
-import com.mobilegh.data.pushFeedIsBehind
-import com.mobilegh.data.pushSummary
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.OnRepoChanged
 import com.mobilegh.nav.Screen
-import com.mobilegh.nav.rememberLoader
-import com.mobilegh.nav.rememberPager
+import com.mobilegh.nav.friendly
 import com.mobilegh.ui.components.Avatar
+import com.mobilegh.ui.components.GhButton
+import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.Page
-import com.mobilegh.ui.components.PagedList
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import com.mobilegh.ui.components.relTime
 import com.mobilegh.ui.theme.Gh
+import kotlinx.coroutines.CancellationException
 
-/** 仓库最近的推送：每一行是一次推送，说明是谁、推到了哪个分支、推了几个提交、最新的提交是什么。 */
+/**
+ * 仓库最近的推送：每一行是一次推送，说明是谁、推到了哪个分支、包含几个提交、最新的提交是什么。
+ *
+ * 数据来自提交历史（每个分支读一段提交，按作者和时间切分），而不是仓库事件接口——
+ * 后者对大仓库不完整，经常看不到最近的推送，于是页面顶部要挂一条「事件记录不完整」的提示。
+ */
 @Composable
 fun PushesScreen(owner: String, name: String) {
+    val g = Gh.c
     val nav = LocalNav.current
-    val pager = rememberPager("pushes", 30) { p, f -> GitHub.repoEvents(owner, name, p, f) }
-    // 仓库头部「推送于」用的是仓库的 pushed_at；这里对照事件流，落后时在列表顶部说明
-    val repo = rememberLoader("pushes-repo:$owner/$name") { GitHub.repo(owner, name, it) }
-    OnRepoChanged(owner, name) { pager.refresh() }
-    val newestPushAt = pager.items.firstOrNull { pushSummary(it) != null }?.createdAt
-    val pushedAt = repo.data?.pushedAt
-    val behind = pager.loadedOnce && pushFeedIsBehind(pushedAt, newestPushAt)
+    var pushes by remember { mutableStateOf<List<CommitPush>?>(null) }
+    var branches by remember { mutableStateOf<List<Branch>>(emptyList()) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var revision by remember { mutableStateOf(0) }
+    val state = rememberLazyListState()
+
+    LaunchedEffect(revision) {
+        loading = true
+        error = null
+        try {
+            val (list, br) = GitHub.commitPushes(owner, name, force = revision > 0, limit = com.mobilegh.data.PUSH_PAGE)
+            pushes = list
+            branches = br
+        } catch (c: CancellationException) {
+            throw c
+        } catch (e: Throwable) {
+            error = e.friendly()
+        } finally {
+            loading = false
+        }
+    }
+    OnRepoChanged(owner, name) { revision++ }
+
     Page(tr("最近推送"), subtitle = "$owner/$name", onSubtitleClick = { nav.toRepoHome(owner, name) }) { pad ->
-        PagedList(
-            pager, Modifier.padding(pad), empty = tr("最近没有推送记录"),
-            header = {
-                if (behind) item { PushFeedNotice(pushedAt, newestPushAt) }
-            },
-        ) { e -> pushSummary(e)?.let { PushRow(owner, name, e) } }
+        val list = pushes
+        when {
+            list == null && loading -> Column(Modifier.padding(pad).fillMaxWidth().padding(24.dp)) { Loading(Modifier.fillMaxWidth()) }
+            list == null && error != null -> Column(Modifier.padding(pad).fillMaxWidth().padding(24.dp)) {
+                Text(error!!, color = g.danger, fontSize = 13.sp)
+                Spacer(Modifier.padding(top = 12.dp))
+                GhButton(tr("重试"), primary = true) { revision++ }
+            }
+            list.isNullOrEmpty() -> Column(Modifier.padding(pad).fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Oc(R.drawable.oc_history, g.fgMuted, 28.dp)
+                Text(tr("还没有提交记录"), Modifier.padding(top = 8.dp), color = g.fgMuted, fontSize = 13.sp)
+            }
+            else -> ScrollbarLazyColumn(Modifier.padding(pad).fillMaxWidth(), state = state) {
+                items(list.size, key = { i -> list[i].headSha }) { i ->
+                    PushRow(owner, name, list[i])
+                }
+                item {
+                    Text(
+                        trf("来自 {0} 个分支的提交历史", branches.size),
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        color = g.fgMuted, fontSize = 12.sp,
+                    )
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun PushFeedNotice(pushedAt: String?, newestPushAt: String?) {
-    val g = Gh.c
-    Text(
-        if (newestPushAt == null) {
-            trf("仓库最后推送于 {0}，但 GitHub 的事件记录里没有可显示的推送。大仓库的事件记录并不完整。", relTime(pushedAt))
-        } else {
-            trf("仓库最后推送于 {0}，但 GitHub 的事件记录里最新的推送是 {1}。事件记录对大仓库并不完整，以下只是它能提供的部分。",
-                relTime(pushedAt), relTime(newestPushAt))
-        },
-        Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = g.attention, fontSize = 12.sp,
-    )
-}
-
-@Composable
-private fun PushRow(owner: String, name: String, event: Event) {
+private fun PushRow(owner: String, name: String, push: CommitPush) {
     val g = Gh.c
     val nav = LocalNav.current
-    val s = pushSummary(event) ?: return
-    val actor = event.actor.displayLogin ?: event.actor.login
-    val target = if (s.isTag) tr("标签") else tr("分支")
+    val actor = push.authorLogin ?: tr("未知用户")
+    val target = if (push.isTag) tr("标签") else tr("分支")
     Row(
         Modifier.fillMaxWidth()
-            // 点开即看这次推送的内容：推送前到推送后之间的提交列表与文件改动
-            .clickable(enabled = s.headSha != null && s.baseSha != null) {
-                nav.push(Screen.Compare(owner, name, base = s.baseSha!!, head = s.headSha!!))
+            .clickable {
+                if (push.baseSha != null) nav.push(Screen.Compare(owner, name, base = push.baseSha, head = push.headSha))
+                else nav.push(Screen.CommitDetail(owner, name, push.headSha))
             }
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        Avatar(event.actor.avatarUrl, 32.dp)
+        Avatar(push.authorAvatar, 32.dp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                s.commitCount?.let { trf("{0} 推送了 {1} 个提交到{2} {3}", actor, it, target, s.ref) }
-                    ?: trf("{0} 推送到{1} {2}", actor, target, s.ref),
+                if (push.commitCount > 1) trf("{0} 推送了 {1} 个提交到{2} {3}", actor, push.commitCount, target, push.ref)
+                else trf("{0} 推送了 1 个提交到{1} {2}", actor, target, push.ref),
                 color = g.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
-            if (s.headMessage.isNotBlank()) Text(
-                s.headMessage, color = g.fg, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            if (push.headMessage.isNotBlank()) Text(
+                push.headMessage, color = g.fg, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 2.dp),
             )
             Row(Modifier.padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Oc(R.drawable.oc_clock, g.fgMuted, 12.dp)
                 Spacer(Modifier.width(4.dp))
-                Text(event.createdAt?.let { relTime(it) }.orEmpty(), color = g.fgMuted, fontSize = 12.sp)
-                s.headSha?.let {
-                    Spacer(Modifier.width(10.dp))
-                    Text(it.take(7), color = g.fgMuted, fontSize = 12.sp)
-                }
+                Text(push.at.takeIf { it.isNotBlank() }?.let { relTime(it) }.orEmpty(), color = g.fgMuted, fontSize = 12.sp)
+                Spacer(Modifier.width(10.dp))
+                Text(push.headSha.take(7), color = g.fgMuted, fontSize = 12.sp)
             }
         }
     }

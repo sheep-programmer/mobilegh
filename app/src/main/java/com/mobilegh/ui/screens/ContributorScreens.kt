@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -452,7 +453,7 @@ private fun ContributorDetailCard(
                             .padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(if (expanded) tr("收起周趋势") else tr("展开查看最近一年的周趋势"), Modifier.weight(1f),
+                        Text(if (expanded) tr("收起周趋势") else tr("展开查看周趋势（默认最近 3 周）"), Modifier.weight(1f),
                             color = g.accent, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         Oc(R.drawable.oc_chevron_right, g.accent, 14.dp)
                     }
@@ -485,19 +486,19 @@ private fun ContributorDetailCard(
     }
 }
 
-/** 只有展开时才会组合这个函数，所以周趋势请求只为被展开的人发出。 */
+/** 只有展开时才会组合这个函数，所以周趋势请求只为被展开的人发出。默认只加载最近 3 周，往回翻时才往回加载。 */
 @Composable
 private fun PersonActivitySection(owner: String, name: String, login: String) {
-    // 逐页读取这个人最近一年的提交：每读完一页就刷新图，最近的周先出现，读完后才算完整
+    var weeksCount by rememberSaveable(owner, name, login) { mutableIntStateOf(3) }
     var activity by remember(owner, name, login) { mutableStateOf<PersonActivity?>(null) }
     var loading by remember(owner, name, login) { mutableStateOf(true) }
     var error by remember(owner, name, login) { mutableStateOf<String?>(null) }
     var attempt by remember(owner, name, login) { mutableIntStateOf(0) }
-    LaunchedEffect(owner, name, login, attempt) {
+    LaunchedEffect(owner, name, login, attempt, weeksCount) {
         loading = true
         error = null
         try {
-            ContributionStats.personActivity(owner, name, login, onProgress = { activity = it })
+            ContributionStats.personActivity(owner, name, login, weeksCount = weeksCount, onProgress = { activity = it })
                 .let { activity = it }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -508,19 +509,54 @@ private fun PersonActivitySection(owner: String, name: String, login: String) {
         }
     }
     activity?.let { shown ->
-        WeeklyContributionGraph(shown.weekly, height = 42.dp)
-        if (loading) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Loading(Modifier.size(16.dp))
-            MutedText(tr("正在读取更早的提交…"))
-        } else if (shown.truncated) MutedText(tr("提交非常多，只读到了最近的一部分；更早的周显示为缺失。"))
+        val hasEarlier = weeksCount < 52
+        WeeklyContributionGraph(
+            shown.weekly,
+            height = 42.dp,
+            hasEarlier = hasEarlier,
+            onLoadEarlier = {
+                if (hasEarlier && !loading) {
+                    weeksCount = (weeksCount + 3).coerceAtMost(52)
+                }
+            },
+        )
+        if (loading) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Loading(Modifier.size(16.dp))
+                MutedText(tr("正在读取更早的提交…"))
+            }
+        } else if (hasEarlier) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                MutedText(trf("已显示最近 {0} 周", shown.weekly.size))
+                TextButton(
+                    onClick = {
+                        if (!loading) weeksCount = (weeksCount + 3).coerceAtMost(52)
+                    },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Oc(R.drawable.oc_history, Gh.c.accent, 14.dp)
+                        Text(tr("往回加载更早 3 周"), color = Gh.c.accent, fontSize = 12.sp)
+                    }
+                }
+            }
+        } else if (shown.truncated) {
+            MutedText(tr("提交非常多，只读到了最近的一部分；更早的周显示为缺失。"))
+        }
     }
     error?.let {
         MutedText(it)
         TextButton(onClick = { attempt++ }, enabled = !loading) { Text(tr("重试")) }
     }
-    if (activity == null && error == null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Loading(Modifier.size(20.dp))
-        MutedText(tr("正在加载最近一年的周趋势…"))
+    if (activity == null && error == null) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Loading(Modifier.size(20.dp))
+            MutedText(tr("正在加载最近 3 周趋势…"))
+        }
     }
 }
 
@@ -633,7 +669,12 @@ private fun ContributorLoadMore(state: ContributorListState, onLoad: () -> Unit,
 }
 
 @Composable
-internal fun WeeklyContributionGraph(points: List<ContributionPoint>, height: Dp) {
+internal fun WeeklyContributionGraph(
+    points: List<ContributionPoint>,
+    height: Dp,
+    hasEarlier: Boolean = false,
+    onLoadEarlier: (() -> Unit)? = null,
+) {
     val g = Gh.c
     val visible = remember(points) { points.takeLast(52) }
     if (visible.isEmpty()) {
@@ -658,14 +699,17 @@ internal fun WeeklyContributionGraph(points: List<ContributionPoint>, height: Dp
         } }
     }
     val labelHeight = with(density) { (labels.filterNotNull().maxOfOrNull { it.size.height } ?: 0).toDp() }
-    // 选中的周：点按或左右拖动图表、或用前后按钮切换；明细只显示这一周，不再展开一长串文字
-    var selected by remember(visible) { mutableIntStateOf(visible.lastIndex) }
+    // 选中的周：默认不选中；点按选中某一周，再点一次同一周取消选中；亦可左右拖动或前后切换
+    var selected by remember(visible) { mutableStateOf<Int?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         MutedText(trf("每周提交{0} · 已知最高 {1}", if (points.size > 52) tr(" · 最近 52 个返回周") else trf(" · {0} 周", visible.size), peakLabel))
         Canvas(
             Modifier.fillMaxWidth().height(height + labelHeight + 4.dp + ChartBubbleSpace).semantics { contentDescription = description }
                 .pointerInput(visible) {
-                    detectTapGestures { o -> selected = (o.x / (size.width.toFloat() / visible.size)).toInt().coerceIn(0, visible.lastIndex) }
+                    detectTapGestures { o ->
+                        val tapped = (o.x / (size.width.toFloat() / visible.size)).toInt().coerceIn(0, visible.lastIndex)
+                        selected = if (selected == tapped) null else tapped
+                    }
                 }
                 .pointerInput(visible) {
                     detectHorizontalDragGestures { change, _ ->
@@ -678,11 +722,9 @@ internal fun WeeklyContributionGraph(points: List<ContributionPoint>, height: Dp
             val chartHeight = height.toPx()
             val showLabels = visible.size <= 8 && labels.filterNotNull().all { it.size.width + 4.dp.toPx() <= slot }
             drawLine(g.borderMuted, Offset(0f, size.height), Offset(size.width, size.height))
-            drawRoundRect(g.accentSubtle, Offset(selected * slot, 0f), Size(slot, size.height), CornerRadius(3.dp.toPx()))
-            val selectedPoint = visible[selected]
-            val selectedBar = selectedPoint.commits?.takeIf { it > 0 }?.let {
-                (chartHeight * (it.toDouble() / (peak ?: 1L).coerceAtLeast(1L))).toFloat().coerceIn(minOf(2.dp.toPx(), chartHeight), chartHeight)
-            } ?: 0f
+            selected?.let { sel ->
+                drawRoundRect(g.accentSubtle, Offset(sel * slot, 0f), Size(slot, size.height), CornerRadius(3.dp.toPx()))
+            }
             visible.forEachIndexed { index, point ->
                 val count = point.commits
                 if (count == null) {
@@ -691,7 +733,12 @@ internal fun WeeklyContributionGraph(points: List<ContributionPoint>, height: Dp
                 } else {
                     val barHeight = if (count > 0) (chartHeight * (count.toDouble() / (peak ?: 1L).coerceAtLeast(1L))).toFloat()
                         .coerceIn(minOf(2.dp.toPx(), chartHeight), chartHeight) else 0f
-                    if (count > 0 && barWidth > 0) drawRoundRect(if (index == selected) g.accent else g.accent.copy(alpha = 0.55f),
+                    val barColor = when {
+                        selected == null -> g.accent
+                        index == selected -> g.accent
+                        else -> g.accent.copy(alpha = 0.55f)
+                    }
+                    if (count > 0 && barWidth > 0) drawRoundRect(barColor,
                         Offset(index * slot + (slot - barWidth) / 2, size.height - barHeight),
                         Size(barWidth, barHeight), CornerRadius(1.dp.toPx()))
                     if (showLabels) labels[index]?.let { layout ->
@@ -700,29 +747,48 @@ internal fun WeeklyContributionGraph(points: List<ContributionPoint>, height: Dp
                     }
                 }
             }
-            drawValueBubble(
-                measurer,
-                listOf(selectedPoint.commits?.let { trf("{0} 次提交", contributionCount(it)) } ?: tr("数据缺失"), trf("{0} 起的一周", selectedPoint.start)),
-                (selected + 0.5f) * slot, size.height - selectedBar, g.fg, g.canvas,
-            )
-        }
-        val point = visible[selected]
-        Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(g.canvasSubtle).padding(horizontal = 4.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton({ selected = (selected - 1).coerceAtLeast(0) }, enabled = selected > 0) {
-                Oc(R.drawable.oc_arrow_left, if (selected > 0) g.fg else g.borderMuted, 16.dp)
-            }
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    point.commits?.let { trf("{0} 次提交", contributionCount(it)) } ?: tr("数据缺失"),
-                    color = g.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            selected?.let { sel ->
+                val selectedPoint = visible[sel]
+                val selectedBar = selectedPoint.commits?.takeIf { it > 0 }?.let {
+                    (chartHeight * (it.toDouble() / (peak ?: 1L).coerceAtLeast(1L))).toFloat().coerceIn(minOf(2.dp.toPx(), chartHeight), chartHeight)
+                } ?: 0f
+                drawValueBubble(
+                    measurer,
+                    listOf(selectedPoint.commits?.let { trf("{0} 次提交", contributionCount(it)) } ?: tr("数据缺失"), trf("{0} 起的一周", selectedPoint.start)),
+                    (sel + 0.5f) * slot, size.height - selectedBar, g.fg, g.canvas,
                 )
-                MutedText(trf("{0} 起的一周（UTC）", point.start))
             }
-            IconButton({ selected = (selected + 1).coerceAtMost(visible.lastIndex) }, enabled = selected < visible.lastIndex) {
-                Oc(R.drawable.oc_arrow_right, if (selected < visible.lastIndex) g.fg else g.borderMuted, 16.dp)
+        }
+        selected?.let { sel ->
+            val point = visible[sel]
+            val canGoLeft = sel > 0 || (hasEarlier && onLoadEarlier != null)
+            val canGoRight = sel < visible.lastIndex
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(g.canvasSubtle).padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(
+                    onClick = {
+                        if (sel > 0) selected = sel - 1
+                        else if (hasEarlier && onLoadEarlier != null) onLoadEarlier()
+                    },
+                    enabled = canGoLeft,
+                ) {
+                    Oc(R.drawable.oc_arrow_left, if (canGoLeft) g.fg else g.borderMuted, 16.dp)
+                }
+                Column(
+                    Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).clickable { selected = null },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        point.commits?.let { trf("{0} 次提交", contributionCount(it)) } ?: tr("数据缺失"),
+                        color = g.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                    )
+                    MutedText(trf("{0} 起的一周（UTC） · 点按关闭", point.start))
+                }
+                IconButton({ selected = (sel + 1).coerceAtMost(visible.lastIndex) }, enabled = canGoRight) {
+                    Oc(R.drawable.oc_arrow_right, if (canGoRight) g.fg else g.borderMuted, 16.dp)
+                }
             }
         }
         val recent = visible.takeLast(12).mapNotNull { it.commits }

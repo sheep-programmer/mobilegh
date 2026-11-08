@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.OutlinedTextField
@@ -362,7 +363,9 @@ fun GistDetailScreen(id: String) {
 private fun GistLine(i: Int, line: AnnotatedString) {
     val g = Gh.c
     Row(Modifier.fillMaxWidth()) {
-        Text("${i + 1}", Modifier.width(40.dp).padding(end = 8.dp), style = CodeStyle, color = g.fgMuted.copy(alpha = 0.7f), textAlign = TextAlign.End)
+        DisableSelection {
+            Text("${i + 1}", Modifier.width(40.dp).padding(end = 8.dp), style = CodeStyle, color = g.fgMuted.copy(alpha = 0.7f), textAlign = TextAlign.End)
+        }
         Text(line, Modifier.weight(1f).padding(end = 8.dp), style = CodeStyle, color = g.fg)
     }
 }

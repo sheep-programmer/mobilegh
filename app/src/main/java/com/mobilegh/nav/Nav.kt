@@ -63,7 +63,7 @@ sealed interface Screen {
     @Serializable data class NewIssue(val owner: String, val name: String) : Screen
     @Serializable data class Actions(val owner: String, val name: String) : Screen
     @Serializable data class RunDetail(val owner: String, val name: String, val runId: Long) : Screen
-    @Serializable data class JobLog(val owner: String, val name: String, val jobId: Long, val title: String, val runId: Long = 0) : Screen
+    @Serializable data class JobLog(val owner: String, val name: String, val jobId: Long, val title: String, val runId: Long = 0, val stepNumber: Int = 0) : Screen
     /** [tag] 来自 `/releases/tag/…`、`/releases/download/…` 链接：显示并展开这个版本；`latest` 表示最新版本；为空时只列出 */
     @Serializable data class Releases(val owner: String, val name: String, val tag: String? = null, val releaseId: Long? = null) : Screen
     /** 仓库最近的推送记录：谁推送到了哪个分支 */
@@ -101,6 +101,10 @@ sealed interface Screen {
     @Serializable data object Drafts : Screen
     /** 首页收藏：从自己的仓库、Star 或搜索结果里添加 */
     @Serializable data object AddFavorites : Screen
+    /** 收藏夹列表（「我的工作」入口） */
+    @Serializable data object Favorites : Screen
+    /** 稍后阅读列表（「我的工作」入口） */
+    @Serializable data object Saved : Screen
     @Serializable data object Authenticator : Screen
     @Serializable data object OrgDiagnostics : Screen
     @Serializable data object CreateRepo : Screen

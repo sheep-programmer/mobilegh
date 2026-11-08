@@ -37,7 +37,7 @@ object AppLog {
     private const val MAX_ENTRIES = 3000
     private lateinit var file: File
     private val lock = Any()
-    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
+    private val mainHandler by lazy { runCatching { Handler(Looper.getMainLooper()) }.getOrNull() }
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false; isLenient = true }
     val entries = mutableStateListOf<AppLogEntry>()
     val version = mutableIntStateOf(0)
@@ -117,7 +117,9 @@ object AppLog {
 
     /** 所有状态更新按文件操作顺序进入主线程队列，避免后台写入越过随后的 clear。 */
     private fun updateState(update: () -> Unit) {
-        mainHandler.post { Snapshot.withMutableSnapshot { update() } }
+        val h = mainHandler
+        if (h != null) h.post { Snapshot.withMutableSnapshot { update() } }
+        else runCatching { Snapshot.withMutableSnapshot { update() } }
     }
 
     private fun load() {

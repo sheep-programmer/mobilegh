@@ -404,7 +404,16 @@ class ContributionStatsTest {
             {"commit":{"author":{"date":"2026-10-04T00:00:01Z"}}},
             {"commit":{"author":{"date":"2026-09-27T23:59:59Z"}}}
         ]"""
-        val activity = ContributionStats.personActivity("owner", "repo", "octocat",
+        // 默认只取最近 3 周
+        val defaultActivity = ContributionStats.personActivity("owner", "repo", "octocat",
+            request = { path, _ -> assertTrue(path.contains("author=octocat")); response(200, commits) }, now = now)
+        assertEquals(3, defaultActivity.weekly.size)
+        assertFalse(defaultActivity.truncated)
+        assertEquals(LocalDate.parse("2026-10-04"), defaultActivity.weekly.last().start)
+        assertEquals(2L, defaultActivity.weekly.last().commits)
+
+        // 翻到 52 周时支持获取 52 周
+        val activity = ContributionStats.personActivity("owner", "repo", "octocat", weeksCount = 52,
             request = { path, _ -> assertTrue(path.contains("author=octocat")); response(200, commits) }, now = now)
         assertEquals(52, activity.weekly.size)
         assertFalse(activity.truncated)
@@ -419,7 +428,7 @@ class ContributionStatsTest {
         val progress = mutableListOf<PersonActivity>()
         fun commit(date: String) = """{"commit":{"author":{"date":"$date"}}}"""
         val full = "[" + (1..100).joinToString(",") { commit("2026-10-05T10:00:00Z") } + "]"
-        val activity = ContributionStats.personActivity("owner", "linux", "gregkh", now = now,
+        val activity = ContributionStats.personActivity("owner", "linux", "gregkh", weeksCount = 52, now = now,
             onProgress = { progress += it },
             request = { path, _ ->
                 val page = Regex("&page=(\\d+)").find(path)!!.groupValues[1].toInt()

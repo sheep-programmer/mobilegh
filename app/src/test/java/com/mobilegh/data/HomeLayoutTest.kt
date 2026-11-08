@@ -12,14 +12,14 @@ class HomeLayoutTest {
         val l = store.read("alice")
         assertNull(l.shortcuts)
         assertEquals(defaults, l.visibleSlots().map { it.id })
-        assertEquals(listOf("issues", "pulls", "repos", "orgs", "stars", "lists", "gists", "recent"), defaults)
+        assertEquals(listOf("issues", "pulls", "favorites", "saved", "repos", "orgs", "stars", "lists", "gists", "recent"), defaults)
     }
 
     @Test fun shortcutsCanBeHiddenReorderedAndReset() {
         store.setShortcutVisible("alice", "orgs", false)
-        store.moveShortcut("alice", 7, -7)
+        store.moveShortcut("alice", defaults.size - 1, -(defaults.size - 1))
         val l = store.read("alice")
-        assertEquals(listOf("recent", "issues", "pulls", "repos", "orgs", "stars", "lists", "gists"), l.slots().map { it.id })
+        assertEquals(listOf("recent") + defaults.dropLast(1), l.slots().map { it.id })
         assertFalse(l.slots().first { it.id == "orgs" }.visible)
         assertFalse("orgs" in l.visibleSlots().map { it.id })
         store.moveShortcut("alice", 0, -1)
@@ -40,7 +40,7 @@ class HomeLayoutTest {
         var l = store.read("alice")
         assertEquals(defaults + HomeLayout.searchSlotId(s.id), l.visibleSlots().map { it.id })
         assertEquals(q, l.search(HomeLayout.searchSlotId(s.id))!!.query)
-        store.moveShortcut("alice", 8, -8)
+        store.moveShortcut("alice", defaults.size, -defaults.size)
         assertEquals(HomeLayout.searchSlotId(s.id), store.read("alice").slots().first().id)
         store.removeSearch("alice", s.id)
         l = store.read("alice")

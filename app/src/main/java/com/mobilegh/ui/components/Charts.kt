@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -20,7 +21,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import com.mobilegh.R
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -156,12 +162,20 @@ fun BarChart(
     height: Dp = 100.dp,
     labels: List<String> = emptyList(),
     unit: String = "",
+    onDoubleTap: ((Int) -> Unit)? = null,
 ) {
     val g = Gh.c
     val measurer = rememberTextMeasurer()
     var selected by remember(values) { mutableIntStateOf(-1) }
     val summary = barChartSummary(values, labels, unit)
-    Canvas(modifier.fillMaxWidth().height(height + ChartBubbleSpace).testTag("chart").semantics { contentDescription = summary }.chartSelect(values.size) { selected = it }) {
+    Canvas(
+        modifier
+            .fillMaxWidth()
+            .height(height + ChartBubbleSpace)
+            .testTag("chart")
+            .semantics { contentDescription = summary }
+            .chartSelect(values.size, onDoubleTap = onDoubleTap) { selected = it }
+    ) {
         if (values.isEmpty()) return@Canvas
         val top = ChartBubbleSpace.toPx()
         val chartH = size.height - top
@@ -230,10 +244,115 @@ fun Legend(color: Color, text: String) {
     }
 }
 
-/** 横向比例条（如贡献类型占比） */
+data class PieSlice(
+    val label: String,
+    val value: Int,
+    val color: Color,
+    val description: String = "",
+)
+
+/**
+ * 环形饼状图：展示各成分比例，中间可放置总数或选中项信息，支持扇区轻触选中。
+ */
 @Composable
-fun RatioRow(label: String, value: Int, total: Int, color: Color, badge: (@Composable () -> Unit)? = null) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+fun PieChart(
+    slices: List<PieSlice>,
+    modifier: Modifier = Modifier,
+    selectedSlice: Int = -1,
+    onSelectSlice: ((Int) -> Unit)? = null,
+    centerContent: (@Composable () -> Unit)? = null,
+) {
+    val total = slices.sumOf { it.value }
+    val g = Gh.c
+    val currentSlices by rememberUpdatedState(slices)
+    val currentOnSelect by rememberUpdatedState(onSelectSlice)
+
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize().pointerInput(Unit) {
+            detectTapGestures { offset ->
+                val onSelect = currentOnSelect ?: return@detectTapGestures
+                val list = currentSlices
+                val tot = list.sumOf { it.value }
+                if (tot <= 0) return@detectTapGestures
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val dx = offset.x - cx
+                val dy = offset.y - cy
+                val dist = Math.sqrt((dx * dx + dy * dy).toDouble())
+                val outerR = minOf(size.width, size.height) / 2f
+                val strokeW = 32.dp.toPx()
+                val innerR = outerR - strokeW
+                if (dist in (innerR * 0.7f)..(outerR * 1.2f)) {
+                    val angle = Math.toDegrees(Math.atan2(dy.toDouble(), dx.toDouble())).toFloat()
+                    var norm = (angle + 90f) % 360f
+                    if (norm < 0f) norm += 360f
+                    var acc = 0f
+                    for (i in list.indices) {
+                        val sweep = 360f * list[i].value / tot
+                        if (norm >= acc && norm <= acc + sweep) {
+                            onSelect(i)
+                            break
+                        }
+                        acc += sweep
+                    }
+                }
+            }
+        }) {
+            val strokeWidth = 28.dp.toPx()
+            val radius = (size.minDimension - strokeWidth - 8.dp.toPx()) / 2
+            val center = Offset(size.width / 2, size.height / 2)
+            if (total == 0) {
+                drawCircle(
+                    color = g.neutralMuted,
+                    radius = radius,
+                    style = Stroke(width = strokeWidth),
+                )
+                return@Canvas
+            }
+            var startAngle = -90f
+            slices.forEachIndexed { idx, s ->
+                val sweep = 360f * s.value / total
+                if (s.value > 0) {
+                    val isSelected = idx == selectedSlice
+                    val sw = if (isSelected) strokeWidth + 6.dp.toPx() else strokeWidth
+                    val col = if (selectedSlice < 0 || isSelected) s.color else s.color.copy(alpha = 0.45f)
+                    drawArc(
+                        color = col,
+                        startAngle = startAngle + if (sweep > 3f) 1.5f else 0f,
+                        sweepAngle = if (sweep > 3f) sweep - 3f else sweep,
+                        useCenter = false,
+                        topLeft = Offset(center.x - radius, center.y - radius),
+                        size = Size(radius * 2, radius * 2),
+                        style = Stroke(width = sw, cap = StrokeCap.Round),
+                    )
+                }
+                startAngle += sweep
+            }
+        }
+        if (centerContent != null) {
+            centerContent()
+        }
+    }
+}
+
+/** 横向比例条（如贡献类型占比），支持点击查看详情 */
+@Composable
+fun RatioRow(
+    label: String,
+    value: Int,
+    total: Int,
+    color: Color,
+    modifier: Modifier = Modifier,
+    badge: (@Composable () -> Unit)? = null,
+    onClick: (() -> Unit)? = null,
+) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(6.dp))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(vertical = 4.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(label, fontSize = 13.sp, color = Gh.c.fg, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (badge != null) {
@@ -241,6 +360,10 @@ fun RatioRow(label: String, value: Int, total: Int, color: Color, badge: (@Compo
                 Spacer(Modifier.width(8.dp))
             }
             Text("$value", fontSize = 13.sp, color = Gh.c.fgMuted)
+            if (onClick != null) {
+                Spacer(Modifier.width(4.dp))
+                Oc(R.drawable.oc_chevron_right, Gh.c.fgMuted, 12.dp)
+            }
         }
         Spacer(Modifier.height(4.dp))
         Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(Gh.c.neutralMuted)) {

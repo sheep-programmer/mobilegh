@@ -26,7 +26,9 @@ import com.mobilegh.data.FavoriteRepo
 import com.mobilegh.data.HomeLayout
 import com.mobilegh.data.HomePrefs
 import com.mobilegh.data.SavedSearch
+import com.mobilegh.ui.components.CardDropdownMenu
 import com.mobilegh.ui.components.GhDialog
+import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MenuIcon
 import com.mobilegh.ui.components.offerUndo
 import com.mobilegh.ui.components.rememberCtx
@@ -51,9 +53,11 @@ import com.mobilegh.R
 import com.mobilegh.data.Achievement
 import com.mobilegh.data.GitHubStarList
 import com.mobilegh.data.User
+import com.mobilegh.data.UserStatus
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.NetImage
 import com.mobilegh.ui.components.Oc
+import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.fmtCount
 import com.mobilegh.ui.theme.Gh
@@ -65,26 +69,70 @@ import androidx.compose.foundation.layout.Arrangement
 
 /** 首页顶部的个人信息条，点击进入「我的」 */
 @Composable
-fun HomeProfile(login: String, user: User?, avatar: String?, onClick: () -> Unit) {
+fun HomeProfile(
+    login: String,
+    user: User?,
+    avatar: String?,
+    status: UserStatus? = null,
+    onSetStatus: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
     val g = Gh.c
     Column(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
-        // 上面只放姓名，避免长名字被截断
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Avatar(user?.avatarUrl ?: avatar, 40.dp)
-            Spacer(Modifier.width(12.dp))
-            Text(user?.name?.takeIf { it.isNotBlank() } ?: login, Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Oc(R.drawable.oc_chevron_right, g.fgMuted, 16.dp)
+        Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+            // 上面只放姓名，避免长名字被截断
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Avatar(user?.avatarUrl ?: avatar, 40.dp)
+                Spacer(Modifier.width(12.dp))
+                Text(user?.name?.takeIf { it.isNotBlank() } ?: login, Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Oc(R.drawable.oc_chevron_right, g.fgMuted, 16.dp)
+            }
+            // 用户名与统计放在头像下面单独一块，每项之间用间距分开
+            Spacer(Modifier.height(8.dp))
+            Text("@$login", fontSize = 13.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (user != null) {
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    HomeStat(fmtCount(user.publicRepos + (user.ownedPrivateRepos ?: 0)), tr("仓库"))
+                    HomeStat(fmtCount(user.followers), tr("关注者"))
+                    HomeStat(fmtCount(user.following), tr("关注中"))
+                    if (user.publicGists > 0) {
+                        HomeStat(fmtCount(user.publicGists), "Gists")
+                    }
+                }
+            }
         }
-        // 用户名与统计放在头像下面单独一块，每项之间用间距分开
-        Spacer(Modifier.height(8.dp))
-        Text("@$login", fontSize = 13.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        if (user != null) {
-            Spacer(Modifier.height(6.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                HomeStat(fmtCount(user.publicRepos + (user.ownedPrivateRepos ?: 0)), tr("仓库"))
-                HomeStat(fmtCount(user.followers), tr("关注者"))
+        if (status != null && !status.isEmpty) {
+            Spacer(Modifier.height(10.dp))
+            Row(
+                Modifier
+                    .border(1.dp, g.border, RoundedCornerShape(16.dp))
+                    .background(g.canvasSubtle, RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable(enabled = onSetStatus != null) { onSetStatus?.invoke() }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (status.displayEmoji.isNotBlank()) Text(status.displayEmoji, fontSize = 14.sp)
+                if (!status.message.isNullOrBlank()) Text(status.message, fontSize = 13.sp, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (status.indicatesLimitedAvailability) Pill(tr("忙碌"), g.attention)
+            }
+        } else if (onSetStatus != null) {
+            Spacer(Modifier.height(10.dp))
+            Row(
+                Modifier
+                    .border(1.dp, g.borderMuted, RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable { onSetStatus() }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text("💬", fontSize = 12.sp)
+                Text(tr("设置状态"), fontSize = 12.sp, color = g.fgMuted)
             }
         }
     }
@@ -112,11 +160,15 @@ data class HomeShortcut(
 fun homeShortcuts(
     onIssues: () -> Unit, onPulls: () -> Unit, onRepos: () -> Unit, onOrgs: () -> Unit,
     onStars: () -> Unit, onLists: () -> Unit, onGists: () -> Unit, onRecent: () -> Unit,
+    onFavorites: () -> Unit = {},
+    onSaved: () -> Unit = {},
 ): List<HomeShortcut> {
     val g = Gh.c
     return listOf(
         HomeShortcut(R.drawable.oc_issue_opened, "Issues", g.success, onIssues, BuiltinShortcut.Issues.id),
         HomeShortcut(R.drawable.oc_git_pull_request, "Pull Requests", g.accent, onPulls, BuiltinShortcut.Pulls.id),
+        HomeShortcut(R.drawable.oc_bookmark, tr("收藏夹"), g.severe, onFavorites, BuiltinShortcut.Favorites.id),
+        HomeShortcut(R.drawable.oc_bookmark_fill, tr("稍后阅读"), g.accent, onSaved, BuiltinShortcut.Saved.id, count = com.mobilegh.data.SavedItems.count().takeIf { it > 0 }),
         HomeShortcut(R.drawable.oc_repo, tr("仓库"), g.fgMuted, onRepos, BuiltinShortcut.Repos.id),
         HomeShortcut(R.drawable.oc_organization, tr("组织"), g.severe, onOrgs, BuiltinShortcut.Orgs.id),
         HomeShortcut(R.drawable.oc_star_fill, tr("已 Star"), g.attention, onStars, BuiltinShortcut.Stars.id),
@@ -164,11 +216,15 @@ fun HomeFavoriteRow(repo: FavoriteRepo, canUp: Boolean, canDown: Boolean, onOpen
         )
         Spacer(Modifier.width(6.dp))
         Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
-        DropdownMenu(menu, { menu = false }, containerColor = g.canvas) {
-            if (canUp) DropdownMenuItem(text = { Text(tr("上移"), color = g.fg) }, onClick = { menu = false; tick(); onMove(-1) })
-            if (canDown) DropdownMenuItem(text = { Text(tr("下移"), color = g.fg) }, onClick = { menu = false; tick(); onMove(1) })
-            DropdownMenuItem(text = { Text(tr("移出首页收藏"), color = g.danger) }, onClick = { menu = false; tick(); onRemove() })
-        }
+        CardDropdownMenu(
+            expanded = menu,
+            onDismissRequest = { menu = false },
+            actions = buildList {
+                if (canUp) add(MenuAction(tr("上移"), icon = R.drawable.oc_arrow_up) { tick(); onMove(-1) })
+                if (canDown) add(MenuAction(tr("下移"), icon = R.drawable.oc_arrow_down) { tick(); onMove(1) })
+                add(MenuAction(tr("移出收藏"), danger = true, icon = R.drawable.oc_trash) { tick(); onRemove() })
+            },
+        )
     }
 }
 
@@ -336,7 +392,9 @@ fun HomeAchievementsRow(badges: List<Achievement>?, error: String?, onOpen: () -
 fun removeFavoriteWithUndo(scope: CoroutineScope, snackbar: SnackbarHostState, index: Int, repo: FavoriteRepo) {
     HomePrefs.removeFavorite(repo)
     scope.launch {
-        if (snackbar.offerUndo(trf("已移出收藏「{0} / {1}」", repo.owner, repo.name))) HomePrefs.restoreFavorite(index, repo)
+        if (snackbar.offerUndo(trf("已移出收藏「{0} / {1}」", repo.owner, repo.name))) {
+            HomePrefs.restoreFavorite(index, repo)
+        }
     }
 }
 

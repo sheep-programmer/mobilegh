@@ -4,6 +4,8 @@ import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.verticalScrollWithBar
 import com.mobilegh.ui.components.ScrollbarLazyColumn
 import com.mobilegh.data.ContentEdits
+import com.mobilegh.data.WebSessionMissing
+import com.mobilegh.ui.components.GitHubWebLogin
 import com.mobilegh.ui.components.attachmentMarkdown
 import com.mobilegh.ui.components.insertAtCursor
 import androidx.compose.foundation.background
@@ -38,6 +40,8 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -394,6 +398,24 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
                             })
                         }
                     }
+                }
+                if (t != null) {
+                    val savedId = "issue:$owner/$name#$number"
+                    val isSaved = com.mobilegh.data.SavedItems.isSaved(savedId)
+                    add(MenuAction(if (isSaved) tr("移出稍后阅读") else tr("保存到稍后阅读")) {
+                        com.mobilegh.data.SavedItems.toggle(
+                            com.mobilegh.data.SavedItem(
+                                id = savedId,
+                                kind = if (isPull) com.mobilegh.data.SavedKind.PullRequest else com.mobilegh.data.SavedKind.Issue,
+                                owner = owner,
+                                name = name,
+                                number = number,
+                                title = t.issue.title,
+                                state = t.issue.state,
+                            )
+                        )
+                        ctx.toast(if (isSaved) tr("已移出稍后阅读") else tr("已保存到稍后阅读"))
+                    })
                 }
                 add(MenuAction(tr("复制链接")) { ctx.copy(url) })
                 add(MenuAction(tr("分享")) { ctx.share(url) })
@@ -1078,21 +1100,98 @@ private fun ReviewDialog(
 @Composable
 private fun EditHistoryDialog(nodeId: String, title: String, onDismiss: () -> Unit) {
     val g = Gh.c
+    val scope = rememberCoroutineScope()
     var result by remember(nodeId) { mutableStateOf<Result<List<ContentEdits.Revision>>?>(null) }
+    var pendingDelete by remember { mutableStateOf<ContentEdits.Revision?>(null) }
+    var deleting by remember { mutableStateOf(false) }
+    var deleteError by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(nodeId) { result = runCatching { ContentEdits.load(nodeId) } }
     val loaded = result
+
+    pendingDelete?.let { target ->
+        GhDialog(
+            title = tr("删除历史版本？"),
+            onDismiss = { if (!deleting) pendingDelete = null },
+            confirm = if (deleting) tr("删除中…") else tr("删除"),
+            danger = true,
+            confirmEnabled = !deleting,
+            onConfirm = {
+                deleting = true
+                deleteError = null
+                scope.launch {
+                    try {
+                        ContentEdits.delete(target.id)
+                        pendingDelete = null
+                        result = runCatching { ContentEdits.load(nodeId) }
+                    } catch (e: WebSessionMissing) {
+                        pendingDelete = null
+                        GitHubWebLogin.request(tr("登录 GitHub（用于删除历史版本）")) {
+                            scope.launch {
+                                runCatching { ContentEdits.delete(target.id) }
+                                result = runCatching { ContentEdits.load(nodeId) }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        deleteError = e.message ?: tr("删除失败")
+                    } finally {
+                        deleting = false
+                    }
+                }
+            },
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                Text(tr("删除后该版本的正文记录将被永久清除，但编辑者与时间仍会保留。此操作无法撤销。"), fontSize = 13.sp, color = g.fg)
+                deleteError?.let { err ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(err, fontSize = 12.sp, color = g.danger)
+                }
+            }
+        }
+    }
+
     GhDialog(title, onDismiss, confirm = tr("关闭"), onConfirm = onDismiss) {
         when {
             loaded == null -> Loading(Modifier.fillMaxWidth().heightIn(min = 80.dp))
             loaded.isFailure -> Text(loaded.exceptionOrNull()?.message ?: tr("加载失败"), fontSize = 13.sp, color = g.danger)
             loaded.getOrNull().isNullOrEmpty() -> Text(tr("没有编辑记录"), fontSize = 13.sp, color = g.fgMuted)
             else -> Column(Modifier.fillMaxWidth().heightIn(max = 460.dp).verticalScrollWithBar()) {
-                loaded.getOrThrow().forEachIndexed { i, r ->
+                val list = loaded.getOrThrow()
+                list.forEachIndexed { i, r ->
                     if (i > 0) HDivider()
                     Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-                        Text(trf("{0} 编辑于 {1}", r.editor ?: "—", relTime(r.createdAt)), fontSize = 12.sp, color = g.fgMuted)
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            val timeText = when {
+                                r.isDeleted -> trf("{0} 编辑于 {1}（已删除）", r.editor ?: "—", relTime(r.createdAt))
+                                i == 0 -> trf("{0} 编辑于 {1} · 最新", r.editor ?: "—", relTime(r.createdAt))
+                                else -> trf("{0} 编辑于 {1}", r.editor ?: "—", relTime(r.createdAt))
+                            }
+                            Text(timeText, fontSize = 12.sp, color = g.fgMuted)
+
+                            if (!r.isDeleted && i > 0 && r.id.isNotBlank() && (r.editor.isNullOrBlank() || r.editor.equals(Session.login, ignoreCase = true))) {
+                                Text(
+                                    tr("删除此版本"),
+                                    Modifier.clickable { pendingDelete = r }.padding(start = 8.dp, top = 2.dp, bottom = 2.dp),
+                                    fontSize = 12.sp,
+                                    color = g.danger,
+                                )
+                            }
+                        }
                         Spacer(Modifier.height(4.dp))
-                        MdText(r.body.orEmpty(), fontSize = 14.sp, lineHeight = 20.sp, color = g.fg)
+                        if (r.isDeleted) {
+                            Text(
+                                tr("此历史版本的正文内容已被删除"),
+                                fontSize = 13.sp,
+                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                color = g.fgMuted,
+                            )
+                        } else {
+                            MdText(r.body.orEmpty(), fontSize = 14.sp, lineHeight = 20.sp, color = g.fg)
+                        }
                     }
                 }
             }

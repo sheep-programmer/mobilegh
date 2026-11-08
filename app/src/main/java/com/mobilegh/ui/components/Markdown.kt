@@ -3,8 +3,11 @@ package com.mobilegh.ui.components
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.buildAnnotatedString
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicReference
 import androidx.compose.material3.Text
@@ -155,6 +158,7 @@ internal const val MD_LINK_TAG = "md-link"
  *
  * [linkLongPress] 为 true（默认）时，长按带链接的文字会弹出链接菜单（复制 / 分享 / 浏览器打开）。
  * 所在的行本身有长按菜单时要关掉，否则两个菜单同时出现。
+ * 可通过 [trailingInlineId] 和 [inlineContent] 在文本尾部追加行内可组合元素（如小图标）。
  */
 @Composable
 fun MdText(
@@ -166,9 +170,20 @@ fun MdText(
     maxLines: Int = Int.MAX_VALUE,
     lineHeight: TextUnit = TextUnit.Unspecified,
     linkLongPress: Boolean = true,
+    inlineContent: Map<String, InlineTextContent> = emptyMap(),
+    trailingInlineId: String? = null,
 ) {
     val g = Gh.c
-    val a = remember(text, g.dark) { mdInline(text, g) }
+    val a = remember(text, g.dark, trailingInlineId) {
+        val base = mdInline(text, g)
+        if (trailingInlineId != null) {
+            buildAnnotatedString {
+                append(base)
+                append(" ")
+                appendInlineContent(trailingInlineId)
+            }
+        } else base
+    }
     val layoutRef = remember { AtomicReference<TextLayoutResult?>(null) }
     val linkModifier = if (!linkLongPress) Modifier else Modifier.pointerInput(a) {
         awaitEachGesture {
@@ -180,6 +195,7 @@ fun MdText(
             val layout = layoutRef.get() ?: return@awaitEachGesture
             val offset = layout.getOffsetForPosition(down.position)
             val url = a.getStringAnnotations(MD_LINK_TAG, offset, offset).firstOrNull()?.item ?: return@awaitEachGesture
+            if (!url.startsWith("https://") && !url.startsWith("http://")) return@awaitEachGesture
             LinkMenu.show(url)
             down.consume()
             // 消费到抬手为止，避免父级把这次长按再当成别的操作
@@ -193,6 +209,7 @@ fun MdText(
         a,
         modifier.then(linkModifier),
         color = color, fontSize = fontSize, fontWeight = fontWeight, maxLines = maxLines, overflow = TextOverflow.Ellipsis, lineHeight = lineHeight,
+        inlineContent = inlineContent,
         onTextLayout = { layoutRef.set(it) },
     )
 }

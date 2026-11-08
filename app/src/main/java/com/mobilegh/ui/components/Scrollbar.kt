@@ -10,15 +10,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -85,10 +88,14 @@ private fun Modifier.scrollbar(
     scrolling: Boolean,
     progress: () -> ScrollProgress?,
     onDrag: (Float) -> Unit,
+    onDragStart: (() -> Unit)? = null,
+    onDragEnd: (() -> Unit)? = null,
 ): Modifier {
     val g = Gh.c
     val density = LocalDensity.current
     var dragging by remember { mutableStateOf(false) }
+    var dragFraction by remember { mutableStateOf<Float?>(null) }
+    var dragThumbHeight by remember { mutableFloatStateOf(0f) }
     var shown by remember { mutableStateOf(false) }
     val active = scrolling || dragging
     LaunchedEffect(active) {
@@ -120,9 +127,14 @@ private fun Modifier.scrollbar(
                 if (!onThumb) return@awaitEachGesture
                 down.consume()
                 dragging = true
+                val frozenTrackTop = geo.trackTop
+                val frozenTrackHeight = geo.trackHeight
+                val frozenThumbHeight = geo.thumbHeight
+                dragThumbHeight = frozenThumbHeight
+                onDragStart?.invoke()
                 try {
-                    // 按下的位置相对滑块中心的偏差，拖动时保持不变，滑块不会一按就跳
-                    val grab = down.position.y - (geo.thumbTop + geo.thumbHeight / 2f)
+                    // 按下的位置相对滑块中心的偏差；在拖拽过程中冻结滑块与轨道几何属性，避免异步布局重排改变映射比例导致滑块跳动或向下滑动
+                    val grab = down.position.y - (geo.thumbTop + frozenThumbHeight / 2f)
                     while (true) {
                         val event = awaitPointerEvent(PointerEventPass.Initial)
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
@@ -131,10 +143,15 @@ private fun Modifier.scrollbar(
                             break
                         }
                         change.consume()
-                        onDrag(scrollbarFraction(change.position.y - grab, geo.trackTop, geo.trackHeight, geo.thumbHeight))
+                        val fraction = scrollbarFraction(change.position.y - grab, frozenTrackTop, frozenTrackHeight, frozenThumbHeight)
+                        dragFraction = fraction
+                        onDrag(fraction)
                     }
                 } finally {
                     dragging = false
+                    dragFraction = null
+                    dragThumbHeight = 0f
+                    onDragEnd?.invoke()
                 }
             }
         }
@@ -143,8 +160,9 @@ private fun Modifier.scrollbar(
             if (alpha <= 0f) return@drawWithContent
             val p = progress() ?: run { geo.thumbHeight = 0f; return@drawWithContent }
             val track = size.height - inset * 2
-            val thumb = (track * p.size).coerceIn(minThumb.coerceAtMost(track), track)
-            val top = inset + (track - thumb) * p.offset
+            val thumb = if (dragging && dragThumbHeight > 0f) dragThumbHeight else (track * p.size).coerceIn(minThumb.coerceAtMost(track), track)
+            val offset = if (dragging && dragFraction != null) dragFraction!! else p.offset
+            val top = inset + (track - thumb) * offset
             val w = if (dragging) thick else thin
             geo.trackTop = inset
             geo.trackHeight = track
@@ -165,6 +183,7 @@ private fun Modifier.scrollbar(
 fun Modifier.lazyScrollbar(state: LazyListState): Modifier {
     // 见过的项高度按下标记下来（滚出屏幕的项也保留），供估算使用
     val known = remember(state) { HashMap<Int, Int>() }
+    var dragKnown by remember(state) { mutableStateOf<Map<Int, Int>?>(null) }
     var target by remember(state) { mutableStateOf<Pair<Int, Int>?>(null) }
     // 拖动目标只保留最新一个：快速拖动时不会排队滚动
     LaunchedEffect(state) {
@@ -172,6 +191,12 @@ fun Modifier.lazyScrollbar(state: LazyListState): Modifier {
     }
     return scrollbar(
         scrolling = state.isScrollInProgress,
+        onDragStart = {
+            dragKnown = HashMap(known)
+        },
+        onDragEnd = {
+            dragKnown = null
+        },
         progress = {
             val info = state.layoutInfo
             info.visibleItemsInfo.forEach { known[it.index] = it.size }
@@ -188,8 +213,9 @@ fun Modifier.lazyScrollbar(state: LazyListState): Modifier {
         },
         onDrag = { fraction ->
             val info = state.layoutInfo
+            val sizes = dragKnown ?: known
             target = estimateScrollTarget(
-                info.totalItemsCount, known,
+                info.totalItemsCount, sizes,
                 (info.viewportEndOffset - info.viewportStartOffset).toFloat(), fraction,
             )
         },
@@ -211,7 +237,10 @@ fun Modifier.columnScrollbar(state: ScrollState): Modifier = scrollbar(
     },
     onDrag = { fraction ->
         val max = state.maxValue
-        if (max in 1 until Int.MAX_VALUE) state.dispatchRawDelta(fraction * max - state.value)
+        if (max in 1 until Int.MAX_VALUE) {
+            val target = (fraction * max).roundToInt()
+            state.dispatchRawDelta((target - state.value).toFloat())
+        }
     },
 )
 
@@ -219,6 +248,152 @@ fun Modifier.columnScrollbar(state: ScrollState): Modifier = scrollbar(
 @Composable
 fun Modifier.verticalScrollWithBar(state: ScrollState = rememberScrollState()): Modifier =
     columnScrollbar(state).verticalScroll(state)
+
+private class HScrollbarGeometry {
+    var trackLeft = 0f
+    var trackWidth = 0f
+    var thumbLeft = 0f
+    var thumbWidth = 0f
+    var height = 0f
+}
+
+internal fun hScrollbarFraction(touchX: Float, trackLeft: Float, trackWidth: Float, thumbWidth: Float): Float {
+    val range = trackWidth - thumbWidth
+    if (range <= 0f) return 0f
+    return ((touchX - trackLeft - thumbWidth / 2f) / range).coerceIn(0f, 1f)
+}
+
+/**
+ * 横向滚动条（表格、代码块等横向滚动区域共用）。
+ *
+ * - 当内容超出可视宽度时显示横向滚动条，帮助用户感知总宽度与当前滑动进度；
+ * - 滑动中高亮显示，停止后保持微弱可见（告知用户该块可横向滑动及整体宽度）；
+ * - 支持按住滑块左右拖动快速定位；
+ * - 直接画在可视区域底部，不触发额外的重组。
+ */
+@Composable
+fun Modifier.horizontalScrollbar(
+    state: ScrollState,
+    persistent: Boolean = true,
+): Modifier {
+    val g = Gh.c
+    val density = LocalDensity.current
+    var dragging by remember { mutableStateOf(false) }
+    var dragFraction by remember { mutableStateOf<Float?>(null) }
+    var dragThumbWidth by remember { mutableFloatStateOf(0f) }
+    var scrollingRecently by remember { mutableStateOf(false) }
+    val active = state.isScrollInProgress || dragging
+    LaunchedEffect(active) {
+        if (active) {
+            scrollingRecently = true
+        } else {
+            delay(1200)
+            scrollingRecently = false
+        }
+    }
+    val targetAlpha = when {
+        active -> 1f
+        scrollingRecently -> 0.85f
+        persistent -> 0.45f
+        else -> 0f
+    }
+    val alpha by animateFloatAsState(targetAlpha, label = "hScrollbarAlpha")
+    val geo = remember { HScrollbarGeometry() }
+    val color = g.fgMuted
+    val trackBg = g.borderMuted
+    val margin = with(density) { 2.dp.toPx() }
+    val inset = with(density) { 4.dp.toPx() }
+    val thin = with(density) { 3.dp.toPx() }
+    val thick = with(density) { 6.dp.toPx() }
+    val minThumb = with(density) { 28.dp.toPx() }
+    val touchHeight = with(density) { 30.dp.toPx() }
+    val touchSlack = with(density) { 20.dp.toPx() }
+
+    return this
+        .pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                val onThumb = geo.thumbWidth > 0f &&
+                    down.position.y >= size.height - touchHeight &&
+                    down.position.x in (geo.thumbLeft - touchSlack)..(geo.thumbLeft + geo.thumbWidth + touchSlack)
+                if (!onThumb) return@awaitEachGesture
+                down.consume()
+                dragging = true
+                val frozenTrackLeft = geo.trackLeft
+                val frozenTrackWidth = geo.trackWidth
+                val frozenThumbWidth = geo.thumbWidth
+                dragThumbWidth = frozenThumbWidth
+                try {
+                    val grab = down.position.x - (geo.thumbLeft + frozenThumbWidth / 2f)
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (!change.pressed) {
+                            change.consume()
+                            break
+                        }
+                        change.consume()
+                        val fraction = hScrollbarFraction(change.position.x - grab, frozenTrackLeft, frozenTrackWidth, frozenThumbWidth)
+                        dragFraction = fraction
+                        val max = state.maxValue
+                        if (max in 1 until Int.MAX_VALUE) {
+                            val targetPx = (fraction * max).roundToInt()
+                            state.dispatchRawDelta((targetPx - state.value).toFloat())
+                        }
+                    }
+                } finally {
+                    dragging = false
+                    dragFraction = null
+                    dragThumbWidth = 0f
+                }
+            }
+        }
+        .drawWithContent {
+            drawContent()
+            val max = state.maxValue
+            val viewport = state.viewportSize
+            if (max <= 0 || max == Int.MAX_VALUE || viewport <= 0 || alpha <= 0f) {
+                geo.thumbWidth = 0f
+                return@drawWithContent
+            }
+            val track = size.width - inset * 2
+            if (track <= 0f) return@drawWithContent
+            val progressSize = (viewport.toFloat() / (viewport + max)).coerceIn(0.05f, 1f)
+            val progressOffset = (state.value.toFloat() / max).coerceIn(0f, 1f)
+            val thumb = if (dragging && dragThumbWidth > 0f) dragThumbWidth else (track * progressSize).coerceIn(minThumb.coerceAtMost(track), track)
+            val offset = if (dragging && dragFraction != null) dragFraction!! else progressOffset
+            val left = inset + (track - thumb) * offset
+            val h = if (dragging) thick else thin
+            val top = size.height - h - margin
+            geo.trackLeft = inset
+            geo.trackWidth = track
+            geo.thumbLeft = left
+            geo.thumbWidth = thumb
+            geo.height = h
+
+            // 绘制横向轨道底色，直观展示横向总长度
+            drawRoundRect(
+                color = trackBg.copy(alpha = 0.35f * alpha),
+                topLeft = Offset(inset, top),
+                size = Size(track, h),
+                cornerRadius = CornerRadius(h / 2f, h / 2f),
+            )
+            // 绘制横向滑块
+            drawRoundRect(
+                color = color.copy(alpha = (if (dragging) 0.9f else 0.65f) * alpha),
+                topLeft = Offset(left, top),
+                size = Size(thumb, h),
+                cornerRadius = CornerRadius(h / 2f, h / 2f),
+            )
+        }
+}
+
+/** 带横向滚动条的 horizontalScroll */
+@Composable
+fun Modifier.horizontalScrollWithBar(
+    state: ScrollState = rememberScrollState(),
+    persistent: Boolean = true,
+): Modifier = horizontalScrollbar(state, persistent).horizontalScroll(state)
 
 /** 带右侧滚动条的 LazyColumn，参数与 LazyColumn 一致 */
 @Composable

@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -87,6 +88,7 @@ import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.Counter
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.ErrorState
+import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.HDivider
@@ -100,6 +102,7 @@ import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.RadioRow
+import com.mobilegh.ui.components.ExternalLinkDialog
 import com.mobilegh.ui.components.Segmented
 import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.boxedItems
@@ -124,15 +127,27 @@ import com.mobilegh.i18n.trf
 @Composable
 fun ProjectsScreen(kind: ProjectOwnerKind, login: String, name: String) {
     val nav = LocalNav.current
+    val ctx = rememberCtx()
     val cursors = retain("projects:cursors:$kind:$login:$name") { GraphQlCursors() }
     val pager = rememberPager("projects:$kind:$login:$name", ProjectsClient.LIST_PAGE) { page, _ ->
         cursors.page(page) { after -> Projects.list(kind, login, name, after) }
     }
     var filter by rememberSaveable { mutableIntStateOf(0) }
-    Page(tr("项目"), subtitle = if (kind == ProjectOwnerKind.Repo) "$login/$name" else login) { pad ->
+    val webUrl = when (kind) {
+        ProjectOwnerKind.Org -> "https://github.com/orgs/$login/projects"
+        ProjectOwnerKind.User -> "https://github.com/users/$login/projects"
+        ProjectOwnerKind.Repo -> "https://github.com/$login/$name/projects"
+    }
+    Page(
+        tr("项目"),
+        subtitle = if (kind == ProjectOwnerKind.Repo) "$login/$name" else login,
+        actions = {
+            OcButton(R.drawable.oc_link_external, { ctx.openBrowser(webUrl) }, description = tr("在浏览器打开"))
+        },
+    ) { pad ->
         val err = pager.error
-        if (err != null && pager.items.isEmpty() && ProjectErrors.ofMessage(err) in setOf(ProjectErrorKind.Scope, ProjectErrorKind.Forbidden)) {
-            ProjectErrorState(err, Modifier.padding(pad).fillMaxSize()) { pager.error = null; pager.refresh() }
+        if (err != null && pager.items.isEmpty()) {
+            ProjectErrorState(err, Modifier.padding(pad).fillMaxSize(), webUrl = webUrl) { pager.error = null; pager.refresh() }
         } else {
             Column(Modifier.padding(pad)) {
                 Chips(listOf(tr("开启"), tr("已关闭"), tr("全部")), filter) { filter = it }
@@ -168,12 +183,55 @@ private fun ProjectRow(p: ProjectSummary, onClick: () -> Unit) {
     }
 }
 
-/** Projects 专用错误：缺少 scope / 被组织限制时说明原因并提供重新授权 */
+/** Projects 专用错误：缺少 scope / 被组织限制时说明原因并提供重新授权或浏览器直接查看 */
 @Composable
-private fun ProjectErrorState(msg: String, modifier: Modifier = Modifier.fillMaxSize(), retry: () -> Unit) {
+private fun ProjectErrorState(
+    msg: String,
+    modifier: Modifier = Modifier.fillMaxSize(),
+    webUrl: String? = null,
+    retry: () -> Unit,
+) {
     val nav = LocalNav.current
+    val ctx = rememberCtx()
+    val g = Gh.c
+
     when (ProjectErrors.ofMessage(msg)) {
-        ProjectErrorKind.Scope -> ErrorState(msg, modifier, retry, action = tr("重新授权")) { nav.push(Screen.Reauthorize) }
+        ProjectErrorKind.Scope -> Column(
+            modifier.padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Oc(R.drawable.oc_table, g.accent, 36.dp)
+            Spacer(Modifier.height(14.dp))
+            Text(
+                tr("当前授权未开放 Projects 接口权限"),
+                color = g.fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                tr("GitHub 官方移动端授权受服务端限制，未开放 Projects v2 API。你可以直接在浏览器中打开查看，或使用 Token / 设备码登录以在 App 中原生使用。"),
+                color = g.fgMuted, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(20.dp))
+            if (webUrl != null) {
+                GhButton(
+                    tr("在浏览器中直接查看"),
+                    Modifier.fillMaxWidth(0.85f),
+                    primary = true,
+                    icon = R.drawable.oc_link_external,
+                    onClick = { ctx.openBrowser(webUrl) },
+                )
+                Spacer(Modifier.height(10.dp))
+            }
+            GhButton(
+                tr("重新授权（补齐权限）"),
+                Modifier.fillMaxWidth(0.85f),
+                primary = webUrl == null,
+                onClick = { nav.push(Screen.Reauthorize) },
+            )
+            Spacer(Modifier.height(10.dp))
+            TextLink(tr("重试加载")) { retry() }
+        }
         ProjectErrorKind.Forbidden -> ErrorState(
             trf("{0}\n\n若组织启用了 OAuth 应用访问限制，需由组织管理员批准本应用；也可以重新授权后再试。", msg),
             modifier, retry, action = tr("重新授权"),
@@ -293,7 +351,7 @@ private fun ProjectBody(
         when {
             item.type == ProjectItemType.DraftIssue -> viewingDraft = item
             repo != null && item.number != null -> nav.push(Screen.IssueDetail(repo.first, repo.second, item.number, item.type == ProjectItemType.PullRequest))
-            item.url != null -> com.mobilegh.nav.Links.route(item.url)?.let(nav::pushLink) ?: ctx.openBrowser(item.url)
+            item.url != null -> com.mobilegh.nav.Links.route(item.url)?.let(nav::pushLink) ?: ExternalLinkDialog.show(item.url, item.title)
             else -> ctx.toast(tr("当前账号无权查看此条目"))
         }
     }

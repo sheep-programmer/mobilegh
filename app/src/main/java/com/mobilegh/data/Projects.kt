@@ -1,5 +1,7 @@
 package com.mobilegh.data
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -7,8 +9,11 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import okhttp3.Request
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 
@@ -279,7 +284,7 @@ class GraphQlCursors {
 open class ProjectsClient(
     private val graphql: suspend (String, Map<String, Any?>) -> JsonObject = { query, variables -> Api.graphqlRoot(query, variables) },
 ) {
-    suspend fun list(kind: ProjectOwnerKind, login: String, name: String = "", after: String? = null): DiscussionPage<ProjectSummary> {
+    open suspend fun list(kind: ProjectOwnerKind, login: String, name: String = "", after: String? = null): DiscussionPage<ProjectSummary> {
         val (query, vars, ownerKey) = when (kind) {
             ProjectOwnerKind.User -> Triple(USER_PROJECTS, mapOf("login" to login), "user")
             ProjectOwnerKind.Org -> Triple(ORG_PROJECTS, mapOf("login" to login), "organization")
@@ -291,7 +296,7 @@ open class ProjectsClient(
         return connection(conn, after, ::parseSummary)
     }
 
-    suspend fun detail(projectId: String): ProjectDetail {
+    open suspend fun detail(projectId: String): ProjectDetail {
         val r = read(DETAIL_QUERY, mapOf("id" to projectId))
         val node = r.data.obj("node")?.takeIf { it.str("id") != null } ?: throw r.failure(ProjectErrors.NOT_FOUND_MESSAGE)
         return ProjectDetail(
@@ -305,9 +310,206 @@ open class ProjectsClient(
     }
 
     suspend fun items(projectId: String, after: String?): DiscussionPage<ProjectItem> {
-        val r = read(ITEMS_QUERY, mapOf("id" to projectId, "after" to after))
-        val node = r.data.obj("node") ?: throw r.failure(ProjectErrors.NOT_FOUND_MESSAGE)
-        return connection(node.obj("items") ?: malformed("items"), after, ::parseItem)
+        if (projectId.startsWith("/") || projectId.startsWith("http")) {
+            return DiscussionPage(emptyList(), null, false, 0)
+        }
+        return try {
+            val r = read(ITEMS_QUERY, mapOf("id" to projectId, "after" to after))
+            val node = r.data.obj("node") ?: throw r.failure(ProjectErrors.NOT_FOUND_MESSAGE)
+            connection(node.obj("items") ?: malformed("items"), after, ::parseItem)
+        } catch (e: ApiException) {
+            if (ProjectErrors.ofMessage(e.message) == ProjectErrorKind.Scope) {
+                DiscussionPage(emptyList(), null, false, 0)
+            } else {
+                throw e
+            }
+        }
+    }
+
+    internal suspend fun listFromWeb(kind: ProjectOwnerKind, login: String, name: String = ""): DiscussionPage<ProjectSummary> = withContext(Dispatchers.IO) {
+        val path = when (kind) {
+            ProjectOwnerKind.Org -> "orgs/$login/projects"
+            ProjectOwnerKind.User -> "users/$login/projects"
+            ProjectOwnerKind.Repo -> "$login/$name/projects"
+        }
+        val url = "https://github.com/$path"
+        val request = Request.Builder().url(url)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .build()
+        val response = Api.http.routed().newCall(request).await()
+        if (response.code == 404) return@withContext DiscussionPage(emptyList(), null, false, 0)
+        if (!response.isSuccessful) throw ApiException(response.code, trf("公开网页加载失败 ({0})", response.code))
+        val html = response.body.string()
+        val items = parseProjectsFromHtml(html)
+        DiscussionPage(items, null, false, items.size)
+    }
+
+    internal fun parseProjectsFromHtml(html: String): List<ProjectSummary> {
+        val rowRegex = Regex("""<li[^>]*class="[^"]*Box-row[^"]*"[^>]*>(.*?)</li>""", RegexOption.DOT_MATCHES_ALL)
+        val linkRegex = Regex("""<a[^>]*href="([^"]*/projects/(\d+))"[^>]*>([^<]+)</a>""")
+        val descRegex = Regex("""class="text-normal"[^>]*>\s*([^<]+)\s*</span>""")
+        val timeRegex = Regex("""<relative-time[^>]*datetime="([^"]+)"""")
+
+        val list = mutableListOf<ProjectSummary>()
+        for (m in rowRegex.findAll(html)) {
+            val row = m.groupValues[1]
+            val linkMatch = linkRegex.find(row) ?: continue
+            val href = linkMatch.groupValues[1]
+            val number = linkMatch.groupValues[2].toIntOrNull() ?: 0
+            val title = Web.unescape(linkMatch.groupValues[3].trim())
+            val desc = descRegex.find(row)?.groupValues?.getOrNull(1)?.let { Web.unescape(it.trim()) }
+            val time = timeRegex.find(row)?.groupValues?.getOrNull(1)
+            val closed = row.contains("octicon-issue-closed") || row.contains("Closed")
+            list.add(
+                ProjectSummary(
+                    id = href,
+                    number = number,
+                    title = title,
+                    shortDescription = desc,
+                    closed = closed,
+                    public = true,
+                    updatedAt = time,
+                    url = "https://github.com$href",
+                    itemCount = null,
+                )
+            )
+        }
+        return list
+    }
+
+    internal suspend fun detailFromWeb(projectId: String): ProjectDetail = withContext(Dispatchers.IO) {
+        val url = if (projectId.startsWith("http")) projectId else "https://github.com/${projectId.removePrefix("/")}"
+        val request = Request.Builder().url(url)
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .build()
+        val response = Api.http.routed().newCall(request).await()
+        if (response.code == 404) throw ApiException(404, ProjectErrors.NOT_FOUND_MESSAGE)
+        if (!response.isSuccessful) throw ApiException(response.code, trf("公开网页加载失败 ({0})", response.code))
+        val html = response.body.string()
+
+        fun extractJson(id: String): JsonElement? {
+            val pattern = Regex("""<script type="application/json" id="$id">(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
+            val raw = pattern.find(html)?.groupValues?.getOrNull(1) ?: return null
+            return runCatching { Api.json.parseToJsonElement(raw) }.getOrNull()
+        }
+
+        val memexData = extractJson("memex-data") as? JsonObject ?: throw ApiException(404, ProjectErrors.NOT_FOUND_MESSAGE)
+        val title = memexData.str("title") ?: tr("项目")
+        val number = memexData.int("number") ?: 0
+        val shortDesc = memexData.str("shortDescription")
+        val closed = memexData["closedAt"] != null && memexData["closedAt"] !is JsonNull
+
+        val columnsData = (extractJson("memex-columns-data") as? JsonArray)?.objects().orEmpty()
+        val fields = columnsData.mapNotNull { col ->
+            val id = col.str("id") ?: col.int("databaseId")?.toString() ?: return@mapNotNull null
+            val name = col.str("name").orEmpty()
+            val dataType = col.str("dataType").orEmpty().uppercase()
+            val options = col.obj("settings")?.arr("options")?.objects().orEmpty().mapNotNull { opt ->
+                val optId = opt.str("id") ?: return@mapNotNull null
+                val optName = opt.str("name").orEmpty()
+                val optColor = ProjectColor.of(opt.str("color"))
+                ProjectOption(optId, optName, optColor)
+            }
+            ProjectField(id, name, if (dataType == "SINGLESELECT") "SINGLE_SELECT" else dataType, options)
+        }
+
+        val viewsData = (extractJson("memex-views") as? JsonArray)?.objects().orEmpty()
+        val views = viewsData.mapNotNull { v ->
+            val id = v.str("id") ?: v.int("number")?.toString() ?: return@mapNotNull null
+            val viewNum = v.int("number") ?: 0
+            val viewName = v.str("name").orEmpty()
+            val layout = ProjectLayout.of(v.str("layout")?.uppercase())
+            val verticalGroupBy = v.arr("verticalGroupBy")?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
+            val groupBy = v.arr("groupBy")?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
+            ProjectView(id, viewNum, viewName, layout, groupByFieldIds = groupBy, verticalGroupByFieldIds = verticalGroupBy)
+        }
+
+        val itemsData = extractJson("memex-paginated-items-data") as? JsonObject
+        val itemsList = if (itemsData != null) parseWebItems(itemsData) else emptyList()
+
+        ProjectDetail(
+            id = projectId,
+            number = number,
+            title = title,
+            shortDescription = shortDesc,
+            closed = closed,
+            url = url,
+            viewerCanUpdate = false,
+            fields = fields,
+            views = views,
+            items = DiscussionPage(itemsList, null, false, itemsList.size),
+        )
+    }
+
+    internal fun parseWebItems(itemsData: JsonObject): List<ProjectItem> {
+        val result = mutableListOf<ProjectItem>()
+        val groupedList = itemsData.arr("groupedItems")?.objects()
+        val directNodes = itemsData.arr("nodes")?.objects()
+        val allNodes = when {
+            groupedList != null -> groupedList.flatMap { it.arr("nodes")?.objects().orEmpty() }
+            directNodes != null -> directNodes
+            else -> emptyList()
+        }
+        for (node in allNodes) {
+            val id = node.str("id") ?: node.int("id")?.toString() ?: continue
+            val contentType = node.str("contentType")
+            val itemType = ProjectItemType.of(contentType, contentType)
+            val content = node.obj("content")
+            val url = content?.str("url")
+            val columnValues = node.arr("memexProjectColumnValues")?.objects().orEmpty()
+
+            var title = ""
+            var number: Int? = null
+            var state: String? = null
+            var stateReason: String? = null
+            val values = mutableListOf<ProjectFieldValue>()
+
+            for (cv in columnValues) {
+                val colId = cv.str("memexProjectColumnId") ?: cv.int("memexProjectColumnId")?.toString().orEmpty()
+                val valObj = cv.obj("value")
+                if (colId.equals("Title", ignoreCase = true)) {
+                    valObj?.obj("title")?.str("raw")?.let { title = it }
+                    if (title.isBlank()) valObj?.str("raw")?.let { title = it }
+                    number = valObj?.int("number")
+                    state = valObj?.str("state")?.uppercase()
+                    stateReason = valObj?.str("stateReason")
+                } else if (valObj != null) {
+                    val singleSelectId = valObj.str("id")
+                    val singleSelectName = valObj.str("name")
+                    if (singleSelectId != null && singleSelectName != null) {
+                        values.add(ProjectFieldValue(colId, colId, "SINGLE_SELECT", ProjectValueKind.SingleSelect, singleSelectName, singleSelectId))
+                    }
+                }
+            }
+            if (title.isBlank()) {
+                title = content?.str("title") ?: tr("无标题")
+            }
+            val repo = url?.substringAfter("https://github.com/")?.substringBefore("/issues/")?.takeIf { it.contains('/') }
+                ?: url?.substringAfter("https://github.com/")?.substringBefore("/pull/")?.takeIf { it.contains('/') }
+
+            result.add(
+                ProjectItem(
+                    id = id,
+                    type = itemType,
+                    archived = node.bool("archived") ?: false,
+                    title = title,
+                    number = number,
+                    url = url,
+                    repository = repo,
+                    state = state,
+                    stateReason = stateReason,
+                    isDraft = itemType == ProjectItemType.DraftIssue,
+                    merged = state == "MERGED",
+                    body = null,
+                    values = values,
+                )
+            )
+        }
+        return result
     }
 
     /** 设置单选字段；optionId 为 null 时清空该字段。仅由用户的显式操作调用，不自动重试。 */
@@ -543,4 +745,33 @@ open class ProjectsClient(
     }
 }
 
-object Projects : ProjectsClient()
+object Projects : ProjectsClient() {
+    override suspend fun list(kind: ProjectOwnerKind, login: String, name: String, after: String?): DiscussionPage<ProjectSummary> {
+        return try {
+            super.list(kind, login, name, after)
+        } catch (e: ApiException) {
+            if (ProjectErrors.ofMessage(e.message) == ProjectErrorKind.Scope) {
+                // Token 缺少 read:project 权限时（如官方移动端 OAuth 登录），自动抓取公开网页数据并解析为 ProjectSummary 原生模型，100% 原生渲染
+                listFromWeb(kind, login, name)
+            } else {
+                throw e
+            }
+        }
+    }
+
+    override suspend fun detail(projectId: String): ProjectDetail {
+        return if (projectId.startsWith("/") || projectId.startsWith("http")) {
+            detailFromWeb(projectId)
+        } else {
+            try {
+                super.detail(projectId)
+            } catch (e: ApiException) {
+                if (ProjectErrors.ofMessage(e.message) == ProjectErrorKind.Scope) {
+                    detailFromWeb(projectId)
+                } else {
+                    throw e
+                }
+            }
+        }
+    }
+}

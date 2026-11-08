@@ -346,4 +346,27 @@ class ProjectsTest {
         assertEquals("2.5", ProjectsClient.fmtNumber(2.5))
         assertNull(ProjectsClient.fmtNumber(null))
     }
+
+    @Test fun htmlParserExtractsProjectsAndEmptyList() {
+        val emptyHtml = """<div id="memexes-results"><span id="projects-search-results-text">0 open and 0 closed projects found.</span></div>"""
+        assertEquals(emptyList<ProjectSummary>(), Projects.parseProjectsFromHtml(emptyHtml))
+
+        val html = """
+            <ul>
+                <li class="Box-row">
+                    <a id="project_1" href="/orgs/myorg/projects/1">Roadmap &amp; Features</a>
+                    <span class="text-normal">Our vision</span>
+                    #1 updated <relative-time datetime="2026-11-08T12:00:00Z">Nov 8</relative-time>
+                </li>
+            </ul>
+        """.trimIndent()
+        val list = Projects.parseProjectsFromHtml(html)
+        assertEquals(1, list.size)
+        assertEquals("Roadmap & Features", list[0].title)
+        assertEquals(1, list[0].number)
+        assertEquals("/orgs/myorg/projects/1", list[0].id)
+        assertEquals("Our vision", list[0].shortDescription)
+        assertEquals("2026-11-08T12:00:00Z", list[0].updatedAt)
+        assertFalse(list[0].closed)
+    }
 }

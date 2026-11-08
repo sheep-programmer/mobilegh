@@ -1,5 +1,6 @@
 package com.mobilegh.data
 
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.async
@@ -397,15 +398,25 @@ object GitHub {
     suspend fun contributorCount(o: String, n: String, force: Boolean = false): Int =
         countList("${r(o, n)}/contributors?anon=1&per_page=1&page=1", force)
 
-    /** 开放中的讨论数。讨论只能用 GraphQL 统计；未开启讨论时返回 0。 */
-    suspend fun discussionCount(o: String, n: String, force: Boolean = false): Int {
-        val data = Api.graphql(
-            "query(\$o: String!, \$n: String!) { repository(owner: \$o, name: \$n) { discussions(states: [OPEN], first: 1) { totalCount } } }",
-            mapOf("o" to o, "n" to n),
-        )
-        val discussions = (data["repository"] as? JsonObject)?.get("discussions") as? JsonObject
-        return discussions?.get("totalCount")?.jsonPrimitive?.intOrNull ?: 0
+    /** 讨论功能是否开启及开放中的讨论数。未开启讨论或未授权时返回 false 与 0。 */
+    suspend fun discussionInfo(o: String, n: String, force: Boolean = false): Pair<Boolean, Int> {
+        return try {
+            val data = Api.graphql(
+                "query(\$o: String!, \$n: String!) { repository(owner: \$o, name: \$n) { hasDiscussionsEnabled discussions(states: [OPEN], first: 1) { totalCount } } }",
+                mapOf("o" to o, "n" to n),
+            )
+            val repo = (data["repository"] as? JsonObject)
+            val enabled = repo?.get("hasDiscussionsEnabled")?.jsonPrimitive?.booleanOrNull ?: false
+            val count = (repo?.get("discussions") as? JsonObject)?.get("totalCount")?.jsonPrimitive?.intOrNull ?: 0
+            Pair(enabled, count)
+        } catch (_: Exception) {
+            Pair(false, 0)
+        }
     }
+
+    /** 开放中的讨论数。讨论只能用 GraphQL 统计；未开启讨论时返回 0。 */
+    suspend fun discussionCount(o: String, n: String, force: Boolean = false): Int =
+        discussionInfo(o, n, force).second
 
     /** 列表接口发一次 per_page=1 的请求，取总数（见 [listTotal]）。 */
     private suspend fun countList(path: String, force: Boolean): Int {
@@ -825,6 +836,7 @@ object GitHub {
     suspend fun rerun(o: String, n: String, runId: Long, failedOnly: Boolean) =
         Api.exec("POST", "${r(o, n)}/actions/runs/$runId/" + if (failedOnly) "rerun-failed-jobs" else "rerun")
     suspend fun cancelRun(o: String, n: String, runId: Long) = Api.exec("POST", "${r(o, n)}/actions/runs/$runId/cancel")
+    suspend fun job(o: String, n: String, jobId: Long, force: Boolean = false) = Api.get<Job>("${r(o, n)}/actions/jobs/$jobId", force)
     suspend fun jobLog(o: String, n: String, jobId: Long) = Api.text("${r(o, n)}/actions/jobs/$jobId/logs", force = true)
     suspend fun workflows(o: String, n: String, force: Boolean) = Api.get<Workflows>("${r(o, n)}/actions/workflows?per_page=100", force).workflows
     suspend fun dispatch(o: String, n: String, workflowId: Long, ref: String, inputs: Map<String, String> = emptyMap()) =
@@ -922,6 +934,38 @@ object GitHub {
     suspend fun received(login: String, page: Int, force: Boolean) = Api.get<List<Event>>("/users/$login/received_events?per_page=$PER&page=$page", force)
     /** 仓库事件（含 PushEvent），用于查看最近推送到哪些分支、由谁推送。 */
     suspend fun repoEvents(o: String, n: String, page: Int, force: Boolean) = Api.get<List<Event>>("${r(o, n)}/events?per_page=$PER&page=$page", force)
+
+    /**
+     * 最近推送（按提交历史还原）：事件接口 /repos/{o}/{n}/events 对大仓库不完整，最近推送经常不显示；
+     * 提交历史接口一直可用。这里按分支读提交，把同一作者、时间相近的连续提交当成一次推送。
+     * [branches] 传上一次的结果即可复用分支列表，不必每页都重新拉。
+     */
+    suspend fun commitPushes(
+        o: String, n: String, force: Boolean,
+        branches: List<Branch>? = null,
+        perBranch: Int = MAX_COMMITS_PER_BRANCH,
+        limit: Int = PUSH_PAGE,
+    ): Pair<List<CommitPush>, List<Branch>> {
+        val list = branches ?: branchesOnce(o, n, force)
+        val out = mutableListOf<CommitPush>()
+        for (b in list) {
+            if (out.size >= limit) break
+            val commits = runCatching {
+                Api.get<List<Commit>>("${r(o, n)}/commits?sha=${Api.q(b.name)}&per_page=$perBranch&page=1", force)
+            }.getOrDefault(emptyList())
+            out += splitPushes("refs/heads/${b.name}", commits)
+        }
+        return out.sortedByDescending { it.at }.take(limit) to list
+    }
+
+    /** 分支列表，按最近提交排序；拉取失败时退回只含默认分支的一项，保证页面仍能显示提交记录 */
+    private suspend fun branchesOnce(o: String, n: String, force: Boolean): List<Branch> {
+        val all = runCatching { branches(o, n, 1, force) }.getOrDefault(emptyList())
+        if (all.isNotEmpty()) return all.take(MAX_BRANCHES)
+        val repo = runCatching { repo(o, n, force) }.getOrNull() ?: return emptyList()
+        return listOf(Branch(repo.defaultBranch))
+    }
+
     suspend fun userEvents(login: String, page: Int, force: Boolean) = Api.get<List<Event>>("/users/$login/events?per_page=$PER&page=$page", force)
 
     /** 组织活动流：比用户 received_events 更准确地覆盖组织仓库的 push、Issue、PR 和 release。 */
@@ -1017,6 +1061,18 @@ object GitHub {
         // 自己最近一年的数据同步给桌面贡献图小组件
         if (year == null && login.equals(Session.login, true)) WidgetStore.saveContributions(login, result.contributionCalendar)
         return result
+    }
+
+    /** 查询指定时间范围内的贡献详情（如单日、单周），返回具体的提交、PR、Review、Issue 等分类构成和仓库分布 */
+    suspend fun contributionsRange(login: String, fromDate: String, toDate: String): Contributions {
+        val vars = mapOf(
+            "login" to login,
+            "from" to "${fromDate}T00:00:00Z",
+            "to" to "${toDate}T23:59:59Z",
+        )
+        val data = Api.graphql(CONTRIB_Q, vars)
+        val c = data.obj("user")?.get("contributionsCollection") ?: throw ApiException(404, tr("用户不存在"))
+        return Api.plain.decodeFromJsonElement(c)
     }
 
     private const val PINNED_Q = """

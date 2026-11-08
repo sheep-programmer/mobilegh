@@ -49,7 +49,7 @@ object Session {
         private set
 
     /** 应用所需但当前授权缺少的权限；未知时视为不缺失 */
-    val missingScopes: List<String> get() = DeviceAuth.missingScopes(grantedScopes)
+    val missingScopes: List<String> get() = DeviceAuth.missingScopes(grantedScopes, oauth?.clientId ?: accounts.firstOrNull { it.login == login }?.clientId)
 
     /** 缺失权限提示是否应弹出：同一账号同一缺失组合只提示一次（跨重启记住） */
     private var dismissedScopeNotice by mutableStateOf<String?>(null)
@@ -82,7 +82,11 @@ object Session {
     /** 代码对比：true 为左右分栏（左旧右新），false 为单栏统一视图 */
     var diffSplit by mutableStateOf(true)
         private set
-    var codeWrap by mutableStateOf(false)
+    var codeWrap by mutableStateOf(true)
+
+    /** 列表右下角的「回到顶部」按钮；默认关闭，在外观设置里打开 */
+    var scrollToTopButton by mutableStateOf(false)
+        private set
     var rateRemaining by mutableStateOf<String?>(null)
     val accounts = mutableStateListOf<Account>()
 
@@ -101,7 +105,8 @@ object Session {
             prefs.edit().putBoolean("native_browser_migration", true).apply()
         }
         themeMode = prefs.getInt("theme", 0)
-        codeWrap = prefs.getBoolean("wrap", false)
+        codeWrap = prefs.getBoolean("wrap", true)
+        scrollToTopButton = prefs.getBoolean("scroll_to_top", false)
         diffSplit = prefs.getBoolean("diff_split", true)
         accounts.clear()
         prefs.getString("accounts", null)?.let {
@@ -245,6 +250,11 @@ object Session {
     fun toggleWrap() {
         codeWrap = !codeWrap
         prefs.edit().putBoolean("wrap", codeWrap).apply()
+    }
+
+    fun chooseScrollToTopButton(on: Boolean) {
+        scrollToTopButton = on
+        prefs.edit().putBoolean("scroll_to_top", on).apply()
     }
 
     private fun saveAccounts() {

@@ -122,9 +122,9 @@ fun HomeCustomizeScreen() {
 
             SectionTitle(tr("收藏仓库"))
             if (layout.favorites.isEmpty()) {
-                Hint(tr("在仓库页右上角菜单选择「加入首页收藏」，常用仓库就会出现在首页。"))
+                Hint(tr("在仓库页右上角菜单选择「加入收藏」，常用仓库就会出现在收藏夹。"))
             } else {
-                Hint(tr("也可以在首页长按收藏的仓库来调整。"))
+                Hint(tr("也可以在收藏夹中长按收藏的仓库来调整。"))
                 Spacer(Modifier.height(8.dp))
                 MenuGroup {
                     layout.favorites.forEachIndexed { i, f ->
@@ -134,7 +134,7 @@ fun HomeCustomizeScreen() {
                             canUp = i > 0, canDown = i < layout.favorites.lastIndex,
                             onMove = { d -> HomePrefs.moveFavorite(i, d) },
                         ) {
-                            OcButton(R.drawable.oc_trash, { removeFavoriteWithUndo(scope, snackbar, i, f) }, g.fgMuted, description = trf("移出首页收藏 {0}", "${f.owner} / ${f.name}"))
+                            OcButton(R.drawable.oc_trash, { removeFavoriteWithUndo(scope, snackbar, i, f) }, g.fgMuted, description = trf("移出收藏 {0}", "${f.owner} / ${f.name}"))
                         }
                     }
                 }

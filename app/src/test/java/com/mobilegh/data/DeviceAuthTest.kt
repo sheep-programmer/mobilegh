@@ -53,6 +53,8 @@ class DeviceAuthTest {
         assertEquals(emptyList<String>(), DeviceAuth.missingScopes(null))
         assertEquals(emptyList<String>(), DeviceAuth.missingScopes(DeviceAuth.REQUIRED_SCOPES.toSet()))
         assertEquals(listOf("project", "delete_repo"), DeviceAuth.missingScopes(setOf("repo", "read:org", "notifications", "user", "gist", "workflow")))
+        // 官方移动端 OAuth 不支持 project，不报 project 缺失
+        assertEquals(listOf("delete_repo"), DeviceAuth.missingScopes(setOf("repo", "read:org", "notifications", "user", "gist", "workflow"), ApprovalOAuthProtocol.CLIENT_ID))
         // 授权里多出无关权限不影响判断
         assertEquals(listOf("delete_repo"), DeviceAuth.missingScopes(DeviceAuth.REQUIRED_SCOPES.toSet() - "delete_repo" + "admin:org"))
     }

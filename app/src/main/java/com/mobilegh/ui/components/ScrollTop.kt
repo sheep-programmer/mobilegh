@@ -44,6 +44,8 @@ fun RegisterScrollTop(state: LazyListState) {
 /** 向下翻过第一屏（顶部项已滑出）后显示；点按平滑滚回顶部。 */
 @Composable
 fun ScrollToTopButton(target: ScrollTopTarget) {
+    // 默认不显示：在「设置 → 外观与语言」里打开后才出现
+    if (!com.mobilegh.data.Session.scrollToTopButton) return
     val g = Gh.c
     val state = target.list
     val scope = rememberCoroutineScope()

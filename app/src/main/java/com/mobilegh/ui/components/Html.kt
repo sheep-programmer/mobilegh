@@ -47,6 +47,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -153,6 +154,12 @@ data class ReadmeHeading(val level: Int, val text: String, val anchor: String)
 
 private val headingTag = Regex("(?is)<h([1-6])\\b[^>]*>(.*?)</h\\1\\s*>")
 private val headingAnchor = Regex("""(?<![\w-])id="(?:user-content-)?([^"]+)"""")
+/**
+ * GitHub 现在的标题结构是 `<div class="markdown-heading"><h2>…</h2><a id="user-content-…"></a></div>`：
+ * 锚点是 h2 的兄弟节点，不在 h2 内部。所以标题标签之后还要看同一层容器里紧随的 anchor。
+ */
+private val headingAnchorAfter = Regex("""(?is)^\s*<a\b[^>]*\bid="(?:user-content-)?([^"]+)"[^>]*>""")
+private val headingWrapper = Regex("""(?is)<div\b[^>]*class="[^"]*markdown-heading[^"]*"[^>]*>.*?</div>\s*""")
 private val htmlTagRegex = Regex("<[^>]+>")
 private val spaceRun = Regex("\\s+")
 
@@ -162,7 +169,9 @@ private val spaceRun = Regex("\\s+")
  */
 internal fun readmeHeadings(html: String): List<ReadmeHeading> =
     headingTag.findAll(html).mapNotNull { m ->
-        val anchor = headingAnchor.find(m.value)?.groupValues?.get(1) ?: return@mapNotNull null
+        val inside = headingAnchor.find(m.value)?.groupValues?.get(1)
+        val after = headingAnchorAfter.find(html.substring(m.range.last + 1))?.groupValues?.get(1)
+        val anchor = inside ?: after ?: return@mapNotNull null
         val text = unescapeBasicEntities(htmlTagRegex.replace(m.groupValues[2], "")).replace(spaceRun, " ").trim()
         if (text.isEmpty()) null else ReadmeHeading(m.groupValues[1].toInt(), text, anchor)
     }.toList()
@@ -305,7 +314,9 @@ internal fun WebHtmlView(
                     setOnLongClickListener {
                         val hit = hitTestResult
                         val target = hit.extra
-                        if (hit.type == WebView.HitTestResult.SRC_ANCHOR_TYPE && !target.isNullOrBlank()) {
+                        if (hit.type == WebView.HitTestResult.SRC_ANCHOR_TYPE && !target.isNullOrBlank() &&
+                            (target.startsWith("https://") || target.startsWith("http://"))
+                        ) {
                             LinkMenu.show(target)
                             true
                         } else {
@@ -389,7 +400,7 @@ internal fun WebHtmlView(
 
 /** 代码块全屏查看：默认自动换行；右上角三个点可切换换行、调整字号，设置会记住。 */
 @Composable
-internal fun CodeZoomDialog(code: String, onDismiss: () -> Unit) {
+internal fun CodeZoomDialog(code: String, language: String? = null, onDismiss: () -> Unit) {
     val ctx = rememberCtx()
     val g = Gh.c
     val prefs = remember { ctx.getSharedPreferences("code_view", Context.MODE_PRIVATE) }
@@ -398,6 +409,20 @@ internal fun CodeZoomDialog(code: String, onDismiss: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     val vertical = rememberScrollState()
     val horizontal = rememberScrollState()
+    val sc = syntaxColors(g)
+    val highlighted = remember(code, language, g.dark) {
+        if (!language.isNullOrBlank() && language != "text") {
+            val lines = highlightLines(code, language, sc)
+            val b = AnnotatedString.Builder()
+            lines.forEachIndexed { i, line ->
+                if (i > 0) b.append("\n")
+                b.append(line)
+            }
+            b.toAnnotatedString()
+        } else {
+            AnnotatedString(code)
+        }
+    }
     fun setFont(v: Int) {
         fontSp = v.coerceIn(10, 22)
         prefs.edit().putInt("font", fontSp).apply()
@@ -440,10 +465,10 @@ internal fun CodeZoomDialog(code: String, onDismiss: () -> Unit) {
                 }
             }
             HDivider()
-            val scroll = if (wrap) Modifier.columnScrollbar(vertical).verticalScroll(vertical) else Modifier.columnScrollbar(vertical).verticalScroll(vertical).horizontalScroll(horizontal)
+            val scroll = if (wrap) Modifier.columnScrollbar(vertical).verticalScroll(vertical) else Modifier.columnScrollbar(vertical).verticalScroll(vertical).horizontalScrollWithBar(horizontal)
             Box(Modifier.weight(1f).fillMaxWidth().then(scroll).padding(16.dp)) {
                 Text(
-                    code, color = g.fg, fontFamily = FontFamily.Monospace,
+                    highlighted, color = g.fg, fontFamily = FontFamily.Monospace,
                     fontSize = fontSp.sp, lineHeight = (fontSp * 1.45f).sp, softWrap = wrap,
                 )
             }

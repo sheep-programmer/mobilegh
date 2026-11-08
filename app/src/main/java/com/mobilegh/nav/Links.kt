@@ -11,7 +11,7 @@ object Links {
         "new", "pulls", "issues", "sponsors", "about", "pricing", "enterprise", "collections", "events", "search",
         "codespaces", "dashboard", "account", "apps", "site", "security", "customer-stories", "readme", "team",
         "contact", "join", "signup", "password_reset", "copilot", "github-copilot", "resources", "solutions", "stars",
-        "oauth", "sessions", "organizations", "orgs", "404",
+        "oauth", "sessions", "organizations", "orgs", "404", "user-attachments", "assets",
     )
 
     /** 安全页面里应用支持的三类告警；其余子页（如 advisories）交给浏览器 */
@@ -248,7 +248,15 @@ object Links {
                 else -> Screen.Releases(o, r)
             }
             "tags" -> Screen.Releases(o, r)
-            "actions" -> if (segs.getOrNull(3) == "runs") segs.getOrNull(4)?.toLongOrNull()?.let { Screen.RunDetail(o, r, it) } else Screen.Actions(o, r)
+            "actions" -> if (segs.getOrNull(3) == "runs") {
+                val runId = segs.getOrNull(4)?.toLongOrNull()
+                if (runId != null) {
+                    if (segs.getOrNull(5) == "job") {
+                        val jId = segs.getOrNull(6)?.toLongOrNull()
+                        if (jId != null) Screen.JobLog(o, r, jId, title = "Job #$jId", runId = runId) else Screen.RunDetail(o, r, runId)
+                    } else Screen.RunDetail(o, r, runId)
+                } else Screen.Actions(o, r)
+            } else Screen.Actions(o, r)
             "stargazers" -> Screen.Users(UserKind.Stargazers, o, r)
             "watchers" -> Screen.Users(UserKind.Watchers, o, r)
             "network", "forks" -> Screen.Repos(RepoKind.Forks, o, r)
@@ -262,7 +270,7 @@ object Links {
             "settings" -> if (segs.size == 3) Screen.RepoSettings(o, r) else null
             // 合并队列页（/owner/repo/queue）：应用内列出队列中的 PR，不再落到仓库首页
             "queue" -> if (segs.size == 3) Screen.MergeQueue(o, r) else null
-            "projects", "milestone", "milestones", "labels" -> null
+            "projects", "milestone", "milestones", "labels", "files" -> null
             else -> Screen.Repo(o, r)
         }
     }

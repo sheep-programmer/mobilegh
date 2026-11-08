@@ -507,23 +507,28 @@ object ContributionStats {
     }
 
     /**
-     * 展开某一位贡献者时调用：逐页读取其最近一年的提交（每页 100，最多 [MAX_PERSON_PAGES] 页），按周数。
+     * 展开某一位贡献者时调用：逐页读取其最近 [weeksCount] 周的提交（默认 3 周），按周数。
+     * 往回翻时再加载更多周，避免大仓库加载一年导致大量请求或超时。
      * 每读完一页就通过 [onProgress] 交出当前结果（还没读到的更早的周为缺失）；全部读完才不算截断。
      */
     suspend fun personActivity(
         owner: String,
         name: String,
         login: String,
+        weeksCount: Int = 3,
         force: Boolean = false,
         request: suspend (String, Boolean) -> Resp = { path, refresh -> Api.call("GET", path, force = refresh) },
         now: Instant = Instant.now(),
         onProgress: (PersonActivity) -> Unit = {},
     ): PersonActivity {
-        val since = now.minus(Duration.ofDays(365)).truncatedTo(ChronoUnit.SECONDS)
+        val currentWeek = weekStart(now.atOffset(ZoneOffset.UTC).toLocalDate())
+        val oldestWeek = currentWeek.minusWeeks((weeksCount - 1).coerceAtLeast(0).toLong())
+        val since = oldestWeek.atStartOfDay(ZoneOffset.UTC).toInstant().truncatedTo(ChronoUnit.SECONDS)
         val counts = mutableMapOf<LocalDate, Long>()
         var more = true
         var page = 1
-        while (more && page <= MAX_PERSON_PAGES) {
+        val maxPages = ((weeksCount * 3) / 2).coerceIn(5, MAX_PERSON_PAGES)
+        while (more && page <= maxPages) {
             val response = request("/repos/$owner/$name/commits?author=$login&since=$since&per_page=100&page=$page", force)
             Api.ensureOk(response)
             val items = Api.json.parseToJsonElement(response.body) as? JsonArray
@@ -536,19 +541,19 @@ object ContributionStats {
             }
             more = items.size >= 100
             page++
-            if (more) onProgress(personWeekly(counts, now, incomplete = true))
+            if (more) onProgress(personWeekly(counts, now, weeksCount, incomplete = true))
         }
-        return personWeekly(counts, now, incomplete = more)
+        return personWeekly(counts, now, weeksCount, incomplete = more)
     }
 
-    /** 最近一年最多读取的提交页数：约 5000 条提交，超过的部分较早的周显示为缺失。 */
+    /** 最多读取的提交页数：约 5000 条提交，超过的部分较早的周显示为缺失。 */
     private const val MAX_PERSON_PAGES = 50
 
-    private fun personWeekly(counts: Map<LocalDate, Long>, now: Instant, incomplete: Boolean): PersonActivity {
+    private fun personWeekly(counts: Map<LocalDate, Long>, now: Instant, weeksCount: Int, incomplete: Boolean): PersonActivity {
         // 提交按时间从新到旧读取：没读完时，最早读到的那一周及更早的数据可能不完整，显示为缺失，而不是 0
         val oldest = counts.keys.minOrNull()
         val currentWeek = weekStart(now.atOffset(ZoneOffset.UTC).toLocalDate())
-        val weekly = (51 downTo 0).map { back ->
+        val weekly = ((weeksCount - 1).coerceAtLeast(0) downTo 0).map { back ->
             val start = currentWeek.minusWeeks(back.toLong())
             ContributionPoint(start, if (incomplete && (oldest == null || !start.isAfter(oldest))) null else counts[start] ?: 0L)
         }

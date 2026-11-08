@@ -83,6 +83,7 @@ import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.relTime
+import com.mobilegh.ui.components.parseInstant
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.RepoItem
 import com.mobilegh.ui.components.SectionTitle
@@ -169,7 +170,20 @@ fun ReposTab() {
                 Spacer(Modifier.width(8.dp))
                 FilterEntry(active.size) { sheet = true }
             }
-            Chips(filters.map { it.first }, filter) { filter = it }
+            val filterOptions = filters.map { it.first }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(tr("类型"), color = Gh.c.fgMuted, fontSize = 13.sp)
+                Spacer(Modifier.weight(1f))
+                Dropdown(
+                    label = filterOptions.getOrElse(filter) { tr("全部") },
+                    options = filterOptions,
+                    onSelect = { filter = it },
+                    active = filter != 0,
+                )
+            }
             if (active.isNotEmpty()) ActiveFilterChips(
                 active,
                 onRemove = { k ->
@@ -324,9 +338,19 @@ private fun OrganizationReposPanel(
                 item(key = "group:$org") { SectionTitle(org) { TextLink(tr("组织")) { nav.push(Screen.Org(org)) } } }
                 boxedItems(group, key = { "repo:${it.id}" }) { RepoItem(it, showOwner = false) }
             }
-            item { SectionTitle(tr("组织动态")) }
-            item { Chips(EventCat.entries.map { it.label }, EventCat.entries.indexOf(category)) { category = EventCat.entries[it] } }
-            val activity = events.data.orEmpty().distinctBy { it.id }.filter { category == EventCat.All || eventCat(it) == category }
+            item {
+                SectionTitle(tr("组织动态"), trailing = {
+                    Dropdown(
+                        label = category.label,
+                        options = EventCat.filterOptions.map { it.label },
+                        onSelect = { category = EventCat.filterOptions[it] },
+                        active = category != EventCat.All,
+                    )
+                })
+            }
+            val activity = events.data.orEmpty().distinctBy { it.id }
+                .filter { category == EventCat.All || eventCat(it) == category }
+                .sortedByDescending { parseInstant(it.createdAt)?.toEpochMilli() ?: Long.MIN_VALUE }
             boxedItems(activity, key = { "event:${it.id}" }) { EventItem(it) }
             if (events.loading) item { Loading(Modifier.fillMaxWidth().height(64.dp)) }
             events.error?.let { msg -> item { ErrorState(msg, Modifier.fillMaxWidth()) { events.refresh() } } }

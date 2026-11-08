@@ -30,9 +30,13 @@ object DeviceAuth {
     fun parseScopes(header: String?): Set<String>? =
         header?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
 
-    /** granted 为 null（无法获知）时不报缺失，避免误伤细粒度 Token 用户 */
-    fun missingScopes(granted: Set<String>?): List<String> =
-        if (granted == null) emptyList() else REQUIRED_SCOPES.filter { it !in granted }
+    /** granted 为 null（无法获知）时不报缺失，避免误伤细粒度 Token 用户；官方移动端 OAuth 客户端无法获批 project，改走应用内网页模式，不列为缺失 */
+    fun missingScopes(granted: Set<String>?, clientId: String? = null): List<String> =
+        if (granted == null) emptyList()
+        else REQUIRED_SCOPES.filter { scope ->
+            if (scope == "project" && clientId == ApprovalOAuthProtocol.CLIENT_ID) false
+            else scope !in granted
+        }
 
     /** 缺少某权限时受影响的功能，提示用户为什么要补授权 */
     fun scopeFeature(scope: String): String = when (scope) {

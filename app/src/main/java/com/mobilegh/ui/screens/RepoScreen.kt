@@ -11,6 +11,9 @@ import androidx.compose.foundation.clickable
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -24,13 +27,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +47,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -75,6 +83,7 @@ import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
+import com.mobilegh.ui.components.GhTooltip
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.CompactSearchField
 import com.mobilegh.ui.components.FieldAction
@@ -88,6 +97,8 @@ import com.mobilegh.ui.components.HtmlView
 import com.mobilegh.ui.components.HtmlAnchorRequest
 import com.mobilegh.ui.components.ReadmeHeading
 import com.mobilegh.ui.components.readmeHeadings
+import com.mobilegh.ui.components.ReadmeZoomDialog
+import com.mobilegh.ui.components.onPinchToZoom
 import com.mobilegh.ui.components.IconText
 import com.mobilegh.ui.components.LanguageBar
 import com.mobilegh.ui.components.Loading
@@ -103,6 +114,7 @@ import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.Topic
 import com.mobilegh.ui.components.copy
+import com.mobilegh.ui.components.ExternalLinkDialog
 import com.mobilegh.ui.components.fmtCount
 import com.mobilegh.ui.components.fmtSize
 import com.mobilegh.ui.components.openBrowser
@@ -151,7 +163,7 @@ fun RepoScreen(owner: String, name: String) {
     val openPulls = rememberLoader("open-pulls") { GitHub.openPullCount(owner, name, it) }
     // 发布、讨论、贡献者的计数，显示在对应入口的角标上（0 不显示）
     val releaseCount = rememberLoader("release-count") { GitHub.releaseCount(owner, name, it) }
-    val discussionCount = rememberLoader("discussion-count") { GitHub.discussionCount(owner, name, it) }
+    val discussionInfo = rememberLoader("discussion-info") { GitHub.discussionInfo(owner, name, it) }
     val contributorCount = rememberLoader("contributor-count") { GitHub.contributorCount(owner, name, it) }
     // 新建、关闭 Issue / PR 后回到仓库页，Issue 与 PR 数随之更新
     OnRepoChanged(owner, name, RepoWrite.ISSUES) { openIssues.refresh(); openPulls.refresh() }
@@ -170,11 +182,11 @@ fun RepoScreen(owner: String, name: String) {
     var showFork by remember { mutableStateOf(false) }
     var showSubscription by remember { mutableStateOf(false) }
     var showLists by remember { mutableStateOf(false) }
-    // README 目录：标题取自 README 的 HTML 源串；点选后经 anchorRequest 让 WebView 滚到该标题
+    // README 目录：标题取自 README 的 HTML 源串；点选后经 anchorRequest 滚到该标题
     var tocOpen by remember { mutableStateOf(false) }
+    var readmeZoomOpen by remember { mutableStateOf(false) }
+    var initialZoomScale by remember { mutableFloatStateOf(1.5f) }
     var anchorRequest by remember { mutableStateOf<HtmlAnchorRequest?>(null) }
-    // 页内锚点的待滚动位置（标题在 README 内的 y），README 完整展示，直接在列表里滚动到它
-    var pendingAnchorY by remember { mutableStateOf<Int?>(null) }
     val headings = remember(readme.data) { readme.data?.let(::readmeHeadings).orEmpty() }
     var zipInfo by remember { mutableStateOf<FileInfo?>(null) }
     val listState = rememberLazyListState()
@@ -210,13 +222,32 @@ fun RepoScreen(owner: String, name: String) {
                     )
                 })
                 if (r != null) add(MenuAction(tr("加入 Star 列表…")) { showLists = true })
-                if (HomePrefs.layout().isFavorite(owner, name)) add(MenuAction(tr("移出首页收藏")) {
+                val savedId = "repo:$owner/$name"
+                val isSaved = com.mobilegh.data.SavedItems.isSaved(savedId)
+                add(MenuAction(if (isSaved) tr("移出稍后阅读") else tr("保存到稍后阅读")) {
+                    com.mobilegh.data.SavedItems.toggle(
+                        com.mobilegh.data.SavedItem(
+                            id = savedId,
+                            kind = com.mobilegh.data.SavedKind.Repo,
+                            owner = owner,
+                            name = name,
+                            title = "$owner/$name",
+                            state = null,
+                        )
+                    )
+                    ctx.toast(if (isSaved) tr("已移出稍后阅读") else tr("已保存到稍后阅读"))
+                })
+                if (HomePrefs.layout().isFavorite(owner, name)) add(MenuAction(tr("移出收藏")) {
                     HomePrefs.toggleFavorite(owner, name)
-                    ctx.toast(tr("已移出首页收藏"))
-                }) else add(MenuAction(tr("加入首页收藏")) {
+                    ctx.toast(tr("已移出收藏"))
+                }) else add(MenuAction(tr("加入收藏")) {
                     // 使用仓库返回的规范大小写，避免收藏里出现 Owner/Repo 与 owner/repo 两种写法
-                    runCatching { HomePrefs.toggleFavorite(r?.owner?.login ?: owner, r?.name ?: name) }
-                        .onSuccess { ctx.toast(tr("已加入首页收藏")) }
+                    val targetOwner = r?.owner?.login ?: owner
+                    val targetName = r?.name ?: name
+                    runCatching { HomePrefs.toggleFavorite(targetOwner, targetName) }
+                        .onSuccess {
+                            ctx.toast(tr("已加入收藏"))
+                        }
                         .onFailure { ctx.toast(it.message ?: tr("收藏失败")) }
                 })
                 addLinkActions(ctx, "https://github.com/$owner/$name")
@@ -233,22 +264,16 @@ fun RepoScreen(owner: String, name: String) {
                     // Star / 订阅状态静默刷新：按钮保持原样，不在刷新期间变灰再恢复（看起来就是闪一下）
                     repo.refresh(); readme.refresh(); langs.refresh(); starStatus.refreshSilently(); watching.refreshSilently()
                     // 下拉刷新时各入口的数量也一起重新读取
-                    openIssues.refresh(); openPulls.refresh(); releaseCount.refresh(); discussionCount.refresh(); contributorCount.refresh()
+                    openIssues.refresh(); openPulls.refresh(); releaseCount.refresh(); discussionInfo.refresh(); contributorCount.refresh()
                 }
             }, Modifier.padding(pad)) {
                 // README 的下标由「是否有语言条」决定，和下方 LazyColumn 里的 item 顺序保持一致
                 val readmeIndex = repoReadmeIndex(langs.data?.isNotEmpty() == true)
-                // 目录或页内锚点：README 完整展示，直接滚动到标题位置
-                LaunchedEffect(pendingAnchorY) {
-                    val y = pendingAnchorY ?: return@LaunchedEffect
-                    pendingAnchorY = null
-                    listState.animateScrollToItem(readmeIndex, with(density) { (y + 64).dp.roundToPx() })
-                }
                 ScrollbarLazyColumn(Modifier.fillMaxSize(), state = listState) {
                     item { RepoHeader(r, onEdited = { repo.refresh() }) }
                     item {
                         // Star / Watch / Fork
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             val s = starStatus.data == true
                             GhButton(
                                 "${if (s) tr("已 Star") else "Star"} ${fmtCount(r.stargazersCount)}",
@@ -297,7 +322,7 @@ fun RepoScreen(owner: String, name: String) {
                         }
                         starStatus.error?.let { InlineError(trf("Star 状态读取失败：{0}", it), Modifier.padding(horizontal = 16.dp)) { if (!starBusy && entry.sameAccount()) starStatus.refresh() } }
                         watching.error?.let { InlineError(trf("订阅状态读取失败：{0}", it), Modifier.padding(horizontal = 16.dp)) { if (entry.sameAccount()) watching.refresh() } }
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(8.dp))
                     }
                     item {
                         // 分支 + 代码
@@ -341,9 +366,21 @@ fun RepoScreen(owner: String, name: String) {
                                 ?: openPulls.data?.takeIf { openIssues.error != null }?.let { (r.openIssuesCount - it).coerceAtLeast(0) }
                             add(HomeShortcut(R.drawable.oc_issue_opened, "Issues", g.success, { nav.push(Screen.Issues(owner, name, false)) }, id = "Issues", count = issueCount))
                             add(HomeShortcut(R.drawable.oc_git_pull_request, "Pull Requests", g.accent, { nav.push(Screen.Issues(owner, name, true)) }, id = "Pulls", count = openPulls.data))
+                            val showDiscussions = r.hasDiscussions || discussionInfo.data?.first == true || (discussionInfo.data?.second ?: 0) > 0
+                            if (showDiscussions) {
+                                add(HomeShortcut(
+                                    R.drawable.oc_comment_discussion,
+                                    tr("讨论"),
+                                    g.done,
+                                    { nav.push(Screen.Discussions(owner, name)) },
+                                    count = discussionInfo.data?.second?.takeIf { it > 0 }
+                                ))
+                            }
                             add(HomeShortcut(R.drawable.oc_play, "Actions", g.fgMuted, { nav.push(Screen.Actions(owner, name)) }))
                             add(HomeShortcut(R.drawable.oc_table, tr("项目"), g.success, { nav.push(Screen.Projects(ProjectOwnerKind.Repo, owner, name)) }))
-                            if (r.hasDiscussions) add(HomeShortcut(R.drawable.oc_comment_discussion, tr("讨论"), g.done, { nav.push(Screen.Discussions(owner, name)) }, count = discussionCount.data?.takeIf { it > 0 }))
+                            if (r.hasWiki) {
+                                add(HomeShortcut(R.drawable.oc_book, "Wiki", g.sponsors, { nav.push(Screen.Wiki(owner, name)) }))
+                            }
                             add(HomeShortcut(R.drawable.oc_tag, "Releases", g.success, { nav.push(Screen.Releases(owner, name)) }, count = releaseCount.data?.takeIf { it > 0 }))
                             add(HomeShortcut(R.drawable.oc_people, tr("贡献者"), g.severe, { nav.push(Screen.Contributors(owner, name)) }, count = contributorCount.data?.takeIf { it > 0 }))
                             add(HomeShortcut(R.drawable.oc_graph, tr("洞察"), g.done, { nav.push(Screen.Insights(owner, name)) }))
@@ -368,17 +405,51 @@ fun RepoScreen(owner: String, name: String) {
                         }
                     }
                     item {
-                        Card(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
+                        Card(
+                            Modifier
+                                .padding(start = 16.dp, end = 16.dp, top = 16.dp)
+                                .then(if (readme.data != null) Modifier.onPinchToZoom { ratio ->
+                                    initialZoomScale = ratio.coerceIn(1.2f, 3.0f)
+                                    readmeZoomOpen = true
+                                } else Modifier),
+                        ) {
                             Column {
                                 Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Oc(R.drawable.oc_book, g.fgMuted)
                                     Spacer(Modifier.width(8.dp))
                                     Text("README", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = g.fg)
                                     Spacer(Modifier.weight(1f))
-                                    if (headings.isNotEmpty()) Text(
-                                        tr("目录"), color = g.accent, fontSize = 14.sp, fontWeight = FontWeight.Medium,
-                                        modifier = Modifier.minimumInteractiveComponentSize().clickable { tocOpen = true }.padding(horizontal = 8.dp),
-                                    )
+                                    if (readme.data != null) {
+                                        GhTooltip(tr("缩放查看")) {
+                                            Box(
+                                                Modifier
+                                                    .size(32.dp)
+                                                    .clip(CircleShape)
+                                                    .background(g.canvasSubtle)
+                                                    .border(1.dp, g.border, CircleShape)
+                                                    .clickable { readmeZoomOpen = true },
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Oc(R.drawable.oc_screen_full, g.fg, 16.dp)
+                                            }
+                                        }
+                                        Spacer(Modifier.width(8.dp))
+                                    }
+                                    if (headings.isNotEmpty()) {
+                                        GhTooltip(tr("README 目录")) {
+                                            Box(
+                                                Modifier
+                                                    .size(32.dp)
+                                                    .clip(CircleShape)
+                                                    .background(g.canvasSubtle)
+                                                    .border(1.dp, g.border, CircleShape)
+                                                    .clickable { tocOpen = true },
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Oc(R.drawable.oc_list_unordered, g.fg, 16.dp)
+                                            }
+                                        }
+                                    }
                                 }
                                 HDivider()
                                 Spacer(Modifier.height(12.dp))
@@ -387,7 +458,12 @@ fun RepoScreen(owner: String, name: String) {
                                     html != null -> ReadmeBody(
                                         html,
                                         baseUrl = "https://github.com/$owner/$name/blob/${branch ?: "HEAD"}/",
-                                        onAnchor = { y -> pendingAnchorY = y },
+                                        onAnchor = { y ->
+                                            scope.launch {
+                                                val targetPx = with(density) { (y + 44).dp.roundToPx().coerceAtLeast(0) }
+                                                listState.animateScrollToItem(readmeIndex, targetPx)
+                                            }
+                                        },
                                         anchorRequest = anchorRequest,
                                     )
                                     readme.loading -> Loading(Modifier.fillMaxWidth().heightIn(min = 120.dp))
@@ -405,6 +481,17 @@ fun RepoScreen(owner: String, name: String) {
     }
 
     zipInfo?.let { FileInfoDialog(it) { zipInfo = null } }
+    if (readmeZoomOpen && readme.data != null) {
+        ReadmeZoomDialog(
+            html = readme.data!!,
+            baseUrl = "https://github.com/$owner/$name/blob/${branch ?: "HEAD"}/",
+            initialScale = initialZoomScale,
+            onDismiss = {
+                readmeZoomOpen = false
+                initialZoomScale = 1.5f
+            },
+        )
+    }
     if (showSubscription && entry.sameAccount()) SubscriptionDialog(owner, name, { showSubscription = false }) { watching.accept(it) }
     if (showLists && r != null) AddToStarListsDialog(r) { showLists = false }
     if (tocOpen && headings.isNotEmpty()) ReadmeTocSheet(headings, onDismiss = { tocOpen = false }) { h ->
@@ -625,70 +712,115 @@ private fun RepoHeader(r: Repo, onEdited: () -> Unit = {}) {
     val canEdit = (r.permissions?.admin == true || r.permissions?.maintain == true) && !r.archived
     var editing by remember { mutableStateOf(false) }
     if (editing) EditRepoDetailsDialog(r, onDismiss = { editing = false }, onSaved = { editing = false; onEdited() })
-    Column(Modifier.fillMaxWidth().padding(16.dp)) {
-        // 可点按的行和数字至少 48dp 高，手指不容易点空
-        Row(Modifier.minimumInteractiveComponentSize().clickable {
-            nav.push(if (r.owner.type == "Organization") Screen.Org(r.owner.login) else Screen.Profile(r.owner.login))
-        }, verticalAlignment = Alignment.CenterVertically) {
-            Avatar(r.owner.avatarUrl, 22.dp, square = r.owner.type == "Organization")
+
+    val inlineContent = remember(canEdit, g.fgMuted) {
+        if (!canEdit) emptyMap()
+        else mapOf(
+            "edit_pencil" to InlineTextContent(
+                Placeholder(20.sp, 18.sp, PlaceholderVerticalAlign.Center)
+            ) {
+                Box(
+                    Modifier
+                        .size(18.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { editing = true }
+                        .semantics { contentDescription = tr("编辑描述、网址和主题") },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Oc(R.drawable.oc_pencil, g.fgMuted, 13.dp)
+                }
+            }
+        )
+    }
+
+    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 6.dp)) {
+        // 作者头像和登录名
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .clickable {
+                    nav.push(if (r.owner.type == "Organization") Screen.Org(r.owner.login) else Screen.Profile(r.owner.login))
+                }
+                .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Avatar(r.owner.avatarUrl, 20.dp, square = r.owner.type == "Organization")
             Spacer(Modifier.width(8.dp))
             Text(r.owner.login, color = g.fgMuted, fontSize = 14.sp)
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(2.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(r.name, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = g.fg, modifier = Modifier.weight(1f, false))
+            Text(r.name, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = g.fg, modifier = Modifier.weight(1f, false))
             Spacer(Modifier.width(8.dp))
             com.mobilegh.ui.components.VisibilityBadge(r.isPrivate, label = if (r.isPrivate) tr("私有") else if (r.visibility == "internal") tr("内部") else tr("公开"))
         }
-        FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (r.archived) Pill(tr("已归档"), g.attention)
-            if (r.isTemplate) Pill(tr("模板"))
-            if (r.disabled) Pill(tr("已禁用"), g.danger)
+        if (r.archived || r.isTemplate || r.disabled) {
+            FlowRow(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (r.archived) Pill(tr("已归档"), g.attention)
+                if (r.isTemplate) Pill(tr("模板"))
+                if (r.disabled) Pill(tr("已禁用"), g.danger)
+            }
         }
         r.parent?.let { p ->
             Text(
                 trf("Fork 自 {0}", p.fullName), color = g.accent, fontSize = 13.sp,
-                modifier = Modifier.padding(top = 2.dp).minimumInteractiveComponentSize().clickable { nav.push(Screen.Repo(p.owner.login, p.name)) },
+                modifier = Modifier.padding(top = 2.dp).clip(RoundedCornerShape(4.dp)).clickable { nav.push(Screen.Repo(p.owner.login, p.name)) }.padding(vertical = 2.dp),
             )
         }
+        // 描述：紧跟一个小铅笔图标直接排在文本末尾，点开可改描述、网址和主题
         if (!r.description.isNullOrBlank()) {
-            Spacer(Modifier.height(10.dp))
-            MdText(r.description, fontSize = 15.sp)
+            Spacer(Modifier.height(4.dp))
+            MdText(
+                r.description,
+                Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                color = g.fg,
+                inlineContent = inlineContent,
+                trailingInlineId = if (canEdit) "edit_pencil" else null,
+            )
         } else if (canEdit) {
-            Spacer(Modifier.height(10.dp))
-            Text(tr("还没有描述，点按添加"), color = g.fgMuted, fontSize = 14.sp, modifier = Modifier.clickable { editing = true })
+            Spacer(Modifier.height(4.dp))
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable { editing = true }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(tr("还没有描述，点按添加"), color = g.fgMuted, fontSize = 14.sp)
+                Spacer(Modifier.width(4.dp))
+                Oc(R.drawable.oc_pencil, g.fgMuted, 13.dp, contentDescription = tr("编辑描述、网址和主题"))
+            }
         }
         r.homepage?.takeIf { it.isNotBlank() }?.let { h ->
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
             // 网址长度不受控，窄屏下折行显示完整地址，而不是截成省略号
             IconText(
                 R.drawable.oc_link, h.removePrefix("https://").removePrefix("http://"), g.accent,
-                Modifier.minimumInteractiveComponentSize().clickable { ctx.openBrowser(if (h.startsWith("http")) h else "https://$h") },
+                Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .clickable {
+                        val u = if (h.startsWith("http")) h else "https://$h"
+                        ExternalLinkDialog.show(u, h)
+                    }
+                    .padding(vertical = 2.dp),
                 bold = true, maxLines = Int.MAX_VALUE,
             )
         }
         if (r.topics.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Spacer(Modifier.height(6.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 r.topics.forEach { Topic(it) }
             }
         }
-        if (canEdit) {
-            Spacer(Modifier.height(6.dp))
-            Row(
-                Modifier.clip(RoundedCornerShape(6.dp)).clickable { editing = true }.minimumInteractiveComponentSize().padding(end = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Oc(R.drawable.oc_pencil, g.accent, 16.dp)
-                Spacer(Modifier.width(6.dp))
-                Text(tr("编辑描述、网址和主题"), color = g.accent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        // 每一项都是同样的 48dp 可点按单元（内容在单元里垂直居中），所以一行里的图标和文字对齐，且都能点开对应的列表
-        FlowRow(horizontalArrangement = Arrangement.Start, verticalArrangement = Arrangement.Top) {
-            // 项与项之间留 16dp 间距（只加在右侧，左边的第一项与上面的文字左对齐）
-            val cell = Modifier.defaultMinSize(minHeight = 48.dp).padding(end = 16.dp)
+        Spacer(Modifier.height(8.dp))
+        // 仓库统计项紧凑排列
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            val cell = Modifier.clip(RoundedCornerShape(4.dp))
             StatCell(R.drawable.oc_star, trf("{0} Star", fmtCount(r.stargazersCount)), cell) {
                 nav.push(Screen.Users(UserKind.Stargazers, r.owner.login, r.name))
             }
@@ -719,16 +851,16 @@ private fun RepoHeader(r: Repo, onEdited: () -> Unit = {}) {
     }
 }
 
-/** 仓库头部的一个统计项：图标加文字，整项可点按，高度至少 48dp 且内容垂直居中。 */
+/** 仓库头部的一个统计项：图标加文字，整项可点按且紧凑排列。 */
 @Composable
 private fun StatCell(
     @DrawableRes icon: Int,
     text: String,
-    modifier: Modifier,
+    modifier: Modifier = Modifier,
     maxLines: Int = 1,
     onClick: () -> Unit,
 ) {
-    IconText(icon, text, modifier = modifier.clickable(onClick = onClick), maxLines = maxLines)
+    IconText(icon, text, modifier = modifier.clickable(onClick = onClick).padding(vertical = 2.dp), maxLines = maxLines)
 }
 
 /**

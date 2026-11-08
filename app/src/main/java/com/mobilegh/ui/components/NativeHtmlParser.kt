@@ -14,20 +14,24 @@ internal sealed interface HtmlBlock {
     data class Code(val language: String?, val text: String) : HtmlBlock
     data class Quote(val blocks: List<HtmlBlock>) : HtmlBlock
     data class Table(val aligns: List<TableAlign>, val header: List<List<Inline>>, val rows: List<List<List<Inline>>>) : HtmlBlock
-    data class Image(val src: String, val alt: String, val width: Int?, val height: Int?, val link: String? = null) : HtmlBlock
+    data class Image(val src: String, val alt: String, val width: Int?, val height: Int?, val link: String? = null, val viewSrc: String? = null) : HtmlBlock
     /** 一排并排的图片：徽章行、并排的截图。按图片自身大小流式排列，放不下自动换行 */
     data class ImageRow(val images: List<Inline.Image>) : HtmlBlock
     data class Video(val src: String) : HtmlBlock
     data class Details(val open: Boolean, val summary: List<Inline>, val blocks: List<HtmlBlock>) : HtmlBlock
     /** 必须在浏览器里运行脚本才能显示的片段（Mermaid 等图表、数学公式）：只有这一块交给 WebView */
     data class Web(val html: String, val baseUrl: String) : HtmlBlock
+    /** 居中 / 靠右的容器：`<div align="center">`、`<center>`、`style="text-align:center"`，里面的文字和图片都按它对齐 */
+    data class Aligned(val align: BlockAlign, val blocks: List<HtmlBlock>) : HtmlBlock
     data object Rule : HtmlBlock
 }
+
+internal enum class BlockAlign { Center, End }
 
 /** 行内内容：带样式的文字、行内图片（徽章等）、换行。 */
 internal sealed interface Inline {
     data class Text(val text: String, val style: InlineStyle = InlineStyle()) : Inline
-    data class Image(val src: String, val alt: String, val width: Int?, val height: Int?, val link: String?, val badge: Boolean = false) : Inline
+    data class Image(val src: String, val alt: String, val width: Int?, val height: Int?, val link: String?, val badge: Boolean = false, val viewSrc: String? = null) : Inline
     data object Break : Inline
 }
 
@@ -150,12 +154,49 @@ internal object HtmlParser {
         return el.children().none { c -> c.normalName() !in INLINE && c.normalName() !in SKIP }
     }
 
+    private val TEXT_ALIGN = Regex("""text-align\s*:\s*(center|right)""", RegexOption.IGNORE_CASE)
+
+    /** 元素自身声明的对齐：align 属性、style 里的 text-align，或 `<center>` 标签 */
+    internal fun blockAlignOf(el: Element): BlockAlign? {
+        if (el.normalName() == "center") return BlockAlign.Center
+        val v = el.attr("align").trim().lowercase().ifEmpty { TEXT_ALIGN.find(el.attr("style"))?.groupValues?.get(1)?.lowercase().orEmpty() }
+        return when (v) {
+            "center" -> BlockAlign.Center
+            "right" -> BlockAlign.End
+            else -> null
+        }
+    }
+
     private fun blockElement(el: Element, ctx: Ctx, out: MutableList<HtmlBlock>) {
+        val align = blockAlignOf(el)
+        if (align == null || el.normalName() in setOf("td", "th", "table")) return blockElementPlain(el, ctx, out)
+        val inner = mutableListOf<HtmlBlock>()
+        blockElementPlain(el, ctx, inner)
+        if (inner.isNotEmpty()) out += HtmlBlock.Aligned(align, inner)
+    }
+
+    private fun blockElementPlain(el: Element, ctx: Ctx, out: MutableList<HtmlBlock>) {
         val tag = el.normalName()
         when {
             tag.length == 2 && tag[0] == 'h' && tag[1] in '1'..'6' -> {
-                val anchors = (listOf(el.id()) + el.select("[id]").map { it.id() })
-                    .map { anchorName(it) }.filter { it.isNotBlank() }.distinct()
+                // 同时登记两种写法：网页里的目录链接可能指向 "user-content-特性"，也可能只写 "特性"。
+                // GitHub 现在的标题结构是 <div class="markdown-heading"><h2>…</h2><a id="user-content-…">，
+                // 锚点是 h2 的兄弟节点而不是子节点，所以要把父级和紧随其后的 anchor 一起算进来。
+                val rawText = el.text().trim()
+                val ids = buildList {
+                    add(el.id())
+                    addAll(el.select("[id]").map { it.id() })
+                    el.parent()?.takeIf { it.className().contains("markdown-heading") }?.let { p ->
+                        add(p.id())
+                        addAll(p.select("a[id]").map { it.id() })
+                    }
+                    el.nextElementSibling()?.takeIf { it.normalName() == "a" }?.let { add(it.id()) }
+                    if (rawText.isNotBlank()) {
+                        add(rawText)
+                        add(headingSlug(rawText))
+                    }
+                }
+                val anchors = ids.flatMap { listOf(it, anchorName(it)) }.filter { it.isNotBlank() }.distinct()
                 val inl = trimInlines(collect(el, InlineStyle(), ctx))
                 if (inl.isNotEmpty()) out += HtmlBlock.Heading(tag[1] - '0', anchors, inl)
             }
@@ -176,6 +217,12 @@ internal object HtmlParser {
                 val title = summary?.let { trimInlines(collect(it, InlineStyle(), ctx)) }.orEmpty()
                 out += HtmlBlock.Details(el.hasAttr("open"), title, blocks(el, ctx, setOf("summary")))
             }
+            // GitHub 把标题包在 <div class="markdown-heading"><h2>…</h2><a class="anchor">…</a></div> 里，
+            // 只渲染里面的标题，不把锚点链接（svg 图标）当成内容
+            tag == "div" && el.className().contains("markdown-heading") -> {
+                el.children().firstOrNull { it.normalName().length == 2 && it.normalName()[0] == 'h' }
+                    ?.let { blockElementPlain(it, ctx, out) }
+            }
             tag == "hr" -> out += HtmlBlock.Rule
             tag == "video" -> {
                 val src = el.attr("src").ifBlank { el.selectFirst("source")?.attr("src").orEmpty() }
@@ -187,11 +234,15 @@ internal object HtmlParser {
     }
 
     private fun flow(inl: List<Inline>): List<HtmlBlock> {
-        if (inl.none { it is Inline.Image && !isInlineImage(it) }) return listOf(HtmlBlock.Paragraph(inl))
-        // 整段只有图片（徽章行、并排截图）：一排图片并排显示，而不是每张图占一整行
         val images = inl.filterIsInstance<Inline.Image>()
+        if (images.isEmpty()) return listOf(HtmlBlock.Paragraph(inl))
+        // 整段只有图片（徽章行、赞助商 logo、并排截图）：一排图片并排流式显示。
+        // 这一步必须先于「行内图片」判断：带 height=36 的 logo 若塞进文字行，行高固定，会上下重叠
         val onlyImages = inl.all { it is Inline.Image || it is Inline.Break || (it is Inline.Text && it.text.isBlank()) }
-        if (onlyImages && (images.size > 1 || images.single().badge)) return listOf(HtmlBlock.ImageRow(images))
+        if (onlyImages && (images.size > 1 || images.single().badge || isInlineImage(images.single()))) {
+            return listOf(HtmlBlock.ImageRow(images))
+        }
+        if (images.all { isInlineImage(it) }) return listOf(HtmlBlock.Paragraph(inl))
         val out = mutableListOf<HtmlBlock>()
         var seg = mutableListOf<Inline>()
         fun emit() {
@@ -202,7 +253,7 @@ internal object HtmlParser {
         for (item in inl) {
             if (item is Inline.Image && !isInlineImage(item)) {
                 emit()
-                out += HtmlBlock.Image(item.src, item.alt, item.width, item.height, item.link)
+                out += HtmlBlock.Image(item.src, item.alt, item.width, item.height, item.link, item.viewSrc)
             } else {
                 seg += item
             }
@@ -211,14 +262,23 @@ internal object HtmlParser {
         return out
     }
 
+    private val IMAGE_EXT = Regex("""\.(png|jpe?g|gif|webp|bmp|avif|svg)$""", RegexOption.IGNORE_CASE)
+
+    internal fun isImageFileUrl(url: String): Boolean =
+        url.startsWith("http", true) && IMAGE_EXT.containsMatchIn(url.substringBefore('#').substringBefore('?'))
+
+    /** 仓库文件页地址（/blob/）换成能直接取图片的 /raw/ 地址；其他地址不变 */
+    internal fun rawImageUrl(url: String): String =
+        if (url.contains("github.com/") && url.contains("/blob/")) url.replaceFirst("/blob/", "/raw/") else url
+
     /** 徽章：shields.io、各类 badge.svg、状态图标。通常是 SVG，高约 20px，没有写宽高属性 */
     internal fun isBadgeUrl(url: String): Boolean {
         val u = url.lowercase().substringBefore('#')
         return "shields.io" in u || "badge" in u || "/badges/" in u || u.substringBefore('?').endsWith(".svg")
     }
 
-    /** 高度不超过 48px 的图片当作文字中的徽章（行内），更大的图片单独成块显示。 */
-    private fun isInlineImage(i: Inline.Image) = (i.height ?: 0) in 1..48
+    /** 高度不超过一行字（24px）的图片当作文字中的徽章 / 图标（行内），更大的图片单独成块显示。 */
+    internal fun isInlineImage(i: Inline.Image) = (i.height ?: 0) in 1..24
 
     private fun collect(el: Element, style: InlineStyle, ctx: Ctx): MutableList<Inline> =
         mutableListOf<Inline>().also { inlineChildren(el, style, ctx, it) }
@@ -241,7 +301,13 @@ internal object HtmlParser {
                 if (src.isNotBlank()) {
                     // camo 代理地址把原始地址编码进了路径；原始地址在 data-canonical-src 里，判断是不是徽章用它
                     val original = el.attr("data-canonical-src").ifBlank { src }
-                    out += Inline.Image(src, el.attr("alt"), el.attr("width").toIntOrNull(), el.attr("height").toIntOrNull(), style.link, isBadgeUrl(original))
+                    // 外层链接指向的就是图片文件（点缩略图看大图）：直接进看图器，不再先跳到仓库的文件页
+                    val imageLink = style.link?.takeIf { isImageFileUrl(it) }
+                    out += Inline.Image(
+                        src, el.attr("alt"), el.attr("width").toIntOrNull(), el.attr("height").toIntOrNull(),
+                        if (imageLink != null) null else style.link, isBadgeUrl(original),
+                        viewSrc = imageLink?.let { rawImageUrl(it) }?.takeIf { it != rawImageUrl(src) },
+                    )
                 }
             }
             "a" -> {
@@ -310,6 +376,19 @@ internal object HtmlParser {
     private fun anchorName(id: String) = id.removePrefix("user-content-")
 
     private fun collapse(s: String) = s.replace(WS, " ")
+}
+
+/** 把标题文字转换为 GitHub 锚点 slug（全小写、去除非字母数字标点、空格转连字符） */
+internal fun headingSlug(text: String): String {
+    val lower = text.lowercase(java.util.Locale.ROOT)
+    val clean = StringBuilder()
+    for (i in 0 until lower.length) {
+        val c = lower[i]
+        if (c.isLetterOrDigit() || c.isWhitespace() || c == '-') {
+            clean.append(c)
+        }
+    }
+    return clean.toString().trim().replace(Regex("""\s+"""), "-").replace(Regex("""-+"""), "-")
 }
 
 /** 去掉首尾空白（含换行产生的空格和多余的换行符），空文字段一并去掉。 */

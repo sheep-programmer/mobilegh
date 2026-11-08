@@ -371,6 +371,23 @@ fun DiscussionDetailScreen(
     Page(trf("讨论 #{0}", number), subtitle = "$owner/$name", actions = {
         MoreMenu(buildList {
             val d = t?.discussion
+            if (d != null) {
+                val savedId = "discussion:$owner/$name#$number"
+                val isSaved = com.mobilegh.data.SavedItems.isSaved(savedId)
+                add(MenuAction(if (isSaved) tr("移出稍后阅读") else tr("保存到稍后阅读")) {
+                    com.mobilegh.data.SavedItems.toggle(
+                        com.mobilegh.data.SavedItem(
+                            id = savedId,
+                            kind = com.mobilegh.data.SavedKind.Discussion,
+                            owner = owner,
+                            name = name,
+                            number = number,
+                            title = d.title,
+                        )
+                    )
+                    ctx.toast(if (isSaved) tr("已移出稍后阅读") else tr("已保存到稍后阅读"))
+                })
+            }
             if (d != null && d.viewerCanUpdate) add(MenuAction(tr("编辑讨论")) { editingDiscussion = true })
             add(MenuAction(tr("刷新")) { reload() })
             addLinkActions(ctx, url)

@@ -82,6 +82,7 @@ import com.mobilegh.ui.components.MarkdownEditor
 import com.mobilegh.ui.components.MarkdownPreview
 import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.Oc
+import com.mobilegh.ui.components.ExternalLinkDialog
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.TextLink
@@ -910,5 +911,5 @@ private fun openCheck(ctx: android.content.Context, nav: com.mobilegh.nav.Naviga
         return
     }
     val route = runCatching { Links.route(url) }.getOrNull()
-    if (route != null) nav.pushLink(route) else ctx.openBrowser(url)
+    if (route != null) nav.pushLink(route) else ExternalLinkDialog.show(url)
 }

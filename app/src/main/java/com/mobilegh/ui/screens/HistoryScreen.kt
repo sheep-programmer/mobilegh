@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -37,6 +38,9 @@ import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.History
 import com.mobilegh.data.SearchHistoryEntry
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
 import com.mobilegh.ui.components.*
@@ -64,14 +68,39 @@ fun SearchHistorySection(
     val shown = if (collapsed && !expanded) entries.take(3) else entries
     val nav = LocalNav.current
     Column {
-        FlowRow(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(tr("搜索历史"), Modifier.padding(vertical = 14.dp), color = Gh.c.fg, fontSize = 14.sp)
-            // 历史较多时收起态也能一键清空；操作过宽时换行而不挤掉标题
-            if (!collapsed || entries.size > 3) TextButton(onClear) { Text(tr("清空"), color = Gh.c.fgMuted) }
-            if (collapsed) TextButton({ nav.push(Screen.SearchHistory) }) { Text(tr("查看全部"), color = Gh.c.accent) }
+            Text(tr("搜索历史"), color = Gh.c.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (collapsed) {
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { nav.push(Screen.SearchHistory) }
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(tr("查看全部"), color = Gh.c.accent, fontSize = 13.sp)
+                    }
+                }
+                if (!collapsed || entries.size > 3) {
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable(onClick = onClear)
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(tr("清空"), color = Gh.c.fgMuted, fontSize = 13.sp)
+                    }
+                }
+            }
         }
         shown.forEach { entry ->
             SearchHistoryRow(entry, onOpen, onRemove)
@@ -121,7 +150,20 @@ fun SearchHistoryScreen() {
 
     Page(tr("搜索历史"), actions = { if (all.isNotEmpty()) OcButton(R.drawable.oc_trash, { History.clearSearches() }, description = tr("清空搜索历史")) }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            Chips(listOf(tr("全部")) + searchTypeLabels, type + 1) { type = it - 1 }
+            val options = listOf(tr("全部")) + searchTypeLabels
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(tr("类型"), color = Gh.c.fgMuted, fontSize = 13.sp)
+                Spacer(Modifier.weight(1f))
+                Dropdown(
+                    label = options.getOrElse(type + 1) { tr("全部") },
+                    options = options,
+                    onSelect = { type = it - 1 },
+                    active = type >= 0,
+                )
+            }
             HDivider()
             if (all.isEmpty()) {
                 EmptyState(tr("还没有搜索记录"), R.drawable.oc_history)
@@ -160,6 +202,7 @@ fun RecentRepositoriesScreen() {
     var filter by rememberSaveable { mutableStateOf("") }
     val all = History.data().repositories
     val shown = all.filter { it.fullName.contains(filter.trim(), true) }
+    val state = rememberLazyListState()
     Page(tr("最近浏览"), actions = { if (all.isNotEmpty()) OcButton(R.drawable.oc_trash, { History.clearRepositories() }, description = tr("清空最近浏览")) }) { pad ->
         Column(Modifier.padding(pad).consumeWindowInsets(pad).imePadding().fillMaxSize()) {
             CompactSearchField(filter, { filter = it }, tr("搜索最近浏览的仓库"), Modifier.padding(12.dp), trailing = {
@@ -168,7 +211,7 @@ fun RecentRepositoriesScreen() {
             Text(tr("仅保存在本机，按账号区分"), Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
             if (all.isEmpty()) EmptyState(tr("还没有浏览过仓库"), R.drawable.oc_history)
             else if (shown.isEmpty()) EmptyState(tr("没有匹配的仓库"), R.drawable.oc_search, action = tr("清除搜索")) { filter = "" }
-            else ScrollbarLazyColumn {
+            else ScrollbarLazyColumn(state = state) {
                 items(shown, key = { it.fullName.lowercase() }) { repo ->
                     Row(Modifier.fillMaxWidth().clickable { nav.push(Screen.Repo(repo.owner, repo.name)) }.padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Oc(R.drawable.oc_repo)

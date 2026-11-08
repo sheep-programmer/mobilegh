@@ -31,6 +31,21 @@ import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.ui.components.Avatar
+import com.mobilegh.ui.components.GhButton
+import com.mobilegh.ui.components.MenuAction
+import com.mobilegh.ui.components.MenuGroup
+import com.mobilegh.ui.components.MoreMenu
+import com.mobilegh.ui.components.TextLink
+import com.mobilegh.nav.LocalNav
+import com.mobilegh.nav.Screen
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.text.style.TextAlign
 import com.mobilegh.ui.components.CompactSearchField
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.Loading
@@ -50,6 +65,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun AddFavoritesScreen() {
     val ctx = rememberCtx()
+    val scope = rememberCoroutineScope()
     val g = Gh.c
     var input by rememberSaveable { mutableStateOf("") }
     var query by rememberSaveable { mutableStateOf("") }
@@ -119,4 +135,65 @@ private fun FavoriteCandidate(repo: Repo, favorite: Boolean, onToggle: () -> Uni
         Oc(if (favorite) R.drawable.oc_star_fill else R.drawable.oc_star, if (favorite) g.star else g.fgMuted, 20.dp)
     }
     HDivider()
+}
+
+
+/**
+ * 收藏夹列表（「我的工作」里的收藏夹入口）：按收藏顺序列出仓库，长按可上移、下移或移出，
+ * 右上角「⋯」进入「添加收藏」。收藏只保存在本机，按账号区分。
+ */
+@Composable
+fun FavoritesScreen() {
+    val g = Gh.c
+    val nav = LocalNav.current
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val layout = HomePrefs.layout()
+
+    Page(
+        tr("收藏夹"), subtitle = trf("共 {0} 个仓库", layout.favorites.size), snackbar = snackbar,
+        actions = {
+            MoreMenu(
+                listOf(
+                    MenuAction(tr("添加收藏")) { nav.push(Screen.AddFavorites) },
+                    if (layout.favorites.isNotEmpty()) MenuAction(tr("整理收藏")) { nav.push(Screen.HomeCustomize) } else null,
+                ).filterNotNull(),
+            )
+        },
+    ) { pad ->
+        Column(Modifier.padding(pad).fillMaxSize()) {
+            if (layout.favorites.isEmpty()) {
+                Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    Oc(R.drawable.oc_bookmark, g.fgMuted, 32.dp)
+                    Spacer(Modifier.height(10.dp))
+                    Text(tr("还没有收藏的仓库"), color = g.fg, fontSize = 15.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Text(tr("把常用仓库加入收藏，打开 App 就能一键进入。"), color = g.fgMuted, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 32.dp))
+                    Spacer(Modifier.height(14.dp))
+                    GhButton(tr("添加收藏"), primary = true) { nav.push(Screen.AddFavorites) }
+                }
+            } else {
+                ScrollbarLazyColumn(Modifier.fillMaxSize()) {
+                    item {
+                        MenuGroup {
+                            layout.favorites.forEachIndexed { i, f ->
+                                if (i > 0) HDivider()
+                                HomeFavoriteRow(
+                                    f, canUp = i > 0, canDown = i < layout.favorites.lastIndex,
+                                    onOpen = { nav.push(Screen.Repo(f.owner, f.name)) },
+                                    onMove = { d -> HomePrefs.moveFavorite(i, d) },
+                                    onRemove = { removeFavoriteWithUndo(scope, snackbar, i, f) },
+                                )
+                            }
+                        }
+                    }
+                    item {
+                        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.Center) {
+                            TextLink(tr("添加收藏")) { nav.push(Screen.AddFavorites) }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

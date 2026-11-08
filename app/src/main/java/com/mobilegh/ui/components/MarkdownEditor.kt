@@ -89,11 +89,13 @@ private fun insert(v: TextFieldValue, s: String): TextFieldValue {
 
 @Composable
 private fun FmtBtn(description: String, onClick: () -> Unit, content: @Composable () -> Unit) {
-    Box(
-        Modifier.size(40.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick)
-            .semantics { contentDescription = description },
-        contentAlignment = Alignment.Center,
-    ) { content() }
+    GhTooltip(description) {
+        Box(
+            Modifier.size(40.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick)
+                .semantics { contentDescription = description },
+            contentAlignment = Alignment.Center,
+        ) { content() }
+    }
 }
 
 // ---------- @ 提及 ----------
@@ -181,25 +183,29 @@ fun MarkdownToolbar(
 
 @Composable
 private fun RowScope.ToolBtn(description: String, onClick: () -> Unit, content: @Composable () -> Unit) {
-    Box(
-        Modifier.weight(1f).height(36.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick)
-            .semantics { contentDescription = description },
-        contentAlignment = Alignment.Center,
-    ) { content() }
+    GhTooltip(description, modifier = Modifier.weight(1f)) {
+        Box(
+            Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick)
+                .semantics { contentDescription = description },
+            contentAlignment = Alignment.Center,
+        ) { content() }
+    }
 }
 
 @Composable
 private fun SegBtn(icon: Int, label: String, active: Boolean, onClick: () -> Unit) {
     val g = Gh.c
-    Row(
-        Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick)
-            .background(if (active) g.canvas else androidx.compose.ui.graphics.Color.Transparent, RoundedCornerShape(6.dp))
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Oc(icon, if (active) g.fg else g.fgMuted, 14.dp)
-        Spacer(Modifier.width(3.dp))
-        Text(label, fontSize = 12.sp, color = if (active) g.fg else g.fgMuted, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+    GhTooltip(label) {
+        Row(
+            Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick)
+                .background(if (active) g.canvas else androidx.compose.ui.graphics.Color.Transparent, RoundedCornerShape(6.dp))
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Oc(icon, if (active) g.fg else g.fgMuted, 14.dp)
+            Spacer(Modifier.width(3.dp))
+            Text(label, fontSize = 12.sp, color = if (active) g.fg else g.fgMuted, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+        }
     }
 }
 

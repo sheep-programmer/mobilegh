@@ -28,6 +28,7 @@ class App : Application() {
         WidgetStore.listener = { kind -> Widgets.update(this, kind) }
         com.mobilegh.data.MobileApprovalMonitor.reload(this)
         History.init(this)
+        com.mobilegh.data.SavedItems.init(this)
         com.mobilegh.data.HomePrefs.init(this)
         Update.init(this)
         LinkDefault.init(this)
@@ -41,5 +42,7 @@ class App : Application() {
         // 成就缓存与 github.com 连接预热：成就页第一次打开不用再等握手
         com.mobilegh.data.Web.init(this)
         com.mobilegh.data.Web.warmUp()
+        // 自动静默续期 GitHub 网页会话（防止超过 14 天未使用闲置过期）
+        com.mobilegh.data.WebAttachmentUploader.renewSessionAsync()
     }
 }

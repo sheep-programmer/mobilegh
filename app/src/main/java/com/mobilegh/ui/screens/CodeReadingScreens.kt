@@ -19,6 +19,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.DisableSelection
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -237,33 +239,41 @@ fun BlameScreen(owner: String, name: String, path: String, ref: String?) {
         OcButton(R.drawable.oc_file_code, { nav.push(Screen.FileView(owner, name, path, blame.data?.commit ?: ref)) })
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            GhField(lineInput, { lineInput = it.filter(Char::isDigit) }, tr("定位行号（留空查看全部）"), Modifier.padding(12.dp))
-            LoadBox(blame, Modifier.weight(1f)) { data ->
+            GhField(lineInput, { lineInput = it.filter(Char::isDigit) }, tr("定位行号（留空查看全部）"), Modifier.fillMaxWidth().padding(12.dp))
+            LoadBox(blame, Modifier.fillMaxWidth().weight(1f)) { data ->
                 val line = lineInput.toIntOrNull()
                 val ranges = if (lineInput.isBlank()) data.ranges else listOfNotNull(line?.let(data::rangeFor))
-                Column {
+                Column(Modifier.fillMaxSize()) {
                     Text("$owner/$name · ${data.commit.take(7)}", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
                     data.sourceNote?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.attention, fontSize = 12.sp) }
-                    if (ranges.isEmpty()) EmptyState(if (lineInput.isBlank()) tr("该文件没有可用的行归因") else tr("行号不在该文件中"))
-                    else ScrollbarLazyColumn {
-                        ranges.forEach { range ->
-                            item(key = "commit:${range.start}") {
-                                Row(Modifier.fillMaxWidth().clickable { nav.push(Screen.CommitDetail(owner, name, range.commit)) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Avatar(range.avatar, 28.dp)
-                                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                                        Text(trf("{0} · {1}–{2} 行", range.author, range.start, range.end), color = Gh.c.fg, fontSize = 13.sp)
-                                        Text(range.message, color = Gh.c.accent, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        Text("${range.commit.take(7)} · ${relTime(range.date)}", color = Gh.c.fgMuted, fontSize = 11.sp)
+                    if (ranges.isEmpty()) {
+                        EmptyState(
+                            if (lineInput.isBlank()) tr("该文件没有可用的行归因") else tr("行号不在该文件中"),
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                        )
+                    } else SelectionContainer(Modifier.fillMaxWidth().weight(1f)) {
+                        ScrollbarLazyColumn(Modifier.fillMaxSize()) {
+                            ranges.forEach { range ->
+                                item(key = "commit:${range.start}") {
+                                    Row(Modifier.fillMaxWidth().clickable { nav.push(Screen.CommitDetail(owner, name, range.commit)) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Avatar(range.avatar, 28.dp)
+                                        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                            Text(trf("{0} · {1}–{2} 行", range.author, range.start, range.end), color = Gh.c.fg, fontSize = 13.sp)
+                                            Text(range.message, color = Gh.c.accent, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                            Text("${range.commit.take(7)} · ${relTime(range.date)}", color = Gh.c.fgMuted, fontSize = 11.sp)
+                                        }
                                     }
+                                    HDivider()
                                 }
-                                HDivider()
-                            }
-                            val count = (minOf(range.end, data.lines.size) - range.start + 1).coerceAtLeast(0)
-                            items(count, key = { "line:${range.start + it}" }) { offset ->
-                                val number = range.start + offset
-                                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)) {
-                                    Text("$number", Modifier.width(48.dp), color = Gh.c.fgMuted, style = CodeStyle)
-                                    Text(data.lines[number - 1], Modifier.weight(1f), color = Gh.c.fg, style = CodeStyle)
+                                val count = (minOf(range.end, data.lines.size) - range.start + 1).coerceAtLeast(0)
+                                items(count, key = { "line:${range.start + it}" }) { offset ->
+                                    val number = range.start + offset
+                                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)) {
+                                        DisableSelection {
+                                            Text("$number", Modifier.width(48.dp), color = Gh.c.fgMuted, style = CodeStyle)
+                                        }
+                                        Text(data.lines[number - 1], Modifier.weight(1f), color = Gh.c.fg, style = CodeStyle)
+                                    }
                                 }
                             }
                         }

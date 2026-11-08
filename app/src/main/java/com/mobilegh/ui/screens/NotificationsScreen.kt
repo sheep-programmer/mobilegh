@@ -7,6 +7,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -74,6 +77,9 @@ import com.mobilegh.nav.retain
 import com.mobilegh.ui.Badges
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Chips
+import com.mobilegh.ui.components.GhButton
+import com.mobilegh.ui.components.IconChipOption
+import com.mobilegh.ui.components.IconChips
 import com.mobilegh.ui.components.rememberTick
 import com.mobilegh.ui.components.Counter
 import com.mobilegh.ui.components.Dropdown
@@ -83,6 +89,9 @@ import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.MdText
 import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MoreMenu
+import com.mobilegh.ui.components.MultiSelectDropdown
+import com.mobilegh.ui.components.MultiSelectOption
+import com.mobilegh.ui.components.inferActionIcon
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
@@ -108,6 +117,66 @@ import com.mobilegh.i18n.trc
 import com.mobilegh.i18n.trf
 
 // ---------------- 文案映射 ----------------
+
+val NOTIF_TYPE_OPTIONS = listOf(
+    MultiSelectOption("Issue", "Issue", R.drawable.oc_issue_opened),
+    MultiSelectOption("PullRequest", "Pull Request", R.drawable.oc_git_pull_request),
+    MultiSelectOption("WorkflowRun", "Actions", R.drawable.oc_play),
+    MultiSelectOption("Discussion", tr("讨论"), R.drawable.oc_comment_discussion),
+    MultiSelectOption("Release", "Release", R.drawable.oc_tag),
+    MultiSelectOption("Commit", "Commit", R.drawable.oc_git_commit),
+)
+
+internal fun matchNotifType(n: Notification, key: String?): Boolean = when (key) {
+    null -> true
+    "issues_prs" -> n.subject.type in setOf("Issue", "PullRequest")
+    "WorkflowRun" -> n.subject.type in setOf("CheckSuite", "WorkflowRun")
+    else -> n.subject.type == key
+}
+
+internal fun matchNotifFilters(
+    n: Notification,
+    selectedTypes: Set<String>,
+    selectedReasons: Set<String>,
+    selectedRepos: Set<String>,
+): Boolean {
+    // 1. 类型多选过滤：为空表示不限类型；选中多项时，符合其中任意一项即匹配
+    if (selectedTypes.isNotEmpty()) {
+        val matchesType = selectedTypes.any { key ->
+            when (key) {
+                "WorkflowRun" -> n.subject.type in setOf("CheckSuite", "WorkflowRun")
+                else -> n.subject.type == key
+            }
+        }
+        if (!matchesType) return false
+    }
+
+    // 2. 原因多选过滤：为空表示不限原因；选中多项时，符合其中任意一项即匹配
+    if (selectedReasons.isNotEmpty()) {
+        if (n.reason !in selectedReasons) return false
+    }
+
+    // 3. 仓库多选过滤：为空表示不限仓库；选中多项时，属于所选仓库之一即匹配
+    if (selectedRepos.isNotEmpty()) {
+        if (n.repository.fullName !in selectedRepos) return false
+    }
+
+    return true
+}
+
+val REASON_OPTIONS = listOf(
+    MultiSelectOption("assign", tr("被指派"), R.drawable.oc_person),
+    MultiSelectOption("mention", tr("被提及"), R.drawable.oc_mention),
+    MultiSelectOption("review_requested", tr("评审请求"), R.drawable.oc_eye),
+    MultiSelectOption("author", tr("作者"), R.drawable.oc_pencil),
+    MultiSelectOption("comment", trc("评论", "reason"), R.drawable.oc_comment),
+    MultiSelectOption("team_mention", tr("团队提及"), R.drawable.oc_people),
+    MultiSelectOption("state_change", tr("状态变化"), R.drawable.oc_git_commit),
+    MultiSelectOption("ci_activity", tr("CI 活动"), R.drawable.oc_play),
+    MultiSelectOption("security_alert", tr("安全告警"), R.drawable.oc_shield_lock),
+    MultiSelectOption("subscribed", tr("订阅"), R.drawable.oc_bell),
+    MultiSelectOption("invitation", tr("邀请"), R.drawable.oc_mail),
+)
 
 /** reason 筛选下拉里的选项：null 表示不筛选 */
 private val REASON_FILTERS = listOf(
@@ -464,17 +533,26 @@ private fun NotificationRow(
                 .fillMaxWidth()
                 .background(g.canvas)
                 .combinedClickable(enabled = !busy, onClick = onOpen, onLongClick = onToggleSelect)
-                .padding(start = 8.dp, end = 4.dp, top = 12.dp, bottom = 12.dp),
+                .padding(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 12.dp),
         ) {
-            // 与类型图标同一水平线：未读点/勾选框的中心对齐到第一行文字
-            Box(Modifier.width(34.dp).height(20.dp), contentAlignment = Alignment.Center) {
-                if (selection) CheckMark(selected)
-                else if (unread) Box(
-                    Modifier.size(8.dp).background(g.accent, CircleShape)
-                        .semantics { contentDescription = tr("未读") },
-                )
+            if (selection) {
+                Box(Modifier.padding(top = 2.dp, end = 10.dp), contentAlignment = Alignment.Center) {
+                    CheckMark(selected)
+                }
             }
-            Oc(subjectIcon(n.subject.type), if (unread) g.fg else g.fgMuted, 16.dp, Modifier.padding(top = 2.dp))
+            Box(contentAlignment = Alignment.TopEnd) {
+                Oc(subjectIcon(n.subject.type), if (unread) g.fg else g.fgMuted, 16.dp, Modifier.padding(top = 2.dp))
+                if (unread) {
+                    Box(
+                        Modifier
+                            .size(7.dp)
+                            .offset(x = 3.dp, y = 0.dp)
+                            .background(g.accent, CircleShape)
+                            .border(1.dp, g.canvas, CircleShape)
+                            .semantics { contentDescription = tr("未读") },
+                    )
+                }
+            }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 if (!grouped) {
@@ -540,12 +618,9 @@ private fun DoneRow(n: Notification, pending: Boolean, onOpen: () -> Unit, onUnd
             .fillMaxWidth()
             .background(g.canvas)
             .clickable(onClick = onOpen)
-            .padding(start = 8.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
+            .padding(start = 14.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) {
-            Box(Modifier.size(8.dp).background(g.done, CircleShape))
-        }
         Oc(subjectIcon(n.subject.type), g.fgMuted, 16.dp)
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
@@ -594,9 +669,6 @@ private fun DoneView(items: List<Notification>, state: NotifState, onOpen: (Noti
 
 // ---------------- 页面 ----------------
 
-/** 顶部筛选：未读 / 全部 / 参与的 / 已完成 */
-private const val TAB_DONE = 3
-
 /** 「完成」的撤销窗口 */
 private const val UNDO_MS = 5000L
 
@@ -608,8 +680,11 @@ fun NotificationsScreen() {
     val g = Gh.c
 
     var filter by rememberSaveable { mutableIntStateOf(0) }
-    var reason by rememberSaveable { mutableIntStateOf(0) }
-    var grouped by rememberSaveable { mutableStateOf(false) }
+    val selectedTypes = remember { mutableStateListOf<String>() }
+    val selectedReasons = remember { mutableStateListOf<String>() }
+    val selectedRepos = remember { mutableStateListOf<String>() }
+    val notifPrefs = remember { ctx.getSharedPreferences("notification_ui_prefs", android.content.Context.MODE_PRIVATE) }
+    var grouped by rememberSaveable { mutableStateOf(notifPrefs.getBoolean("grouped", true)) }
     var selection by rememberSaveable { mutableStateOf(false) }
     var confirmAll by remember { mutableStateOf(false) }
     var askBulk by remember { mutableStateOf<BulkKind?>(null) }
@@ -621,10 +696,8 @@ fun NotificationsScreen() {
     val state = retain("notif:state") { NotifState(com.mobilegh.data.NotificationStore.read(it.login.orEmpty())) }
     val snackbar = retain("notif:snackbar") { SnackbarHostState() }
 
-    // 「已完成」视图不需要单独的分页：沿用上一次的服务端筛选
-    var apiFilter by rememberSaveable { mutableIntStateOf(0) }
-    val af = apiFilter // 固定到当前 Pager，切换筛选时不影响进行中的请求
-    val pager = rememberPager("notif:$af") { p, f -> GitHub.notifications(af == 1, af == 2, p, f) }
+    val f = filter // 固定到当前 Pager，切换筛选时不影响进行中的请求
+    val pager = rememberPager("notif:$f") { p, force -> GitHub.notifications(f == 1, f == 2, p, force) }
     val listState = rememberLazyListState()
     com.mobilegh.nav.OnTabReselect(Tab.Notifications) { listState.animateScrollToItem(0) }
 
@@ -656,8 +729,8 @@ fun NotificationsScreen() {
     }
     val localUnread = (pager.items.toList() + state.known.filter { it.id in state.markedUnread })
         .distinctBy { it.id }.filter { state.unread(it) }
-    LaunchedEffect(af, localUnread, pager.loadedOnce, pager.end) {
-        if (af == 0 && pager.loadedOnce) {
+    LaunchedEffect(f, localUnread, pager.loadedOnce, pager.end) {
+        if (f == 0 && pager.loadedOnce) {
             Badges.unread = localUnread.size
             entry.login?.let { com.mobilegh.data.WidgetStore.saveInbox(it, pager.items.toList(), !pager.end) }
         }
@@ -916,9 +989,15 @@ fun NotificationsScreen() {
     // 本地筛掉已完成的条目：如果留给 item lambda 提前 return，会渲染成空白块并撑坏分页
     val extraUnread = state.known.filter { it.id in state.markedUnread && it.id !in state.done }
     val visible = (pager.items + extraUnread).distinctBy { it.id }.filter { it.id !in state.done }
-    val matched = visible.filter { reason == 0 || REASON_FILTERS[reason].first == it.reason }
-    val doneTab = filter == TAB_DONE
+    val availableRepos = remember(visible) { visible.map { it.repository.fullName }.distinct().sorted() }
+    val selectedTypesSet = selectedTypes.toSet()
+    val selectedReasonsSet = selectedReasons.toSet()
+    val selectedReposSet = selectedRepos.toSet()
+    val matched = visible.filter { n ->
+        matchNotifFilters(n, selectedTypesSet, selectedReasonsSet, selectedReposSet)
+    }
     val busy = state.busyLabel != null
+    val hasActiveFilter = selectedTypes.isNotEmpty() || selectedReasons.isNotEmpty() || selectedRepos.isNotEmpty()
 
     fun clearSelection() {
         selection = false
@@ -937,9 +1016,11 @@ fun NotificationsScreen() {
         back = false,
         contentWindowInsets = WindowInsets(0),
         subtitle = when {
-            doneTab || selection -> null
+            selection -> null
             busy -> if (state.busyTotal <= 0) trf("正在{0}…", state.busyLabel) else trf("正在{0}：{1}/{2}", state.busyLabel, state.busyDone, state.busyTotal)
+            matched.isEmpty() && hasActiveFilter -> tr("未找到匹配的通知")
             matched.isEmpty() -> null
+            hasActiveFilter -> trf("筛选出 {0} 条（共 {1} 条）", matched.size, visible.size)
             filter == 0 -> trf("{0} 条未读", matched.count { state.unread(it) })
             else -> trf("{0} 条", matched.size)
         },
@@ -985,11 +1066,13 @@ fun NotificationsScreen() {
                         ),
                     )
                 }
-                doneTab -> Unit
                 else -> {
                     // 按仓库分组 / 按时间排列
                     OcButton(
-                        R.drawable.oc_repo, { grouped = !grouped }, if (grouped) g.accent else g.fg,
+                        R.drawable.oc_repo, {
+                            grouped = !grouped
+                            notifPrefs.edit().putBoolean("grouped", grouped).apply()
+                        }, if (grouped) g.accent else g.fg,
                         description = if (grouped) tr("取消按仓库分组") else tr("按仓库分组"),
                     )
                     OcButton(
@@ -1002,83 +1085,159 @@ fun NotificationsScreen() {
         },
     ) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            Chips(listOf(tr("未读"), tr("全部"), tr("参与的"), tr("已完成")), filter) {
+            Chips(listOf(tr("未读"), tr("全部"), tr("参与的")), filter) {
                 filter = it
-                if (it != TAB_DONE) apiFilter = it
-                reason = 0
                 clearSelection()
             }
             HDivider()
-            if (!doneTab) {
-                // 原因筛选改成一排可横滑的标签：下拉菜单有 11 项，展开会占满半个屏幕
-                Chips(REASON_FILTERS.map { it.second }, reason) { reason = it }
-                Text(
-                    when {
-                        reason != 0 -> tr("只筛选已加载的通知：GitHub 接口不支持按原因过滤")
-                        grouped -> tr("按仓库分组")
-                        else -> tr("按时间排列")
+
+            // 紧凑单行筛选栏：类型下拉、原因下拉、仓库下拉、重置（不占多余垂直空间，支持多选与内部滚动条）
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val typeLabel = when {
+                    selectedTypes.isEmpty() -> tr("类型")
+                    selectedTypes.size == 1 -> NOTIF_TYPE_OPTIONS.firstOrNull { it.id == selectedTypes.first() }?.label ?: tr("类型")
+                    else -> trf("类型 ({0})", selectedTypes.size)
+                }
+                MultiSelectDropdown(
+                    label = typeLabel,
+                    options = NOTIF_TYPE_OPTIONS,
+                    selectedIds = selectedTypesSet,
+                    onApply = { newSet ->
+                        selectedTypes.clear()
+                        selectedTypes.addAll(newSet)
                     },
-                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 6.dp),
-                    fontSize = 11.sp, lineHeight = 14.sp, color = g.fgMuted, maxLines = 2,
+                    active = selectedTypes.isNotEmpty(),
                 )
-                HDivider()
-            }
-            Box(Modifier.weight(1f)) {
-                if (doneTab) {
-                    DoneView(
-                        items = state.doneItems,
-                        state = state,
-                        onOpen = { n -> open(n) },
-                        onUndo = { id -> undoDone(id) },
-                    )
-                } else {
-                    PagedList(
-                        pager,
-                        state = listState,
-                        empty = if (filter == 0) tr("没有未读通知，全部处理完了") else tr("暂无通知"),
-                        emptyIcon = R.drawable.oc_bell,
-                        itemKey = { it.id },
-                        extraItems = extraUnread,
-                        // 不筛 read：点开/标为已读后条目留在列表里（变灰），与 GitHub 客户端一致
-                        itemFilter = { it.id !in state.done && (reason == 0 || REASON_FILTERS[reason].first == it.reason) },
-                        filteredEmpty = if (reason != 0) tr("已加载的通知里没有这个原因") else tr("没有匹配的通知"),
-                        groupKey = if (grouped) { n -> n.repository.id } else null,
-                        groupHeader = { list ->
-                            RepoHeader(
-                                list,
-                                onClick = { nav.push(Screen.Repo(list.first().repository.owner.login, list.first().repository.name)) },
-                                onMarkRead = if (!busy && list.any { state.unread(it) }) ({ markRepoRead(list) }) else null,
-                            )
-                        },
-                        header = {
-                            // 仓库协作邀请和组织邀请不在通知接口里，这里单独合并进来，接受 / 拒绝与「仓库 → 待处理邀请」一致
-                            item(key = "invites") { InvitationBlock() }
-                            if (busy) item(key = "bulk") {
-                                BulkBanner(
-                                    state.busyLabel ?: "", state.busyDone, state.busyTotal,
-                                    // 只有逐条的批量操作可以取消；「全部标为已读」等单次请求没有可中断的点
-                                    onCancel = if (state.busyTotal > 0) ({ state.busyCancelRequested = true }) else null,
-                                )
-                            }
-                        },
-                    ) { n ->
-                        NotificationRow(
-                            n = n,
-                            grouped = grouped,
-                            state = state,
-                            selection = selection,
-                            selected = n.id in selected,
-                            busy = busy || n.id in state.writing,
-                            onOpen = { if (selection) toggleSelect(n) else open(n) },
-                            onToggleSelect = { toggleSelect(n) },
-                            onDone = { finish(n) },
-                            onToggleRead = { toggleRead(n) },
-                            onUnsubscribe = { unsubscribe(listOf(n.id), false) },
-                            // 单条忽略先弹确认，确认后才真正调用接口
-                            onIgnore = { askIgnore = n },
-                            onRestore = { restoreThread(n.id) },
-                        )
+
+                val reasonLabel = when {
+                    selectedReasons.isEmpty() -> tr("原因")
+                    selectedReasons.size == 1 -> REASON_OPTIONS.firstOrNull { it.id == selectedReasons.first() }?.label ?: tr("原因")
+                    else -> trf("原因 ({0})", selectedReasons.size)
+                }
+                MultiSelectDropdown(
+                    label = reasonLabel,
+                    options = REASON_OPTIONS,
+                    selectedIds = selectedReasonsSet,
+                    onApply = { newSet ->
+                        selectedReasons.clear()
+                        selectedReasons.addAll(newSet)
+                    },
+                    active = selectedReasons.isNotEmpty(),
+                )
+
+                if (availableRepos.isNotEmpty()) {
+                    val repoOptions = remember(availableRepos) {
+                        availableRepos.map { MultiSelectOption(it, it, R.drawable.oc_repo) }
                     }
+                    val repoLabel = when {
+                        selectedRepos.isEmpty() -> tr("仓库")
+                        selectedRepos.size == 1 -> selectedRepos.first().substringAfterLast('/')
+                        else -> trf("仓库 ({0})", selectedRepos.size)
+                    }
+                    MultiSelectDropdown(
+                        label = repoLabel,
+                        options = repoOptions,
+                        selectedIds = selectedReposSet,
+                        onApply = { newSet ->
+                            selectedRepos.clear()
+                            selectedRepos.addAll(newSet)
+                        },
+                        active = selectedRepos.isNotEmpty(),
+                        searchable = true,
+                        dialogTitle = tr("筛选仓库"),
+                    )
+                }
+
+                if (hasActiveFilter) {
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(g.danger.copy(alpha = 0.08f))
+                            .border(1.dp, g.danger.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
+                            .clickable {
+                                selectedTypes.clear()
+                                selectedReasons.clear()
+                                selectedRepos.clear()
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Oc(R.drawable.oc_filter_remove, g.danger, 13.dp)
+                            Spacer(Modifier.width(4.dp))
+                            Text(tr("重置"), fontSize = 12.sp, color = g.danger, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            }
+            HDivider()
+
+            Box(Modifier.weight(1f)) {
+                PagedList(
+                    pager,
+                    state = listState,
+                    empty = if (filter == 0) tr("没有未读通知，全部处理完了") else tr("暂无通知"),
+                    emptyIcon = R.drawable.oc_bell,
+                    emptyAction = if (filter == 0) tr("查看全部通知") else tr("刷新"),
+                    onEmptyAction = if (filter == 0) ({
+                        filter = 1
+                    }) else ({ pager.refresh() }),
+                    itemKey = { it.id },
+                    extraItems = extraUnread,
+                    // 不筛 read：点开/标为已读后条目留在列表里（变灰），与 GitHub 客户端一致
+                    itemFilter = { n ->
+                        n.id !in state.done && matchNotifFilters(n, selectedTypesSet, selectedReasonsSet, selectedReposSet)
+                    },
+                    filteredEmpty = when {
+                        selectedTypes.isNotEmpty() && selectedRepos.isNotEmpty() -> tr("该仓库下没有匹配的通知类型")
+                        selectedTypes.isNotEmpty() -> tr("已加载的通知里没有所选类型")
+                        selectedReasons.isNotEmpty() -> tr("已加载的通知里没有所选原因")
+                        selectedRepos.isNotEmpty() -> tr("所选仓库中没有匹配的通知")
+                        else -> tr("没有匹配的通知")
+                    },
+                    groupKey = if (grouped) { n -> n.repository.id } else null,
+                    groupHeader = { list ->
+                        RepoHeader(
+                            list,
+                            onClick = { nav.push(Screen.Repo(list.first().repository.owner.login, list.first().repository.name)) },
+                            onMarkRead = if (!busy && list.any { state.unread(it) }) ({ markRepoRead(list) }) else null,
+                        )
+                    },
+                    header = {
+                        // 仓库协作邀请和组织邀请不在通知接口里，这里单独合并进来，接受 / 拒绝与「仓库 → 待处理邀请」一致
+                        item(key = "invites") { InvitationBlock() }
+                        if (busy) item(key = "bulk") {
+                            BulkBanner(
+                                state.busyLabel ?: "", state.busyDone, state.busyTotal,
+                                // 只有逐条的批量操作可以取消；「全部标为已读」等单次请求没有可中断的点
+                                onCancel = if (state.busyTotal > 0) ({ state.busyCancelRequested = true }) else null,
+                            )
+                        }
+                    },
+                ) { n ->
+                    NotificationRow(
+                        n = n,
+                        grouped = grouped,
+                        state = state,
+                        selection = selection,
+                        selected = n.id in selected,
+                        busy = busy || n.id in state.writing,
+                        onOpen = { if (selection) toggleSelect(n) else open(n) },
+                        onToggleSelect = { toggleSelect(n) },
+                        onDone = { finish(n) },
+                        onToggleRead = { toggleRead(n) },
+                        onUnsubscribe = { unsubscribe(listOf(n.id), false) },
+                        // 单条忽略先弹确认，确认后才真正调用接口
+                        onIgnore = { askIgnore = n },
+                        onRestore = { restoreThread(n.id) },
+                    )
                 }
                 SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(12.dp)) { data ->
                     Snackbar(

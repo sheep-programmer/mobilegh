@@ -1,6 +1,9 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import com.mobilegh.ui.components.lazyScrollbar
 import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.clickable
@@ -42,6 +45,8 @@ import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.AppLog
+import com.mobilegh.data.Job
+import com.mobilegh.data.Step
 import com.mobilegh.data.Run
 import com.mobilegh.data.Session
 import com.mobilegh.nav.LocalEntry
@@ -56,10 +61,13 @@ import com.mobilegh.ui.components.addLinkActions
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Chips
+import com.mobilegh.ui.components.Dropdown
+import com.mobilegh.ui.components.ErrorState
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.LoadBox
+import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MoreMenu
 import com.mobilegh.ui.components.Oc
@@ -68,6 +76,7 @@ import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.RegisterScrollTop
+import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.copy
 import com.mobilegh.ui.components.downloadFile
 import com.mobilegh.ui.components.fmtDuration
@@ -148,8 +157,23 @@ fun ActionsScreen(owner: String, name: String) {
         },
     ) { pad ->
         Column(Modifier.padding(pad)) {
-            if (list.isNotEmpty()) Chips(listOf(tr("全部工作流")) + list.map { it.name + if (it.state != "active") tr("（已停用）") else "" }, sel) { sel = it }
-            HDivider()
+            if (list.isNotEmpty()) {
+                val options = listOf(tr("全部工作流")) + list.map { it.name + if (it.state != "active") tr("（已停用）") else "" }
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(tr("工作流"), color = g.fgMuted, fontSize = 13.sp)
+                    Spacer(Modifier.weight(1f))
+                    Dropdown(
+                        label = options.getOrElse(sel) { tr("全部工作流") },
+                        options = options,
+                        onSelect = { sel = it },
+                        active = sel != 0,
+                    )
+                }
+                HDivider()
+            }
             PagedList(runs, empty = tr("没有运行记录")) { RunRow(owner, name, it) }
         }
     }
@@ -291,6 +315,7 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                         Column {
                             val (ji, jc) = runVisual(j.status, j.conclusion)
                             val expanded = expandedJobs[j.id] == true
+                            val isJobRunning = j.status == "in_progress" || j.status == "queued"
                             Row(
                                 Modifier.fillMaxWidth().clickable { expandedJobs[j.id] = !expanded }.padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -301,18 +326,43 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                                 Spacer(Modifier.width(8.dp))
                                 Text(j.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = g.fg, modifier = Modifier.weight(1f))
                                 Text(fmtDuration(j.startedAt, j.completedAt), fontSize = 12.sp, color = g.fgMuted)
-                                Spacer(Modifier.width(6.dp))
-                                Text(tr("日志"), fontSize = 12.sp, color = g.accent, modifier = Modifier.clickable { nav.push(Screen.JobLog(owner, name, j.id, runId = runId, title = j.name)) })
+                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .border(1.dp, if (isJobRunning) g.accent.copy(alpha = 0.5f) else g.borderMuted, RoundedCornerShape(6.dp))
+                                        .background(if (isJobRunning) g.accent.copy(alpha = 0.12f) else g.canvas)
+                                        .clickable { nav.push(Screen.JobLog(owner, name, j.id, runId = runId, title = j.name)) }
+                                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (isJobRunning) {
+                                            Oc(if (j.status == "in_progress") R.drawable.oc_sync else R.drawable.oc_clock, g.accent, 11.dp)
+                                            Spacer(Modifier.width(4.dp))
+                                        }
+                                        Text(
+                                            when {
+                                                j.status == "in_progress" -> tr("运行中")
+                                                j.status == "queued" -> tr("排队中")
+                                                else -> tr("日志")
+                                            },
+                                            fontSize = 12.sp,
+                                            color = if (isJobRunning) g.accent else g.fg,
+                                            fontWeight = if (isJobRunning) FontWeight.SemiBold else FontWeight.Normal,
+                                        )
+                                    }
+                                }
                             }
                             if (expanded) {
                                 HDivider()
                                 if (j.steps.isEmpty()) {
-                                    Text(tr("GitHub 尚未返回步骤明细，打开日志查看终端输出。"), Modifier.padding(12.dp), fontSize = 12.sp, color = g.fgMuted)
+                                    Text(tr("GitHub 尚未返回步骤明细，打开日志查看实时进度。"), Modifier.padding(12.dp), fontSize = 12.sp, color = g.fgMuted)
                                 } else {
                                     j.steps.forEachIndexed { index, s ->
                                         val (si, scol) = runVisual(s.status, s.conclusion)
                                         Row(
-                                            Modifier.fillMaxWidth().clickable { nav.push(Screen.JobLog(owner, name, j.id, runId = runId, title = j.name + " · " + s.name)) }
+                                            Modifier.fillMaxWidth().clickable { nav.push(Screen.JobLog(owner, name, j.id, runId = runId, title = j.name, stepNumber = s.number)) }
                                                 .padding(start = 34.dp, end = 12.dp, top = 7.dp, bottom = 7.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
@@ -327,7 +377,11 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                                         }
                                     }
                                 }
-                                GhButton(tr("打开终端日志"), Modifier.padding(start = 34.dp, end = 12.dp, top = 4.dp, bottom = 10.dp).fillMaxWidth(), icon = R.drawable.oc_log) {
+                                GhButton(
+                                    if (isJobRunning) tr("查看实时进度与日志") else tr("打开终端日志"),
+                                    Modifier.padding(start = 34.dp, end = 12.dp, top = 4.dp, bottom = 10.dp).fillMaxWidth(),
+                                    icon = if (isJobRunning) R.drawable.oc_sync else R.drawable.oc_log,
+                                ) {
                                     nav.push(Screen.JobLog(owner, name, j.id, runId = runId, title = j.name))
                                 }
                             }
@@ -395,12 +449,20 @@ private fun terminalPalette(dark: Boolean) = if (dark) TerminalPalette(
 )
 
 @Composable
-fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId: Long = 0) {
+fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId: Long = 0, stepNumber: Int = 0) {
     val g = Gh.c
     val t = terminalPalette(g.dark)
     val ctx = rememberCtx()
     val scope = rememberCoroutineScope()
-    val log = rememberLoader("log") {
+
+    val job = rememberLoader("job:$jobId") { GitHub.job(owner, name, jobId, it) }
+
+    val log = rememberLoader("log:$jobId") { force ->
+        val currentJob = job.data ?: runCatching { GitHub.job(owner, name, jobId, force) }.getOrNull()
+        if (currentJob != null && currentJob.status != "completed") {
+            // 正在运行或排队，GitHub REST 日志接口此时不可用
+            return@rememberLoader emptyList<LogLine>()
+        }
         val raw = GitHub.jobLog(owner, name, jobId)
         val text = if (raw.length > 3_000_000) raw.takeLast(3_000_000) else raw
         text.split('\n').mapNotNull { l0 ->
@@ -418,69 +480,434 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId:
             }
         }
     }
+
+    val j = job.data
+    val isRunning = j?.let { it.status == "in_progress" || it.status == "queued" || it.status == "waiting" } ?: false
+    val effectiveRunId = if (runId > 0) runId else (j?.runId ?: 0)
+    val targetUrl = j?.htmlUrl?.takeIf { it.isNotBlank() }
+        ?: (if (effectiveRunId > 0) "https://github.com/$owner/$name/actions/runs/$effectiveRunId/job/$jobId" else "https://github.com/$owner/$name/actions")
+
+    // 运行中状态下每 3 秒自动轮询进度
+    LaunchedEffect(isRunning) {
+        while (isRunning) {
+            delay(3000)
+            job.load(true)
+        }
+    }
+
+    // 任务完成后自动拉取终端日志
+    LaunchedEffect(j?.status) {
+        if (j?.status == "completed" && (log.data == null || log.data?.isEmpty() == true)) {
+            log.load(true)
+        }
+    }
+
     var showTs by rememberSaveable { mutableStateOf(false) }
     var onlyErrors by rememberSaveable { mutableStateOf(false) }
     val state = rememberLazyListState()
+
     Page(
-        title, subtitle = tr("作业日志"),
+        title,
+        subtitle = when {
+            isRunning && j?.status == "in_progress" -> tr("作业实时运行中")
+            isRunning -> tr("作业排队中")
+            else -> tr("作业日志")
+        },
         actions = {
-            OcButton(if (onlyErrors) R.drawable.oc_filter_remove else R.drawable.oc_filter, { onlyErrors = !onlyErrors }, if (onlyErrors) g.danger else g.fg)
-            MoreMenu(listOf(
-                MenuAction(if (showTs) tr("隐藏时间戳") else tr("显示时间戳")) { showTs = !showTs },
-                MenuAction(if (Session.codeWrap) tr("关闭自动换行") else tr("自动换行")) { Session.toggleWrap() },
-                MenuAction(tr("复制全部日志")) { log.data?.let { l -> ctx.copy(l.joinToString("\n") { it.text }) } },
-                MenuAction(tr("在浏览器打开")) { ctx.openBrowser(if (runId > 0) "https://github.com/$owner/$name/actions/runs/$runId/job/$jobId" else "https://github.com/$owner/$name/actions") },
-            ))
+            if (!isRunning && log.data != null && log.data!!.isNotEmpty()) {
+                OcButton(
+                    R.drawable.oc_wrap_text,
+                    { Session.toggleWrap() },
+                    tint = if (Session.codeWrap) g.accent else g.fgMuted,
+                    description = if (Session.codeWrap) tr("自动换行（已开启）") else tr("自动换行（已关闭）"),
+                )
+                OcButton(if (onlyErrors) R.drawable.oc_filter_remove else R.drawable.oc_filter, { onlyErrors = !onlyErrors }, if (onlyErrors) g.danger else g.fg)
+            }
+            MoreMenu(buildList {
+                if (!isRunning && log.data != null && log.data!!.isNotEmpty()) {
+                    add(MenuAction(if (showTs) tr("隐藏时间戳") else tr("显示时间戳")) { showTs = !showTs })
+                    add(MenuAction(
+                        if (Session.codeWrap) tr("自动换行（已开启）") else tr("自动换行（已关闭）"),
+                        icon = R.drawable.oc_wrap_text,
+                    ) { Session.toggleWrap() })
+                    add(MenuAction(tr("复制全部日志"), icon = R.drawable.oc_copy) { log.data?.let { l -> ctx.copy(l.joinToString("\n") { it.text }) } })
+                }
+                add(MenuAction(tr("在浏览器打开"), icon = R.drawable.oc_globe) { ctx.openBrowser(targetUrl) })
+                add(MenuAction(tr("复制作业链接"), icon = R.drawable.oc_copy) { ctx.copy(targetUrl) })
+            })
         },
         floating = {
-            FloatingActionButton({ scope.launch { log.data?.let { state.scrollToItem((it.size - 1).coerceAtLeast(0)) } } }, containerColor = g.btnBg, contentColor = g.fg) {
-                Oc(R.drawable.oc_chevron_down, g.fg, 20.dp)
+            if (!isRunning && log.data != null && log.data!!.isNotEmpty()) {
+                FloatingActionButton({ scope.launch { log.data?.let { state.scrollToItem((it.size - 1).coerceAtLeast(0)) } } }, containerColor = g.btnBg, contentColor = g.fg) {
+                    Oc(R.drawable.oc_chevron_down, g.fg, 20.dp)
+                }
             }
         },
     ) { pad ->
-        LoadBox(log, Modifier.padding(pad).fillMaxSize()) { lines ->
-            val shown = if (onlyErrors) lines.filter { it.kind == 1 || it.kind == 2 } else lines
-            val hs = rememberScrollState()
-            Column(Modifier.fillMaxSize().background(t.bg)) {
-                // 顶部像终端窗口的标题条：三个圆点加作业名
-                Row(Modifier.fillMaxWidth().background(t.bar).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    listOf(0xFFFF5F56, 0xFFFFBD2E, 0xFF27C93F).forEach { c ->
-                        Box(Modifier.size(9.dp).background(Color(c), CircleShape))
-                        Spacer(Modifier.width(6.dp))
-                    }
+        Column(Modifier.padding(pad).fillMaxSize().background(t.bg)) {
+            // 顶部终端风格标题栏
+            Row(Modifier.fillMaxWidth().background(t.bar).padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                listOf(0xFFFF5F56, 0xFFFFBD2E, 0xFF27C93F).forEach { c ->
+                    Box(Modifier.size(9.dp).background(Color(c), CircleShape))
                     Spacer(Modifier.width(6.dp))
-                    Text(title, color = t.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-            // 滚动条挂在外层可视区域上：不换行时日志比屏幕宽，挂在列表上会画到屏幕外
-            Box(Modifier.fillMaxSize().lazyScrollbar(state).then(if (Session.codeWrap) Modifier else Modifier.horizontalScroll(hs))) {
-                SelectionContainer {
-                    RegisterScrollTop(state)
-                    LazyColumn(if (Session.codeWrap) Modifier.fillMaxSize() else Modifier.width(2400.dp).fillMaxSize(), state = state) {
-                        if (shown.isEmpty()) item { Text(if (onlyErrors) tr("没有错误或警告") else tr("日志为空"), Modifier.padding(16.dp), color = g.fgMuted) }
-                        itemsIndexed(shown) { _, l ->
-                            val color = when (l.kind) {
-                                1 -> t.error
-                                2 -> t.warning
-                                3 -> t.group
-                                4 -> t.prompt
-                                5 -> t.notice
-                                else -> t.fg
+                Spacer(Modifier.width(6.dp))
+                Text(title, color = t.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                if (isRunning) {
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(g.accent.copy(alpha = 0.15f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Oc(if (j?.status == "in_progress") R.drawable.oc_sync else R.drawable.oc_clock, g.accent, 11.dp)
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (j?.status == "in_progress") tr("运行中") else tr("排队中"), color = g.accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                } else if (j != null) {
+                    val (si, scol) = runVisual(j.status, j.conclusion)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Oc(si, scol, 12.dp)
+                        Spacer(Modifier.width(4.dp))
+                        Text(statusZh(j.status, j.conclusion), color = scol, fontSize = 11.sp)
+                    }
+                }
+            }
+
+            // 内容展示
+            when {
+                // 1. 还在初次加载 job 信息
+                job.loading && j == null -> {
+                    Loading(Modifier.fillMaxSize())
+                }
+                // 2. job 加载失败
+                job.error != null && j == null -> {
+                    ErrorState(job.error!!, Modifier.fillMaxSize()) { job.load(true) }
+                }
+                // 3. 任务正在运行中 (in_progress / queued / waiting)
+                isRunning && j != null -> {
+                    JobLiveRunningView(
+                        job = j,
+                        targetUrl = targetUrl,
+                        highlightStepNumber = stepNumber,
+                        onRefresh = { job.load(true) },
+                    )
+                }
+                // 4. 任务已完成，但拉取日志发生错误 (403 权限、404 过期、或其他原因)
+                log.error != null && j != null -> {
+                    JobLogTroubleshootingView(
+                        job = j,
+                        error = log.error!!,
+                        targetUrl = targetUrl,
+                        onRetry = { log.load(true) },
+                    )
+                }
+                // 5. 任务已完成，日志加载中
+                log.loading && (log.data == null || log.data?.isEmpty() == true) -> {
+                    Loading(Modifier.fillMaxSize())
+                }
+                // 6. 任务已完成，正常显示日志
+                else -> {
+                    val lines = log.data.orEmpty()
+                    val shown = if (onlyErrors) lines.filter { it.kind == 1 || it.kind == 2 } else lines
+                    val hs = rememberScrollState()
+                    Box(Modifier.fillMaxSize().lazyScrollbar(state).then(if (Session.codeWrap) Modifier else Modifier.horizontalScroll(hs))) {
+                        SelectionContainer {
+                            RegisterScrollTop(state)
+                            LazyColumn(if (Session.codeWrap) Modifier.fillMaxSize() else Modifier.width(2400.dp).fillMaxSize(), state = state) {
+                                if (shown.isEmpty()) item { Text(if (onlyErrors) tr("没有错误或警告") else tr("日志为空"), Modifier.padding(16.dp), color = g.fgMuted) }
+                                itemsIndexed(shown) { _, l ->
+                                    val color = when (l.kind) {
+                                        1 -> t.error
+                                        2 -> t.warning
+                                        3 -> t.group
+                                        4 -> t.prompt
+                                        5 -> t.notice
+                                        else -> t.fg
+                                    }
+                                    Text(
+                                        buildAnnotatedString {
+                                            if (showTs && l.ts.isNotEmpty()) withStyle(SpanStyle(color = t.muted)) { append(l.ts.substring(11, 19) + "  ") }
+                                            withStyle(SpanStyle(color = color, fontWeight = if (l.kind == 3) FontWeight.SemiBold else null)) { append(l.text) }
+                                        },
+                                        Modifier.fillMaxWidth()
+                                            .background(if (l.kind == 1) t.error.copy(alpha = 0.12f) else if (l.kind == 2) t.warning.copy(alpha = 0.12f) else Color.Transparent)
+                                            .padding(horizontal = 10.dp, vertical = 1.dp),
+                                        style = CodeStyle, softWrap = Session.codeWrap,
+                                    )
+                                }
                             }
-                            Text(
-                                buildAnnotatedString {
-                                    if (showTs && l.ts.isNotEmpty()) withStyle(SpanStyle(color = t.muted)) { append(l.ts.substring(11, 19) + "  ") }
-                                    withStyle(SpanStyle(color = color, fontWeight = if (l.kind == 3) FontWeight.SemiBold else null)) { append(l.text) }
-                                },
-                                Modifier.fillMaxWidth()
-                                    .background(if (l.kind == 1) t.error.copy(alpha = 0.12f) else if (l.kind == 2) t.warning.copy(alpha = 0.12f) else Color.Transparent)
-                                    .padding(horizontal = 10.dp, vertical = 1.dp),
-                                style = CodeStyle, softWrap = Session.codeWrap,
-                            )
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun JobLiveRunningView(
+    job: Job,
+    targetUrl: String,
+    highlightStepNumber: Int,
+    onRefresh: () -> Unit,
+) {
+    val g = Gh.c
+    val ctx = rememberCtx()
+    val scroll = rememberLazyListState()
+
+    ScrollbarLazyColumn(Modifier.fillMaxSize(), state = scroll) {
+        item {
+            Card(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Column(Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Oc(
+                            if (job.status == "in_progress") R.drawable.oc_sync else R.drawable.oc_clock,
+                            g.accent,
+                            18.dp
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (job.status == "in_progress") tr("任务正在实时运行中") else tr("任务正在排队等待中"),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = g.fg,
+                        )
+                        job.startedAt?.let {
+                            Text(
+                                " · " + tr("已耗时 ") + fmtDuration(it, null),
+                                fontSize = 12.sp,
+                                color = g.fgMuted,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        tr("GitHub 官方在作业执行期间暂不生成离线日志文件，任务完成后将自动在此呈现完整终端日志。如需实时观看终端输出流，请点击下方按钮直接在网页中查看。"),
+                        fontSize = 12.sp,
+                        color = g.fgMuted,
+                        lineHeight = 18.sp,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        GhButton(
+                            tr("在浏览器查看实时终端输出"),
+                            Modifier.weight(1f),
+                            icon = R.drawable.oc_link_external,
+                        ) {
+                            ctx.openBrowser(targetUrl)
+                        }
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(1.dp, g.borderMuted, RoundedCornerShape(6.dp))
+                                .background(g.canvas)
+                                .clickable(onClick = onRefresh)
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Oc(R.drawable.oc_sync, g.fg, 14.dp)
+                                Spacer(Modifier.width(4.dp))
+                                Text(tr("刷新"), fontSize = 13.sp, color = g.fg)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(8.dp).background(g.accent, CircleShape))
+                        Spacer(Modifier.width(6.dp))
+                        Text(tr("正在自动跟踪执行状态（每 3 秒刷新）"), fontSize = 11.sp, color = g.fgMuted)
+                    }
+                }
             }
+        }
+
+        item {
+            SectionTitle(tr("各步骤执行进度"))
+        }
+
+        if (job.steps.isEmpty()) {
+            item {
+                Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Oc(R.drawable.oc_gear, g.fgMuted, 16.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text(
+                            tr("GitHub 正在准备 Runner 虚拟机环境，尚未开始第一步…"),
+                            fontSize = 13.sp,
+                            color = g.fgMuted,
+                        )
+                    }
+                }
+            }
+        } else {
+            itemsIndexed(job.steps, key = { _, s -> s.number }) { _, s ->
+                val (si, scol) = runVisual(s.status, s.conclusion)
+                val isCurrent = s.status == "in_progress"
+                val isFocus = highlightStepNumber > 0 && s.number == highlightStepNumber
+                Card(
+                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(if (isCurrent || isFocus) g.accent.copy(alpha = 0.08f) else Color.Transparent)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            s.number.toString(),
+                            fontSize = 11.sp,
+                            color = g.fgMuted,
+                            modifier = Modifier.width(24.dp),
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        )
+                        Oc(si, scol, 14.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                s.name,
+                                fontSize = 13.sp,
+                                fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                                color = g.fg,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(statusZh(s.status, s.conclusion), fontSize = 11.sp, color = scol)
+                                s.startedAt?.let { st ->
+                                    val dur = fmtDuration(st, s.completedAt)
+                                    if (dur.isNotBlank()) {
+                                        Text(" · $dur", fontSize = 11.sp, color = g.fgMuted)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+@Composable
+private fun JobLogTroubleshootingView(
+    job: Job,
+    error: String,
+    targetUrl: String,
+    onRetry: () -> Unit,
+) {
+    val g = Gh.c
+    val ctx = rememberCtx()
+    val scroll = rememberLazyListState()
+
+    val isAdminError = error.contains("admin", ignoreCase = true) || error.contains("403")
+    val isExpiredError = error.contains("404") || error.contains("未找到")
+
+    ScrollbarLazyColumn(Modifier.fillMaxSize(), state = scroll) {
+        item {
+            Card(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Column(Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Oc(
+                            if (isAdminError) R.drawable.oc_shield_lock else if (isExpiredError) R.drawable.oc_clock else R.drawable.oc_alert,
+                            if (isAdminError || isExpiredError) g.attention else g.danger,
+                            18.dp
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            when {
+                                isAdminError -> tr("需要仓库管理权限下载离线日志")
+                                isExpiredError -> tr("日志已过期或已被清理")
+                                else -> tr("暂时无法获取离线日志文件")
+                            },
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = g.fg,
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        when {
+                            isAdminError -> tr("GitHub REST API 规定公开仓库非管理员账号无法通过 API 批量下载日志文件。您可以直接点击下方按钮在 GitHub 网页中免登录查看完整终端日志。")
+                            isExpiredError -> tr("GitHub Actions 默认在 90 天后自动清理日志归档文件。若任务已过期，您仍可在网页端查看运行历史记录。")
+                            else -> trf("GitHub 接口返回异常：{0}。您可以稍后重试，或直接在网页中查看完整终端日志。", error)
+                        },
+                        fontSize = 12.sp,
+                        color = g.fgMuted,
+                        lineHeight = 18.sp,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        GhButton(
+                            tr("在网页中查看完整终端日志"),
+                            Modifier.weight(1f),
+                            icon = R.drawable.oc_link_external,
+                        ) {
+                            ctx.openBrowser(targetUrl)
+                        }
+                        if (!isAdminError && !isExpiredError) {
+                            Box(
+                                Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .border(1.dp, g.borderMuted, RoundedCornerShape(6.dp))
+                                    .background(g.canvas)
+                                    .clickable(onClick = onRetry)
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Oc(R.drawable.oc_sync, g.fg, 14.dp)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(tr("重试"), fontSize = 13.sp, color = g.fg)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (job.steps.isNotEmpty()) {
+            item {
+                SectionTitle(tr("步骤执行明细"))
+            }
+            itemsIndexed(job.steps, key = { _, s -> s.number }) { _, s ->
+                val (si, scol) = runVisual(s.status, s.conclusion)
+                Card(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            s.number.toString(),
+                            fontSize = 11.sp,
+                            color = g.fgMuted,
+                            modifier = Modifier.width(24.dp),
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        )
+                        Oc(si, scol, 14.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(s.name, fontSize = 13.sp, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Spacer(Modifier.height(2.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(statusZh(s.status, s.conclusion), fontSize = 11.sp, color = scol)
+                                s.startedAt?.let { st ->
+                                    val dur = fmtDuration(st, s.completedAt)
+                                    if (dur.isNotBlank()) Text(" · $dur", fontSize = 11.sp, color = g.fgMuted)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            item { Spacer(Modifier.height(24.dp)) }
         }
     }
 }

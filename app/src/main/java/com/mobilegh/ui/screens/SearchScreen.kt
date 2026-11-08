@@ -304,30 +304,50 @@ private fun recordSearch(type: Int, keyword: String, filters: SearchFilters) {
 @Composable
 private fun HintPane(type: Int, onHistory: (SearchHistoryEntry) -> Unit, onExample: (String) -> Unit) {
     val g = Gh.c
+    val searches = History.data().searches
     val examples = when (type) {
         SearchType.REPO -> listOf("language:Kotlin stars:>1000", "topic:android", "pushed:>2026-01-01")
         SearchType.USER -> listOf("location:China followers:>100", "type:org", "language:Rust")
         SearchType.ISSUE, SearchType.PR -> listOf("is:open label:bug", "comments:>10", "author:octocat")
         else -> listOf("repo:owner/name fun main", "path:src fun main", "language:Kotlin fun main")
     }
-    Column(
-        Modifier.fillMaxSize().verticalScrollWithBar().padding(horizontal = 20.dp, vertical = 36.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Oc(R.drawable.oc_search, g.fgMuted, 32.dp)
-        Spacer(Modifier.height(12.dp))
-        Text(tr("输入关键词后点搜索"), color = g.fgMuted)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            if (type == SearchType.CODE) tr("代码搜索必须有关键词，筛选条件只用来收窄范围")
-            else tr("也可以用「筛选」组合条件"),
-            color = g.fgMuted, fontSize = 13.sp, textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(20.dp))
-        // 点示例只填入输入框，由用户确认后再点搜索
-        FlowExamples(examples, onExample)
-        Spacer(Modifier.height(18.dp))
-        SearchHistorySection(History.data().searches, onHistory, History::removeSearch, History::clearSearches)
+    Column(Modifier.fillMaxSize().verticalScrollWithBar()) {
+        if (searches.isNotEmpty()) {
+            SearchHistorySection(
+                entries = searches,
+                onOpen = onHistory,
+                onRemove = History::removeSearch,
+                onClear = History::clearSearches,
+                collapsed = false,
+            )
+            Spacer(Modifier.height(16.dp))
+        }
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = if (searches.isNotEmpty()) 8.dp else 36.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (searches.isEmpty()) {
+                Oc(R.drawable.oc_search, g.fgMuted, 32.dp)
+                Spacer(Modifier.height(12.dp))
+                Text(tr("输入关键词后点搜索"), color = g.fgMuted)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    if (type == SearchType.CODE) tr("代码搜索必须有关键词，筛选条件只用来收窄范围")
+                    else tr("也可以用「筛选」组合条件"),
+                    color = g.fgMuted, fontSize = 13.sp, textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(20.dp))
+            } else {
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(tr("常用搜索语法与示例"), color = g.fgMuted, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            FlowExamples(examples, onExample)
+            Spacer(Modifier.height(24.dp))
+        }
     }
 }
 
@@ -367,7 +387,7 @@ private fun RepoResults(query: String, state: LazyListState, sort: Int, onSort: 
             totalPages = searchTotalPages(GitHub.PER, result.totalCount),
         ) { total = result.totalCount }
     })
-    PagedList(pager, state = state, empty = tr("没有找到匹配的仓库"), emptyIcon = R.drawable.oc_repo, header = {
+    PagedList(pager, state = state, itemKey = { it.id }, empty = tr("没有找到匹配的仓库"), emptyIcon = R.drawable.oc_repo, header = {
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(tr("仓库"), Modifier.weight(1f), fontSize = 13.sp, color = g.fgMuted)
@@ -398,7 +418,7 @@ private fun issueSortLabel(key: String): String = when (key) {
 @Composable
 private fun UserResults(query: String, state: LazyListState) {
     val pager = rememberPager("search-user:$query") { p, _ -> GitHub.searchUsers(query, p).items }
-    PagedList(pager, state = state, empty = tr("没有找到匹配的用户"), emptyIcon = R.drawable.oc_people) { UserItem(it) }
+    PagedList(pager, state = state, itemKey = { it.id }, empty = tr("没有找到匹配的用户"), emptyIcon = R.drawable.oc_people) { UserItem(it) }
 }
 
 @Composable

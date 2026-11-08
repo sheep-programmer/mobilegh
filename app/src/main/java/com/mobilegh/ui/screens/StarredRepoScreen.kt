@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -160,8 +161,11 @@ private fun StarFeedTab(login: String, isMe: Boolean) {
         onPick = { picked -> index = picked; descending = STAR_SORTS[picked].descending },
         onFlip = { descending = !descending },
     )
+    val state = rememberLazyListState()
     PagedList(
         pager,
+        state = state,
+        itemKey = { it.id },
         empty = starFeedEmpty(login, isMe, query),
         emptyIcon = R.drawable.oc_star,
         filteredEmpty = tr("已加载的 Star 中没有匹配的仓库"),
@@ -572,8 +576,11 @@ private fun StarListDetail(
         Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.danger, fontSize = 12.sp)
     }
     // 倒序的每页在数据层已经倒着放好，这里不再反转，只做搜索过滤
+    val state = rememberLazyListState()
     PagedList(
         pager,
+        state = state,
+        itemKey = { it.id },
         autoLoad = autoPageStarFeed(query, searching = false),
         empty = tr("列表暂无仓库，在仓库页「加入自定义列表」中添加"),
         emptyIcon = R.drawable.oc_checklist,

@@ -33,6 +33,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -81,10 +82,10 @@ private val YAML_KW = setOf("true", "false", "null", "yes", "no", "on", "off")
 // 语言表只建一次：每行 diff 都会调用 langOf，不能每次重新分配扩展名集合
 private val DOCKER_KW = SH_KW + setOf("from", "run", "cmd", "copy", "add", "env", "workdir", "expose", "entrypoint", "arg", "label", "volume", "user")
 private val CSS_KW = setOf("important", "media", "import", "keyframes", "from", "to", "include", "mixin", "extend", "if", "else", "each")
-private val C_EXT = setOf("kt", "kts", "java", "js", "mjs", "cjs", "jsx", "ts", "tsx", "go", "rs", "c", "h", "cc", "cpp", "hpp", "cxx", "cs", "swift", "m", "mm", "dart", "scala", "groovy", "gradle", "php", "zig", "v", "sol", "vue", "svelte", "proto", "glsl", "cu")
-private val PY_EXT = setOf("py", "pyi", "pyw")
-private val RB_EXT = setOf("rb", "rake", "gemspec")
-private val SH_EXT = setOf("sh", "bash", "zsh", "fish", "ps1", "bat", "cmd", "env", "conf", "ini", "cfg", "properties", "toml", "r", "pl", "nix", "tf", "hcl")
+private val C_EXT = setOf("kt", "kts", "kotlin", "java", "js", "javascript", "mjs", "cjs", "jsx", "ts", "typescript", "tsx", "go", "golang", "rs", "rust", "c", "h", "cc", "cpp", "c++", "hpp", "cxx", "cs", "csharp", "swift", "m", "mm", "dart", "scala", "groovy", "gradle", "php", "zig", "v", "sol", "vue", "svelte", "proto", "glsl", "cu")
+private val PY_EXT = setOf("py", "pyi", "pyw", "python")
+private val RB_EXT = setOf("rb", "rake", "gemspec", "ruby")
+private val SH_EXT = setOf("sh", "bash", "zsh", "fish", "ps1", "powershell", "bat", "cmd", "env", "conf", "ini", "cfg", "properties", "toml", "r", "pl", "perl", "nix", "tf", "hcl", "shell")
 private val YAML_EXT = setOf("yml", "yaml")
 private val JSON_EXT = setOf("json", "jsonc", "json5", "ipynb", "lock")
 private val MARKUP_EXT = setOf("xml", "html", "htm", "xhtml", "svg", "plist", "vue", "xaml", "csproj", "storyboard")
@@ -107,11 +108,11 @@ private val PLAIN_LANG = Lang(Fam.Plain, emptySet())
 private val HASH_COMMENT_FAMS = setOf(Fam.Py, Fam.Sh, Fam.Yaml)
 
 private fun langOf(file: String): Lang {
-    val name = file.substringAfterLast('/').lowercase()
-    val ext = name.substringAfterLast('.', "")
+    val name = file.substringAfterLast('/').lowercase().trim()
+    val ext = if (name.contains('.')) name.substringAfterLast('.') else name
     return when {
-        name == "dockerfile" || ext == "dockerfile" -> DOCKER_LANG
-        name == "makefile" || ext == "mk" -> SH_LANG
+        name == "dockerfile" || ext == "dockerfile" || ext == "docker" -> DOCKER_LANG
+        name == "makefile" || ext == "makefile" || ext == "mk" -> SH_LANG
         ext in C_EXT -> C_LANG
         ext in PY_EXT -> PY_LANG
         ext in RB_EXT -> RB_LANG
@@ -124,6 +125,89 @@ private fun langOf(file: String): Lang {
         ext in CSS_EXT -> CSS_LANG
         else -> PLAIN_LANG
     }
+}
+
+/**
+ * 自动识别代码片段的语言类型。如果无法识别或为纯文本，则返回 "text"。
+ */
+fun detectCodeLanguage(code: String): String {
+    val trimmed = code.trim()
+    if (trimmed.isEmpty()) return "text"
+
+    // JSON
+    if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+        if (trimmed.contains(Regex("\"[^\"]+\"\\s*:"))) return "json"
+    }
+
+    // HTML / XML
+    if (trimmed.startsWith("<!DOCTYPE", ignoreCase = true) || trimmed.startsWith("<?xml", ignoreCase = true) ||
+        (trimmed.startsWith("<") && trimmed.contains(Regex("</[a-zA-Z0-9]+>")))) {
+        return "xml"
+    }
+
+    val lines = trimmed.lines().take(30)
+    val firstLine = lines.firstOrNull()?.trim().orEmpty()
+
+    // Shebang
+    if (firstLine.startsWith("#!")) {
+        return when {
+            firstLine.contains("python") -> "python"
+            firstLine.contains("bash") || firstLine.contains("sh") || firstLine.contains("zsh") -> "bash"
+            firstLine.contains("node") -> "javascript"
+            firstLine.contains("ruby") -> "ruby"
+            else -> "bash"
+        }
+    }
+
+    // Shell 命令与脚手架调用
+    val shellPrefixes = listOf("$ ", "curl ", "npm ", "yarn ", "pnpm ", "npx ", "git ", "pip ", "docker ", "apt ", "brew ", "cargo ", "gradle ", "./gradlew ")
+    if (lines.any { line -> shellPrefixes.any { line.trimStart().startsWith(it) } }) {
+        return "bash"
+    }
+
+    // SQL 语句
+    val sqlKeywords = listOf("SELECT ", "INSERT INTO ", "UPDATE ", "DELETE FROM ", "CREATE TABLE ", "ALTER TABLE ", "DROP TABLE ")
+    if (sqlKeywords.any { trimmed.startsWith(it, ignoreCase = true) }) {
+        return "sql"
+    }
+
+    // Python 语法特征
+    if (lines.any { it.matches(Regex("""^\s*(def\s+\w+|class\s+\w+.*:|import\s+\w+|from\s+\w+\s+import|if\s+__name__\s*==).*""")) }) {
+        return "python"
+    }
+
+    // Go 特征
+    if (lines.any { it.matches(Regex("""^\s*(func\s+\w+|import\s+\(|fmt\.Print).*""")) } ||
+        (firstLine.startsWith("package ") && (trimmed.contains("func ") || trimmed.contains("fmt.")))) {
+        return "go"
+    }
+
+    // Kotlin / Java 特征
+    if (lines.any { it.matches(Regex("""^\s*(package\s+[\w.]+|import\s+[\w.*]+;|fun\s+\w+|val\s+\w+|var\s+\w+|public\s+class\s+\w+|private\s+val\s+\w+).*""")) }) {
+        return if (trimmed.contains("fun ") || trimmed.contains("val ") || trimmed.contains("var ")) "kotlin" else "java"
+    }
+
+    // Rust 特征
+    if (lines.any { it.matches(Regex("""^\s*(fn\s+\w+|let\s+mut\s+|pub\s+fn\s+|impl\s+\w+|use\s+std::).*""")) }) {
+        return "rust"
+    }
+
+    // C / C++ 特征
+    if (lines.any { it.startsWith("#include <") || it.startsWith("#define ") || it.contains("std::") }) {
+        return "cpp"
+    }
+
+    // JavaScript / TypeScript 特征
+    if (lines.any { it.matches(Regex("""^\s*(const\s+\w+|let\s+\w+|function\s+\w+|export\s+default|import\s+.*\s+from\s+['"]).*""")) }) {
+        return if (trimmed.contains(": string") || trimmed.contains(": number") || trimmed.contains(": boolean") || trimmed.contains("interface ")) "typescript" else "javascript"
+    }
+
+    // YAML 特征（多行键值对且无分号）
+    if (!trimmed.contains(";") && lines.count { it.matches(Regex("""^\s*[a-zA-Z0-9_-]+:\s*.*""")) } >= 2) {
+        return "yaml"
+    }
+
+    return "text"
 }
 
 fun canHighlight(file: String) = langOf(file).fam != Fam.Plain
@@ -276,6 +360,71 @@ const val LONG_LINE_CHARS = 2000
 /** 一次定位（跳到行、链接里的 #L 锚点）。每次定位都是新对象，同一行再次定位也会重新滚动。 */
 class LineFocus(val range: IntRange)
 
+/** 文件内搜索匹配项：行号（从 1 开始）与行内起止字符位置（[start, end)） */
+@Immutable
+data class SearchMatch(val line: Int, val start: Int, val end: Int)
+
+/** 搜索文件中所有匹配项，精确统计每一个匹配词/字符 */
+fun findSearchMatches(lines: List<AnnotatedString>, query: String): List<SearchMatch> {
+    val q = query.trim()
+    if (q.isEmpty()) return emptyList()
+    val matches = mutableListOf<SearchMatch>()
+    lines.forEachIndexed { lineIdx, line ->
+        val text = line.text
+        var start = 0
+        while (start <= text.length - q.length) {
+            val idx = text.indexOf(q, start, ignoreCase = true)
+            if (idx < 0) break
+            matches.add(SearchMatch(line = lineIdx + 1, start = idx, end = idx + q.length))
+            start = idx + q.length.coerceAtLeast(1)
+        }
+    }
+    return matches
+}
+
+/** 高亮代码行里的搜索关键词，保留原有的语法高亮；当前选中的匹配项以醒目颜色与加粗突出 */
+internal fun highlightCodeLine(
+    line: AnnotatedString,
+    query: String,
+    bg: Color,
+    activeRange: IntRange? = null,
+    activeBg: Color = Color.Unspecified,
+    activeFg: Color = Color.Unspecified,
+): AnnotatedString {
+    val q = query.trim()
+    if (q.isEmpty()) return line
+    val text = line.text
+    var start = 0
+    val ranges = mutableListOf<IntRange>()
+    while (start <= text.length - q.length) {
+        val idx = text.indexOf(q, start, ignoreCase = true)
+        if (idx < 0) break
+        ranges.add(idx until idx + q.length)
+        start = idx + q.length.coerceAtLeast(1)
+    }
+    if (ranges.isEmpty()) return line
+    val builder = AnnotatedString.Builder(line)
+    for (r in ranges) {
+        val isActive = activeRange != null && r.first == activeRange.first && r.last == activeRange.last
+        if (isActive && activeBg != Color.Unspecified) {
+            builder.addStyle(
+                SpanStyle(
+                    background = activeBg,
+                    color = if (activeFg != Color.Unspecified) activeFg else Color.White,
+                    fontWeight = FontWeight.Bold,
+                ),
+                r.first, r.last + 1,
+            )
+        } else {
+            builder.addStyle(
+                SpanStyle(background = bg, fontWeight = FontWeight.SemiBold),
+                r.first, r.last + 1,
+            )
+        }
+    }
+    return builder.toAnnotatedString()
+}
+
 /**
  * 代码查看：行号 + 高亮 + 可选自动换行。
  * [focus] 非空时滚动到该范围的第一行，并把范围内的行染上底色；长按行号回调 [onLineLongPress]（参数为行号，从 1 开始）。
@@ -287,6 +436,8 @@ fun CodeView(
     wrap: Boolean,
     modifier: Modifier = Modifier,
     focus: LineFocus? = null,
+    searchQuery: String? = null,
+    activeMatch: SearchMatch? = null,
     onLineLongPress: ((Int) -> Unit)? = null,
 ) {
     val g = Gh.c
@@ -304,6 +455,11 @@ fun CodeView(
     LaunchedEffect(focus) {
         focus?.let { listState.animateScrollToItem((it.range.first - 1).coerceIn(0, (lines.size - 1).coerceAtLeast(0))) }
     }
+    LaunchedEffect(activeMatch) {
+        activeMatch?.let {
+            listState.animateScrollToItem((it.line - 1).coerceIn(0, (lines.size - 1).coerceAtLeast(0)))
+        }
+    }
     // 滚动条挂在外层可视区域上：不换行时内容比屏幕宽，挂在列表上会画到屏幕外
     Box(modifier.fillMaxSize().lazyScrollbar(listState).then(if (wrap) Modifier else Modifier.horizontalScroll(hs))) {
         SelectionContainer {
@@ -312,22 +468,38 @@ fun CodeView(
                     val number = idx + 1
                     val marked = target != null && number in target
                     val long = line.length > LONG_LINE_CHARS
+                    val lineActiveRange = if (activeMatch?.line == number) activeMatch.start until activeMatch.end else null
+                    val displayLine = remember(line, searchQuery, lineActiveRange, g.dark) {
+                        if (searchQuery.isNullOrBlank()) line
+                        else highlightCodeLine(
+                            line = line,
+                            query = searchQuery,
+                            bg = if (g.dark) Color(0x66B58900) else Color(0x66FFE58F),
+                            activeRange = lineActiveRange,
+                            activeBg = g.accent,
+                            activeFg = Color.White,
+                        )
+                    }
                     Row(Modifier.fillMaxWidth().background(if (marked) g.accent.copy(alpha = 0.15f) else Color.Transparent)) {
                         val gutterMod = Modifier.width(gutter).padding(end = 12.dp)
-                        Text(
-                            number.toString(),
-                            if (onLineLongPress != null) gutterMod.combinedClickable(onClick = {}, onLongClick = { onLineLongPress(number) }) else gutterMod,
-                            style = CodeStyle, color = g.fgMuted.copy(alpha = 0.7f), textAlign = TextAlign.End,
-                        )
+                        DisableSelection {
+                            Text(
+                                number.toString(),
+                                if (onLineLongPress != null) gutterMod.combinedClickable(onClick = {}, onLongClick = { onLineLongPress(number) }) else gutterMod,
+                                style = CodeStyle, color = g.fgMuted.copy(alpha = 0.7f), textAlign = TextAlign.End,
+                            )
+                        }
                         Column(Modifier.padding(end = 12.dp)) {
-                            Text(if (long) line.subSequence(0, LONG_LINE_CHARS) else line, style = CodeStyle, color = g.fg, softWrap = wrap)
-                            if (long) Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(trf("超长行（{0} 字符）", line.length), color = g.fgMuted, fontSize = 12.sp)
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    tr("查看完整行"), color = g.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.clickable { fullLine = line.text }.padding(vertical = 4.dp),
-                                )
+                            Text(if (long) displayLine.subSequence(0, LONG_LINE_CHARS) else displayLine, style = CodeStyle, color = g.fg, softWrap = wrap)
+                            if (long) DisableSelection {
+                                Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(trf("超长行（{0} 字符）", line.length), color = g.fgMuted, fontSize = 12.sp)
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(
+                                        tr("查看完整行"), color = g.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.clickable { fullLine = line.text }.padding(vertical = 4.dp),
+                                    )
+                                }
                             }
                         }
                     }
@@ -452,7 +624,9 @@ private fun SplitCell(d: DiffLine?, old: Boolean, g: GhColors, file: String, wid
     ) {
         if (d == null) return@Row
         val no = if (old) d.oldNo else d.newNo
-        Text(no?.toString() ?: "", Modifier.width(30.dp).padding(end = 4.dp), style = SplitStyle, color = g.fgMuted.copy(alpha = 0.7f), textAlign = TextAlign.End)
+        DisableSelection {
+            Text(no?.toString() ?: "", Modifier.width(30.dp).padding(end = 4.dp), style = SplitStyle, color = g.fgMuted.copy(alpha = 0.7f), textAlign = TextAlign.End)
+        }
         val sc = syntaxColors(g)
         val code = remember(d, file, g.dark) { highlightLines(d.text, file, sc).firstOrNull() ?: AnnotatedString(d.text) }
         Text(code, Modifier.weight(1f).padding(end = 4.dp), style = SplitStyle, color = g.fg)
@@ -488,7 +662,9 @@ fun DiffRow(d: DiffLine, g: GhColors, file: String = "", onLineClick: (() -> Uni
             '@', '\\' -> ""
             else -> d.newNo?.toString() ?: ""
         }
-        Text(no, Modifier.width(40.dp).padding(end = 6.dp), style = CodeStyle, color = g.fgMuted.copy(alpha = 0.7f), textAlign = TextAlign.End)
+        DisableSelection {
+            Text(no, Modifier.width(40.dp).padding(end = 6.dp), style = CodeStyle, color = g.fgMuted.copy(alpha = 0.7f), textAlign = TextAlign.End)
+        }
         Text(
             if (d.kind == '@' || d.kind == '\\') "" else d.kind.toString(),
             Modifier.width(14.dp), style = CodeStyle,

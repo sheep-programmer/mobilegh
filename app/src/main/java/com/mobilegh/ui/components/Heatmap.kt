@@ -38,8 +38,12 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import com.mobilegh.R
 import com.mobilegh.data.ContribCalendar
 import com.mobilegh.data.ContribDay
+import com.mobilegh.data.ContribWeek
 import com.mobilegh.ui.theme.Gh
 import java.time.LocalDate
 import com.mobilegh.i18n.tr
@@ -53,9 +57,13 @@ fun levelOf(d: ContribDay): Int = when (d.contributionLevel) {
     else -> if (d.contributionCount > 0) 1 else 0
 }
 
-/** GitHub 贡献热力图（官方手机 App 看不到）。可横向滑动、点按查看某天详情。 */
+/** GitHub 贡献热力图（官方手机 App 看不到）。可横向滑动、点按或双击查看某天及所在周详情。 */
 @Composable
-fun Heatmap(cal: ContribCalendar, modifier: Modifier = Modifier) {
+fun Heatmap(
+    cal: ContribCalendar,
+    modifier: Modifier = Modifier,
+    onDoubleTapDay: ((ContribDay, ContribWeek) -> Unit)? = null,
+) {
     val g = Gh.c
     val weeks = cal.weeks
     val cell = 12.dp
@@ -77,12 +85,24 @@ fun Heatmap(cal: ContribCalendar, modifier: Modifier = Modifier) {
                 Modifier
                     .size(width, height)
                     .semantics { contentDescription = summary }
-                    .pointerInput(cal) {
-                        detectTapGestures { p ->
-                            val col = ((p.x - left.toPx()) / (cell + gap).toPx()).toInt()
-                            val row = ((p.y - top.toPx()) / (cell + gap).toPx()).toInt()
-                            selected = weeks.getOrNull(col)?.contributionDays?.firstOrNull { it.weekday == row }
-                        }
+                    .pointerInput(cal, onDoubleTapDay) {
+                        detectTapGestures(
+                            onTap = { p ->
+                                val col = ((p.x - left.toPx()) / (cell + gap).toPx()).toInt()
+                                val row = ((p.y - top.toPx()) / (cell + gap).toPx()).toInt()
+                                selected = weeks.getOrNull(col)?.contributionDays?.firstOrNull { it.weekday == row }
+                            },
+                            onDoubleTap = if (onDoubleTapDay != null) { p ->
+                                val col = ((p.x - left.toPx()) / (cell + gap).toPx()).toInt()
+                                val row = ((p.y - top.toPx()) / (cell + gap).toPx()).toInt()
+                                val week = weeks.getOrNull(col)
+                                val day = week?.contributionDays?.firstOrNull { it.weekday == row }
+                                if (day != null && week != null) {
+                                    selected = day
+                                    onDoubleTapDay(day, week)
+                                }
+                            } else null,
+                        )
                     },
             ) {
                 val c = cell.toPx()
@@ -119,11 +139,28 @@ fun Heatmap(cal: ContribCalendar, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             val s = selected
-            Text(
-                if (s != null) "${s.date}：${if (s.contributionCount == 0) tr("无贡献") else trf("{0} 次贡献", s.contributionCount)}" else tr("点按方块查看当天贡献"),
-                fontSize = 12.sp, color = if (s != null) g.fg else g.fgMuted, fontWeight = if (s != null) FontWeight.Medium else null,
-                modifier = Modifier.weight(1f),
-            )
+            val week = remember(s, weeks) { weeks.firstOrNull { w -> w.contributionDays.any { it == s } } }
+            Row(
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(4.dp))
+                    .then(
+                        if (s != null && week != null && onDoubleTapDay != null) {
+                            Modifier.clickable { onDoubleTapDay(s, week) }
+                        } else Modifier
+                    )
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (s != null) "${s.date}：${if (s.contributionCount == 0) tr("无贡献") else trf("{0} 次贡献", s.contributionCount)}" else tr("点按方块查看当天贡献"),
+                    fontSize = 12.sp, color = if (s != null) g.fg else g.fgMuted, fontWeight = if (s != null) FontWeight.Medium else null,
+                )
+                if (s != null && onDoubleTapDay != null) {
+                    Spacer(Modifier.width(4.dp))
+                    Oc(R.drawable.oc_chevron_right, g.fgMuted, 12.dp)
+                }
+            }
             Text(tr("少"), fontSize = 11.sp, color = g.fgMuted)
             Spacer(Modifier.width(4.dp))
             g.heat.forEach {

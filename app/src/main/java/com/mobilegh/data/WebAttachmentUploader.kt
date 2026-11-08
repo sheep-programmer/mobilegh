@@ -3,6 +3,11 @@ package com.mobilegh.data
 import android.webkit.CookieManager
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -111,8 +116,51 @@ class WebAttachmentUploader(
             Regex("<meta\\s+content=\"([^\"]+)\"\\s+name=\"fetch-nonce\""),
         )
 
+        private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+        private var lastRenewTime = 0L
+
         /** GitHub 登录后写入的会话 cookie */
         fun hasSession(cookie: String?): Boolean = cookie?.contains("user_session=") == true
+
+        /**
+         * 自动保活 / 静默续期 Web Session：
+         * 每天最多触发一次轻量心跳请求，更新 GitHub 服务端会话的活跃时间戳（Sliding Expiration），
+         * 并将返回的最新的 Set-Cookie 实时写回 CookieManager 且 flush。
+         */
+        suspend fun renewSession(force: Boolean = false): Boolean = withContext(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            if (!force && now - lastRenewTime < 24 * 3600 * 1000L) return@withContext true
+            val cookieManager = runCatching { CookieManager.getInstance() }.getOrNull() ?: return@withContext false
+            val cookie = runCatching { cookieManager.getCookie("https://github.com") }.getOrNull() ?: return@withContext false
+            if (!hasSession(cookie)) return@withContext false
+
+            val req = Request.Builder()
+                .url("https://github.com/")
+                .header("Cookie", cookie)
+                .header("User-Agent", "Mozilla/5.0 (Android; Mobile) AppleWebKit/537.36")
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .build()
+
+            try {
+                productionClient.routed().newCall(req).await().use { resp ->
+                    if (resp.isSuccessful) {
+                        lastRenewTime = now
+                        val setCookies = resp.headers("Set-Cookie")
+                        for (header in setCookies) {
+                            cookieManager.setCookie("https://github.com", header)
+                        }
+                        cookieManager.flush()
+                        true
+                    } else false
+                }
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        fun renewSessionAsync(force: Boolean = false) {
+            scope.launch { renewSession(force) }
+        }
 
         private val productionClient: OkHttpClient by lazy {
             OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector())

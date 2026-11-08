@@ -79,10 +79,8 @@ fun RepoItem(repo: Repo, showOwner: Boolean = true, extra: String? = null) {
     ) {
         LinkActionsMenu(menu, { menu = false }, repo.htmlUrl)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (showOwner) {
-                Avatar(repo.owner.avatarUrl, 18.dp, square = repo.owner.type == "Organization")
-                Spacer(Modifier.width(8.dp))
-            }
+            Avatar(repo.owner.avatarUrl, 18.dp, square = repo.owner.type == "Organization")
+            Spacer(Modifier.width(8.dp))
             Text(
                 buildAnnotatedString {
                     if (showOwner) withStyle(SpanStyle(color = g.fgMuted)) { append(repo.owner.login + " / ") }

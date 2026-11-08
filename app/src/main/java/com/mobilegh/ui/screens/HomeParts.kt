@@ -205,8 +205,8 @@ fun HomeFavoriteRow(repo: FavoriteRepo, canUp: Boolean, canDown: Boolean, onOpen
             .padding(horizontal = 16.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MenuIcon(R.drawable.oc_repo, g.fgMuted)
-        Spacer(Modifier.width(14.dp))
+        Avatar("https://github.com/${repo.owner}.png", 22.dp, square = true)
+        Spacer(Modifier.width(12.dp))
         Text(
             buildAnnotatedString {
                 withStyle(SpanStyle(color = g.fgMuted)) { append(repo.owner + " / ") }

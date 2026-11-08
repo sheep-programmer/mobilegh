@@ -586,8 +586,20 @@ private fun RowImage(img: Inline.Image, maxWidth: Dp = Dp.Unspecified) {
     val g = Gh.c
     val nav = LocalNav.current
     val ctx = rememberCtx()
+    var retry by remember(img.src) { mutableIntStateOf(0) }
     var bmp by remember(img.src) { mutableStateOf(Images.cached(img.src, 1024)) }
-    LaunchedEffect(img.src) { if (bmp == null) bmp = Images.load(img.src, 1024) }
+    var failed by remember(img.src) { mutableStateOf(false) }
+    LaunchedEffect(img.src, retry) {
+        if (bmp == null) {
+            failed = false
+            val loaded = runCatching { Images.load(img.src, 1024) }.getOrNull()
+            if (loaded != null) {
+                bmp = loaded
+            } else {
+                failed = true
+            }
+        }
+    }
     val link = img.link
     val isBadge = HtmlParser.isInlineImage(img)
     val click = Modifier.clip(RoundedCornerShape(3.dp))
@@ -603,8 +615,33 @@ private fun RowImage(img: Inline.Image, maxWidth: Dp = Dp.Unspecified) {
         )
     val loaded = bmp
     if (loaded == null) {
-        // 加载中：按属性或徽章的常见尺寸占位，加载完成后只在这一块里替换
-        Box(Modifier.widthIn(max = maxWidth).size((img.width ?: 90).dp, (img.height ?: 20).dp).clip(RoundedCornerShape(3.dp)).background(g.neutralMuted))
+        val placeholderH = when {
+            img.height != null -> img.height.dp
+            (img.width ?: 0) > 120 -> 120.dp
+            else -> 24.dp
+        }
+        Box(
+            Modifier.widthIn(max = maxWidth)
+                .size((img.width ?: 90).dp, placeholderH)
+                .clip(RoundedCornerShape(4.dp))
+                .background(g.neutralMuted)
+                .clickable {
+                    retry++
+                    if (!isBadge) ImageViewer.open(img.viewSrc ?: img.src, img.alt, link)
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (failed) {
+                Row(
+                    Modifier.padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Oc(R.drawable.oc_sync, g.fgMuted, 14.dp)
+                    Text(tr("重试"), fontSize = 11.sp, color = g.fgMuted)
+                }
+            }
+        }
     } else {
         val scale = Images.scaleOf(loaded)
         val naturalW = loaded.width / scale

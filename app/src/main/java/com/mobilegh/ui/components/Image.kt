@@ -78,16 +78,16 @@ object Images {
         val mine = CompletableDeferred<ImageBitmap?>()
         val running = synchronized(decoding) { decoding.getOrPut(memKey) { mine } }
         if (running !== mine) return running.await()
-        try {
+        return try {
             val bmp = withContext(Dispatchers.IO) {
                 val r = ImageFetch.fetch(url) ?: return@withContext null
                 decode(r.bytes, maxDim)?.also { if (memKey == key(url, maxDim)) mem.put(memKey, it) }
             }
             mine.complete(bmp)
-            return bmp
+            bmp
         } catch (t: Throwable) {
             mine.complete(null)
-            throw t
+            null
         } finally {
             synchronized(decoding) { decoding.remove(memKey) }
         }

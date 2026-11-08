@@ -1,9 +1,19 @@
 package com.mobilegh.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import com.mobilegh.data.BuiltinShortcut
 import com.mobilegh.ui.screens.SyncAchievements
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.Oc
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
@@ -146,12 +156,78 @@ fun HomeScreen() {
             header = {
                 item { HomeProfile(login, me.data, Session.avatar, userStatus.data, onSetStatus = { showStatusSheet = true }) { nav.select(Tab.Me) } }
                 invites.data?.takeIf { it > 0 }?.let { n -> item { HomeInviteBanner(n) { nav.push(Screen.Invitations) } } }
-                item { SectionTitle(tr("我的工作")) { SectionActionChip(tr("编辑"), tooltip = tr("自定义快捷入口")) { nav.push(Screen.HomeCustomize) } } }
+
+                // 收藏夹区块（外显，贴合官方 App 首页排版）
                 item {
-                    if (shortcuts.isEmpty()) {
+                    SectionTitle(
+                        tr("收藏夹"),
+                        trailing = {
+                            if (layout.favorites.isNotEmpty()) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    SectionActionChip(tr("添加"), tooltip = tr("添加收藏")) { nav.push(Screen.AddFavorites) }
+                                    SectionActionChip(tr("整理"), tooltip = tr("整理收藏")) { nav.push(Screen.HomeCustomize) }
+                                }
+                            }
+                        },
+                    )
+                }
+                item {
+                    if (layout.favorites.isEmpty()) {
+                        Card(Modifier.padding(horizontal = 16.dp)) {
+                            Column(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Text(
+                                    tr("将仓库加入收藏夹以便随时快速访问，而无需搜索"),
+                                    color = g.fgMuted,
+                                    fontSize = 14.sp,
+                                    lineHeight = 20.sp,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 8.dp),
+                                )
+                                Spacer(Modifier.height(14.dp))
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .border(1.dp, g.border, RoundedCornerShape(10.dp))
+                                        .background(g.canvas)
+                                        .clickable { nav.push(Screen.AddFavorites) }
+                                        .padding(vertical = 11.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(tr("添加收藏"), color = g.accent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                }
+                            }
+                        }
+                    } else {
+                        Card(Modifier.padding(horizontal = 16.dp)) {
+                            Column {
+                                layout.favorites.forEachIndexed { i, f ->
+                                    if (i > 0) HDivider()
+                                    HomeFavoriteRow(
+                                        repo = f,
+                                        canUp = i > 0,
+                                        canDown = i < layout.favorites.lastIndex,
+                                        onOpen = { nav.push(Screen.Repo(f.owner, f.name)) },
+                                        onMove = { d -> HomePrefs.moveFavorite(i, d) },
+                                        onRemove = { removeFavoriteWithUndo(scope, snackbar, i, f) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 快捷键区块
+                val displayShortcuts = shortcuts.filterNot { it.id == BuiltinShortcut.Favorites.id }
+                item { SectionTitle(tr("快捷键")) { SectionActionChip(tr("编辑"), tooltip = tr("自定义快捷入口")) { nav.push(Screen.HomeCustomize) } } }
+                item {
+                    if (displayShortcuts.isEmpty()) {
                         Text(tr("所有快捷入口都已隐藏，点「编辑」可重新显示"), Modifier.padding(horizontal = 16.dp), fontSize = 13.sp, color = g.fgMuted)
                     } else {
-                        HomeShortcuts(shortcuts)
+                        HomeShortcuts(displayShortcuts)
                     }
                 }
                 // 贡献详情在「我的」页的贡献活动区块里，所以按钮文字如实写成查看全部贡献

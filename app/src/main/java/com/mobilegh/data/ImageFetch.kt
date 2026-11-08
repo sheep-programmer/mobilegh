@@ -24,13 +24,13 @@ object ImageFetch {
     private const val CACHE_TTL_MS = 10 * 60 * 1000L
 
     /** 失败后短时间内不重试，避免 WebView 重排或列表回滚时对同一张图反复跑完整条节点链 */
-    private const val FAIL_TTL_MS = 45 * 1000L
+    private const val FAIL_TTL_MS = 10 * 1000L
 
     /**
      * 竞速窗口：同时最多请求几个候选节点。
      * 窗口太小会重新排长队，太大则一张图片就打满镜像的并发额度。
      */
-    private const val RACE_WINDOW = 3
+    private const val RACE_WINDOW = 4
     private const val MAX_NODE_MEMO = 1024
 
     /**
@@ -39,9 +39,9 @@ object ImageFetch {
      */
     private val http by lazy {
         Api.http.newBuilder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .callTimeout(20, TimeUnit.SECONDS)
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
+            .callTimeout(15, TimeUnit.SECONDS)
             // 列表页会同时出现十几张头像；默认「每主机 5 个并发」会把它们排成一条长队。
             .dispatcher(Dispatcher().apply { maxRequests = 64; maxRequestsPerHost = 16 })
             .build()

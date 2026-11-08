@@ -86,6 +86,7 @@ import com.mobilegh.ui.components.relTime
 import com.mobilegh.ui.components.parseInstant
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.RepoItem
+import com.mobilegh.ui.components.SectionActionChip
 import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.SwitchRow
 import com.mobilegh.ui.components.TextLink
@@ -321,13 +322,9 @@ private fun OrganizationReposPanel(
     PullToRefreshBox(repos.refreshing || events.refreshing, { refreshDirectory(); repos.refresh(); events.refresh() }, modifier.fillMaxWidth()) {
         ScrollbarLazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
             item {
-                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(trf("{0} 个组织仓库", filtered.size), Modifier.weight(1f), fontWeight = FontWeight.SemiBold, color = g.fg)
-                    TextLink(tr("权限诊断")) { nav.push(Screen.OrgDiagnostics) }
                 }
-            }
-            if (warnings.isNotEmpty()) item {
-                Text(warnings.joinToString("\n"), Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = g.attention, fontSize = 12.sp)
             }
             if (repos.loading) item { Loading(Modifier.fillMaxWidth().height(80.dp)) }
             repos.error?.let { msg -> item { ErrorState(msg, Modifier.fillMaxWidth()) { repos.refresh() } } }
@@ -335,7 +332,7 @@ private fun OrganizationReposPanel(
                 EmptyState(if (orgs.isEmpty()) tr("当前授权未返回组织，查看权限诊断或待处理邀请") else tr("没有匹配仓库；私有仓库需相应权限和 SSO 授权"), R.drawable.oc_organization)
             }
             filtered.groupBy { it.owner.login }.toSortedMap(String.CASE_INSENSITIVE_ORDER).forEach { (org, group) ->
-                item(key = "group:$org") { SectionTitle(org) { TextLink(tr("组织")) { nav.push(Screen.Org(org)) } } }
+                item(key = "group:$org") { SectionTitle(org) { SectionActionChip(tr("组织"), tooltip = tr("查看组织")) { nav.push(Screen.Org(org)) } } }
                 boxedItems(group, key = { "repo:${it.id}" }) { RepoItem(it, showOwner = false) }
             }
             item {
@@ -465,7 +462,7 @@ fun OrgsScreen() {
     Page(tr("我的组织"), actions = { OcButton(R.drawable.oc_shield_lock, { nav.push(Screen.OrgDiagnostics) }) }) { pad ->
         com.mobilegh.ui.components.LoadBox(access, Modifier.padding(pad).fillMaxSize()) { data ->
             ScrollbarLazyColumn(Modifier.fillMaxSize()) {
-                item { SectionTitle(trf("{0} 个可访问组织", data.orgs.size)) { TextLink(tr("权限诊断")) { nav.push(Screen.OrgDiagnostics) } } }
+                item { SectionTitle(trf("{0} 个可访问组织", data.orgs.size)) { SectionActionChip(tr("权限诊断")) { nav.push(Screen.OrgDiagnostics) } } }
                 if (data.warnings.isNotEmpty()) item {
                     Text(data.warnings.joinToString("\n"), Modifier.padding(16.dp), color = g.attention, fontSize = 13.sp)
                 }

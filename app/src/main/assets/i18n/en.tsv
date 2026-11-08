@@ -2833,6 +2833,9 @@ Gist 评论 · {0}	Gist comment · {0}
 gh-proxy.com · 香港	gh-proxy.com · Hong Kong
 成就读取完成：{0} 个，{1} 毫秒	Achievements loaded: {0}, {1} ms
 收藏夹	Favorites
+将仓库加入收藏夹以便随时快速访问，而无需搜索	Add repositories to favorites for quick access at any time without searching
+快捷键	Shortcuts
+整理	Organize
 共 {0} 个仓库	{0} repositories
 整理收藏	Organize favorites
 还没有收藏的仓库	No favorite repositories yet

@@ -53,27 +53,26 @@ object Net {
      */
     val builtins = listOf(
         DIRECT,
-        JSD,
-        CdnNode("jsd-fastly", "jsDelivr · Fastly", NodeType.JsDelivr, "https://fastly.jsdelivr.net"),
-        CdnNode("jsd-gcore", "jsDelivr · Gcore", NodeType.JsDelivr, "https://gcore.jsdelivr.net"),
-        CdnNode("jsd-cf", "jsDelivr · Cloudflare", NodeType.JsDelivr, "https://testingcf.jsdelivr.net"),
         CdnNode("jsd-mirror", "jsDelivr · jsdmirror.com", NodeType.JsDelivr, "https://cdn.jsdmirror.com"),
         CdnNode("jsd-mirror-cn", "jsDelivr · jsdmirror.cn", NodeType.JsDelivr, "https://cdn.jsdmirror.cn"),
         CdnNode("ghfast", "ghfast.top", NodeType.Prefix, "https://ghfast.top/"),
         CdnNode("gh-proxy", "gh-proxy.com", NodeType.Prefix, "https://gh-proxy.com/"),
+        CdnNode("gh-proxy-cdn", "gh-proxy.com · CDN", NodeType.Prefix, "https://cdn.gh-proxy.com/"),
+        CdnNode("gh-proxy-edge", "gh-proxy.com · EdgeOne", NodeType.Prefix, "https://edgeone.gh-proxy.com/"),
         CdnNode("gh-proxy-org", "gh-proxy.org", NodeType.Prefix, "https://gh-proxy.org/"),
-        CdnNode("llkk", "gh.llkk.cc", NodeType.Prefix, "https://gh.llkk.cc/"),
         CdnNode("monlor", "gh.monlor.com", NodeType.Prefix, "https://gh.monlor.com/"),
-        CdnNode("ghm", "ghm.078465.xyz", NodeType.Prefix, "https://ghm.078465.xyz/"),
-        CdnNode("imciel", "ghproxy.imciel.com", NodeType.Prefix, "https://ghproxy.imciel.com/"),
-        // 以下为新增：实测均支持 Range 分段下载、Release 完整性校验通过、git clone 入口正常
         CdnNode("sixyin", "gh.sixyin.com", NodeType.Prefix, "https://gh.sixyin.com/"),
         CdnNode("chjina", "gh.chjina.com", NodeType.Prefix, "https://gh.chjina.com/"),
         CdnNode("dpik", "gh.dpik.top", NodeType.Prefix, "https://gh.dpik.top/"),
         CdnNode("noki", "gh.noki.icu", NodeType.Prefix, "https://gh.noki.icu/"),
         CdnNode("gh-proxy-hk", "gh-proxy.com · 香港", NodeType.Prefix, "https://hk.gh-proxy.com/"),
-        CdnNode("gh-proxy-cdn", "gh-proxy.com · CDN", NodeType.Prefix, "https://cdn.gh-proxy.com/"),
-        CdnNode("gh-proxy-edge", "gh-proxy.com · EdgeOne", NodeType.Prefix, "https://edgeone.gh-proxy.com/"),
+        CdnNode("llkk", "gh.llkk.cc", NodeType.Prefix, "https://gh.llkk.cc/"),
+        CdnNode("ghm", "ghm.078465.xyz", NodeType.Prefix, "https://ghm.078465.xyz/"),
+        CdnNode("imciel", "ghproxy.imciel.com", NodeType.Prefix, "https://ghproxy.imciel.com/"),
+        CdnNode("jsd-cf", "jsDelivr · Cloudflare", NodeType.JsDelivr, "https://testingcf.jsdelivr.net"),
+        CdnNode("jsd-fastly", "jsDelivr · Fastly", NodeType.JsDelivr, "https://fastly.jsdelivr.net"),
+        CdnNode("jsd-gcore", "jsDelivr · Gcore", NodeType.JsDelivr, "https://gcore.jsdelivr.net"),
+        JSD,
         // ghproxy.net 可用但速度波动大：放在最后，只在前面的节点失败时作为后备，选优会按实测速度把它排后
         CdnNode("ghproxy-net", "ghproxy.net", NodeType.Prefix, "https://ghproxy.net/"),
     )
@@ -82,7 +81,7 @@ object Net {
     const val MAX_DOWNLOAD_PROXIES = 8
 
     /** 未测速前的默认值：取自实测延迟最低且稳定的节点 */
-    private const val DEFAULT_RAW = "jsd-cf"
+    private const val DEFAULT_RAW = "jsd-mirror"
     private const val DEFAULT_DL = "gh-proxy"
 
     private const val TEST_PATH = "github/gitignore/main/Global/macOS.gitignore"
@@ -281,7 +280,7 @@ object Net {
 
     private fun build(node: CdnNode, o: String, r: String, ref: String, path: String): String? = when (node.type) {
         NodeType.Direct -> "https://raw.githubusercontent.com/$o/$r/$ref/$path"
-        NodeType.JsDelivr -> if (ref == "HEAD") null else "${node.base}/gh/$o/$r@$ref/$path"
+        NodeType.JsDelivr -> if (ref == "HEAD") "${node.base}/gh/$o/$r/$path" else "${node.base}/gh/$o/$r@$ref/$path"
         NodeType.Prefix -> "${node.base}https://raw.githubusercontent.com/$o/$r/$ref/$path"
     }
 

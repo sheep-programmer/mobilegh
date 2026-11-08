@@ -457,7 +457,7 @@ fun RepoScreen(owner: String, name: String) {
                                 when {
                                     html != null -> ReadmeBody(
                                         html,
-                                        baseUrl = "https://github.com/$owner/$name/blob/${branch ?: "HEAD"}/",
+                                        baseUrl = "https://github.com/$owner/$name/blob/${branch ?: r?.defaultBranch ?: "main"}/",
                                         onAnchor = { y ->
                                             scope.launch {
                                                 val targetPx = with(density) { (y + 44).dp.roundToPx().coerceAtLeast(0) }
@@ -484,7 +484,7 @@ fun RepoScreen(owner: String, name: String) {
     if (readmeZoomOpen && readme.data != null) {
         ReadmeZoomDialog(
             html = readme.data!!,
-            baseUrl = "https://github.com/$owner/$name/blob/${branch ?: "HEAD"}/",
+            baseUrl = "https://github.com/$owner/$name/blob/${branch ?: r?.defaultBranch ?: "main"}/",
             initialScale = initialZoomScale,
             onDismiss = {
                 readmeZoomOpen = false

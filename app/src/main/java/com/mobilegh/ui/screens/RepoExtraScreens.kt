@@ -75,6 +75,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.BarChart
 import com.mobilegh.ui.components.Card
+import com.mobilegh.ui.components.SectionActionChip
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.ErrorState
 import com.mobilegh.ui.components.InlineError
@@ -575,7 +576,7 @@ fun InsightsScreen(owner: String, name: String) {
                     LanguageBar(it, Modifier.padding(horizontal = 16.dp))
                 }
 
-                SectionTitle(tr("主要贡献者")) { TextLink(tr("全部")) { nav.push(Screen.Users(com.mobilegh.nav.UserKind.Contributors, owner, name)) } }
+                SectionTitle(tr("主要贡献者")) { SectionActionChip(tr("全部"), tooltip = tr("全部贡献者")) { nav.push(Screen.Users(com.mobilegh.nav.UserKind.Contributors, owner, name)) } }
                 InsightBody(contributors) { list ->
                     val max = list.maxOfOrNull { it.contributions ?: 0 } ?: 1
                     list.forEach { u ->

@@ -1,264 +1,225 @@
 package com.mobilegh.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.mobilegh.R
 import com.mobilegh.i18n.tr
 import com.mobilegh.ui.theme.Gh
 import kotlin.math.hypot
 
 /**
- * 监听两指缩放手势进入缩放视图。
- * 单指操作完全不拦截，保证列表垂直滚动不受任何影响；只有检测到两指捏合张开时才触发。
+ * 约束缩放后的偏移量，防止内容被拖拽移出可视区域。
  */
-fun Modifier.onPinchToZoom(onPinch: (scale: Float) -> Unit): Modifier = pointerInput(Unit) {
-    awaitEachGesture {
-        var startDist = 0f
-        var triggered = false
-        do {
-            val event = awaitPointerEvent()
-            if (event.changes.size >= 2) {
-                val p0 = event.changes[0].position
-                val p1 = event.changes[1].position
-                val dist = hypot(p0.x - p1.x, p0.y - p1.y)
-                if (startDist <= 0f) {
-                    startDist = dist
-                } else if (!triggered && startDist > 0f) {
-                    val ratio = dist / startDist
-                    if (ratio > 1.15f) {
-                        triggered = true
-                        onPinch(ratio)
+fun clampReadmeOffset(newOffset: Offset, currentScale: Float, size: IntSize): Offset {
+    if (currentScale <= 1.02f || size.width <= 0 || size.height <= 0) {
+        return Offset.Zero
+    }
+    val contentW = size.width.toFloat() * currentScale
+    val contentH = size.height.toFloat() * currentScale
+    val viewW = size.width.toFloat()
+    val viewH = size.height.toFloat()
+
+    val minX = if (contentW > viewW) viewW - contentW else 0f
+    val maxX = 0f
+    val clampedX = newOffset.x.coerceIn(minX, maxX)
+
+    val minY = if (contentH > viewH) viewH - contentH else 0f
+    val maxY = 0f
+    val clampedY = newOffset.y.coerceIn(minY, maxY)
+
+    return Offset(clampedX, clampedY)
+}
+
+/**
+ * README 页面内直接双指捏合缩放与拖动平移手势检测器：
+ * - 当 scale == 1.0f 时：单指滑动完全不拦截、不消费，父级列表垂直滚动与文字/链接点击 100% 顺畅工作；
+ * - 只有检测到双指同时按下时才触发缩放，并拦截父级列表滚动；
+ * - 当 scale > 1.05f 处于缩放状态时：支持单指全向拖动平移、双指继续缩放；
+ * - 双指捏合缩小至 <= 1.02f 时自动归位重置。
+ */
+@Composable
+fun Modifier.readmeInlineZoom(
+    scale: Float,
+    offset: Offset,
+    contentSize: IntSize,
+    onTransform: (newScale: Float, newOffset: Offset) -> Unit,
+): Modifier {
+    val currentScale by rememberUpdatedState(scale)
+    val currentOffset by rememberUpdatedState(offset)
+    val currentContentSize by rememberUpdatedState(contentSize)
+    val currentOnTransform by rememberUpdatedState(onTransform)
+
+    return pointerInput(Unit) {
+        awaitEachGesture {
+            val firstDown = awaitFirstDown(requireUnconsumed = false)
+
+            var isZooming = false
+            var prevDist = 0f
+            var prevCentroid = firstDown.position
+            var localScale = currentScale
+            var localOffset = currentOffset
+
+            do {
+                val event = awaitPointerEvent()
+                val pressed = event.changes.filter { it.pressed }
+
+                if (pressed.size >= 2) {
+                    val p0 = pressed[0].position
+                    val p1 = pressed[1].position
+                    val dist = hypot(p0.x - p1.x, p0.y - p1.y)
+                    val centroid = Offset((p0.x + p1.x) / 2f, (p0.y + p1.y) / 2f)
+
+                    if (!isZooming) {
+                        isZooming = true
+                        prevDist = dist
+                        prevCentroid = centroid
+                        localScale = currentScale
+                        localOffset = currentOffset
+                    } else {
+                        if (prevDist > 0f && dist > 0f) {
+                            val zoomRatio = dist / prevDist
+                            val pan = centroid - prevCentroid
+                            val oldScale = localScale
+                            val targetScale = (oldScale * zoomRatio).coerceIn(1.0f, 4.0f)
+                            val anchored = centroid - (centroid - localOffset) * (targetScale / oldScale)
+                            val targetOffset = clampReadmeOffset(anchored + pan, targetScale, currentContentSize)
+
+                            if (targetScale <= 1.02f) {
+                                localScale = 1.0f
+                                localOffset = Offset.Zero
+                                currentOnTransform(1.0f, Offset.Zero)
+                            } else {
+                                localScale = targetScale
+                                localOffset = targetOffset
+                                currentOnTransform(targetScale, targetOffset)
+                            }
+                        }
+                        prevDist = dist
+                        prevCentroid = centroid
                     }
+                    event.changes.forEach { it.consume() }
+                } else if (pressed.size == 1 && currentScale > 1.05f) {
+                    val p = pressed[0]
+                    if (isZooming) {
+                        isZooming = false
+                        prevCentroid = p.position
+                        localOffset = currentOffset
+                    } else {
+                        val pan = p.position - prevCentroid
+                        val targetOffset = clampReadmeOffset(localOffset + pan, currentScale, currentContentSize)
+                        localOffset = targetOffset
+                        currentOnTransform(currentScale, targetOffset)
+                        p.consume()
+                    }
+                    prevCentroid = p.position
+                } else {
+                    isZooming = false
+                    prevDist = 0f
                 }
-            } else {
-                startDist = 0f
+            } while (event.changes.any { it.pressed })
+
+            if (localScale <= 1.02f && (currentScale != 1.0f || currentOffset != Offset.Zero)) {
+                currentOnTransform(1.0f, Offset.Zero)
             }
-        } while (event.changes.any { it.pressed })
+        }
     }
 }
 
 /**
- * README 全屏缩放查看弹窗：
- * 支持两指无级缩放（1.0x ~ 4.0x）、双击快速缩放/重置、全向拖动平移以及底部快捷缩放控制条。
+ * 页面内 README 原位缩放容器：
+ * 将 README 内容包裹在 GPU 图层中，支持就地两指无级缩放与拖动平移。
  */
 @Composable
-fun ReadmeZoomDialog(
-    html: String,
-    baseUrl: String,
-    initialScale: Float = 1.5f,
-    onDismiss: () -> Unit,
+fun ReadmeInlineZoomBox(
+    scale: Float,
+    offset: Offset,
+    onTransform: (newScale: Float, newOffset: Offset) -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
 ) {
-    val g = Gh.c
-    var scale by remember { mutableFloatStateOf(initialScale.coerceIn(1.0f, 4.0f)) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
     var contentSize by remember { mutableStateOf(IntSize.Zero) }
 
-    fun clampOffset(newOffset: Offset, currentScale: Float): Offset {
-        val viewW = viewportSize.width.toFloat()
-        val viewH = viewportSize.height.toFloat()
-        val contentW = contentSize.width.toFloat() * currentScale
-        val contentH = contentSize.height.toFloat() * currentScale
-
-        val minX = if (contentW > viewW) viewW - contentW else 0f
-        val maxX = 0f
-        val clampedX = newOffset.x.coerceIn(minX, maxX)
-
-        val minY = if (contentH > viewH) viewH - contentH else 0f
-        val maxY = 0f
-        val clampedY = newOffset.y.coerceIn(minY, maxY)
-
-        return Offset(clampedX, clampedY)
-    }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    Box(
+        modifier = modifier
+            .clipToBounds()
+            .readmeInlineZoom(
+                scale = scale,
+                offset = offset,
+                contentSize = contentSize,
+                onTransform = onTransform,
+            ),
     ) {
         Box(
-            Modifier
-                .fillMaxSize()
-                .background(g.canvas)
-                .statusBarsPadding()
-                .navigationBarsPadding(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    transformOrigin = TransformOrigin(0f, 0f)
+                    translationX = offset.x
+                    translationY = offset.y
+                }
+                .onSizeChanged { contentSize = it },
         ) {
-            Column(Modifier.fillMaxSize()) {
-                // 顶部栏
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .background(g.canvasSubtle)
-                        .padding(horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    OcButton(R.drawable.oc_x, onDismiss, g.fg)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        tr("README 缩放查看"),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = g.fg,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        "${(scale * 100).toInt()}%",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = g.fgMuted,
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                    )
-                }
-                HDivider()
+            content()
+        }
+    }
+}
 
-                // 主缩放视口
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .onSizeChanged { viewportSize = it }
-                        .pointerInput(viewportSize, contentSize) {
-                            detectTapGestures(
-                                onDoubleTap = { p ->
-                                    if (scale > 1.15f) {
-                                        scale = 1.0f
-                                        offset = clampOffset(Offset.Zero, 1.0f)
-                                    } else {
-                                        val newScale = 2.0f
-                                        val anchored = p - (p - offset) * (newScale / scale)
-                                        scale = newScale
-                                        offset = clampOffset(anchored, newScale)
-                                    }
-                                },
-                            )
-                        }
-                        .pointerInput(viewportSize, contentSize) {
-                            detectTransformGestures { centroid, pan, zoom, _ ->
-                                val oldScale = scale
-                                val newScale = (oldScale * zoom).coerceIn(1.0f, 4.0f)
-                                val anchored = centroid - (centroid - offset) * (newScale / oldScale)
-                                scale = newScale
-                                offset = clampOffset(anchored + pan, newScale)
-                            }
-                        },
-                ) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .graphicsLayer {
-                                scaleX = scale
-                                scaleY = scale
-                                transformOrigin = TransformOrigin(0f, 0f)
-                                translationX = offset.x
-                                translationY = offset.y
-                            }
-                            .onSizeChanged { contentSize = it }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                    ) {
-                        HtmlView(
-                            html = html,
-                            baseUrl = baseUrl,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-            }
-
-            // 底部悬浮控制条
-            Row(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 20.dp)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(g.canvasSubtle.copy(alpha = 0.95f))
-                    .border(1.dp, g.border, RoundedCornerShape(24.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text(
-                    "−",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (scale > 1.0f) g.fg else g.fgMuted,
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .clickable(enabled = scale > 1.0f) {
-                            val next = (scale - 0.25f).coerceAtLeast(1.0f)
-                            scale = next
-                            offset = clampOffset(offset, next)
-                        }
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                )
-                Text(
-                    "${(scale * 100).toInt()}%",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = g.fg,
-                )
-                Text(
-                    "+",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (scale < 4.0f) g.fg else g.fgMuted,
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .clickable(enabled = scale < 4.0f) {
-                            val next = (scale + 0.25f).coerceAtMost(4.0f)
-                            scale = next
-                            offset = clampOffset(offset, next)
-                        }
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                )
-                if (scale != 1.0f) {
-                    Box(
-                        Modifier
-                            .width(1.dp)
-                            .height(16.dp)
-                            .background(g.border),
-                    )
-                    Text(
-                        tr("重置"),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = g.accent,
-                        modifier = Modifier
-                            .clickable {
-                                scale = 1.0f
-                                offset = clampOffset(Offset.Zero, 1.0f)
-                            }
-                            .padding(horizontal = 4.dp, vertical = 2.dp),
-                    )
-                }
-            }
+/**
+ * 缩放状态下显示的“瞬间还原”悬浮胶囊按钮。
+ * 当 scale <= 1.05f 时完全不显示，不占空间、无多余按钮。
+ */
+@Composable
+fun ReadmeZoomResetPill(
+    scale: Float,
+    onReset: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (scale <= 1.05f) return
+    val g = Gh.c
+    Surface(
+        modifier = modifier
+            .clip(RoundedCornerShape(24.dp))
+            .clickable(onClick = onReset),
+        shape = RoundedCornerShape(24.dp),
+        color = g.canvasSubtle.copy(alpha = 0.96f),
+        border = BorderStroke(1.dp, g.border),
+        shadowElevation = 6.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Oc(R.drawable.oc_sync, g.accent, 16.dp)
+            Text(
+                text = "${(scale * 100).toInt()}% · " + tr("还原"),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = g.fg,
+            )
         }
     }
 }

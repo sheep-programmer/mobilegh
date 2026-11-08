@@ -42,6 +42,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,8 +51,8 @@ import com.mobilegh.R
 import com.mobilegh.data.Contributions
 import com.mobilegh.data.Event
 import com.mobilegh.ui.components.Oc
-import com.mobilegh.ui.components.ReadmeZoomDialog
-import com.mobilegh.ui.components.onPinchToZoom
+import com.mobilegh.ui.components.ReadmeInlineZoomBox
+import com.mobilegh.ui.components.ReadmeZoomResetPill
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.PinnedRepo
 import com.mobilegh.data.ProjectOwnerKind
@@ -771,15 +772,10 @@ fun ActivityScreen(login: String) {
 private fun ProfileReadmeCard(login: String, html: String) {
     val g = Gh.c
     var expanded by rememberSaveable(login) { mutableStateOf(true) }
-    var zoomOpen by remember { mutableStateOf(false) }
-    var zoomScale by remember { mutableFloatStateOf(1.5f) }
+    var readmeScale by rememberSaveable(login) { mutableFloatStateOf(1f) }
+    var readmeOffset by remember { mutableStateOf(Offset.Zero) }
     Card(
-        Modifier
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .then(if (expanded) Modifier.onPinchToZoom { ratio ->
-                zoomScale = ratio.coerceIn(1.2f, 3.0f)
-                zoomOpen = true
-            } else Modifier),
+        Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
     ) {
         Column {
             Row(
@@ -798,15 +794,26 @@ private fun ProfileReadmeCard(login: String, html: String) {
                     color = g.fg,
                     modifier = Modifier.weight(1f),
                 )
-                if (expanded) {
-                    Box(
-                        Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .clickable { zoomOpen = true },
-                        contentAlignment = Alignment.Center,
+                if (expanded && readmeScale > 1.05f) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(g.accent.copy(alpha = 0.12f))
+                            .clickable {
+                                readmeScale = 1f
+                                readmeOffset = Offset.Zero
+                            }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Oc(R.drawable.oc_screen_full, g.fg, 14.dp)
+                        Oc(R.drawable.oc_sync, g.accent, 12.dp)
+                        Text(
+                            text = "${(readmeScale * 100).toInt()}% · " + tr("还原"),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = g.accent,
+                        )
                     }
                     Spacer(Modifier.width(8.dp))
                 }
@@ -814,21 +821,32 @@ private fun ProfileReadmeCard(login: String, html: String) {
             }
             if (expanded) {
                 HDivider()
-                Box(Modifier.padding(14.dp)) {
-                    HtmlView(html, baseUrl = "https://github.com/$login/$login/blob/main/")
+                Box(Modifier.fillMaxWidth()) {
+                    ReadmeInlineZoomBox(
+                        scale = readmeScale,
+                        offset = readmeOffset,
+                        onTransform = { newScale, newOffset ->
+                            readmeScale = newScale
+                            readmeOffset = newOffset
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    ) {
+                        HtmlView(html, baseUrl = "https://github.com/$login/$login/blob/main/")
+                    }
+                    if (readmeScale > 1.05f) {
+                        ReadmeZoomResetPill(
+                            scale = readmeScale,
+                            onReset = {
+                                readmeScale = 1f
+                                readmeOffset = Offset.Zero
+                            },
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(12.dp),
+                        )
+                    }
                 }
             }
         }
-    }
-    if (zoomOpen) {
-        ReadmeZoomDialog(
-            html = html,
-            baseUrl = "https://github.com/$login/$login/blob/main/",
-            initialScale = zoomScale,
-            onDismiss = {
-                zoomOpen = false
-                zoomScale = 1.5f
-            },
-        )
     }
 }

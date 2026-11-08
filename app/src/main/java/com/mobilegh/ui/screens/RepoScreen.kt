@@ -45,6 +45,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.Placeholder
@@ -97,8 +98,8 @@ import com.mobilegh.ui.components.HtmlView
 import com.mobilegh.ui.components.HtmlAnchorRequest
 import com.mobilegh.ui.components.ReadmeHeading
 import com.mobilegh.ui.components.readmeHeadings
-import com.mobilegh.ui.components.ReadmeZoomDialog
-import com.mobilegh.ui.components.onPinchToZoom
+import com.mobilegh.ui.components.ReadmeInlineZoomBox
+import com.mobilegh.ui.components.ReadmeZoomResetPill
 import com.mobilegh.ui.components.IconText
 import com.mobilegh.ui.components.LanguageBar
 import com.mobilegh.ui.components.Loading
@@ -184,8 +185,8 @@ fun RepoScreen(owner: String, name: String) {
     var showLists by remember { mutableStateOf(false) }
     // README 目录：标题取自 README 的 HTML 源串；点选后经 anchorRequest 滚到该标题
     var tocOpen by remember { mutableStateOf(false) }
-    var readmeZoomOpen by remember { mutableStateOf(false) }
-    var initialZoomScale by remember { mutableFloatStateOf(1.5f) }
+    var readmeScale by rememberSaveable { mutableFloatStateOf(1.0f) }
+    var readmeOffset by remember { mutableStateOf(Offset.Zero) }
     var anchorRequest by remember { mutableStateOf<HtmlAnchorRequest?>(null) }
     val headings = remember(readme.data) { readme.data?.let(::readmeHeadings).orEmpty() }
     var zipInfo by remember { mutableStateOf<FileInfo?>(null) }
@@ -200,6 +201,15 @@ fun RepoScreen(owner: String, name: String) {
 
     Page(
         name, subtitle = owner,
+        floating = {
+            ReadmeZoomResetPill(
+                scale = readmeScale,
+                onReset = {
+                    readmeScale = 1.0f
+                    readmeOffset = Offset.Zero
+                },
+            )
+        },
         actions = {
             // Fork 是仓库页最常用的操作之一，直接放在标题栏，不用藏进三点菜单
             OcButton(R.drawable.oc_repo_forked, { showFork = true }, enabled = r != null, description = tr("Fork 此仓库"))
@@ -406,35 +416,37 @@ fun RepoScreen(owner: String, name: String) {
                     }
                     item {
                         Card(
-                            Modifier
-                                .padding(start = 16.dp, end = 16.dp, top = 16.dp)
-                                .then(if (readme.data != null) Modifier.onPinchToZoom { ratio ->
-                                    initialZoomScale = ratio.coerceIn(1.2f, 3.0f)
-                                    readmeZoomOpen = true
-                                } else Modifier),
+                            Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp),
                         ) {
                             Column {
                                 Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Oc(R.drawable.oc_book, g.fgMuted)
                                     Spacer(Modifier.width(8.dp))
                                     Text("README", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = g.fg)
-                                    Spacer(Modifier.weight(1f))
-                                    if (readme.data != null) {
-                                        GhTooltip(tr("缩放查看")) {
-                                            Box(
-                                                Modifier
-                                                    .size(32.dp)
-                                                    .clip(CircleShape)
-                                                    .background(g.canvasSubtle)
-                                                    .border(1.dp, g.border, CircleShape)
-                                                    .clickable { readmeZoomOpen = true },
-                                                contentAlignment = Alignment.Center,
-                                            ) {
-                                                Oc(R.drawable.oc_screen_full, g.fg, 16.dp)
-                                            }
-                                        }
+                                    if (readmeScale > 1.05f) {
                                         Spacer(Modifier.width(8.dp))
+                                        Row(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(g.accent.copy(alpha = 0.12f))
+                                                .clickable {
+                                                    readmeScale = 1.0f
+                                                    readmeOffset = Offset.Zero
+                                                }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            Oc(R.drawable.oc_sync, g.accent, 12.dp)
+                                            Text(
+                                                "${(readmeScale * 100).toInt()}% · " + tr("还原"),
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = g.accent,
+                                            )
+                                        }
                                     }
+                                    Spacer(Modifier.weight(1f))
                                     if (headings.isNotEmpty()) {
                                         GhTooltip(tr("README 目录")) {
                                             Box(
@@ -455,17 +467,27 @@ fun RepoScreen(owner: String, name: String) {
                                 Spacer(Modifier.height(12.dp))
                                 val html = readme.data
                                 when {
-                                    html != null -> ReadmeBody(
-                                        html,
-                                        baseUrl = "https://github.com/$owner/$name/blob/${branch ?: r?.defaultBranch ?: "main"}/",
-                                        onAnchor = { y ->
-                                            scope.launch {
-                                                val targetPx = with(density) { (y + 44).dp.roundToPx().coerceAtLeast(0) }
-                                                listState.animateScrollToItem(readmeIndex, targetPx)
-                                            }
+                                    html != null -> ReadmeInlineZoomBox(
+                                        scale = readmeScale,
+                                        offset = readmeOffset,
+                                        onTransform = { newScale, newOffset ->
+                                            readmeScale = newScale
+                                            readmeOffset = newOffset
                                         },
-                                        anchorRequest = anchorRequest,
-                                    )
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        ReadmeBody(
+                                            html,
+                                            baseUrl = "https://github.com/$owner/$name/blob/${branch ?: r.defaultBranch ?: "main"}/",
+                                            onAnchor = { y ->
+                                                scope.launch {
+                                                    val targetPx = with(density) { (y + 44).dp.roundToPx().coerceAtLeast(0) }
+                                                    listState.animateScrollToItem(readmeIndex, targetPx)
+                                                }
+                                            },
+                                            anchorRequest = anchorRequest,
+                                        )
+                                    }
                                     readme.loading -> Loading(Modifier.fillMaxWidth().heightIn(min = 120.dp))
                                     readme.error != null -> ErrorState(readme.error!!, Modifier.fillMaxWidth()) { readme.load(true) }
                                     else -> Text(tr("该仓库没有 README"), Modifier.padding(16.dp), color = g.fgMuted)
@@ -481,17 +503,6 @@ fun RepoScreen(owner: String, name: String) {
     }
 
     zipInfo?.let { FileInfoDialog(it) { zipInfo = null } }
-    if (readmeZoomOpen && readme.data != null) {
-        ReadmeZoomDialog(
-            html = readme.data!!,
-            baseUrl = "https://github.com/$owner/$name/blob/${branch ?: r?.defaultBranch ?: "main"}/",
-            initialScale = initialZoomScale,
-            onDismiss = {
-                readmeZoomOpen = false
-                initialZoomScale = 1.5f
-            },
-        )
-    }
     if (showSubscription && entry.sameAccount()) SubscriptionDialog(owner, name, { showSubscription = false }) { watching.accept(it) }
     if (showLists && r != null) AddToStarListsDialog(r) { showLists = false }
     if (tocOpen && headings.isNotEmpty()) ReadmeTocSheet(headings, onDismiss = { tocOpen = false }) { h ->

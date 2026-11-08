@@ -2767,3 +2767,68 @@ GitHub 不允许用 Token 上传附件（上传只接受网页登录），请在
 上传策略缺少确认令牌	Upload policy is missing the confirmation token
 登录 GitHub（用于添加附件）	Sign in to GitHub (to add attachments)
 视频	Video
+更多评论加载失败，点按重试	Failed to load more comments. Tap to retry
+草稿已保存，可在「我的 → 草稿」继续编辑	Draft saved. Continue it from Me → Drafts
+最多收藏 {0} 个仓库	You can favorite up to {0} repositories
+已加入收藏：{0}	Added to favorites: {0}
+已移出收藏：{0}	Removed from favorites: {0}
+添加收藏	Add favorites
+已收藏 {0} 个仓库	{0} favorite repositories
+搜索仓库	Search repositories
+仓库名或 owner/name	Repository name or owner/name
+搜索结果	Search results
+你的仓库	Your repositories
+Star 的仓库	Starred repositories
+工作流	Workflows
+如 README、.md、src/main	e.g. README, .md, src/main
+文件树还在读取，先用 GitHub 搜索（仅默认分支）	File tree still loading; using GitHub search (default branch only)
+仓库很大，文件树不完整，改用 GitHub 搜索（仅默认分支）	Repository is large and the file tree is incomplete; using GitHub search (default branch only)
+正在读取仓库文件树…输入关键词或点上面的预设，可以直接用 GitHub 搜索	Loading the file tree… Type a keyword or tap a preset above to search with GitHub right away
+{0} 个结果	{0} results
+GitHub 搜索没有找到匹配的文件。新提交的文件需要等 GitHub 建好索引；也可以按目录浏览	GitHub search found no matching files. Newly pushed files appear after GitHub indexes them; you can also browse by folder
+新建 Issue · {0}	New issue · {0}
+评论 · {0}#{1}	Comment · {0}#{1}
+审查意见 · {0}#{1}	Review · {0}#{1}
+行内评论 · {0}#{1}	Line comment · {0}#{1}
+新建 Pull Request · {0}	New pull request · {0}
+新建讨论 · {0}	New discussion · {0}
+讨论回复 · {0}#{1}	Discussion reply · {0}#{1}
+Gist 评论 · {0}	Gist comment · {0}
+新建文件 · {0}	New file · {0}
+编辑文件 · {0}/{1}	Edit file · {0}/{1}
+表单已填写部分内容	Form partially filled in
+（只有标签、指派人等设置）	(Only labels, assignees or similar settings)
+{0} 条未发送的内容	{0} unsent items
+清空全部草稿	Clear all drafts
+没有草稿。写到一半的 Issue、评论、PR 等会自动保存在这里	No drafts. Unfinished issues, comments, pull requests and more are saved here automatically
+这条草稿来自旧版本，无法定位原页面	This draft is from an older version and can't be linked to its page
+未知位置（旧版本草稿）	Unknown location (older draft)
+保存于 {0}	Saved {0}
+已删除草稿	Draft deleted
+删除草稿	Delete draft
+清空全部草稿？	Clear all drafts?
+所有未发送的 Issue、评论、PR 等草稿都会被删除，无法恢复。	All unsent drafts of issues, comments, pull requests and more will be deleted. This can't be undone.
+打开仓库 {0}	Open repository {0}
+把常用仓库加入收藏，在首页一键打开，不用每次搜索。	Add repositories you use often to open them from Home in one tap, without searching each time.
+置顶的 Issue	Pinned issues
+取消置顶	Unpin
+置顶到仓库	Pin to repository
+已取消置顶	Unpinned
+已置顶到仓库 Issue 列表顶部	Pinned to the top of the repository's issue list
+初始化	Initialize
+添加 .gitignore	Add .gitignore
+添加许可证	Add license
+选择 .gitignore 或许可证时，GitHub 会用它们生成第一个提交。	If you choose a .gitignore or license, GitHub creates the first commit with them.
+连接 GitHub Apps	Connect GitHub Apps
+创建后在浏览器中打开该仓库的 GitHub Apps 设置，为它安装应用	After creating, open the repository's GitHub Apps settings in the browser to install apps
+选择 .gitignore 模板	Choose a .gitignore template
+选择许可证	Choose a license
+跳过此版本	Skip this version
+稍后	Later
+编辑仓库信息	Edit repository details
+还没有描述，点按添加	No description yet. Tap to add one
+编辑描述、网址和主题	Edit description, website and topics
+图片加载失败：{0}（点按重试）	Image failed to load: {0} (tap to retry)
+图片加载失败（点按重试）	Image failed to load (tap to retry)
+gh-proxy.com · 香港	gh-proxy.com · Hong Kong
+成就读取完成：{0} 个，{1} 毫秒	Achievements loaded: {0}, {1} ms

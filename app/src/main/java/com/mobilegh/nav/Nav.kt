@@ -97,6 +97,10 @@ sealed interface Screen {
     @Serializable data class Achievements(val login: String) : Screen
     @Serializable data object Settings : Screen
     @Serializable data object Logs : Screen
+    /** 未发送的草稿列表 */
+    @Serializable data object Drafts : Screen
+    /** 首页收藏：从自己的仓库、Star 或搜索结果里添加 */
+    @Serializable data object AddFavorites : Screen
     @Serializable data object Authenticator : Screen
     @Serializable data object OrgDiagnostics : Screen
     @Serializable data object CreateRepo : Screen

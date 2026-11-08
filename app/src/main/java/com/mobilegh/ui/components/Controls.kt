@@ -264,6 +264,20 @@ fun RadioRow(selected: Boolean, title: String, desc: String? = null, enabled: Bo
     }
 }
 
+/**
+ * 弹窗的描边：比页面分隔线（border）深得多。弹窗是白底、页面也是浅色，用分隔线的颜色几乎看不出边界；
+ * 这里直接取次要文字色（不透明、2dp），浅色和深色主题下都能一眼看出弹窗的范围。
+ */
+@Composable
+fun Modifier.dialogFrame(): Modifier {
+    val g = Gh.c
+    // 不透明：半透明的描边会和弹窗外被压暗的页面混在一起，反而看不出来
+    return border(2.dp, g.fgMuted, RoundedCornerShape(12.dp))
+}
+
+/** 强制显示的弹窗属性：点框外、点遮罩都不会关闭，只能通过弹窗里的按钮（或返回键）处理 */
+val ModalDialogProperties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = false)
+
 @Composable
 fun GhDialog(
     title: String,
@@ -272,18 +286,21 @@ fun GhDialog(
     danger: Boolean = false,
     confirmEnabled: Boolean = true,
     dismissEnabled: Boolean = true,
+    /** 为 false 时点框外不会关闭：授权、更新这类必须明确作出选择的弹窗使用 */
+    dismissOnClickOutside: Boolean = true,
     onConfirm: (() -> Unit)? = null,
     content: @Composable () -> Unit = {},
 ) {
     val g = Gh.c
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = dismissOnClickOutside),
         containerColor = g.canvas,
         titleContentColor = g.fg,
         textContentColor = g.fg,
         shape = RoundedCornerShape(12.dp),
         // 弹窗与浅色页面底色接近时容易看不出边界，明确描边
-        modifier = Modifier.border(1.dp, g.border, RoundedCornerShape(12.dp)),
+        modifier = Modifier.dialogFrame(),
         title = { Text(title, fontWeight = FontWeight.SemiBold, fontSize = 18.sp) },
         text = { content() },
         // 与网页版弹窗一致：确认是绿色主按钮，危险操作是红色描边按钮，取消是白底描边的默认按钮。

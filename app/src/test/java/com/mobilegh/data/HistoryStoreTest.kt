@@ -8,6 +8,7 @@ internal class MemoryRecords : LocalRecordStorage {
     override fun read(key: String) = values[key]
     override fun write(key: String, value: String) { values[key] = value }
     override fun remove(key: String) { values.remove(key) }
+    override fun keys(): Collection<String> = values.keys
 }
 class HistoryStoreTest {
     private val storage = MemoryRecords()

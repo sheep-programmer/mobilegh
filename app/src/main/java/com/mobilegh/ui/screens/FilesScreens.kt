@@ -1,6 +1,8 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import com.mobilegh.ui.components.verticalScrollWithBar
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.text.KeyboardOptions
@@ -135,7 +137,7 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
             val base = upIdx + if (hasUp) 1 else 0
             fun box(i: Int) = Modifier.groupItem(i == 0, i == total - 1, g.border, if (i == 0 && hasLast) g.canvasSubtle else g.canvas)
             val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-            LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp)) {
+            ScrollbarLazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp)) {
                 last.data?.let { c ->
                     item {
                         Row(
@@ -265,6 +267,8 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?, line
             )
             if (editable) OcButton(R.drawable.oc_pencil, { nav.push(Screen.EditFile(owner, name, ref, path)) })
             MoreMenu(buildList {
+                // 从代码搜索、链接等地方直接打开文件时，也能一步进入所在仓库
+                add(MenuAction(trf("打开仓库 {0}", "$owner/$name")) { nav.push(Screen.Repo(owner, name)) })
                 if (editable) add(MenuAction(tr("编辑文件")) { nav.push(Screen.EditFile(owner, name, ref, path)) })
                 if (b is FileBody.Code) add(MenuAction(tr("复制全部内容")) { ctx.copy(b.text) })
                 if (b is FileBody.Code) add(MenuAction(tr("跳到行…")) { jumpOpen = true })
@@ -305,12 +309,12 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?, line
                         else -> com.mobilegh.ui.components.Loading()
                     }
                 } else {
-                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 12.dp)) {
+                    Column(Modifier.fillMaxSize().verticalScrollWithBar().padding(top = 12.dp)) {
                         HtmlView(b.html, baseUrl = "https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/${path.substringBeforeLast('/', "").let { if (it.isEmpty()) "" else "$it/" }}")
                     }
                 }
                 FileBody.Image -> ZoomImage(rawUrl, Modifier.fillMaxSize())
-                FileBody.Binary -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                FileBody.Binary -> Column(Modifier.fillMaxSize().verticalScrollWithBar()) {
                     EmptyState(tr("二进制文件，无法预览"), R.drawable.oc_file)
                     GhButton(
                         tr("下载到本机"), Modifier.padding(horizontal = 32.dp).fillMaxWidth(),

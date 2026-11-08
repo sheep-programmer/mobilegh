@@ -1,5 +1,9 @@
 package com.mobilegh.data
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
@@ -12,6 +16,7 @@ import java.util.concurrent.TimeUnit
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 
+@kotlinx.serialization.Serializable
 data class Achievement(
     val name: String,
     val imageUrl: String,
@@ -48,6 +53,8 @@ object Web {
     private val client: OkHttpClient get() = transport ?: defaultClient
     private val defaultClient by lazy {
         OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector())
+            // 连接保持 10 分钟：第一次建连（TLS 握手）要一秒多，之后的请求复用同一条连接只要几百毫秒
+            .connectionPool(okhttp3.ConnectionPool(4, 10, TimeUnit.MINUTES))
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .callTimeout(30, TimeUnit.SECONDS)
@@ -89,12 +96,118 @@ object Web {
         }
     }
 
-    // Retain the existing profile call signature. self never grants access to browser cookies.
-    @Suppress("UNUSED_PARAMETER")
-    suspend fun achievements(login: String, self: Boolean = false): List<Achievement> {
-        val page = html(login, stars = false)
-        return withContext(Dispatchers.Default) { parseAchievements(page) }
+    // ---------------- 成就缓存 ----------------
+    //
+    // 成就要抓整个用户主页：主要耗时在建连（TLS 握手一秒多），页面本身只有约 30 KB。
+    // 主页、「我的」、成就页各自读一遍很浪费，所以做了三层处理：
+    // 1) 内存 + 磁盘缓存，5 分钟内直接用；更旧的先拿来显示，同时在后台刷新；
+    // 2) 同一个用户同时发起多个读取时合并成一个请求；
+    // 3) 启动后预先连好 github.com（见 [warmUp]）。
+
+    /** 缓存里的一条：读取时间 + 内容 */
+    @kotlinx.serialization.Serializable
+    internal class CachedAchievements(val at: Long, val badges: List<Achievement>)
+
+    internal const val FRESH_MS = 5 * 60_000L
+    internal const val STALE_MAX_MS = 7 * 24 * 3600_000L
+
+    /** 缓存是否还新鲜：不需要再联网 */
+    internal fun isFresh(ageMs: Long) = ageMs in 0..FRESH_MS
+
+    /** 缓存是否还能先拿来显示（再后台刷新）：太旧的不用，等新数据 */
+    internal fun isUsableStale(ageMs: Long) = ageMs in 0..STALE_MAX_MS
+
+    private val achCache = java.util.concurrent.ConcurrentHashMap<String, CachedAchievements>()
+    private val inflight = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<List<Achievement>>>()
+    private val bg = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    @Volatile private var store: android.content.SharedPreferences? = null
+
+    /** 后台刷新发现内容变化时加一：页面据此用新缓存更新（见 SyncAchievements） */
+    var achievementsVersion by androidx.compose.runtime.mutableIntStateOf(0)
+        private set
+
+    fun init(ctx: android.content.Context) {
+        store = ctx.applicationContext.getSharedPreferences("web_cache", android.content.Context.MODE_PRIVATE)
     }
+
+    internal fun encodeCache(c: CachedAchievements): String = Api.plain.encodeToString(CachedAchievements.serializer(), c)
+    internal fun decodeCache(raw: String): CachedAchievements? =
+        runCatching { Api.plain.decodeFromString(CachedAchievements.serializer(), raw) }.getOrNull()
+
+    private fun loadCached(key: String): CachedAchievements? {
+        achCache[key]?.let { return it }
+        val raw = store?.getString("ach:$key", null) ?: return null
+        val c = decodeCache(raw) ?: return null
+        achCache[key] = c
+        return c
+    }
+
+    /** 已缓存的成就（不论新旧，太旧的除外）；没有返回 null。页面可以立即拿它显示 */
+    fun cachedAchievements(login: String): List<Achievement>? =
+        loadCached(login.lowercase())?.takeIf { isUsableStale(System.currentTimeMillis() - it.at) }?.badges
+
+    private fun remember(key: String, badges: List<Achievement>) {
+        val c = CachedAchievements(System.currentTimeMillis(), badges)
+        achCache[key] = c
+        store?.edit()?.putString("ach:$key", encodeCache(c))?.apply()
+    }
+
+    /** 真正联网读取（同一用户的并发请求共用一个），成功后写入缓存 */
+    private suspend fun fetchShared(key: String, login: String): List<Achievement> {
+        val job = inflight.computeIfAbsent(key) {
+            bg.async {
+                try {
+                    val start = android.os.SystemClock.elapsedRealtime()
+                    val page = html(login, stars = false)
+                    val badges = withContext(Dispatchers.Default) { parseAchievements(page) }
+                    AppLog.info("web", trf("成就读取完成：{0} 个，{1} 毫秒", badges.size, android.os.SystemClock.elapsedRealtime() - start))
+                    remember(key, badges)
+                    badges
+                } finally {
+                    inflight.remove(key)
+                }
+            }
+        }
+        return job.await()
+    }
+
+    /**
+     * 读取用户的成就。[force] 为 true（下拉刷新、重试）时跳过缓存。
+     * 缓存还新鲜就直接返回；较旧时先返回旧内容，同时后台刷新，有变化再通知页面更新。
+     */
+    @Suppress("UNUSED_PARAMETER") // self 从不授予读取浏览器 Cookie 的权限
+    suspend fun achievements(login: String, self: Boolean = false, force: Boolean = false): List<Achievement> {
+        require(LOGIN.matches(login)) { tr("无效的 GitHub 用户名") }
+        val key = login.lowercase()
+        val cached = if (force) null else loadCached(key)
+        val age = cached?.let { System.currentTimeMillis() - it.at }
+        if (cached != null && age != null && isUsableStale(age)) {
+            if (!isFresh(age)) {
+                bg.launch {
+                    val fresh = runCatching { fetchShared(key, login) }.getOrNull() ?: return@launch
+                    if (fresh != cached.badges) withContext(Dispatchers.Main) { achievementsVersion++ }
+                }
+            }
+            return cached.badges
+        }
+        return fetchShared(key, login)
+    }
+
+    /**
+     * 提前连上 github.com：建连（含 TLS 握手）要一秒多，先在后台做掉，
+     * 之后的成就、Star 列表等请求直接复用这条连接。失败无所谓，只是少了预热。
+     */
+    fun warmUp() {
+        bg.launch {
+            runCatching {
+                val request = Request.Builder().url(github).head().header("User-Agent", "Mozilla/5.0 (compatible; MobileGH; public profile reader)").build()
+                client.routed().newCall(request).await().use { }
+            }
+        }
+    }
+
+    /** 仅测试用：清空内存缓存 */
+    internal fun clearCacheForTests() { achCache.clear(); inflight.clear() }
 
     /**
      * 成就的说明和解锁历史：GitHub 在悬停卡片里用的公开片段（需要 XHR 请求头）。

@@ -304,7 +304,8 @@ fun CodeView(
     LaunchedEffect(focus) {
         focus?.let { listState.animateScrollToItem((it.range.first - 1).coerceIn(0, (lines.size - 1).coerceAtLeast(0))) }
     }
-    Box(modifier.fillMaxSize().then(if (wrap) Modifier else Modifier.horizontalScroll(hs))) {
+    // 滚动条挂在外层可视区域上：不换行时内容比屏幕宽，挂在列表上会画到屏幕外
+    Box(modifier.fillMaxSize().lazyScrollbar(listState).then(if (wrap) Modifier else Modifier.horizontalScroll(hs))) {
         SelectionContainer {
             LazyColumn(state = listState, modifier = if (wrap) Modifier.fillMaxSize() else Modifier.width(contentW).fillMaxSize()) {
                 itemsIndexed(lines) { idx, line ->

@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.background
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -141,7 +142,7 @@ fun CommitDetailScreen(owner: String, name: String, sha: String) {
         LoadBox(data, Modifier.padding(pad).fillMaxSize()) { (c, files) ->
             val state = rememberLazyListState()
             RegisterScrollTop(state)
-            LazyColumn(Modifier.fillMaxSize(), state = state) {
+            ScrollbarLazyColumn(Modifier.fillMaxSize(), state = state) {
                 item {
                     Column(Modifier.padding(16.dp)) {
                         val msg = c.commit.message

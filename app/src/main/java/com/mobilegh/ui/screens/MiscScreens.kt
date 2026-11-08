@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import com.mobilegh.ui.components.ApprovalSettingsRows
+import com.mobilegh.ui.components.verticalScrollWithBar
 import com.mobilegh.data.AppLock
 import com.mobilegh.ui.components.Biometrics
 import com.mobilegh.ui.components.findFragmentActivity
@@ -179,7 +180,7 @@ fun SettingsScreen() {
         page.title,
         onBack = if (page != SettingsPage.Home) ({ page = SettingsPage.Home }) else null,
     ) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState())) {
+        Column(Modifier.padding(pad).fillMaxSize().verticalScrollWithBar()) {
             when (page) {
                 SettingsPage.Home -> SettingsHome(open = { page = it }, onLogout = { confirmOut = true })
                 SettingsPage.Appearance -> AppearanceSettings()
@@ -322,7 +323,7 @@ fun SettingsScreen() {
         }
     }
 
-    if (showUpdate) UpdateDialog { showUpdate = false }
+    if (showUpdate) UpdateDialog(onDismiss = { showUpdate = false })
 }
 
 /** 设置首页：账号 + 分类入口 + 退出登录 */

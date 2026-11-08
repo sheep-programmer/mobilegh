@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.clickable
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
@@ -464,7 +465,7 @@ private fun StarListRows(
                 tr("没有匹配的列表"), R.drawable.oc_checklist, Modifier.fillMaxSize(), tr("清除搜索"), onClearSearch,
             )
         }
-        else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 6.dp)) {
+        else -> ScrollbarLazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 6.dp)) {
             item(contentType = "controls") { header() }
             items(shown, key = { it.id }) { list -> StarListRow(list) { onOpen(list.id) } }
         }

@@ -61,14 +61,39 @@ object RepoWrite {
     fun isAlreadyExists(e: Throwable): Boolean =
         e is ApiException && e.code == 422 && e.message.contains("already exists", ignoreCase = true)
 
-    /** 写入成功后：丢弃该仓库的 HTTP 缓存，并通知已打开的页面刷新 */
+    /**
+     * 写入成功后：丢弃该仓库的 HTTP 缓存，并通知已打开的页面刷新。
+     * 同时记一次「任意仓库」的变化（[ANY]），跨仓库的列表（我的 Issues、仓库列表）据此刷新。
+     */
     suspend fun changed(owner: String, name: String, kind: String = CODE) {
-        withContext(Dispatchers.IO) { Api.invalidate("/repos/$owner/$name") }
-        withContext(Dispatchers.Main) { RepoChanges.bump(owner, name, kind) }
+        withContext(Dispatchers.IO) {
+            Api.invalidate("/repos/$owner/$name")
+            // Issue / PR 也出现在搜索结果里（我的 Issues、仓库页的 Issue 数），一并丢弃
+            if (kind == ISSUES) Api.invalidate("/search/issues")
+        }
+        withContext(Dispatchers.Main) {
+            RepoChanges.bump(owner, name, kind)
+            RepoChanges.bump(ANY, ANY, kind)
+        }
+    }
+
+    /** 新建或 Fork 仓库后：丢弃仓库列表的缓存，通知仓库列表刷新 */
+    suspend fun reposChanged() {
+        withContext(Dispatchers.IO) {
+            Api.invalidate("/user/repos")
+            Api.invalidate("/orgs/")
+        }
+        withContext(Dispatchers.Main) { RepoChanges.bump(ANY, ANY, REPOS) }
     }
 
     const val CODE = "code"
     const val ACTIONS = "actions"
+    /** Issue / PR 的新建、关闭、重新开启、评论 */
+    const val ISSUES = "issues"
+    /** 仓库本身的新建、Fork */
+    const val REPOS = "repos"
+    /** 「任意仓库」：跨仓库的页面用它监听变化 */
+    const val ANY = "*"
 }
 
 /** 每个仓库的写入版本号：页面记下打开时的版本，返回时版本变了就强制刷新 */

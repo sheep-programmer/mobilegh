@@ -1,6 +1,14 @@
 package com.mobilegh.ui.screens
 
+import androidx.compose.foundation.clickable
+import com.mobilegh.ui.components.openBrowser
+import com.mobilegh.ui.components.MenuRow
+import com.mobilegh.ui.components.MenuGroup
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
+import com.mobilegh.ui.components.verticalScrollWithBar
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -126,6 +134,8 @@ fun ReposTab() {
     val pager = rememberPager(key) { p, force ->
         if (filter == 3) emptyList() else GitHub.myRepos(filters[filter].second, SORTS[sort].first, vis[visibility].first, p, force)
     }
+    // 新建或 Fork 仓库后回到列表时自动刷新
+    com.mobilegh.nav.OnRepoChanged(com.mobilegh.data.RepoWrite.ANY, com.mobilegh.data.RepoWrite.ANY, com.mobilegh.data.RepoWrite.REPOS) { pager.refresh() }
     val state = rememberLazyListState()
     com.mobilegh.nav.OnTabReselect(Tab.Repos) { state.animateScrollToItem(0) }
     // 关键词变化、清空或离开页面时，停掉仍在进行的全量加载（已加载的条目保留，之后可从断点继续）
@@ -295,7 +305,7 @@ private fun OrganizationReposPanel(
             (query.isBlank() || it.fullName.contains(query, true) || it.description?.contains(query, true) == true)
     }
     PullToRefreshBox(repos.refreshing || events.refreshing, { refreshDirectory(); repos.refresh(); events.refresh() }, modifier.fillMaxWidth()) {
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
+        ScrollbarLazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
             item {
                 Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(trf("{0} 个组织仓库", filtered.size), Modifier.weight(1f), fontWeight = FontWeight.SemiBold, color = g.fg)
@@ -337,10 +347,17 @@ fun CreateRepoScreen() {
     var desc by rememberSaveable { mutableStateOf("") }
     var private by rememberSaveable { mutableStateOf(false) }
     var readme by rememberSaveable { mutableStateOf(true) }
+    var gitignore by rememberSaveable { mutableStateOf<String?>(null) }
+    var license by rememberSaveable { mutableStateOf<String?>(null) }
+    var licenseName by rememberSaveable { mutableStateOf<String?>(null) }
+    var connectApps by rememberSaveable { mutableStateOf(false) }
+    var picking by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    val gitignores = rememberLoader("gitignore-templates") { GitHub.gitignoreTemplates(it) }
+    val licenses = rememberLoader("licenses") { GitHub.licenses(it) }
     val owners = listOf(Session.login ?: "") + orgs.data.orEmpty().map { it.login }
     Page(tr("新建仓库")) { pad ->
-        Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
+        Column(Modifier.padding(pad).verticalScrollWithBar().padding(vertical = 12.dp)) {
             Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(tr("所有者"), color = Gh.c.fgMuted, fontSize = 14.sp)
                 Spacer(Modifier.width(12.dp))
@@ -353,13 +370,63 @@ fun CreateRepoScreen() {
             Spacer(Modifier.height(8.dp))
             SwitchRow(tr("私有仓库"), tr("只有你和你授权的人可以看到"), private) { private = it }
             SwitchRow(tr("添加 README"), tr("用 README 文件初始化仓库"), readme) { readme = it }
+            // 与网页版新建仓库一致：.gitignore 模板与许可证
+            SectionTitle(tr("初始化"))
+            MenuGroup {
+                MenuRow(R.drawable.oc_file, tr("添加 .gitignore"), Gh.c.fgMuted, value = gitignore ?: tr("无")) { picking = "gitignore" }
+                MenuRow(R.drawable.oc_law, tr("添加许可证"), Gh.c.fgMuted, value = licenseName ?: tr("无")) { picking = "license" }
+            }
+            Text(
+                tr("选择 .gitignore 或许可证时，GitHub 会用它们生成第一个提交。"),
+                Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = Gh.c.fgMuted, fontSize = 12.sp,
+            )
+            // GitHub Apps 的安装只能在网页上授权完成：创建后直接打开该仓库的 GitHub Apps 设置页
+            SwitchRow(tr("连接 GitHub Apps"), tr("创建后在浏览器中打开该仓库的 GitHub Apps 设置，为它安装应用"), connectApps) { connectApps = it }
             Spacer(Modifier.height(16.dp))
             GhButton(tr("创建仓库"), Modifier.padding(horizontal = 16.dp).fillMaxWidth(), primary = true, enabled = name.isNotBlank() && !busy) {
                 busy = true
                 entry.act({ busy = false; ctx.toast(it) }) {
-                    val r = GitHub.createRepo(if (owner == 0) null else owners[owner], name.trim(), desc.trim(), private, readme)
+                    val r = GitHub.createRepo(if (owner == 0) null else owners[owner], name.trim(), desc.trim(), private, readme, gitignore, license)
                     ctx.toast(trf("已创建 {0}", r.fullName))
                     nav.replace(Screen.Repo(r.owner.login, r.name))
+                    if (connectApps) ctx.openBrowser("https://github.com/${r.owner.login}/${r.name}/settings/installations")
+                }
+            }
+        }
+    }
+    when (picking) {
+        "gitignore" -> TemplatePicker(
+            tr("选择 .gitignore 模板"), listOf<Pair<String?, String>>(null to tr("无")) + gitignores.data.orEmpty().map { it to it },
+            gitignores.loading, gitignores.error, { picking = null },
+        ) { key, _ -> gitignore = key; picking = null }
+        "license" -> TemplatePicker(
+            tr("选择许可证"), listOf<Pair<String?, String>>(null to tr("无")) + licenses.data.orEmpty().map { it.key to it.name },
+            licenses.loading, licenses.error, { picking = null },
+        ) { key, label -> license = key; licenseName = label; picking = null }
+    }
+}
+
+/** 可搜索的单选列表：.gitignore 模板（上百个）与许可证 */
+@Composable
+private fun TemplatePicker(title: String, options: List<Pair<String?, String>>, loading: Boolean, error: String?, onDismiss: () -> Unit, onPick: (String?, String?) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    val shown = remember(options, query) { options.filter { query.isBlank() || it.second.contains(query.trim(), ignoreCase = true) } }
+    GhDialog(title, onDismiss, confirm = tr("关闭"), onConfirm = onDismiss) {
+        Column {
+            GhField(query, { query = it }, tr("搜索"), Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+            when {
+                loading && options.size <= 1 -> Loading(Modifier.fillMaxWidth().height(80.dp))
+                error != null && options.size <= 1 -> Text(error, color = Gh.c.danger, fontSize = 13.sp)
+                else -> ScrollbarLazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp)) {
+                    items(shown, key = { it.first ?: "" }) { (key, label) ->
+                        Text(
+                            label,
+                            Modifier.fillMaxWidth().clickable { onPick(key, if (key == null) null else label) }.padding(vertical = 12.dp, horizontal = 4.dp),
+                            color = Gh.c.fg, fontSize = 15.sp,
+                        )
+                        HDivider()
+                    }
                 }
             }
         }
@@ -373,7 +440,7 @@ fun OrgsScreen() {
     val access = rememberLoader("myorgs") { GitHub.orgAccess(it) }
     Page(tr("我的组织"), actions = { OcButton(R.drawable.oc_shield_lock, { nav.push(Screen.OrgDiagnostics) }) }) { pad ->
         com.mobilegh.ui.components.LoadBox(access, Modifier.padding(pad).fillMaxSize()) { data ->
-            LazyColumn(Modifier.fillMaxSize()) {
+            ScrollbarLazyColumn(Modifier.fillMaxSize()) {
                 item { SectionTitle(trf("{0} 个可访问组织", data.orgs.size)) { TextLink(tr("权限诊断")) { nav.push(Screen.OrgDiagnostics) } } }
                 if (data.warnings.isNotEmpty()) item {
                     Text(data.warnings.joinToString("\n"), Modifier.padding(16.dp), color = g.attention, fontSize = 13.sp)
@@ -472,7 +539,7 @@ fun InvitationsScreen() {
             list == null && repoInv.error != null -> ErrorState(repoInv.error!!, Modifier.padding(pad).fillMaxSize()) { repoInv.load(true) }
             list == null -> Loading(Modifier.padding(pad).fillMaxSize())
             else -> PullToRefreshBox(repoInv.refreshing, { repoInv.refresh(); orgInv.refresh() }, Modifier.padding(pad)) {
-                LazyColumn(Modifier.fillMaxSize()) {
+                ScrollbarLazyColumn(Modifier.fillMaxSize()) {
                     val orgs = orgInv.data.orEmpty().filter { "o${it.organization.login}" !in hidden }
                     if (orgs.isNotEmpty()) {
                         item { SectionTitle(tr("组织邀请")) }

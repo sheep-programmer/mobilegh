@@ -344,7 +344,7 @@ fun <T> PagedList(
             .collect { if (it) pager.loadMore() }
     }
     PullToRefreshBox(pager.refreshing, onRefresh = { pager.refresh(); onRefresh() }, modifier) {
-        LazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = contentPadding) {
+        ScrollbarLazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = contentPadding) {
             header()
             val combined = pager.items + extraItems
             val filtered = if (itemFilter == null) combined else combined.filter(itemFilter)

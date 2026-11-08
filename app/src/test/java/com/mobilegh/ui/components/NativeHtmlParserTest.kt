@@ -84,15 +84,37 @@ class NativeHtmlParserTest {
         assertEquals("print(1)", c.text)
     }
 
-    @Test fun diagramsAndMathNeedWebView() {
-        assertTrue(parse("<pre lang=\"mermaid\">graph TD</pre>").needsWeb)
-        assertTrue(parse("<math-renderer>x</math-renderer>").needsWeb)
-        assertTrue(parse("<div class=\"highlight highlight-source-mermaid\"><pre>graph TD</pre></div>").needsWeb)
+    @Test fun onlyDiagramBlockGoesToWebViewRestStaysNative() {
+        val blocks = parse(
+            "<p>前文</p>" +
+                "<section class=\"js-render-needs-enrichment\" data-type=\"mermaid\"><div><pre lang=\"mermaid\">graph TD</pre></div></section>" +
+                "<p>后文</p>",
+        ).blocks
+        assertEquals(3, blocks.size)
+        assertTrue(blocks[0] is HtmlBlock.Paragraph)
+        val web = blocks[1] as HtmlBlock.Web
+        assertTrue(web.html.startsWith("<section"))
+        assertTrue(web.html.contains("data-type=\"mermaid\""))
+        assertEquals(base, web.baseUrl)
+        assertTrue(blocks[2] is HtmlBlock.Paragraph)
+    }
+
+    @Test fun paragraphWithInlineMathIsOneWebBlock() {
+        val b = parse("<p>面积 <math-renderer>x^2</math-renderer> 平方米</p>").blocks.single()
+        assertTrue(b is HtmlBlock.Web)
+        assertTrue((b as HtmlBlock.Web).html.contains("math-renderer"))
+    }
+
+    @Test fun diagramInsideListOnlyReplacesThatPart() {
+        val list = parse("<ul><li>说明<pre lang=\"mermaid\">graph TD</pre></li></ul>").blocks.single() as HtmlBlock.ListBlock
+        val item = list.items.single()
+        assertTrue(item[0] is HtmlBlock.Paragraph)
+        assertTrue(item[1] is HtmlBlock.Web)
     }
 
     @Test fun plainTextMentioningMermaidStaysNative() {
-        assertFalse(parse("<p>plain mermaid word</p>").needsWeb)
-        assertFalse(parse("<pre><code>ok</code></pre>").needsWeb)
+        assertTrue(parse("<p>plain mermaid word</p>").blocks.single() is HtmlBlock.Paragraph)
+        assertTrue(parse("<pre><code>ok</code></pre>").blocks.single() is HtmlBlock.Code)
     }
 
     @Test fun badgesStayInlineButLargeImagesBecomeBlocks() {
@@ -128,5 +150,44 @@ class NativeHtmlParserTest {
     @Test fun trimInlinesDropsEdgeWhitespaceAndBreaks() {
         val t = trimInlines(listOf(Inline.Break, Inline.Text("  a  "), Inline.Break, Inline.Text("   ")))
         assertEquals(listOf(Inline.Text("a")), t)
+    }
+}
+
+class NativeHtmlBadgeTest {
+    private val base = "https://github.com/a/b/blob/main/"
+    private fun parse(html: String) = HtmlParser.parse(html, base)
+
+    @Test fun badgeRowBecomesOneImageRowAndKeepsLinks() {
+        val html = "<p><a href=\"https://ci.example/run\"><img src=\"https://github.com/a/b/workflows/ci/badge.svg\" alt=\"Build\"></a>\n" +
+            "<a href=\"https://crates.io/crates/x\"><img src=\"https://camo.githubusercontent.com/abc\" data-canonical-src=\"https://img.shields.io/crates/v/x.svg\" alt=\"Crates\"></a></p>"
+        val row = parse(html).blocks.single() as HtmlBlock.ImageRow
+        assertEquals(2, row.images.size)
+        assertEquals("https://ci.example/run", row.images[0].link)
+        assertEquals("https://crates.io/crates/x", row.images[1].link)
+        assertTrue(row.images.all { it.badge })
+    }
+
+    @Test fun singleBadgeAlsoBecomesRowButSingleScreenshotStaysBlock() {
+        val badge = parse("<p><img src=\"https://img.shields.io/x.svg\" alt=\"v\"></p>").blocks.single()
+        assertTrue(badge is HtmlBlock.ImageRow)
+        val shot = parse("<p><a href=\"https://x.io\"><img src=\"https://x/p.png\" alt=\"pic\"></a></p>").blocks.single() as HtmlBlock.Image
+        assertEquals("https://x.io", shot.link)
+    }
+
+    @Test fun galleryOfScreenshotsKeepsWidthAttributesInOneRow() {
+        val row = parse("<p><img src=\"1.png\" width=\"220\"> <img src=\"2.png\" width=\"220\"></p>").blocks.single() as HtmlBlock.ImageRow
+        assertEquals(listOf(220, 220), row.images.map { it.width })
+    }
+
+    @Test fun badgeUrlDetection() {
+        assertTrue(HtmlParser.isBadgeUrl("https://img.shields.io/crates/v/x.svg"))
+        assertTrue(HtmlParser.isBadgeUrl("https://github.com/a/b/actions/workflows/ci.yml/badge.svg?branch=main"))
+        assertTrue(HtmlParser.isBadgeUrl("https://x.io/logo.svg"))
+        assertEquals(false, HtmlParser.isBadgeUrl("https://x.io/photo.png"))
+    }
+
+    @Test fun textBetweenImagesKeepsParagraphFlow() {
+        val blocks = parse("<p>版本 <img src=\"https://img.shields.io/x.svg\" height=\"20\"> 发布</p>").blocks
+        assertTrue(blocks.single() is HtmlBlock.Paragraph)
     }
 }

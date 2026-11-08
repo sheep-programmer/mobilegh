@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.activity.compose.BackHandler
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -566,7 +567,7 @@ private fun DoneRow(n: Notification, pending: Boolean, onOpen: () -> Unit, onUnd
 private fun DoneView(items: List<Notification>, state: NotifState, onOpen: (Notification) -> Unit, onUndo: (String) -> Unit) {
     val g = Gh.c
     val listState = rememberLazyListState()
-    LazyColumn(Modifier.fillMaxSize(), state = listState) {
+    ScrollbarLazyColumn(Modifier.fillMaxSize(), state = listState) {
         item {
             Text(
                 tr("已完成的通知保存在本机，最多 500 条；GitHub 接口不提供已完成通知的查询"),

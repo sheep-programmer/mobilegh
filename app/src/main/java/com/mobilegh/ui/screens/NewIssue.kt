@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import com.mobilegh.ui.components.MdText
+import com.mobilegh.ui.components.verticalScrollWithBar
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -250,7 +252,8 @@ fun NewIssueScreen(owner: String, name: String) {
                     else -> apply(t)
                 }
             }
-            else -> Column(Modifier.padding(pad).imePadding().verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) {
+            // 底部栏自己已经垫到键盘上方，pad 里含键盘高度：先扣掉 pad 再补剩余部分，键盘弹出时不会多出一大块空白
+            else -> Column(Modifier.padding(pad).consumeWindowInsets(pad).imePadding().verticalScrollWithBar().padding(vertical = 16.dp)) {
                 GhField(title, { title = it }, tr("标题"), Modifier.padding(horizontal = 16.dp))
                 Spacer(Modifier.height(12.dp))
                 if (isForm) {
@@ -320,7 +323,7 @@ private fun TemplateChooser(set: IssueTemplateSet, modifier: Modifier, onPick: (
         set.config.contactLinks.forEach { l -> add(ChooserRow(true, l.name, l.about.ifBlank { l.url }) { ctx.openBrowser(l.url) }) }
     }
     // 与网页版一致：一个带描边的圆角列表，上方是「模板与表单」分组标题；外链与模板在同一列表里
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp)) {
+    Column(modifier.fillMaxSize().verticalScrollWithBar().padding(horizontal = 16.dp, vertical = 16.dp)) {
         if (rows.isEmpty()) {
             Text(tr("该仓库没有可在应用内使用的模板，请通过网页提交。"), fontSize = 14.sp, color = g.fgMuted)
         } else {
@@ -494,7 +497,7 @@ private fun DropdownAnswer(field: IssueFormField, answer: List<String>, modifier
         confirm = tr("完成"),
         onConfirm = if (field.multiple) ({ open = false }) else null,
     ) {
-        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+        Column(Modifier.heightIn(max = 420.dp).verticalScrollWithBar()) {
             field.options.forEach { o ->
                 if (field.multiple) {
                     val checked = o.label in answer

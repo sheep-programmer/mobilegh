@@ -1,5 +1,9 @@
 package com.mobilegh.ui.screens
 
+import com.mobilegh.data.RepoWrite
+import com.mobilegh.ui.components.verticalScrollWithBar
+import com.mobilegh.ui.components.ScrollbarLazyColumn
+import com.mobilegh.nav.OnRepoChanged
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
@@ -19,7 +23,6 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import com.mobilegh.ui.components.cappedFlingBehavior
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -87,7 +90,6 @@ import com.mobilegh.ui.components.ReadmeHeading
 import com.mobilegh.ui.components.readmeHeadings
 import com.mobilegh.ui.components.IconText
 import com.mobilegh.ui.components.LanguageBar
-import com.mobilegh.ui.components.ListScrollIndicator
 import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MenuRow
@@ -151,6 +153,8 @@ fun RepoScreen(owner: String, name: String) {
     val releaseCount = rememberLoader("release-count") { GitHub.releaseCount(owner, name, it) }
     val discussionCount = rememberLoader("discussion-count") { GitHub.discussionCount(owner, name, it) }
     val contributorCount = rememberLoader("contributor-count") { GitHub.contributorCount(owner, name, it) }
+    // 新建、关闭 Issue / PR 后回到仓库页，Issue 与 PR 数随之更新
+    OnRepoChanged(owner, name, RepoWrite.ISSUES) { openIssues.refresh(); openPulls.refresh() }
     val starStatus = rememberLoader("star-status") { entry.guarded { GitHub.isStarred(owner, name) } }
     val starBusyState = retain("star-busy") { mutableStateOf(false) }
     var starBusy by starBusyState
@@ -224,7 +228,14 @@ fun RepoScreen(owner: String, name: String) {
         when {
             r == null && repo.error != null -> ErrorState(repo.error!!, Modifier.padding(pad).fillMaxSize()) { repo.load(true) }
             r == null -> Loading(Modifier.padding(pad).fillMaxSize())
-            else -> PullToRefreshBox(repo.refreshing, { if (!starBusy) { repo.refresh(); readme.refresh(); langs.refresh(); starStatus.refresh(); watching.refresh() } }, Modifier.padding(pad)) {
+            else -> PullToRefreshBox(repo.refreshing, {
+                if (!starBusy) {
+                    // Star / 订阅状态静默刷新：按钮保持原样，不在刷新期间变灰再恢复（看起来就是闪一下）
+                    repo.refresh(); readme.refresh(); langs.refresh(); starStatus.refreshSilently(); watching.refreshSilently()
+                    // 下拉刷新时各入口的数量也一起重新读取
+                    openIssues.refresh(); openPulls.refresh(); releaseCount.refresh(); discussionCount.refresh(); contributorCount.refresh()
+                }
+            }, Modifier.padding(pad)) {
                 // README 的下标由「是否有语言条」决定，和下方 LazyColumn 里的 item 顺序保持一致
                 val readmeIndex = repoReadmeIndex(langs.data?.isNotEmpty() == true)
                 // 目录或页内锚点：README 完整展示，直接滚动到标题位置
@@ -233,8 +244,8 @@ fun RepoScreen(owner: String, name: String) {
                     pendingAnchorY = null
                     listState.animateScrollToItem(readmeIndex, with(density) { (y + 64).dp.roundToPx() })
                 }
-                LazyColumn(Modifier.fillMaxSize(), state = listState, flingBehavior = cappedFlingBehavior()) {
-                    item { RepoHeader(r) }
+                ScrollbarLazyColumn(Modifier.fillMaxSize(), state = listState) {
+                    item { RepoHeader(r, onEdited = { repo.refresh() }) }
                     item {
                         // Star / Watch / Fork
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -243,7 +254,8 @@ fun RepoScreen(owner: String, name: String) {
                                 "${if (s) tr("已 Star") else "Star"} ${fmtCount(r.stargazersCount)}",
                                 // 写入期间不改成禁用态，否则点一下按钮会灰一下；重复点击由 onClick 里的 starBusy 挡住
                                 Modifier.weight(1f), icon = if (s) R.drawable.oc_star_fill else R.drawable.oc_star, iconTint = if (s) g.star else null,
-                                enabled = entry.sameAccount() && starStatus.data != null && !starStatus.loading && !repo.loading,
+                                // 只在第一次读取 Star 状态之前禁用；下拉刷新期间保持可用，按钮不会闪
+                                enabled = entry.sameAccount() && starStatus.data != null,
                                 // 和 GitHub 一样：点按切换 Star；只有已 Star 的仓库才能长按管理所在列表
                                 onLongClick = {
                                     if (s) showLists = true
@@ -279,7 +291,7 @@ fun RepoScreen(owner: String, name: String) {
                                     }
                                 }
                             }
-                            GhButton(watching.data?.title ?: if (watching.loading) tr("读取订阅…") else tr("订阅设置"), Modifier.weight(1f), icon = R.drawable.oc_eye, enabled = entry.sameAccount()) {
+                            GhButton(watching.data?.title ?: if (watching.loading && watching.data == null) tr("读取订阅…") else tr("订阅设置"), Modifier.weight(1f), icon = R.drawable.oc_eye, enabled = entry.sameAccount()) {
                                 showSubscription = true
                             }
                         }
@@ -388,7 +400,6 @@ fun RepoScreen(owner: String, name: String) {
                     item { ContributorPreview(owner, name) }
                     item { Spacer(Modifier.height(32.dp)) }
                 }
-                ListScrollIndicator(listState)
             }
         }
     }
@@ -541,7 +552,7 @@ private fun ForkDialog(
         dismissEnabled = !busy,
         onConfirm = ::submit,
     ) {
-        Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+        Column(Modifier.heightIn(max = 460.dp).verticalScrollWithBar()) {
             Text("$owner/$name", fontSize = 12.sp, color = g.fgMuted)
 
             Spacer(Modifier.height(10.dp))
@@ -605,11 +616,15 @@ internal fun repoWithStar(repo: Repo, on: Boolean): Repo =
     repo.copy(stargazersCount = (repo.stargazersCount + if (on) 1 else -1).coerceAtLeast(0))
 
 @Composable
-private fun RepoHeader(r: Repo) {
+private fun RepoHeader(r: Repo, onEdited: () -> Unit = {}) {
     val g = Gh.c
     val nav = LocalNav.current
     val ctx = rememberCtx()
     val scope = rememberCoroutineScope()
+    // 管理员和维护者可以直接在这里改描述、网址和主题，不用进「设置」
+    val canEdit = (r.permissions?.admin == true || r.permissions?.maintain == true) && !r.archived
+    var editing by remember { mutableStateOf(false) }
+    if (editing) EditRepoDetailsDialog(r, onDismiss = { editing = false }, onSaved = { editing = false; onEdited() })
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
         // 可点按的行和数字至少 48dp 高，手指不容易点空
         Row(Modifier.minimumInteractiveComponentSize().clickable {
@@ -639,6 +654,9 @@ private fun RepoHeader(r: Repo) {
         if (!r.description.isNullOrBlank()) {
             Spacer(Modifier.height(10.dp))
             MdText(r.description, fontSize = 15.sp)
+        } else if (canEdit) {
+            Spacer(Modifier.height(10.dp))
+            Text(tr("还没有描述，点按添加"), color = g.fgMuted, fontSize = 14.sp, modifier = Modifier.clickable { editing = true })
         }
         r.homepage?.takeIf { it.isNotBlank() }?.let { h ->
             Spacer(Modifier.height(8.dp))
@@ -653,6 +671,17 @@ private fun RepoHeader(r: Repo) {
             Spacer(Modifier.height(10.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 r.topics.forEach { Topic(it) }
+            }
+        }
+        if (canEdit) {
+            Spacer(Modifier.height(6.dp))
+            Row(
+                Modifier.clip(RoundedCornerShape(6.dp)).clickable { editing = true }.minimumInteractiveComponentSize().padding(end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Oc(R.drawable.oc_pencil, g.accent, 16.dp)
+                Spacer(Modifier.width(6.dp))
+                Text(tr("编辑描述、网址和主题"), color = g.accent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -738,7 +767,7 @@ private fun ReadmeTocSheet(headings: List<ReadmeHeading>, onDismiss: () -> Unit,
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(tr("目录"), color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            LazyColumn(
+            ScrollbarLazyColumn(
                 Modifier.fillMaxWidth().heightIn(max = 480.dp).clip(RoundedCornerShape(12.dp))
                     .background(g.canvas, RoundedCornerShape(12.dp)).border(1.dp, g.border, RoundedCornerShape(12.dp)),
             ) {
@@ -794,7 +823,7 @@ fun BranchPicker(owner: String, name: String, current: String, onDismiss: () -> 
                 trailing = if (q.isEmpty()) null else { { FieldAction(R.drawable.oc_x, tr("清空筛选关键词")) { q = "" } } },
             )
             when {
-                list.isNotEmpty() -> LazyColumn(
+                list.isNotEmpty() -> ScrollbarLazyColumn(
                     Modifier.fillMaxWidth().heightIn(max = 380.dp).clip(RoundedCornerShape(12.dp))
                         .background(g.canvas, RoundedCornerShape(12.dp)).border(1.dp, g.border, RoundedCornerShape(12.dp)),
                 ) {

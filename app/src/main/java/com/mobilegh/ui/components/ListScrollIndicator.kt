@@ -1,32 +1,5 @@
 package com.mobilegh.ui.components
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.unit.dp
-import com.mobilegh.ui.theme.Gh
-import kotlinx.coroutines.delay
-
 /** 滑块占轨道的比例（size）和滑块在可滚动范围内的位置（offset，0 为顶部，1 为底部）。 */
 internal data class ScrollProgress(val size: Float, val offset: Float)
 
@@ -62,49 +35,4 @@ internal fun estimateScrollProgress(
         else -> ((before + firstOffsetPx) / scrollable).coerceIn(0f, 1f)
     }
     return ScrollProgress(size = (viewportPx / content).coerceIn(0.05f, 1f), offset = offset)
-}
-
-/**
- * 列表右侧的滚动进度条：滚动时显示，停下约 1 秒后淡出，不挡住内容。
- * 在列表所在的 Box 里调用，贴着右边缘显示。
- */
-@Composable
-fun BoxScope.ListScrollIndicator(state: LazyListState, modifier: Modifier = Modifier) {
-    val g = Gh.c
-    val scrolling = state.isScrollInProgress
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(scrolling) {
-        if (scrolling) visible = true
-        else {
-            delay(1000)
-            visible = false
-        }
-    }
-    // 见过的项高度按下标记下来（滚出屏幕的项也保留），供估算使用
-    val known = remember(state) { HashMap<Int, Int>() }
-    val info = state.layoutInfo
-    info.visibleItemsInfo.forEach { known[it.index] = it.size }
-    val last = info.visibleItemsInfo.lastOrNull()
-    val atEnd = last != null && last.index == info.totalItemsCount - 1 && last.offset + last.size <= info.viewportEndOffset
-    val progress = estimateScrollProgress(
-        total = info.totalItemsCount,
-        viewportPx = (info.viewportEndOffset - info.viewportStartOffset).toFloat(),
-        firstIndex = state.firstVisibleItemIndex,
-        firstOffsetPx = state.firstVisibleItemScrollOffset,
-        knownSizes = known,
-        atEnd = atEnd,
-    ) ?: return
-    AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut(),
-        modifier = modifier.align(Alignment.CenterEnd).fillMaxHeight()) {
-        BoxWithConstraints(Modifier.fillMaxHeight().padding(vertical = 8.dp).width(8.dp)) {
-            val thumb = maxHeight * progress.size
-            Box(
-                Modifier.align(Alignment.TopEnd)
-                    .offset(y = (maxHeight - thumb) * progress.offset)
-                    .width(4.dp).height(thumb)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(g.fgMuted.copy(alpha = 0.5f)),
-            )
-        }
-    }
 }

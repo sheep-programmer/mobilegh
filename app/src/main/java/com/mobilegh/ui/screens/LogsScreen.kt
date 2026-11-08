@@ -1,6 +1,8 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.background
+import com.mobilegh.ui.components.verticalScrollWithBar
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -100,7 +102,7 @@ fun LogsScreen(onBack: (() -> Unit)? = null) {
             if (filtered.isEmpty()) {
                 EmptyState(if (query.isBlank()) tr("暂无日志") else tr("没有匹配的日志"), R.drawable.oc_log, action = if (query.isBlank()) null else tr("清除搜索"), onAction = { query = "" })
             } else {
-                LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
+                ScrollbarLazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
                     items(filtered, key = { it.id }) { entry ->
                         LogRow(entry, expanded = expanded == entry.id) {
                             expanded = if (expanded == entry.id) null else entry.id
@@ -149,7 +151,7 @@ private fun LogRow(entry: AppLogEntry, expanded: Boolean, onClick: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     entry.detail,
-                    Modifier.fillMaxWidth().background(g.canvasInset).padding(8.dp).verticalScroll(rememberScrollState()),
+                    Modifier.fillMaxWidth().background(g.canvasInset).padding(8.dp).verticalScrollWithBar(),
                     color = g.fgMuted,
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,

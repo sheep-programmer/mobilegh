@@ -1,10 +1,12 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.background
+import com.mobilegh.ui.components.verticalScrollWithBar
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -110,6 +112,9 @@ fun reactionLabel(key: String): String = when (key) {
  * 先乐观更新，再以服务端结果为准（POST 返回 200 表示原本就有，等价于取消）。
  */
 @OptIn(ExperimentalLayoutApi::class)
+/** 回应胶囊的最小高度：有回应的胶囊和「+」按钮一样高 */
+private val REACTION_CHIP_HEIGHT = 30.dp
+
 @Composable
 fun ReactionBar(initial: Reactions?, modifier: Modifier = Modifier, onToggle: suspend (String) -> Boolean) {
     val g = Gh.c
@@ -151,12 +156,15 @@ fun ReactionBar(initial: Reactions?, modifier: Modifier = Modifier, onToggle: su
         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             REACTIONS.filter { (k, _) -> (counts[k] ?: 0) > 0 }.forEach { (k, e) ->
                 val on = mine[k] == true
+                // 回应与「+」统一高度、垂直居中、圆角胶囊，和网页版一致
                 Row(
-                    Modifier.clickable(enabled = pending[k] != true) { toggle(k) }
+                    Modifier.align(Alignment.CenterVertically).heightIn(min = REACTION_CHIP_HEIGHT)
+                        .clip(RoundedCornerShape(50))
+                        .clickable(enabled = pending[k] != true) { toggle(k) }
                         .semantics(mergeDescendants = true) { contentDescription = reactionLabel(k) }
-                        .background(if (on) g.accentSubtle else g.canvas, RoundedCornerShape(14.dp))
-                        .border(1.dp, if (on) g.accent else g.border, RoundedCornerShape(14.dp))
-                        .padding(horizontal = 9.dp, vertical = 4.dp),
+                        .background(if (on) g.accentSubtle else g.canvas, RoundedCornerShape(50))
+                        .border(1.dp, if (on) g.accent else g.border, RoundedCornerShape(50))
+                        .padding(horizontal = 10.dp, vertical = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(e, fontSize = 14.sp)
@@ -165,15 +173,17 @@ fun ReactionBar(initial: Reactions?, modifier: Modifier = Modifier, onToggle: su
                 }
             }
             Box(
-                Modifier.clickable { picking = !picking }
+                Modifier.align(Alignment.CenterVertically).heightIn(min = REACTION_CHIP_HEIGHT).widthIn(min = REACTION_CHIP_HEIGHT)
+                    .clip(RoundedCornerShape(50))
+                    .clickable { picking = !picking }
                     .semantics { contentDescription = tr("添加回应") }
-                    .background(if (picking) g.canvasSubtle else g.canvas, RoundedCornerShape(14.dp))
-                    .border(1.dp, g.border, RoundedCornerShape(14.dp))
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                    .background(if (picking) g.canvasSubtle else g.canvas, RoundedCornerShape(50))
+                    .border(1.dp, g.border, RoundedCornerShape(50))
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Oc(R.drawable.oc_plus, g.fgMuted, 14.dp)
+                    Oc(R.drawable.oc_plus, g.fgMuted, 16.dp)
                     // 已经有回应时只留一个 + 按钮（与 GitHub 一致），没有时才带文字提示
                     if (REACTIONS.none { (k, _) -> (counts[k] ?: 0) > 0 }) {
                         Spacer(Modifier.width(4.dp))
@@ -241,7 +251,7 @@ fun TimelineCard(
         } else {
             HtmlView(html, Modifier.padding(horizontal = 4.dp, vertical = 2.dp), baseUrl = baseUrl)
         }
-        if (footer != null) Box(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp)) { footer() }
+        if (footer != null) Box(Modifier.padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 12.dp)) { footer() }
     }
 }
 
@@ -413,7 +423,7 @@ private fun MetaOptionList(
             when (kind) { "labels" -> tr("这个仓库还没有标签"); "assignees" -> tr("没有可指派的人"); "reviewers" -> tr("没有可请求审查的协作者"); else -> tr("没有进行中的里程碑") },
             color = g.fgMuted, fontSize = 14.sp,
         )
-        else -> Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+        else -> Column(Modifier.heightIn(max = 360.dp).verticalScrollWithBar()) {
             if (single) Row(
                 Modifier.fillMaxWidth().clickable(enabled = enabled) { selected.clear() }, verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -580,7 +590,7 @@ fun EditDialog(
         confirmEnabled = !busy && body.text.isNotBlank() && (initialTitle == null || title.isNotBlank()),
         onConfirm = { onSave(title.trim(), body.text) },
     ) {
-        Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+        Column(Modifier.heightIn(max = 420.dp).verticalScrollWithBar()) {
             if (initialTitle != null) {
                 GhField(title, { if (!busy) title = it }, tr("标题"))
             }
@@ -633,7 +643,7 @@ fun CommentComposerBar(
         )
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             if (preview) {
-                Box(Modifier.weight(1f).heightIn(min = 44.dp, max = 200.dp).verticalScroll(rememberScrollState())) {
+                Box(Modifier.weight(1f).heightIn(min = 44.dp, max = 200.dp).verticalScrollWithBar()) {
                     MarkdownPreview(value.text, contextRepo)
                 }
             } else {

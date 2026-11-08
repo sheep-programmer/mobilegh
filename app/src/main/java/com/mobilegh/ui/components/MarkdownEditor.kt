@@ -380,7 +380,7 @@ fun MarkdownFullscreenSheet(
             if (preview) {
                 Column(
                     Modifier.fillMaxWidth().weight(1f)
-                        .verticalScroll(rememberScrollState())
+                        .verticalScrollWithBar()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) { MarkdownPreview(value.text, contextRepo) }
             } else {

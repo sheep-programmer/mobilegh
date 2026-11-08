@@ -385,7 +385,9 @@ fun Entry.act(onError: (String) -> Unit = {}, onDone: () -> Unit = {}, block: su
 @Composable
 fun OnRepoChanged(owner: String, name: String, kind: String = com.mobilegh.data.RepoWrite.CODE, refresh: () -> Unit) {
     val v = com.mobilegh.data.RepoChanges.version(owner, name, kind)
-    val seen = retain("repo-change:$kind") { intArrayOf(v) }
+    // 按调用位置区分：同一页面里多处监听同一种变化时，各自记录已处理的版本，不会一处刷新后另一处就跳过
+    val site = androidx.compose.runtime.currentCompositeKeyHash
+    val seen = retain("repo-change:$kind:$site") { intArrayOf(v) }
     androidx.compose.runtime.LaunchedEffect(v) {
         if (v != seen[0]) {
             seen[0] = v

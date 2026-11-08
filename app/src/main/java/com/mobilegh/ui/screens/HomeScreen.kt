@@ -1,5 +1,13 @@
 package com.mobilegh.ui.screens
 
+import com.mobilegh.ui.screens.SyncAchievements
+import com.mobilegh.ui.components.GhButton
+import com.mobilegh.ui.components.Oc
+import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -67,7 +75,8 @@ fun HomeScreen() {
     val login = Session.login ?: return
     val me = rememberLoader("me") { GitHub.viewer(it) }
     val lists = rememberStarListCatalog(login)
-    val badges = rememberLoader("home-achievements:$login") { Web.achievements(login, self = true) }
+    val badges = rememberLoader("home-achievements:$login") { force -> Web.achievements(login, self = true, force = force) }
+    SyncAchievements(login, badges)
     val listsRevision by UserLists.changes.collectAsState()
     val observedRevision = retain("home-collections-revision:$login") { mutableLongStateOf(listsRevision) }
     LaunchedEffect(listsRevision) {
@@ -134,8 +143,34 @@ fun HomeScreen() {
                         HomeShortcuts(shortcuts)
                     }
                 }
-                if (layout.favorites.isNotEmpty()) {
-                    item { SectionTitle(tr("收藏仓库")) { TextLink(tr("编辑")) { nav.push(Screen.HomeCustomize) } } }
+                // 与官方 App 一致：收藏区始终显示；没有收藏时给出说明和添加入口
+                item {
+                    SectionTitle(tr("收藏仓库")) {
+                        Row {
+                            TextLink(tr("添加")) { nav.push(Screen.AddFavorites) }
+                            if (layout.favorites.isNotEmpty()) {
+                                Spacer(Modifier.width(16.dp))
+                                TextLink(tr("编辑")) { nav.push(Screen.HomeCustomize) }
+                            }
+                        }
+                    }
+                }
+                if (layout.favorites.isEmpty()) {
+                    item {
+                        Card(Modifier.padding(horizontal = 16.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Oc(R.drawable.oc_star, g.fgMuted, 24.dp)
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    tr("把常用仓库加入收藏，在首页一键打开，不用每次搜索。"),
+                                    color = g.fgMuted, fontSize = 13.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                GhButton(tr("添加收藏"), primary = true) { nav.push(Screen.AddFavorites) }
+                            }
+                        }
+                    }
+                } else {
                     item {
                         MenuGroup {
                             layout.favorites.forEachIndexed { i, f ->

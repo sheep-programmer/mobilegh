@@ -57,6 +57,9 @@ fun LinkDefaultPrompt() {
             LinkDefault.set(LinkDefault.Status.Skipped)
         },
         containerColor = g.canvas,
+        // 需要明确选择的提示：点框外不会关闭（以前点一下框外就被当成「跳过」，看起来像弹窗自己消失）
+        properties = ModalDialogProperties,
+        modifier = Modifier.dialogFrame(),
         title = { Text(tr("用 MobileGH 打开 GitHub 链接？"), color = g.fg, fontSize = 18.sp) },
         text = {
             Text(

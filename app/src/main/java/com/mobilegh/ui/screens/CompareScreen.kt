@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.clickable
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -108,7 +109,7 @@ fun CompareScreen(owner: String, name: String, initialBase: String = "HEAD~1", i
             LoadBox(compare, Modifier.fillMaxWidth().weight(1f)) { (c, files) ->
                 if (tab == 0) {
                     val listState = rememberLazyListState()
-                    LazyColumn(Modifier.fillMaxSize(), state = listState) {
+                    ScrollbarLazyColumn(Modifier.fillMaxSize(), state = listState) {
                         item { CompareHeader(c, files.size, tab) { tab = it } }
                         if (files.size >= 300) item { Text(tr("GitHub 比较接口最多返回 300 个文件，此列表可能不完整。"), Modifier.padding(16.dp), color = g.attention, fontSize = 12.sp) }
                         if (files.isEmpty()) emptyItem(listState, tr("两个版本没有可显示的文件差异"), R.drawable.oc_diff)

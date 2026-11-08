@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.Canvas
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -190,7 +191,7 @@ fun ContributorsScreen(owner: String, name: String) {
                 isRefreshing = loader.refreshing, onRefresh = { loader.refresh() },
                 modifier = Modifier.padding(pad).fillMaxSize(),
             ) {
-                LazyColumn(Modifier.fillMaxSize(), state = listState) {
+                ScrollbarLazyColumn(Modifier.fillMaxSize(), state = listState) {
                     item {
                         // 备用列表只有累计提交数，不提供时间筛选，所以只在周统计可用时显示筛选项
                         val weeklyAvailable = snapshot.source == ContributionSource.Statistics

@@ -1,6 +1,8 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import com.mobilegh.ui.components.verticalScrollWithBar
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -348,7 +350,7 @@ private fun ProjectBody(
                 }
             } else {
                 val listState = rememberLazyListState()
-                LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp)) {
+                ScrollbarLazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp)) {
                     boxedItems(all, key = { it.id }) { item ->
                         ItemRow(item, d, groupField, actions(item), Modifier.combinedClickable(onClick = { open(item) }, onLongClick = { longPress(item) }))
                     }
@@ -379,7 +381,7 @@ private fun ProjectBody(
                 }
             },
         ) {
-            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            Column(Modifier.heightIn(max = 420.dp).verticalScrollWithBar()) {
                 Text(item.title, color = g.fgMuted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(8.dp))
                 RadioRow(selected == null, trf("无 {0}", field.name), enabled = !busy) { selected = null }
@@ -462,7 +464,7 @@ private fun ProjectBody(
 
     viewingDraft?.let { item ->
         GhDialog(item.title, { viewingDraft = null }) {
-            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.heightIn(max = 420.dp).verticalScrollWithBar(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Oc(R.drawable.oc_issue_draft, g.fgMuted, 14.dp)
                     Spacer(Modifier.width(6.dp))
@@ -525,7 +527,7 @@ private fun BoardColumn(
             if (canUpdate && !d.closed) OcButton(R.drawable.oc_plus, onAdd, g.fgMuted)
         }
         HDivider()
-        LazyColumn(
+        ScrollbarLazyColumn(
             Modifier.fillMaxWidth().weight(1f),
             contentPadding = PaddingValues(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),

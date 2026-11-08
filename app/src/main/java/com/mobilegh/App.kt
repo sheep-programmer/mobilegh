@@ -38,5 +38,8 @@ class App : Application() {
         Update.checkQuietly()
         // 每次启动静默测速，自动选择最快的加速节点
         Net.speedTestAsync()
+        // 成就缓存与 github.com 连接预热：成就页第一次打开不用再等握手
+        com.mobilegh.data.Web.init(this)
+        com.mobilegh.data.Web.warmUp()
     }
 }

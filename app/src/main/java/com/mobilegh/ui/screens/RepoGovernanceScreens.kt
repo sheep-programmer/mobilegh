@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.clickable
+import com.mobilegh.ui.components.verticalScrollWithBar
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -81,7 +82,7 @@ fun SecurityAlertsScreen(owner: String, name: String) {
     val ctx = rememberCtx()
     Page(tr("安全告警"), subtitle = "$owner/$name") { pad ->
         PullToRefreshBox(all.any { it.refreshing }, { all.forEach { it.refresh() } }, Modifier.padding(pad)) {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+            Column(Modifier.fillMaxSize().verticalScrollWithBar().padding(bottom = 24.dp)) {
                 AlertSection(tr("依赖漏洞（Dependabot）"), dependabot, tr("没有开放的依赖漏洞")) { a: DependabotAlert ->
                     val pkg = a.dependency?.pkg
                     val title = a.securityAdvisory?.summary?.takeIf { it.isNotBlank() } ?: pkg?.name.orEmpty()
@@ -130,7 +131,7 @@ fun BranchRulesScreen(owner: String, name: String) {
     val all = listOf<Loader<*>>(protection, rulesets)
     Page(tr("分支规则"), subtitle = "$owner/$name") { pad ->
         PullToRefreshBox(all.any { it.refreshing }, { all.forEach { it.refresh() } }, Modifier.padding(pad)) {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+            Column(Modifier.fillMaxSize().verticalScrollWithBar().padding(bottom = 24.dp)) {
                 SectionTitle(tr("默认分支保护"))
                 val state = protection.data
                 val error = protection.error

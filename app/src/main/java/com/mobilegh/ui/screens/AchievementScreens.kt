@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.border
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import com.mobilegh.ui.components.Oc
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.selection.selectable
@@ -120,9 +121,22 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.background
 
+/**
+ * 后台刷新发现成就有变化时，用新缓存更新页面（先显示的是缓存里的旧内容）。
+ * 用 accept 直接换数据：不触发新的网络请求，也不出现加载状态。
+ */
+@Composable
+fun SyncAchievements(login: String, loader: com.mobilegh.nav.Loader<List<Achievement>>) {
+    val version = Web.achievementsVersion
+    LaunchedEffect(version) {
+        if (version > 0 && !loader.loading) Web.cachedAchievements(login)?.let { loader.accept(it) }
+    }
+}
+
 @Composable
 fun AchievementsStrip(login: String, self: Boolean) {
-    val loader = rememberLoader("ach-public:${login.lowercase(Locale.ROOT)}") { Web.achievements(login, self) }
+    val loader = rememberLoader("ach-public:${login.lowercase(Locale.ROOT)}") { force -> Web.achievements(login, self, force) }
+    SyncAchievements(login, loader)
     var picked by remember { mutableStateOf<Achievement?>(null) }
     Column {
         SectionTitle(tr("成就"), trailing = { Text(tr("公开主页"), fontSize = 12.sp, color = Gh.c.fgMuted) })
@@ -172,14 +186,15 @@ internal fun AchievementBadge(badge: Achievement, modifier: Modifier = Modifier)
 fun AchievementsScreen(login: String) {
     val ctx = rememberCtx()
     val self = login.equals(Session.login, true)
-    val badges = rememberLoader("ach-public:${login.lowercase(Locale.ROOT)}") { Web.achievements(login, self) }
+    val badges = rememberLoader("ach-public:${login.lowercase(Locale.ROOT)}") { force -> Web.achievements(login, self, force) }
+    SyncAchievements(login, badges)
     var picked by remember { mutableStateOf<Achievement?>(null) }
     Page(if (self) tr("我的成就") else tr("成就"), subtitle = login, actions = {
         OcButton(R.drawable.oc_link_external, { ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=achievements") }, description = tr("在浏览器打开"))
     }) { pad ->
         LoadBox(badges, Modifier.padding(pad).fillMaxSize()) { data ->
             val listState = rememberLazyListState()
-            LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(16.dp)) {
+            ScrollbarLazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(16.dp)) {
                 item { Text(tr("公开主页的徽章、等级和倍数"), color = Gh.c.fgMuted, fontSize = 13.sp) }
                 if (data.isEmpty()) emptyItem(listState, tr("公开主页尚未显示成就；隐藏的徽章无法读取"), R.drawable.oc_verified, tr("在 GitHub 查看")) {
                     ctx.openBrowser("https://github.com/${Api.encodePath(login)}?tab=achievements")
@@ -274,7 +289,7 @@ private fun StarListsContent(login: String, generation: Int, onGitHub: () -> Uni
                             R.drawable.oc_device_mobile, tr("还没有本机列表"), tr("暂无本机列表，创建一个来整理 Stars。"),
                             Modifier.weight(1f).fillMaxWidth(), tr("新建本机列表"), R.drawable.oc_plus,
                         ) { editing = null; editorOpen = true }
-                        else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
+                        else ScrollbarLazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
                             item(key = "summary") {
                                 ListsSummaryCard(
                                     R.drawable.oc_device_mobile, trf("{0} 个本机列表", all.size), trf("共收纳 {0} 条仓库记录", all.sumOf { it.repositories.size }),
@@ -297,7 +312,7 @@ private fun StarListsContent(login: String, generation: Int, onGitHub: () -> Uni
                             if (selected.repositories.isEmpty()) EmptyState(tr("列表为空，添加已 Star 的仓库。"), R.drawable.oc_star, Modifier.weight(1f).fillMaxWidth(), tr("添加仓库")) { pickerOpen = true }
                             else EmptyState(tr("没有匹配的仓库"), R.drawable.oc_search, Modifier.weight(1f).fillMaxWidth(), tr("清除搜索")) { query = "" }
                         }
-                        else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
+                        else ScrollbarLazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
                             items(filtered, key = { it.id }) { repo ->
                                 Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Column(Modifier.weight(1f).clickable { nav.push(Screen.Repo(repo.owner, repo.name)) }.padding(vertical = 12.dp)) {
@@ -436,7 +451,7 @@ private fun StarredRepoSelectionDialog(
             Text(trf("已加载 {0} 个 · 可再添加 {1} 个。搜索较早的 Stars 时请继续加载。", repos.size, available), color = Gh.c.fgMuted, fontSize = 12.sp)
             if (saveError != null) Text(saveError, color = Gh.c.danger, fontSize = 12.sp)
             if (error != null) Text(error!!, color = Gh.c.danger, fontSize = 12.sp)
-            LazyColumn(Modifier.fillMaxWidth().heightIn(min = 80.dp, max = 300.dp)) {
+            ScrollbarLazyColumn(Modifier.fillMaxWidth().heightIn(min = 80.dp, max = 300.dp)) {
                 items(filtered, key = { it.id }) { repo ->
                     val already = repo.id in existing
                     val checked = already || repo.id in selected
@@ -649,7 +664,7 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
                         R.drawable.oc_checklist, trf("{0} 还没有公开的 GitHub 列表", login), "",
                         Modifier.weight(1f).fillMaxWidth(), tr("刷新"),
                     ) { load() }
-                    else -> LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
+                    else -> ScrollbarLazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 16.dp)) {
                         item(key = "summary") {
                             val privateCount = all.count { it.isPrivate }
                             ListsSummaryCard(
@@ -714,7 +729,7 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
                     } else if (filtered.isEmpty() && !detailLoaded) {
                         if (loading) Loading(Modifier.weight(1f).fillMaxWidth())
                         else Spacer(Modifier.weight(1f))
-                    } else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 12.dp)) {
+                    } else ScrollbarLazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 12.dp)) {
                         items(filtered, key = { it.nodeId }) { item ->
                             RemovableRepoItem(
                                 repo = item.repo,

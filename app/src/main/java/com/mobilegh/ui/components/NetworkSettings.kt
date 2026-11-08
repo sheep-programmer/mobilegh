@@ -55,7 +55,7 @@ fun NetworkSettingsDialog(onDismiss: () -> Unit) {
             } finally { saving = false }
         }
     }) {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.verticalScrollWithBar(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // 与「加速节点」是两件事：这里只改变 App 自己发出的请求走哪条线路
             Text(tr("作用于 App 内的 API、登录与授权、推送连接，以及私有仓库的下载；不影响公开文件的系统下载器（DownloadManager）。加速节点另行设置，不影响登录。"), color = g.fgMuted, fontSize = 12.sp)
             ProxyMode.entries.forEach { option ->

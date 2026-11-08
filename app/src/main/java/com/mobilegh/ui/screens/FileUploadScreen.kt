@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -279,7 +280,7 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
         when {
             target.error != null && t == null -> ErrorState(target.error!!, Modifier.padding(pad).fillMaxSize()) { target.load(true) }
             t == null -> Loading(Modifier.padding(pad).fillMaxSize())
-            else -> LazyColumn(Modifier.padding(pad).fillMaxSize()) {
+            else -> ScrollbarLazyColumn(Modifier.padding(pad).fillMaxSize()) {
                 // 上面的表单固定在首项，下面的清单可能几千项，只能懒加载
                 item {
                     Column {

@@ -241,10 +241,26 @@ object Api {
 
     fun ensureOk(r: Resp): Resp {
         if (r.code in 200..299) return r
-        val msg = runCatching {
-            json.parseToJsonElement(r.body).jsonObject["message"]?.jsonPrimitive?.content
-        }.getOrNull()
+        val msg = runCatching { errorMessage(r.body) }.getOrNull()
         throw ApiException(r.code, friendly(r.code, msg))
+    }
+
+    /**
+     * 错误响应里的说明。422 等校验错误的具体原因在 errors[].message 里（message 只是笼统的 "Validation Failed"），
+     * 有具体原因时一并带上，提示里就能看到到底哪个字段不对。
+     */
+    internal fun errorMessage(body: String): String? {
+        val root = json.parseToJsonElement(body).jsonObject
+        val top = root["message"]?.jsonPrimitive?.content
+        val details = (root["errors"] as? kotlinx.serialization.json.JsonArray).orEmpty().mapNotNull { e ->
+            (e as? JsonObject)?.get("message")?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                ?: (e as? kotlinx.serialization.json.JsonPrimitive)?.content
+        }
+        return when {
+            details.isEmpty() -> top
+            top.isNullOrBlank() -> details.joinToString("；")
+            else -> top + "：" + details.joinToString("；")
+        }
     }
 
     private fun friendly(code: Int, msg: String?): String = when {

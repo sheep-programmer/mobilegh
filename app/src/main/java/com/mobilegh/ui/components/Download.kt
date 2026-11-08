@@ -100,6 +100,7 @@ fun DownloadHost() {
             onDismissRequest = { Downloads.selectedKey = null },
             containerColor = g.canvas,
             shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.dialogFrame(),
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Oc(
@@ -159,6 +160,7 @@ fun DownloadHost() {
             onDismissRequest = { Downloads.showHistory = false },
             containerColor = g.canvas,
             shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.dialogFrame(),
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(tr("下载记录"), color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
@@ -179,7 +181,7 @@ fun DownloadHost() {
                     if (Downloads.tasks.isEmpty()) {
                         Text(tr("还没有下载记录"), color = g.fgMuted)
                     } else {
-                        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        ScrollbarLazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             items(Downloads.tasks, key = { it.key }) { task ->
                                 var menu by remember { mutableStateOf(false) }
                                 val missing = Downloads.isFileMissing(task)
@@ -256,6 +258,7 @@ fun DownloadHost() {
                 onDismissRequest = { clearDialog = false },
                 containerColor = g.canvas,
                 shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.dialogFrame(),
                 title = { Text(tr("清空下载记录"), color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) },
                 text = { Text(tr("是否同时删除已下载到手机的文件？删除后无法恢复。正在下载或排队中的任务会保留。"), color = g.fgMuted, fontSize = 14.sp, lineHeight = 20.sp) },
                 confirmButton = {
@@ -452,6 +455,7 @@ fun FileInfoDialog(info: FileInfo, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         containerColor = g.canvas,
         shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.dialogFrame(),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Oc(R.drawable.oc_package, g.fgMuted, 20.dp)
@@ -460,7 +464,7 @@ fun FileInfoDialog(info: FileInfo, onDismiss: () -> Unit) {
             }
         },
         text = {
-            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+            Column(Modifier.heightIn(max = 420.dp).verticalScrollWithBar()) {
                 androidx.compose.foundation.text.selection.SelectionContainer {
                     Text(info.name, color = g.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, lineHeight = 21.sp)
                 }

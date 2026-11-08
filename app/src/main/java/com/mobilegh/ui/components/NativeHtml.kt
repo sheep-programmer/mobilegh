@@ -1,5 +1,8 @@
 package com.mobilegh.ui.components
 
+import com.mobilegh.i18n.trf
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.runtime.mutableIntStateOf
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -33,6 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -56,6 +60,8 @@ import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -78,8 +84,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * GitHub 渲染的 HTML（README、Issue / PR 正文与评论、Wiki、文件预览、编辑器预览）。
  *
- * 常规内容用原生 Compose 渲染：没有网页排版，也就没有 WebView 滚动时的空白与闪烁。
- * 数学公式、Mermaid 与地理 / 三维图表需要浏览器里的脚本，这类内容仍交给 [WebHtmlView]。
+ * 全部用原生 Compose 渲染：没有网页排版，也就没有 WebView 滚动时的空白、闪烁与重影。
+ * 只有数学公式、Mermaid 与地理 / 三维图表需要浏览器里的脚本，这几块各自嵌一个小的 [WebHtmlView]，
+ * 其余正文不受影响。
  */
 @Composable
 fun HtmlView(
@@ -92,12 +99,9 @@ fun HtmlView(
     /** 原生渲染时内容按自身高度排列，参数保留给 WebView 路径使用 */
     fullHeight: Boolean = false,
 ) {
-    val parsed = remember(html, baseUrl) { HtmlParser.parse(html, baseUrl) }
-    if (parsed.needsWeb) {
-        WebHtmlView(html, modifier, baseUrl, onAnchor, anchorRequest, fullHeight)
-    } else {
-        NativeHtml(parsed.blocks, modifier, onAnchor, anchorRequest)
-    }
+    // 解析结果有缓存：长列表里的评论通常已在后台预先解析好，滑入屏幕时不再在主线程上解析
+    val parsed = remember(html, baseUrl) { HtmlParser.parseCached(html, baseUrl) }
+    NativeHtml(parsed.blocks, modifier, onAnchor, anchorRequest)
 }
 
 /**
@@ -132,8 +136,9 @@ internal fun NativeHtml(
     CompositionLocalProvider(LocalHtmlScroll provides scroll) {
         SelectionContainer {
             Column(
-                // 与网页版 markdown-body 的左右内边距一致（约 16dp）
-                modifier.fillMaxWidth().padding(horizontal = 16.dp).onGloballyPositioned { scroll.rootY = it.positionInRoot().y },
+                // 与网页版评论正文的内边距一致：左右 16dp，上下留出空隙，不和头部、表情栏挤在一起
+                modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
+                    .onGloballyPositioned { scroll.rootY = it.positionInRoot().y },
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 blocks.forEach { RenderBlock(it, muted = false) }
@@ -154,8 +159,10 @@ private fun RenderBlock(block: HtmlBlock, muted: Boolean) {
         is HtmlBlock.Quote -> QuoteBlock(block)
         is HtmlBlock.Table -> TableBlock(block)
         is HtmlBlock.Image -> BlockImage(block)
+        is HtmlBlock.ImageRow -> ImageRowBlock(block)
         is HtmlBlock.Video -> VideoTile(block.src)
         is HtmlBlock.Details -> DetailsBlock(block)
+        is HtmlBlock.Web -> WebHtmlView(block.html, Modifier.fillMaxWidth(), block.baseUrl)
         HtmlBlock.Rule -> Box(Modifier.fillMaxWidth().height(1.dp).background(g.border))
     }
 }
@@ -276,7 +283,8 @@ private fun TableRow(cells: List<List<Inline>>, columns: Int, colWidth: Dp, alig
     Row(Modifier.height(IntrinsicSize.Min).background(if (header) g.canvasSubtle else Color.Transparent)) {
         for (c in 0 until columns) {
             val align = aligns.getOrElse(c) { TableAlign.None }
-            Box(Modifier.width(colWidth).border(0.5.dp, g.borderMuted).padding(horizontal = 8.dp, vertical = 6.dp)) {
+            // fillMaxHeight：同一行的格子拉到同样高，边框连成完整的表格线，不会出现矮一截的格子
+            Box(Modifier.width(colWidth).fillMaxHeight().border(0.5.dp, g.borderMuted).padding(horizontal = 8.dp, vertical = 6.dp)) {
                 HtmlText(
                     cells.getOrElse(c) { emptyList() },
                     color = g.fg,
@@ -321,20 +329,93 @@ private fun BlockImage(block: HtmlBlock.Image) {
     val g = Gh.c
     val src = block.src
     var bmp by remember(src) { mutableStateOf(Images.cached(src, 1024)) }
-    LaunchedEffect(src) {
-        if (bmp == null) bmp = Images.load(src, 1024)
+    // 加载失败：显示提示，点按重试（以前失败后一直是灰块，不知道发生了什么）
+    var failed by remember(src) { mutableStateOf(false) }
+    var attempt by remember(src) { mutableIntStateOf(0) }
+    LaunchedEffect(src, attempt) {
+        if (bmp == null) {
+            failed = false
+            bmp = runCatching { Images.load(src, 1024) }.getOrNull()
+            failed = bmp == null
+        }
     }
     val w = block.width
     val h = block.height
     val ratio = if (w != null && h != null && w > 0 && h > 0) w.toFloat() / h else null
     val alt = block.alt
-    val base = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp)).clickable { ImageViewer.open(src, alt) }
+    val nav = LocalNav.current
+    val ctx = rememberCtx()
+    // 图片外面套了链接（如徽章、点击跳转的横幅）：点击打开链接；没有链接才放大查看
+    val link = block.link
+    // 按 HTML 的 width 属性显示（如 logo 写了 width="104"），没写才铺满；超过可用宽度时自动收窄
+    val widthMod = if (w != null && w > 0) Modifier.width(w.dp) else Modifier.fillMaxWidth()
+    val base = widthMod.clip(RoundedCornerShape(6.dp))
+        .clickable { if (link != null) openHtmlLink(ctx, nav, link) else ImageViewer.open(src, alt) }
     val loaded = bmp
     if (loaded != null) {
         Image(loaded, alt.ifBlank { null }, base, contentScale = ContentScale.FillWidth)
+    } else if (failed) {
+        Box(
+            widthMod.height(72.dp).clip(RoundedCornerShape(6.dp)).background(g.neutralMuted)
+                .clickable { failed = false; attempt++ }.padding(12.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                if (alt.isNotBlank()) trf("图片加载失败：{0}（点按重试）", alt) else tr("图片加载失败（点按重试）"),
+                color = g.fgMuted, fontSize = 13.sp, textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis,
+            )
+        }
     } else {
-        val sized = if (ratio != null) base.aspectRatio(ratio) else base.height(160.dp)
+        val sized = if (ratio != null) base.aspectRatio(ratio) else if (w != null && w > 0) base.aspectRatio(1f) else base.height(160.dp)
         Box(sized.background(g.neutralMuted))
+    }
+}
+
+/**
+ * 一排并排的图片（徽章行、并排的截图）：按图片自身大小流式排列，放不下自动换行。
+ * 尺寸优先用 HTML 的 width / height 属性，没有就用图片的逻辑尺寸（SVG 徽章约 20dp 高）。
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun ImageRowBlock(block: HtmlBlock.ImageRow) {
+    androidx.compose.foundation.layout.FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        block.images.forEach { RowImage(it) }
+    }
+}
+
+@Composable
+private fun RowImage(img: Inline.Image) {
+    val g = Gh.c
+    val nav = LocalNav.current
+    val ctx = rememberCtx()
+    var bmp by remember(img.src) { mutableStateOf(Images.cached(img.src, 1024)) }
+    LaunchedEffect(img.src) { if (bmp == null) bmp = Images.load(img.src, 1024) }
+    val link = img.link
+    val click = Modifier.clip(RoundedCornerShape(3.dp))
+        .clickable { if (link != null) openHtmlLink(ctx, nav, link) else ImageViewer.open(img.src, img.alt) }
+    val loaded = bmp
+    if (loaded == null) {
+        // 加载中：按属性或徽章的常见尺寸占位，加载完成后只在这一块里替换
+        Box(Modifier.size((img.width ?: 90).dp, (img.height ?: 20).dp).clip(RoundedCornerShape(3.dp)).background(g.neutralMuted))
+    } else {
+        val scale = Images.scaleOf(loaded)
+        val naturalW = loaded.width / scale
+        val aspect = loaded.width.toFloat() / loaded.height.coerceAtLeast(1)
+        val w = when {
+            img.width != null -> img.width.toFloat()
+            img.height != null -> img.height * aspect
+            else -> naturalW
+        }
+        // width 会被限制在可用宽度内，再按宽高比定高度，超宽的图不会变形
+        Image(
+            loaded, img.alt.ifBlank { null },
+            click.width(w.dp).aspectRatio(aspect),
+            contentScale = ContentScale.FillWidth,
+        )
     }
 }
 
@@ -468,6 +549,10 @@ private fun HtmlText(
         fontWeight = fontWeight,
         lineHeight = lineHeight,
         textAlign = textAlign,
+        // 行高不裁掉首行上方与末行下方的留白：字形较高的字体（部分系统字体、放大字号）最后一行不会被下方内容盖住
+        style = LocalTextStyle.current.merge(
+            TextStyle(lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None)),
+        ),
         inlineContent = built.inline,
         onTextLayout = { layoutRef.set(it) },
     )

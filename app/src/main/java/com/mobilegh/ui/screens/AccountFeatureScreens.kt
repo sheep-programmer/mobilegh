@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.activity.compose.BackHandler
+import com.mobilegh.ui.components.verticalScrollWithBar
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -107,7 +108,7 @@ private const val BIO_MAX = 160
 @Composable
 fun ProfileEditorForm(fields: ProfileFields, onChange: (ProfileFields) -> Unit, saving: Boolean, error: String?, onSave: () -> Unit) {
     val bioOver = fields.bio.length - BIO_MAX
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxSize().verticalScrollWithBar().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         fun change(next: ProfileFields) { if (!saving) onChange(next) }
         GhField(fields.name, { change(fields.copy(name = it)) }, tr("显示名称"))
         Column {

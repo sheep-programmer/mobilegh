@@ -1,6 +1,8 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.background
+import com.mobilegh.ui.components.verticalScrollWithBar
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -267,7 +269,7 @@ fun GistDetailScreen(id: String) {
     ) { pad ->
         LoadBox(gist, Modifier.padding(pad).fillMaxSize()) { (d, files) ->
             SelectionContainer {
-            LazyColumn(Modifier.fillMaxSize()) {
+            ScrollbarLazyColumn(Modifier.fillMaxSize()) {
                 item {
                     Column(Modifier.padding(16.dp)) {
                         if (!d.description.isNullOrBlank()) Text(d.description, fontSize = 16.sp, color = g.fg)
@@ -458,7 +460,7 @@ fun GistEditorScreen(id: String?) {
                 }
             }
             val validation = gistFilesError(state.files, state.removed)
-            Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
+            Column(Modifier.fillMaxSize().imePadding().verticalScrollWithBar().padding(vertical = 12.dp)) {
                 GhField(
                     state.description, { if (!busy) state.description = it }, tr("描述（可选）"),
                     Modifier.padding(horizontal = 16.dp), placeholder = tr("这个 Gist 是做什么的"),

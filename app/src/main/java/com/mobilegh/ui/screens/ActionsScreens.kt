@@ -1,6 +1,8 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.background
+import com.mobilegh.ui.components.lazyScrollbar
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -243,7 +245,7 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
     ) { pad ->
         LoadBox(run, Modifier.padding(pad).fillMaxSize()) { rr ->
             val expandedJobs = remember { mutableStateMapOf<Long, Boolean>() }
-            LazyColumn(Modifier.fillMaxSize()) {
+            ScrollbarLazyColumn(Modifier.fillMaxSize()) {
                 item {
                     val (icon, color) = runVisual(rr.status, rr.conclusion)
                     Column(Modifier.padding(16.dp)) {
@@ -449,7 +451,8 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId:
                     Spacer(Modifier.width(6.dp))
                     Text(title, color = t.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-            Box(Modifier.fillMaxSize().then(if (Session.codeWrap) Modifier else Modifier.horizontalScroll(hs))) {
+            // 滚动条挂在外层可视区域上：不换行时日志比屏幕宽，挂在列表上会画到屏幕外
+            Box(Modifier.fillMaxSize().lazyScrollbar(state).then(if (Session.codeWrap) Modifier else Modifier.horizontalScroll(hs))) {
                 SelectionContainer {
                     RegisterScrollTop(state)
                     LazyColumn(if (Session.codeWrap) Modifier.fillMaxSize() else Modifier.width(2400.dp).fillMaxSize(), state = state) {

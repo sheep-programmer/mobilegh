@@ -143,7 +143,7 @@ fun FilterSheet(
             HorizontalDivider()
             // 滚动区用 weight：弹层被键盘或矮屏压缩时，底部按钮仍在屏幕内，只有中间内容滚动
             Column(
-                Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
+                Modifier.weight(1f, fill = false).verticalScrollWithBar().padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
                 content = content,
             )

@@ -1,6 +1,7 @@
 package com.mobilegh.ui.components
 
 import android.graphics.BitmapFactory
+import android.graphics.Bitmap
 import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -36,6 +37,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.mobilegh.data.ImageFetch
+import com.mobilegh.data.ImageContent
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -91,8 +93,45 @@ object Images {
         }
     }
 
+    /** SVG 渲染的放大倍数：徽章等矢量图按 3 倍像素栅格化，在高密度屏上保持清晰；逻辑尺寸 = 位图尺寸 / 倍数 */
+    internal const val SVG_SCALE = 3f
+
+    /** 由 SVG 栅格化得到的位图 → 它的放大倍数；普通位图不在表里（视为 1 倍）。弱引用，位图被回收后自动清除 */
+    private val svgScales = java.util.WeakHashMap<ImageBitmap, Float>()
+
+    /** 位图相对「逻辑像素（dp）」的倍数：SVG 位图是 [SVG_SCALE]，普通图片按原始像素显示时为 1 */
+    fun scaleOf(bitmap: ImageBitmap): Float = synchronized(svgScales) { svgScales[bitmap] } ?: 1f
+
+    /** 把 SVG 画成位图；解析失败返回 null。文档没有声明尺寸时用 viewBox，再不行取 300×150（浏览器的默认值） */
+    internal fun decodeSvg(bytes: ByteArray, maxDim: Int): ImageBitmap? = try {
+        val svg = com.caverock.androidsvg.SVG.getFromInputStream(java.io.ByteArrayInputStream(bytes))
+        var w = svg.documentWidth
+        var h = svg.documentHeight
+        if (w <= 0f || h <= 0f) {
+            val box = svg.documentViewBox
+            if (box != null && box.width() > 0f && box.height() > 0f) { w = box.width(); h = box.height() } else { w = 300f; h = 150f }
+        }
+        val scale = minOf(SVG_SCALE, maxDim / maxOf(w, h)).coerceAtLeast(0.1f)
+        val bmp = Bitmap.createBitmap((w * scale).toInt().coerceAtLeast(1), (h * scale).toInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+        // 很多徽章 SVG 没有写 viewBox：不补上的话，放大文档尺寸时内容不会跟着放大，只会缩在左上角
+        if (svg.documentViewBox == null) svg.setDocumentViewBox(0f, 0f, w, h)
+        svg.setDocumentWidth(w * scale)
+        svg.setDocumentHeight(h * scale)
+        svg.renderToCanvas(android.graphics.Canvas(bmp))
+        bmp.asImageBitmap().also { synchronized(svgScales) { svgScales[it] = scale } }
+    } catch (e: Exception) {
+        null
+    } catch (e: OutOfMemoryError) {
+        null
+    }
+
     /** 采样解码，避免大图直接撑爆内存 */
-    fun decode(bytes: ByteArray, maxDim: Int): ImageBitmap? = try {
+    fun decode(bytes: ByteArray, maxDim: Int): ImageBitmap? {
+        if (ImageContent.mimeOf("", bytes) == "image/svg+xml") return decodeSvg(bytes, maxDim)
+        return decodeRaster(bytes, maxDim)
+    }
+
+    private fun decodeRaster(bytes: ByteArray, maxDim: Int): ImageBitmap? = try {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
         var sample = 1

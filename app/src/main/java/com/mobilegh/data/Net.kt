@@ -47,9 +47,9 @@ object Net {
     private val JSD = CdnNode("jsd", "jsDelivr", NodeType.JsDelivr, "https://cdn.jsdelivr.net")
 
     /**
-     * 内置节点。每个都经过多轮实测（原文件、Release 下载、git clone 入口各取多次样本）后才收录；
-     * 反复出错或几乎不可用的（如 ghproxy.net：下载与克隆接近 0%）已经移除。
-     * 实际使用哪个由启动时的自动测速决定，失败的节点会被自动降级。
+     * 内置节点。每个都经过实测（原文件、Release 下载的完整性、Range 分段、git clone 入口）后才收录；
+     * 几乎不可用的（下载内容不对、超时）不收录。公共代理的稳定性会随时间变化，
+     * 实际使用哪个由启动时的自动测速和真实下载速度决定，失败的节点会被自动降级、排到后面。
      */
     val builtins = listOf(
         DIRECT,
@@ -66,7 +66,20 @@ object Net {
         CdnNode("monlor", "gh.monlor.com", NodeType.Prefix, "https://gh.monlor.com/"),
         CdnNode("ghm", "ghm.078465.xyz", NodeType.Prefix, "https://ghm.078465.xyz/"),
         CdnNode("imciel", "ghproxy.imciel.com", NodeType.Prefix, "https://ghproxy.imciel.com/"),
+        // 以下为新增：实测均支持 Range 分段下载、Release 完整性校验通过、git clone 入口正常
+        CdnNode("sixyin", "gh.sixyin.com", NodeType.Prefix, "https://gh.sixyin.com/"),
+        CdnNode("chjina", "gh.chjina.com", NodeType.Prefix, "https://gh.chjina.com/"),
+        CdnNode("dpik", "gh.dpik.top", NodeType.Prefix, "https://gh.dpik.top/"),
+        CdnNode("noki", "gh.noki.icu", NodeType.Prefix, "https://gh.noki.icu/"),
+        CdnNode("gh-proxy-hk", "gh-proxy.com · 香港", NodeType.Prefix, "https://hk.gh-proxy.com/"),
+        CdnNode("gh-proxy-cdn", "gh-proxy.com · CDN", NodeType.Prefix, "https://cdn.gh-proxy.com/"),
+        CdnNode("gh-proxy-edge", "gh-proxy.com · EdgeOne", NodeType.Prefix, "https://edgeone.gh-proxy.com/"),
+        // ghproxy.net 可用但速度波动大：放在最后，只在前面的节点失败时作为后备，选优会按实测速度把它排后
+        CdnNode("ghproxy-net", "ghproxy.net", NodeType.Prefix, "https://ghproxy.net/"),
     )
+
+    /** 下载最多依次尝试的代理个数（之后回退直连）：节点多了也不会让失败的下载等太久 */
+    const val MAX_DOWNLOAD_PROXIES = 8
 
     /** 未测速前的默认值：取自实测延迟最低且稳定的节点 */
     private const val DEFAULT_RAW = "jsd-cf"
@@ -254,7 +267,7 @@ object Net {
         if (mode == 2 || !isProxyable(url)) return listOf(DownloadTarget(DIRECT.id, DIRECT.name, url))
         val preferred = dlNode()
         val candidates = if (mode == 1) listOf(preferred) else nodes
-        return orderDownloadTargets(candidates, url, latency, downloadFailed, downloadOkId ?: preferred.id, speeds = speeds)
+        return orderDownloadTargets(candidates, url, latency, downloadFailed, downloadOkId ?: preferred.id, speeds = speeds, maxProxies = MAX_DOWNLOAD_PROXIES)
     }
 
     fun markPrivate(fullName: String) {
@@ -627,6 +640,8 @@ fun orderDownloadTargets(
     preferredId: String,
     direct: CdnNode = CdnNode("direct", tr("直连 GitHub"), NodeType.Direct, ""),
     speeds: Map<String, Long> = emptyMap(),
+    /** 最多保留的代理个数（直连兜底不计入）；默认不限制，下载时由 [Net.MAX_DOWNLOAD_PROXIES] 限制 */
+    maxProxies: Int = Int.MAX_VALUE,
 ): List<DownloadTarget> {
     val ordered = candidates.filter { it.type == NodeType.Prefix }.sortedWith(
         compareBy<CdnNode>(
@@ -637,6 +652,6 @@ fun orderDownloadTargets(
             { latency[it.id]?.takeIf { l -> l >= 0 } ?: Long.MAX_VALUE },
         ),
     )
-    val list = ordered.map { DownloadTarget(it.id, it.name, it.base + url) }
+    val list = ordered.take(maxProxies).map { DownloadTarget(it.id, it.name, it.base + url) }
     return (list + DownloadTarget(direct.id, direct.name, url)).distinctBy { it.url }
 }

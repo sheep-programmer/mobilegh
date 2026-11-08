@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.activity.compose.BackHandler
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -55,7 +56,7 @@ fun AuthenticatorScreen(onBack: (() -> Unit)? = null) {
         OcButton(R.drawable.oc_scan, { scanning = true }, description = tr("扫码导入"))
         OcButton(R.drawable.oc_plus, { editingSecret = null; editing = true })
     }) { pad ->
-        LazyColumn(Modifier.padding(pad).fillMaxSize().background(g.canvas), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(16.dp)) {
+        ScrollbarLazyColumn(Modifier.padding(pad).fillMaxSize().background(g.canvas), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(16.dp)) {
             item { MobileApprovalCard() }
             item { Text(tr("验证器验证码"), color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 16.sp) }
             item { Text(tr("选择 GitHub 的「验证器应用」，复制这里的六位码完成验证。"), color = g.fgMuted, fontSize = 14.sp) }

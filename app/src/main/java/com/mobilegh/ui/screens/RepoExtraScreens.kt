@@ -1,6 +1,8 @@
 package com.mobilegh.ui.screens
 
 import com.mobilegh.ui.components.MenuRow
+import com.mobilegh.ui.components.verticalScrollWithBar
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import com.mobilegh.ui.components.MenuGroup
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -98,6 +100,7 @@ import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.components.TypeToConfirmDialog
 import com.mobilegh.ui.theme.Gh
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import com.mobilegh.i18n.tr
@@ -368,7 +371,7 @@ private fun ReleaseForm(owner: String, name: String, seed: ReleaseSeed, modifier
     val existingTag = tagName in seed.tags
     val tagOk = tagName.isNotEmpty() && tagName.none { it.isWhitespace() }
 
-    Column(modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
+    Column(modifier.fillMaxSize().imePadding().verticalScrollWithBar().padding(vertical = 12.dp)) {
         if (!canPush) NoPushNotice(seed.repo.archived, "https://github.com/$owner/$name/releases/new")
         if (!draft.initial.empty && editing) {
             Text(tr("已恢复本机草稿中的标题和说明"), Modifier.padding(horizontal = 16.dp), fontSize = 12.sp, color = g.accent)
@@ -471,7 +474,7 @@ private fun ReleaseForm(owner: String, name: String, seed: ReleaseSeed, modifier
                 CompactSearchField(q, { q = it }, tr("筛选"))
                 Spacer(Modifier.height(8.dp))
                 val list = seed.tags.filter { it.contains(q, true) }
-                LazyColumn(Modifier.heightIn(max = 360.dp)) {
+                ScrollbarLazyColumn(Modifier.heightIn(max = 360.dp)) {
                     boxedItems(list) { t ->
                         Row(Modifier.fillMaxWidth().clickable { tag = t; pickTag = false }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Oc(if (t == tagName) R.drawable.oc_check else R.drawable.oc_tag, if (t == tagName) g.accent else g.fgMuted)
@@ -503,7 +506,7 @@ fun InsightsScreen(owner: String, name: String) {
     val all = listOf<Loader<*>>(views, clones, refs, paths, activity, langs, contributors)
     Page(tr("洞察"), subtitle = "$owner/$name") { pad ->
         PullToRefreshBox(all.any { it.refreshing }, { all.forEach { it.refresh() } }, Modifier.padding(pad)) {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            Column(Modifier.fillMaxSize().verticalScrollWithBar()) {
                 SectionTitle(tr("访问量（最近 14 天）"))
                 TrafficCard(views, tr("浏览"), tr("独立访客")) { it.views.orEmpty() }
                 SectionTitle(tr("克隆（最近 14 天）"))
@@ -619,6 +622,53 @@ fun RepoSettingsScreen(owner: String, name: String) {
     }
 }
 
+/** 仓库设置「保存修改」要提交的字段：只包含和当前值不同的项 */
+internal fun repoSettingsPatch(r: Repo, name: String, description: String, homepage: String, defaultBranch: String): JsonObject =
+    buildJsonObject {
+        name.trim().takeIf { it.isNotEmpty() && it != r.name }?.let { put("name", JsonPrimitive(it)) }
+        if (description != r.description.orEmpty()) put("description", JsonPrimitive(description))
+        if (homepage != r.homepage.orEmpty()) put("homepage", JsonPrimitive(homepage))
+        defaultBranch.trim().takeIf { it.isNotEmpty() && it != r.defaultBranch }?.let { put("default_branch", JsonPrimitive(it)) }
+    }
+
+/**
+ * 仓库页上直接编辑描述、网址和主题（与网页版「Edit repository details」一致）。
+ * 和设置页共用 [repoSettingsPatch]：只提交改动过的字段。
+ */
+@Composable
+fun EditRepoDetailsDialog(r: Repo, onDismiss: () -> Unit, onSaved: () -> Unit) {
+    val entry = LocalEntry.current
+    val ctx = rememberCtx()
+    var desc by rememberSaveable(r.id) { mutableStateOf(r.description.orEmpty()) }
+    var home by rememberSaveable(r.id) { mutableStateOf(r.homepage.orEmpty()) }
+    var topics by rememberSaveable(r.id) { mutableStateOf(r.topics.joinToString(", ")) }
+    var saving by remember { mutableStateOf(false) }
+    val o = r.owner.login
+    GhDialog(
+        tr("编辑仓库信息"), onDismiss = { if (!saving) onDismiss() }, confirm = tr("保存"),
+        confirmEnabled = !saving, dismissEnabled = !saving, dismissOnClickOutside = false,
+        onConfirm = {
+            saving = true
+            entry.act({ saving = false; ctx.toast(it) }) {
+                val patch = repoSettingsPatch(r, r.name, desc.trim(), home.trim(), r.defaultBranch)
+                if (patch.isNotEmpty()) GitHub.updateRepo(o, r.name, patch)
+                val list = topics.split(',', '，', ' ').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+                if (list != r.topics) GitHub.setTopics(o, r.name, list)
+                RepoWrite.changed(o, r.name)
+                saving = false
+                ctx.toast(tr("已保存"))
+                onSaved()
+            }
+        },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            GhField(desc, { desc = it }, tr("描述"), Modifier.fillMaxWidth(), singleLine = false, minLines = 2)
+            GhField(home, { home = it }, tr("主页网址"), Modifier.fillMaxWidth())
+            GhField(topics, { topics = it }, tr("Topics（逗号分隔）"), Modifier.fillMaxWidth())
+        }
+    }
+}
+
 @Composable
 private fun SettingsForm(r: Repo, reload: () -> Unit) {
     val g = Gh.c
@@ -650,12 +700,10 @@ private fun SettingsForm(r: Repo, reload: () -> Unit) {
     fun saveBasics() {
         saving = true
         entry.act({ saving = false; ctx.toast(it) }) {
-            val updated = GitHub.updateRepo(o, r.name, buildJsonObject {
-                put("name", JsonPrimitive(newName.trim()))
-                put("description", JsonPrimitive(desc))
-                put("homepage", JsonPrimitive(home))
-                put("default_branch", JsonPrimitive(branch.trim()))
-            })
+            // 只提交改动过的字段：没改的默认分支也提交的话，空仓库（还没有提交）会被 GitHub 拒绝（422），
+            // 而同一请求里的改名、描述却已经生效，界面就会「改成功了却报错」
+            val patch = repoSettingsPatch(r, newName, desc, home, branch)
+            val updated = if (patch.isEmpty()) r else GitHub.updateRepo(o, r.name, patch)
             val list = topics.split(',', '，', ' ').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
             if (list != r.topics) GitHub.setTopics(o, updated.name, list)
             saving = false
@@ -664,7 +712,7 @@ private fun SettingsForm(r: Repo, reload: () -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 40.dp)) {
+    Column(Modifier.fillMaxSize().verticalScrollWithBar().padding(bottom = 40.dp)) {
         SectionTitle(tr("基本信息"))
         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             GhField(newName, { newName = it.replace(' ', '-') }, tr("仓库名称"))
@@ -815,7 +863,7 @@ fun CollaboratorsScreen(owner: String, name: String) {
     fun reload() { collabs.load(true); pending.load(true) }
     Page(tr("协作者"), subtitle = "$owner/$name", actions = { OcButton(R.drawable.oc_plus, { adding = true }) }) { pad ->
         LoadBox(collabs, Modifier.padding(pad).fillMaxSize()) { list ->
-            LazyColumn(Modifier.fillMaxSize()) {
+            ScrollbarLazyColumn(Modifier.fillMaxSize()) {
                 val inv = pending.data.orEmpty()
                 if (inv.isNotEmpty()) {
                     item { SectionTitle(tr("待接受的邀请")) }

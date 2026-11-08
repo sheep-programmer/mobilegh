@@ -1,6 +1,8 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.background
+import com.mobilegh.ui.components.verticalScrollWithBar
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -432,7 +434,7 @@ private fun CommentComposer(
         confirmEnabled = body.text.isNotBlank() && !sending,
         onConfirm = { submit() },
     ) {
-        Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+        Column(Modifier.heightIn(max = 480.dp).verticalScrollWithBar()) {
             Text(target.path, fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = g.fgMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
             target.preview?.takeIf { it.isNotBlank() }?.let { p ->
                 Spacer(Modifier.height(6.dp))
@@ -545,7 +547,7 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
             val current = list.mapNotNull { pf -> pf.file.sha?.let { pf.file.filename to it } }.toMap()
             val stale = current.any { (path, sha) -> viewed[path] != null && viewed[path] != sha }
             val count = current.count { (path, sha) -> viewed[path] == sha }
-            LazyColumn(Modifier.fillMaxSize()) {
+            ScrollbarLazyColumn(Modifier.fillMaxSize()) {
                 item {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -809,7 +811,7 @@ fun PullChecksScreen(owner: String, name: String, number: Int, sha: String) {
     val pr = rememberLoader("pr") { GitHub.pull(owner, name, number, it) }
     Page(tr("检查"), subtitle = "$owner/$name #$number") { pad ->
         LoadBox(checks, Modifier.padding(pad).fillMaxSize()) { c ->
-            LazyColumn(Modifier.fillMaxSize()) {
+            ScrollbarLazyColumn(Modifier.fillMaxSize()) {
                 item {
                     Column(Modifier.padding(16.dp)) {
                         pr.data?.title?.let { MdText(it, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }

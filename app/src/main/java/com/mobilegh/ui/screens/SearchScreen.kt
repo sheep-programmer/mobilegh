@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.background
+import com.mobilegh.ui.components.verticalScrollWithBar
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -310,7 +311,7 @@ private fun HintPane(type: Int, onHistory: (SearchHistoryEntry) -> Unit, onExamp
         else -> listOf("repo:owner/name fun main", "path:src fun main", "language:Kotlin fun main")
     }
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 36.dp),
+        Modifier.fillMaxSize().verticalScrollWithBar().padding(horizontal = 20.dp, vertical = 36.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Oc(R.drawable.oc_search, g.fgMuted, 32.dp)
@@ -437,7 +438,17 @@ private fun CodeResults(query: String, state: LazyListState) {
         }.padding(16.dp)) {
             // 命中的词加底色，限定符（repo:/language:）不参与高亮
             val mark = Gh.c.attention.copy(alpha = 0.32f)
-            Text(hit.repository.fullName.ifBlank { "${hit.repository.owner.login}/${hit.repository.name}" }, color = Gh.c.fgMuted, fontSize = 12.sp)
+            // 仓库名单独可点：直接进入仓库，不必先打开文件再找入口
+            Row(
+                Modifier.clip(RoundedCornerShape(4.dp))
+                    .clickable { nav.push(Screen.Repo(hit.repository.owner.login, hit.repository.name)) }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Oc(R.drawable.oc_repo, Gh.c.fgMuted, 14.dp)
+                Spacer(Modifier.width(4.dp))
+                Text(hit.repository.fullName.ifBlank { "${hit.repository.owner.login}/${hit.repository.name}" }, color = Gh.c.accent, fontSize = 12.sp)
+            }
             Text(SearchText.annotated(hit.path, query, mark), color = Gh.c.accent, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             hit.textMatches.firstOrNull()?.fragment?.let {
                 Text(

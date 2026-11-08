@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.activity.compose.BackHandler
+import com.mobilegh.ui.components.verticalScrollWithBar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -386,7 +388,7 @@ private fun CommitDialog(
         confirmEnabled = valid && !busy,
         onConfirm = ::submit,
     ) {
-        Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+        Column(Modifier.heightIn(max = 480.dp).verticalScrollWithBar()) {
             Text(path, fontSize = 12.sp, color = g.fgMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
             GhField(summary, { summary = it }, tr("提交信息"))
@@ -496,7 +498,8 @@ fun NewPullScreen(owner: String, name: String, head: String, base: String, title
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     Page(tr("创建拉取请求"), subtitle = "$owner/$name") { pad ->
-        Column(Modifier.padding(pad).imePadding().verticalScroll(rememberScrollState()).padding(vertical = 16.dp)) {
+        // 底部栏已经垫到键盘上方：先扣掉 pad 再补剩余的键盘高度，避免重复留白
+        Column(Modifier.padding(pad).consumeWindowInsets(pad).imePadding().verticalScrollWithBar().padding(vertical = 16.dp)) {
           Column(Modifier.padding(horizontal = 16.dp)) {
             Row(
                 Modifier.fillMaxWidth().border(1.dp, g.border, RoundedCornerShape(6.dp)).padding(horizontal = 12.dp, vertical = 10.dp),

@@ -14,6 +14,8 @@ internal interface LocalRecordStorage {
     fun read(key: String): String?
     fun write(key: String, value: String)
     fun remove(key: String)
+    /** 已保存的全部键（草稿列表用来遍历）；不需要遍历的存储可以不实现 */
+    fun keys(): Collection<String> = emptyList()
 }
 
 @Serializable

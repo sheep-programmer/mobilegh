@@ -1,5 +1,6 @@
 package com.mobilegh.ui.screens
 
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -127,7 +128,7 @@ fun SearchHistoryScreen() {
             } else if (shown.isEmpty()) {
                 EmptyState(tr("这个类型还没有搜索记录"), R.drawable.oc_search, action = tr("查看全部")) { type = -1 }
             } else {
-                LazyColumn {
+                ScrollbarLazyColumn {
                     items(shown, key = { "${it.type}:${it.query}" }) { entry ->
                         Row(
                             Modifier.fillMaxWidth().clickable { nav.push(Screen.Search(entry.type, entry.query)) }
@@ -167,7 +168,7 @@ fun RecentRepositoriesScreen() {
             Text(tr("仅保存在本机，按账号区分"), Modifier.padding(horizontal = 16.dp, vertical = 4.dp), color = Gh.c.fgMuted, fontSize = 12.sp)
             if (all.isEmpty()) EmptyState(tr("还没有浏览过仓库"), R.drawable.oc_history)
             else if (shown.isEmpty()) EmptyState(tr("没有匹配的仓库"), R.drawable.oc_search, action = tr("清除搜索")) { filter = "" }
-            else LazyColumn {
+            else ScrollbarLazyColumn {
                 items(shown, key = { it.fullName.lowercase() }) { repo ->
                     Row(Modifier.fillMaxWidth().clickable { nav.push(Screen.Repo(repo.owner, repo.name)) }.padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Oc(R.drawable.oc_repo)

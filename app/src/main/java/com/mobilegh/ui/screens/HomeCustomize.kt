@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.annotation.DrawableRes
+import com.mobilegh.ui.components.verticalScrollWithBar
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -85,7 +86,7 @@ fun HomeCustomizeScreen() {
             )
         },
     ) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState())) {
+        Column(Modifier.padding(pad).fillMaxSize().verticalScrollWithBar()) {
             SectionTitle(tr("我的工作"))
             Hint(tr("用开关显示或隐藏入口，用箭头调整顺序。"))
             Spacer(Modifier.height(8.dp))
@@ -230,7 +231,7 @@ private fun NewSavedSearchDialog(onDismiss: () -> Unit) {
             .onSuccess { ctx.toast(tr("已添加到首页「我的工作」")); onDismiss() }
             .onFailure { ctx.toast(it.message ?: tr("保存失败")) }
     }) {
-        Column(Modifier.verticalScroll(rememberScrollState())) {
+        Column(Modifier.verticalScrollWithBar()) {
             GhField(name, { name = it.take(HomeLayout.MAX_NAME + 8) }, tr("名称"))
             // 字数计数；超出上限时写明原因，保存按钮同时禁用
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {

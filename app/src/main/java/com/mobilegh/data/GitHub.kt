@@ -293,7 +293,7 @@ object GitHub {
             put("head", head)
             put("base", base)
             if (draft) put("draft", true)
-        })
+        }).also { RepoWrite.changed(o, n, RepoWrite.ISSUES) }
 
     suspend fun branches(o: String, n: String, page: Int, force: Boolean) = Api.get<List<Branch>>("${r(o, n)}/branches?per_page=100&page=$page", force)
     suspend fun tags(o: String, n: String, page: Int, force: Boolean) = Api.get<List<Tag>>("${r(o, n)}/tags?per_page=100&page=$page", force)
@@ -335,6 +335,7 @@ object GitHub {
         newName: String? = null,
         defaultBranchOnly: Boolean = true,
     ): Repo = Api.send<Repo>("POST", "${r(o, n)}/forks", forkBody(organization, newName, defaultBranchOnly))
+        .also { RepoWrite.reposChanged() }
 
     /**
      * fork 请求体。单独抽成纯函数便于测试：GitHub 会静默忽略不认识的字段，
@@ -371,8 +372,15 @@ object GitHub {
      * 开放中的 Issue 数（不含 PR）。用搜索接口统计，与网页上 Issues 页的 Open 计数一致。
      * 仓库的 open_issues_count 与此常差 1，所以不用它直接减 PR 得出 Issue 数。
      */
-    suspend fun openIssueCount(o: String, n: String, force: Boolean = false): Int =
-        searchIssues("repo:$o/$n is:issue is:open", page = 1, force = force).totalCount
+    /**
+     * 开放中的 Issue 数：仓库的 open_issues_count（包含 PR）减去开放 PR 数。
+     * 两个值都是实时的；搜索接口的 total_count 要等索引更新，新建后马上刷新可能还是旧数。
+     */
+    suspend fun openIssueCount(o: String, n: String, force: Boolean = false): Int = coroutineScope {
+        val all = async { repo(o, n, force).openIssuesCount }
+        val pulls = async { openPullCount(o, n, force) }
+        (all.await() - pulls.await()).coerceAtLeast(0)
+    }
 
     /**
      * 开放中的 PR 数量。GitHub 的 open_issues_count 把 PR 也算在内，真正的 Issue 数要减掉它。
@@ -413,14 +421,20 @@ object GitHub {
             .also { PullRequestStatuses.loadPage(o, n, it) }
     suspend fun issue(o: String, n: String, num: Int, force: Boolean) = Api.get<Issue>("${r(o, n)}/issues/$num", force, Api.FULL)
     /** 评论每页 100 条，最多连续读取的页数：超长讨论不会无限拉取，但也不再丢掉第 100 条之后的评论 */
-    private const val MAX_COMMENT_PAGES = 10
+    const val MAX_COMMENT_PAGES = 10
+    const val COMMENT_PAGE_SIZE = 100
 
+    /** 一页评论（按时间先后）。详情页先显示第一页，后续页在后台逐页追加。 */
+    suspend fun issueCommentsPage(o: String, n: String, num: Int, page: Int, force: Boolean): List<Comment> =
+        Api.get<List<Comment>>("${r(o, n)}/issues/$num/comments?per_page=$COMMENT_PAGE_SIZE&page=$page", force, Api.FULL)
+
+    /** 一次读完全部评论（最多 [MAX_COMMENT_PAGES] 页）：从 #issuecomment-N 链接进来需要定位到具体评论时使用 */
     suspend fun issueComments(o: String, n: String, num: Int, force: Boolean): List<Comment> {
         val all = mutableListOf<Comment>()
         for (page in 1..MAX_COMMENT_PAGES) {
-            val part = Api.get<List<Comment>>("${r(o, n)}/issues/$num/comments?per_page=100&page=$page", force && page == 1, Api.FULL)
+            val part = issueCommentsPage(o, n, num, page, force && page == 1)
             all += part
-            if (part.size < 100) break
+            if (part.size < COMMENT_PAGE_SIZE) break
         }
         return all
     }
@@ -447,13 +461,15 @@ object GitHub {
     suspend fun pullReviews(o: String, n: String, num: Int, force: Boolean) = Api.get<List<Review>>("${r(o, n)}/pulls/$num/reviews?per_page=100", force, Api.FULL)
     suspend fun addComment(o: String, n: String, num: Int, body: String) =
         Api.send<Comment>("POST", "${r(o, n)}/issues/$num/comments", buildJsonObject { put("body", body) })
+            .also { RepoWrite.changed(o, n, RepoWrite.ISSUES) }
     suspend fun setIssueState(o: String, n: String, num: Int, open: Boolean, reason: String? = null) =
         Api.send<Issue>("PATCH", "${r(o, n)}/issues/$num", buildJsonObject {
             put("state", if (open) "open" else "closed")
             reason?.let { put("state_reason", it) }
-        })
+        }).also { RepoWrite.changed(o, n, RepoWrite.ISSUES) }
     suspend fun setPullState(o: String, n: String, num: Int, open: Boolean) =
         Api.send<Pull>("PATCH", "${r(o, n)}/pulls/$num", buildJsonObject { put("state", if (open) "open" else "closed") })
+            .also { RepoWrite.changed(o, n, RepoWrite.ISSUES) }
     /** title/message 为空时由 GitHub 生成默认提交信息；sha 用于防止合并时头部已被更新 */
     suspend fun merge(o: String, n: String, num: Int, method: String, title: String? = null, message: String? = null, sha: String? = null) =
         Api.exec("PUT", "${r(o, n)}/pulls/$num/merge", buildJsonObject {
@@ -586,6 +602,37 @@ object GitHub {
         if (data.obj(field) == null) throw ApiException(403, tr("操作失败（可能没有权限）"))
     }
 
+    /** 置顶到仓库 Issue 列表顶部的 Issue（网页版的 Pin issue，每个仓库最多 3 个） */
+    data class PinnedIssue(val number: Int, val title: String, val open: Boolean)
+
+    suspend fun pinnedIssues(o: String, n: String): List<PinnedIssue> {
+        val data = Api.graphql(
+            "query(${'$'}o: String!, ${'$'}n: String!) { repository(owner: ${'$'}o, name: ${'$'}n) { pinnedIssues(first: 3) { nodes { issue { number title state } } } } }",
+            mapOf("o" to o, "n" to n),
+        )
+        return data.obj("repository").obj("pinnedIssues").arr("nodes").orEmpty().mapNotNull { node ->
+            val issue = node.obj("issue") ?: return@mapNotNull null
+            val number = issue.int("number") ?: return@mapNotNull null
+            PinnedIssue(number, issue.str("title").orEmpty(), issue.str("state") == "OPEN")
+        }
+    }
+
+    /** 这个 Issue 是否已置顶 */
+    suspend fun issuePinned(o: String, n: String, num: Int): Boolean {
+        val data = Api.graphql(
+            "query(${'$'}o: String!, ${'$'}n: String!, ${'$'}num: Int!) { repository(owner: ${'$'}o, name: ${'$'}n) { issue(number: ${'$'}num) { isPinned } } }",
+            mapOf("o" to o, "n" to n, "num" to num),
+        )
+        return data.obj("repository").obj("issue").str("isPinned") == "true"
+    }
+
+    /** 置顶 / 取消置顶 Issue（需要仓库写权限）。REST 没有对应接口，只能走 GraphQL */
+    suspend fun setIssuePinned(o: String, n: String, nodeId: String, pinned: Boolean) {
+        val m = if (pinned) "pinIssue" else "unpinIssue"
+        mutate(m, "mutation(${'$'}id: ID!) { $m(input: { issueId: ${'$'}id }) { issue { isPinned } } }", mapOf("id" to nodeId))
+        RepoWrite.changed(o, n, RepoWrite.ISSUES)
+    }
+
     suspend fun resolveThread(threadId: String, resolve: Boolean) {
         val m = if (resolve) "resolveReviewThread" else "unresolveReviewThread"
         mutate(m, "mutation(${'$'}id: ID!) { $m(input: { threadId: ${'$'}id }) { thread { isResolved } } }", mapOf("id" to threadId))
@@ -635,7 +682,7 @@ object GitHub {
         if (labels.isNotEmpty()) put("labels", JsonArray(labels.map { JsonPrimitive(it) }))
         if (assignees.isNotEmpty()) put("assignees", JsonArray(assignees.map { JsonPrimitive(it) }))
         milestone?.let { put("milestone", it) }
-    })
+    }).also { RepoWrite.changed(o, n, RepoWrite.ISSUES) }
 
     /**
      * 读取 .github/ISSUE_TEMPLATE/ 下的模板与 config.yml；目录不存在时返回空集合。
@@ -672,6 +719,7 @@ object GitHub {
     suspend fun deleteComment(o: String, n: String, commentId: Long) = Api.exec("DELETE", "${r(o, n)}/issues/comments/$commentId")
     suspend fun editIssue(o: String, n: String, num: Int, title: String, body: String) =
         Api.send<Issue>("PATCH", "${r(o, n)}/issues/$num", buildJsonObject { put("title", title); put("body", body) })
+            .also { RepoWrite.changed(o, n, RepoWrite.ISSUES) }
 
     /**
      * 切换表情：POST 创建，已存在时 GitHub 返回 200（不是 201）并带回已有那条的 id，此时再 DELETE 即取消。
@@ -838,13 +886,28 @@ object GitHub {
     suspend fun setTopics(o: String, n: String, topics: List<String>) =
         Api.exec("PUT", "${r(o, n)}/topics", JsonObject(mapOf("names" to JsonArray(topics.map { JsonPrimitive(it) }))))
     suspend fun deleteRepo(o: String, n: String) = Api.exec("DELETE", r(o, n))
-    suspend fun createRepo(org: String?, name: String, desc: String, private: Boolean, autoInit: Boolean) =
+    /**
+     * 新建仓库。[gitignore] 为 .gitignore 模板名（如 Android），[license] 为许可证 key（如 mit）；
+     * 选了任一模板时 GitHub 会用它们生成第一个提交。
+     */
+    suspend fun createRepo(
+        org: String?, name: String, desc: String, private: Boolean, autoInit: Boolean,
+        gitignore: String? = null, license: String? = null,
+    ) =
         Api.send<Repo>("POST", if (org == null) "/user/repos" else "/orgs/$org/repos", buildJsonObject {
             put("name", name)
             put("description", desc)
             put("private", private)
             put("auto_init", autoInit)
-        })
+            gitignore?.takeIf { it.isNotBlank() }?.let { put("gitignore_template", it) }
+            license?.takeIf { it.isNotBlank() }?.let { put("license_template", it) }
+        }).also { RepoWrite.reposChanged() }
+
+    /** 新建仓库可选的 .gitignore 模板名 */
+    suspend fun gitignoreTemplates(force: Boolean = false): List<String> = Api.get("/gitignore/templates", force)
+
+    /** 新建仓库可选的许可证（常用的开源许可证） */
+    suspend fun licenses(force: Boolean = false): List<License> = Api.get("/licenses", force)
 
     // ---------------- 通知 ----------------
     suspend fun notifications(all: Boolean, participating: Boolean, page: Int, force: Boolean) =

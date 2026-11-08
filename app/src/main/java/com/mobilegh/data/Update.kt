@@ -85,6 +85,23 @@ object Update {
         }
     }
 
+    /**
+     * 启动检查发现新版本时是否自动弹窗：同一版本只弹一次；选了「跳过此版本」后，这个版本不再自动提示
+     * （设置里仍能手动查看与下载）。
+     */
+    fun shouldPrompt(info: Info): Boolean =
+        ::prefs.isInitialized && prefs.getString("skippedVersion", null) != info.version && prompted != info.version
+
+    /** 本次运行中已经自动提示过的版本 */
+    private var prompted: String? = null
+
+    fun markPrompted(info: Info) { prompted = info.version }
+
+    fun skip(info: Info) {
+        prompted = info.version
+        if (::prefs.isInitialized) prefs.edit().putString("skippedVersion", info.version).apply()
+    }
+
     /** 启动后静默检查一次，有新版本再提示 */
     fun checkQuietly() {
         if (checking || available != null) return

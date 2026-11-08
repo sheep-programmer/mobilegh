@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.layout.Column
+import com.mobilegh.ui.components.verticalScrollWithBar
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -39,7 +40,7 @@ fun WikiScreen(owner: String, name: String, page: String?) {
         },
     ) { pad ->
         LoadBox(html, Modifier.padding(pad).fillMaxSize()) { body ->
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
+            Column(Modifier.fillMaxSize().verticalScrollWithBar().padding(vertical = 12.dp)) {
                 HtmlView(body, baseUrl = Wiki.baseUrl(owner, name))
             }
         }

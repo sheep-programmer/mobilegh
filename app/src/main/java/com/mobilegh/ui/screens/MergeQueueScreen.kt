@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.clickable
+import com.mobilegh.ui.components.verticalScrollWithBar
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -45,7 +46,7 @@ fun MergeQueueScreen(owner: String, name: String) {
     val error = queue.error
     Page(tr("合并队列"), subtitle = "$owner/$name") { pad ->
         PullToRefreshBox(queue.refreshing, { queue.refresh() }, Modifier.padding(pad)) {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+            Column(Modifier.fillMaxSize().verticalScrollWithBar().padding(bottom = 24.dp)) {
                 when {
                     error != null -> Text(error, Modifier.padding(16.dp), fontSize = 13.sp, color = g.danger)
                     info == null -> Loading(Modifier.fillMaxWidth().heightIn(min = 200.dp))

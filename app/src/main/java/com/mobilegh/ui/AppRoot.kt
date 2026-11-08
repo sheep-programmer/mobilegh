@@ -120,6 +120,8 @@ fun AppRoot(nav: Navigator) {
                         com.mobilegh.ui.components.VideoViewerHost()
                         com.mobilegh.ui.components.MobileApprovalHost()
                         com.mobilegh.ui.components.NotificationPermissionHost()
+                        // 启动检查发现新版本时自动弹出更新提示
+                        if (Session.token != null) UpdatePromptHost()
                     }
                 }
             }
@@ -167,6 +169,7 @@ private fun Main(nav: Navigator) {
         GhDialog(
             tr("GitHub 授权已失效"),
             onDismiss = { Session.authExpired = false },
+            dismissOnClickOutside = false,
             confirm = tr("重新登录"),
             onConfirm = {
                 Session.authExpired = false
@@ -181,6 +184,7 @@ private fun Main(nav: Navigator) {
         GhDialog(
             tr("授权权限不完整"),
             onDismiss = { Session.dismissScopeNotice() },
+            dismissOnClickOutside = false,
             confirm = tr("重新登录补齐"),
             onConfirm = {
                 Session.dismissScopeNotice()
@@ -361,6 +365,8 @@ private fun ScreenHost(s: Screen) {
         is Screen.Achievements -> AchievementsScreen(s.login)
         Screen.Settings -> SettingsScreen()
         Screen.Logs -> LogsScreen()
+        Screen.Drafts -> DraftsScreen()
+        Screen.AddFavorites -> AddFavoritesScreen()
         Screen.Authenticator -> AuthenticatorScreen()
         Screen.OrgDiagnostics -> OrgDiagnosticsScreen()
         Screen.CreateRepo -> CreateRepoScreen()

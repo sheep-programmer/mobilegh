@@ -14,16 +14,20 @@ internal sealed interface HtmlBlock {
     data class Code(val language: String?, val text: String) : HtmlBlock
     data class Quote(val blocks: List<HtmlBlock>) : HtmlBlock
     data class Table(val aligns: List<TableAlign>, val header: List<List<Inline>>, val rows: List<List<List<Inline>>>) : HtmlBlock
-    data class Image(val src: String, val alt: String, val width: Int?, val height: Int?) : HtmlBlock
+    data class Image(val src: String, val alt: String, val width: Int?, val height: Int?, val link: String? = null) : HtmlBlock
+    /** 一排并排的图片：徽章行、并排的截图。按图片自身大小流式排列，放不下自动换行 */
+    data class ImageRow(val images: List<Inline.Image>) : HtmlBlock
     data class Video(val src: String) : HtmlBlock
     data class Details(val open: Boolean, val summary: List<Inline>, val blocks: List<HtmlBlock>) : HtmlBlock
+    /** 必须在浏览器里运行脚本才能显示的片段（Mermaid 等图表、数学公式）：只有这一块交给 WebView */
+    data class Web(val html: String, val baseUrl: String) : HtmlBlock
     data object Rule : HtmlBlock
 }
 
 /** 行内内容：带样式的文字、行内图片（徽章等）、换行。 */
 internal sealed interface Inline {
     data class Text(val text: String, val style: InlineStyle = InlineStyle()) : Inline
-    data class Image(val src: String, val alt: String, val width: Int?, val height: Int?, val link: String?) : Inline
+    data class Image(val src: String, val alt: String, val width: Int?, val height: Int?, val link: String?, val badge: Boolean = false) : Inline
     data object Break : Inline
 }
 
@@ -38,13 +42,15 @@ internal data class InlineStyle(
 
 internal enum class TableAlign { None, Left, Center, Right }
 
-/** 解析结果。[needsWeb] 为真时内容含有必须在浏览器里运行脚本才能显示的部分（公式、图表）。 */
-internal class ParsedHtml(val blocks: List<HtmlBlock>, val needsWeb: Boolean)
+/** 解析结果：块级内容。图表与公式在其中以 [HtmlBlock.Web] 出现，其余都原生渲染。 */
+internal class ParsedHtml(val blocks: List<HtmlBlock>)
 
 /** GitHub 渲染的 HTML 解析成块级模型，供原生 Compose 渲染使用。不依赖 Android，可在单元测试中直接运行。 */
 internal object HtmlParser {
     private const val WEB_ONLY =
-        "math-renderer, [class*=mermaid], [lang=mermaid], [data-type=geojson], [data-type=topojson], [data-type=stl]"
+        "math-renderer, section[data-type], [class*=mermaid], [lang=mermaid], [data-type=geojson], [data-type=topojson], [data-type=stl]"
+    /** 含有图表或公式时整块交给 WebView 的元素：拆开会破坏排版（段落里的行内公式、表格、标题） */
+    private val WEB_WHOLE = setOf("p", "pre", "table", "h1", "h2", "h3", "h4", "h5", "h6", "dl")
     private val SKIP = setOf("script", "style", "svg", "head", "template", "noscript", "button", "meta", "link")
     private val INLINE = setOf(
         "a", "abbr", "b", "bdi", "bdo", "br", "cite", "code", "data", "del", "dfn", "em", "font", "g-emoji", "i", "img",
@@ -57,12 +63,39 @@ internal object HtmlParser {
 
     fun parse(html: String, baseUrl: String): ParsedHtml {
         val body = Jsoup.parseBodyFragment(html).body()
-        val needsWeb = body.select(WEB_ONLY).isNotEmpty()
-        return ParsedHtml(blocks(body, Ctx(baseUrl), emptySet()), needsWeb)
+        return ParsedHtml(blocks(body, Ctx(baseUrl), emptySet()))
+    }
+
+    /** 解析结果缓存：同一段 HTML 只解析一次。列表滑动时直接取结果，不在主线程上重复解析。 */
+    private val cache = object : LinkedHashMap<String, ParsedHtml>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ParsedHtml>?) = size > CACHE_ENTRIES
+    }
+    private const val CACHE_ENTRIES = 600
+
+    private fun cacheKey(html: String, baseUrl: String) = "${html.length}:${html.hashCode()}:$baseUrl"
+
+    /** 有缓存直接返回，没有则解析并缓存。可在任意线程调用。 */
+    fun parseCached(html: String, baseUrl: String): ParsedHtml {
+        val key = cacheKey(html, baseUrl)
+        synchronized(cache) { cache[key] }?.let { return it }
+        val parsed = parse(html, baseUrl)
+        synchronized(cache) { cache[key] = parsed }
+        return parsed
+    }
+
+    /** 预解析只用一个后台线程：滑动时不和界面线程抢 CPU */
+    private val prewarmDispatcher = kotlinx.coroutines.Dispatchers.Default.limitedParallelism(1)
+
+    /** 预先解析：评论加载完成后在后台逐条解析好，滑到时就不用再解析。每条之间让出线程，随时可被取消 */
+    suspend fun prewarm(htmls: List<String>, baseUrl: String) = kotlinx.coroutines.withContext(prewarmDispatcher) {
+        for (html in htmls) {
+            kotlinx.coroutines.yield()
+            if (html.isNotBlank()) parseCached(html, baseUrl)
+        }
     }
 
     /** 相对地址按页面地址解析；页内锚点原样保留，交给渲染层跳转。 */
-    private class Ctx(baseUrl: String) {
+    private class Ctx(val baseUrl: String) {
         private val base = runCatching { URI(baseUrl) }.getOrNull()
 
         fun url(raw: String): String {
@@ -88,7 +121,11 @@ internal object HtmlParser {
                     val tag = child.normalName()
                     when {
                         tag in SKIP || tag in skip -> Unit
-                        tag in INLINE -> inlineElement(child, InlineStyle(), ctx, run)
+                        tag in INLINE && child.selectFirst(WEB_ONLY) == null -> inlineElement(child, InlineStyle(), ctx, run)
+                        webWhole(child) -> {
+                            flush()
+                            out += HtmlBlock.Web(child.outerHtml(), ctx.baseUrl)
+                        }
                         else -> {
                             flush()
                             blockElement(child, ctx, out)
@@ -99,6 +136,18 @@ internal object HtmlParser {
         }
         flush()
         return out
+    }
+
+    /**
+     * 是否把 [el] 整块交给 WebView：它本身就是图表 / 公式，或者里面有图表 / 公式而又不能拆开
+     * （段落、表格、标题，或者只含行内内容的容器）。含有其他块级内容的容器继续往下拆，只把图表那一块交出去。
+     */
+    private fun webWhole(el: Element): Boolean {
+        if (el.`is`(WEB_ONLY)) return true
+        if (el.selectFirst(WEB_ONLY) == null) return false
+        val tag = el.normalName()
+        if (tag in WEB_WHOLE || tag in INLINE) return true
+        return el.children().none { c -> c.normalName() !in INLINE && c.normalName() !in SKIP }
     }
 
     private fun blockElement(el: Element, ctx: Ctx, out: MutableList<HtmlBlock>) {
@@ -139,6 +188,10 @@ internal object HtmlParser {
 
     private fun flow(inl: List<Inline>): List<HtmlBlock> {
         if (inl.none { it is Inline.Image && !isInlineImage(it) }) return listOf(HtmlBlock.Paragraph(inl))
+        // 整段只有图片（徽章行、并排截图）：一排图片并排显示，而不是每张图占一整行
+        val images = inl.filterIsInstance<Inline.Image>()
+        val onlyImages = inl.all { it is Inline.Image || it is Inline.Break || (it is Inline.Text && it.text.isBlank()) }
+        if (onlyImages && (images.size > 1 || images.single().badge)) return listOf(HtmlBlock.ImageRow(images))
         val out = mutableListOf<HtmlBlock>()
         var seg = mutableListOf<Inline>()
         fun emit() {
@@ -149,13 +202,19 @@ internal object HtmlParser {
         for (item in inl) {
             if (item is Inline.Image && !isInlineImage(item)) {
                 emit()
-                out += HtmlBlock.Image(item.src, item.alt, item.width, item.height)
+                out += HtmlBlock.Image(item.src, item.alt, item.width, item.height, item.link)
             } else {
                 seg += item
             }
         }
         emit()
         return out
+    }
+
+    /** 徽章：shields.io、各类 badge.svg、状态图标。通常是 SVG，高约 20px，没有写宽高属性 */
+    internal fun isBadgeUrl(url: String): Boolean {
+        val u = url.lowercase().substringBefore('#')
+        return "shields.io" in u || "badge" in u || "/badges/" in u || u.substringBefore('?').endsWith(".svg")
     }
 
     /** 高度不超过 48px 的图片当作文字中的徽章（行内），更大的图片单独成块显示。 */
@@ -180,7 +239,9 @@ internal object HtmlParser {
             "img" -> {
                 val src = ctx.url(el.attr("src").ifBlank { el.attr("data-canonical-src") })
                 if (src.isNotBlank()) {
-                    out += Inline.Image(src, el.attr("alt"), el.attr("width").toIntOrNull(), el.attr("height").toIntOrNull(), style.link)
+                    // camo 代理地址把原始地址编码进了路径；原始地址在 data-canonical-src 里，判断是不是徽章用它
+                    val original = el.attr("data-canonical-src").ifBlank { src }
+                    out += Inline.Image(src, el.attr("alt"), el.attr("width").toIntOrNull(), el.attr("height").toIntOrNull(), style.link, isBadgeUrl(original))
                 }
             }
             "a" -> {

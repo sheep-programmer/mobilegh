@@ -276,7 +276,8 @@ internal fun WebHtmlView(
         ) {
         // 加载占位：静态的骨架条，不做动画。快照或排版完成后直接替换，只发生这一次切换，中间不会出现空白
         if (snapshot == null && !webReady.value) HtmlSkeleton()
-        snapshot?.let { bitmap ->
+        // 快照只在网页排好之前占位。网页背景是透明的，排好后若仍垫着快照，高度一变两者错位就会出现重影
+        if (!webReady.value) snapshot?.let { bitmap ->
             Image(bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
         }
         AndroidView(
@@ -439,7 +440,7 @@ internal fun CodeZoomDialog(code: String, onDismiss: () -> Unit) {
                 }
             }
             HDivider()
-            val scroll = if (wrap) Modifier.verticalScroll(vertical) else Modifier.verticalScroll(vertical).horizontalScroll(horizontal)
+            val scroll = if (wrap) Modifier.columnScrollbar(vertical).verticalScroll(vertical) else Modifier.columnScrollbar(vertical).verticalScroll(vertical).horizontalScroll(horizontal)
             Box(Modifier.weight(1f).fillMaxWidth().then(scroll).padding(16.dp)) {
                 Text(
                     code, color = g.fg, fontFamily = FontFamily.Monospace,
@@ -496,7 +497,7 @@ internal fun DiagramZoomDialog(kind: String, source: String, dark: Boolean, onDi
                 SelectionContainer {
                     Box(
                         Modifier.weight(1f).fillMaxWidth()
-                            .verticalScroll(sourceVertical)
+                            .columnScrollbar(sourceVertical).verticalScroll(sourceVertical)
                             .horizontalScroll(sourceHorizontal)
                             .padding(16.dp),
                     ) {

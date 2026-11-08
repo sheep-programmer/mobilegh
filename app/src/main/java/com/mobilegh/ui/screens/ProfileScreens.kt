@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.clickable
+import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -266,7 +267,7 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
             u == null -> Loading(Modifier.padding(pad).fillMaxSize())
             else -> PullToRefreshBox(user.refreshing, { user.refresh(); contrib.refresh(); pinned.refresh(); orgs.refresh() }, Modifier.padding(pad)) {
                 RegisterScrollTop(state)
-                LazyColumn(Modifier.fillMaxSize(), state = state) {
+                ScrollbarLazyColumn(Modifier.fillMaxSize(), state = state) {
                     item { ProfileHeader(u, isSelf, following.value, followFailed.value, onRetryFollow = { followFailed.value = false; followRetry++ }) { on ->
                         following.value = on
                         entry.act({ following.value = !on; ctx.toast(it) }) { GitHub.follow(login, on) }
@@ -309,6 +310,8 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
                             }
                             MenuRow(R.drawable.oc_pulse, tr("动态"), g.accent) { nav.push(Screen.Activity(login)) }
                             if (isSelf) {
+                                // 写到一半的 Issue、评论、PR 等：自动保存，在这里集中查看和继续编辑
+                                MenuRow(R.drawable.oc_pencil, tr("草稿"), g.attention) { nav.push(Screen.Drafts) }
                                 MenuRow(R.drawable.oc_mail, tr("待处理邀请"), g.done) { nav.push(Screen.Invitations) }
                                 MenuRow(R.drawable.oc_gear, tr("设置"), g.fgMuted) { nav.push(Screen.Settings) }
                             }

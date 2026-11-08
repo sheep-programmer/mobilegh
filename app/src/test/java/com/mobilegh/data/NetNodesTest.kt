@@ -29,9 +29,35 @@ class NetNodesTest {
         assertTrue(nodes.count { it.type == NodeType.JsDelivr } >= 3)
     }
 
-    @Test fun nodesKnownToBeUnreliableStayRemoved() {
-        // ghproxy.net 实测下载、克隆几乎全部失败，不应再被加回内置列表
-        assertTrue(nodes.none { it.base.contains("ghproxy.net") })
+    @Test fun newlyAddedProxiesArePresentAndGhproxyNetIsLast() {
+        // 这批节点实测通过（Range、完整下载、clone 入口）；ghproxy.net 速度波动大，排在最后做后备
+        listOf("sixyin", "chjina", "dpik", "noki", "gh-proxy-hk", "gh-proxy-cdn", "gh-proxy-edge").forEach { id ->
+            assertTrue("缺少节点 $id", nodes.any { it.id == id && it.type == NodeType.Prefix })
+        }
+        assertEquals("ghproxy-net", nodes.last().id)
+    }
+
+    @Test fun nodesFailingRealDownloadsStayOut() {
+        // 实测下载内容不对或超时：g.blfrp.cn 返回的文件校验不通过，wget.la 下载超时
+        assertTrue(nodes.none { it.base.contains("blfrp") || it.base.contains("wget.la") })
         assertTrue(nodes.any { it.id == "jsd-cf" })
+    }
+
+    @Test fun downloadChainIsCappedAndAlwaysEndsWithDirect() {
+        val url = "https://github.com/o/r/releases/download/v1/a.apk"
+        val proxies = nodes.filter { it.type == NodeType.Prefix }
+        val targets = orderDownloadTargets(proxies, url, emptyMap(), emptySet(), "sixyin", maxProxies = Net.MAX_DOWNLOAD_PROXIES)
+        assertEquals(Net.MAX_DOWNLOAD_PROXIES + 1, targets.size)
+        assertEquals("direct", targets.last().nodeId)
+        assertEquals("sixyin", targets.first().nodeId)
+    }
+
+    @Test fun fastMeasuredNodeComesFirstEvenWhenListedLater() {
+        val url = "https://github.com/o/r/releases/download/v1/a.apk"
+        val proxies = nodes.filter { it.type == NodeType.Prefix }
+        val speeds = mapOf("ghproxy-net" to 9_000_000L, "gh-proxy" to 1_000_000L)
+        val t = orderDownloadTargets(proxies, url, emptyMap(), emptySet(), "gh-proxy", speeds = speeds, maxProxies = 3)
+        assertEquals(listOf("ghproxy-net", "gh-proxy"), t.take(2).map { it.nodeId })
+        assertEquals(3 + 1, t.size)
     }
 }

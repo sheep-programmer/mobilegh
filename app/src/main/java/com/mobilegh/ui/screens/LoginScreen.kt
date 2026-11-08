@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import android.os.SystemClock
+import com.mobilegh.ui.components.verticalScrollWithBar
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -131,13 +132,13 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
             onHelp = { help = true },
         )
         if (networkSettings) NetworkSettingsDialog { networkSettings = false }
-        if (showUpdate) UpdateDialog { showUpdate = false }
+        if (showUpdate) UpdateDialog(onDismiss = { showUpdate = false })
         if (help) LoginHelpDialog { help = false }
         return
     }
     Column(
         Modifier.fillMaxSize().background(g.canvas).statusBarsPadding().navigationBarsPadding()
-            .imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp),
+            .imePadding().verticalScrollWithBar().padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -226,7 +227,7 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
         else Spacer(Modifier.height(16.dp))
     }
     if (networkSettings) NetworkSettingsDialog { networkSettings = false }
-    if (showUpdate) UpdateDialog { showUpdate = false }
+    if (showUpdate) UpdateDialog(onDismiss = { showUpdate = false })
     if (help) LoginHelpDialog { help = false }
 }
 
@@ -254,7 +255,7 @@ private fun LoginMenuPage(
 ) {
     val g = Gh.c
     Page(tr("更多"), onBack = onBack) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize().verticalScroll(rememberScrollState())) {
+        Column(Modifier.padding(pad).fillMaxSize().verticalScrollWithBar()) {
             SectionTitle(tr("应用"))
             MenuGroup {
                 MenuRow(

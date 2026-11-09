@@ -5,9 +5,15 @@ import android.os.SystemClock
 import okhttp3.CacheControl
 import okhttp3.Dispatcher
 import okhttp3.Request
+import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import com.mobilegh.i18n.tr
 
 /**
@@ -16,6 +22,8 @@ import com.mobilegh.i18n.tr
  * - 依次尝试 [Net.imageCandidates] 给出的所有节点，按「这类图片上成功过的节点」优先
  * - 校验返回内容确实是图片：有些镜像出错时会返回 200 + HTML 页面，直接交给 WebView 会显示裂图
  * - 内存里缓存原始字节，查看器和保存不用重新下载
+ * - 增加持久化磁盘缓存：下载过的图片与图标跨界面、跨重启瞬间直出（0ms）
+ * - 优化首轮竞速：直连 (DIRECT) 总是参与前排并发竞速，网络良好时无需白等镜像队列
  * - 同一张图同时被多处请求时只下载一次；刚失败过的图片短时间内不再重试
  */
 object ImageFetch {
@@ -32,6 +40,87 @@ object ImageFetch {
      */
     private const val RACE_WINDOW = 4
     private const val MAX_NODE_MEMO = 1024
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    @Volatile
+    private var explicitDiskDir: File? = null
+
+    private const val MAX_DISK_CACHE_BYTES = 80L * 1024 * 1024 // 80 MB
+    private var lastTrimTime = 0L
+
+    fun init(cacheDir: File) {
+        explicitDiskDir = File(cacheDir, "image_cache").also { if (!it.exists()) it.mkdirs() }
+    }
+
+    private fun resolveDiskDir(): File? {
+        val d = explicitDiskDir ?: runCatching { Api.cacheDir }.getOrNull()?.let { File(it, "image_cache") }
+        if (d != null && !d.exists()) {
+            runCatching { d.mkdirs() }
+        }
+        return d?.takeIf { it.exists() && it.isDirectory }
+    }
+
+    private fun diskKey(url: String): String {
+        val md = MessageDigest.getInstance("SHA-256")
+        return md.digest(url.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    }
+
+    private fun readDiskCache(target: String): Result? {
+        val dir = resolveDiskDir() ?: return null
+        val file = File(dir, diskKey(target))
+        if (!file.exists() || !file.isFile) return null
+        return try {
+            val bytes = file.readBytes()
+            if (bytes.size < 2) return null
+            val mimeLen = bytes[0].toInt() and 0xFF
+            if (bytes.size < 1 + mimeLen) return null
+            val mime = if (mimeLen > 0) String(bytes, 1, mimeLen, Charsets.UTF_8) else null
+            val imgBytes = bytes.copyOfRange(1 + mimeLen, bytes.size)
+            file.setLastModified(System.currentTimeMillis())
+            Result(imgBytes, mime)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun writeDiskCache(target: String, result: Result) {
+        val dir = resolveDiskDir() ?: return
+        try {
+            val mimeBytes = (result.mime ?: "").toByteArray(Charsets.UTF_8)
+            if (mimeBytes.size > 255) return
+            val total = 1 + mimeBytes.size + result.bytes.size
+            if (total > MAX_BYTES) return
+            val buf = ByteArray(total)
+            buf[0] = mimeBytes.size.toByte()
+            System.arraycopy(mimeBytes, 0, buf, 1, mimeBytes.size)
+            System.arraycopy(result.bytes, 0, buf, 1 + mimeBytes.size, result.bytes.size)
+            val file = File(dir, diskKey(target))
+            val tmp = File(dir, "${file.name}.tmp")
+            tmp.writeBytes(buf)
+            tmp.renameTo(file)
+            trimDiskCacheIfNeeded(dir)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun trimDiskCacheIfNeeded(dir: File) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastTrimTime < 60_000L) return
+        lastTrimTime = now
+        runCatching {
+            val files = dir.listFiles()?.filter { it.isFile && !it.name.endsWith(".tmp") } ?: return
+            var total = files.sumOf { it.length() }
+            if (total > MAX_DISK_CACHE_BYTES) {
+                val sorted = files.sortedBy { it.lastModified() }
+                for (f in sorted) {
+                    val len = f.length()
+                    if (f.delete()) total -= len
+                    if (total <= MAX_DISK_CACHE_BYTES * 0.75) break
+                }
+            }
+        }
+    }
 
     /**
      * 单个节点不能卡太久，否则一个坏节点会拖住整页图片。
@@ -75,13 +164,22 @@ object ImageFetch {
     fun cacheKey(url: String): String = "${Session.generation}:${normalize(url)}"
 
     fun cached(url: String): Result? {
-        val key = cacheKey(url)
-        val result = cache.get(key) ?: return null
-        if (SystemClock.elapsedRealtime() - result.fetchedAt > CACHE_TTL_MS) {
-            cache.remove(key)
-            return null
+        val target = normalize(url)
+        val key = cacheKey(target)
+        val result = cache.get(key)
+        if (result != null) {
+            if (SystemClock.elapsedRealtime() - result.fetchedAt > CACHE_TTL_MS) {
+                cache.remove(key)
+            } else {
+                return result
+            }
         }
-        return result
+        val diskRes = readDiskCache(target)
+        if (diskRes != null) {
+            cache.put(key, diskRes)
+            return diskRes
+        }
+        return null
     }
 
     /** 阻塞调用，必须在后台线程执行 */
@@ -104,6 +202,7 @@ object ImageFetch {
             if (r != null) {
                 failed.remove(key)
                 cache.put(key, r)
+                writeDiskCache(target, r)
             } else {
                 failed.put(key, SystemClock.elapsedRealtime())
                 AppLog.warn("image", tr("图片加载失败：") + target.substringBefore('?').take(200))
@@ -124,11 +223,17 @@ object ImageFetch {
         return true
     }
 
+    /** 标记地址最近加载失败（测试或外部明确知道不可达时使用） */
+    fun markFailed(url: String) {
+        val key = cacheKey(normalize(url))
+        failed.put(key, SystemClock.elapsedRealtime())
+    }
+
     private fun fetchNetwork(target: String, force: Boolean): Result? {
         val key = cacheKey(target)
         val token = Session.token
         val preferred = nodeMemo.get(key)
-        val candidates = Net.imageCandidates(target).sortedBy { if (preferred != null && it.first == preferred) 0 else 1 }
+        val candidates = prioritizeRaceCandidates(Net.imageCandidates(target), preferred)
         val winner = race(target, candidates, force) ?: return null
         val (node, outcome) = winner
         val r = outcome.result ?: return null
@@ -136,6 +241,35 @@ object ImageFetch {
         Net.markImageOk(target, node)
         if (node != Net.DIRECT.id) nodeMemo.put(key, node)
         return r
+    }
+
+    /**
+     * 将直连 (DIRECT) 纳入前排首轮竞速窗口中（例如第 1 位），确保在直连可用（或国内代理延迟较高）时
+     * 能够在首轮 100~300ms 内瞬间胜出返回，免去在长队后面白白等待几十个代理超时。
+     */
+    internal fun prioritizeRaceCandidates(
+        candidates: List<Pair<String, String>>,
+        preferred: String?,
+    ): List<Pair<String, String>> {
+        if (candidates.size <= 2) return candidates
+        val result = candidates.sortedBy { if (preferred != null && it.first == preferred) 0 else 1 }.toMutableList()
+        val directIdx = result.indexOfFirst { it.first == Net.DIRECT.id }
+        if (directIdx >= RACE_WINDOW) {
+            val direct = result.removeAt(directIdx)
+            val insertPos = if (preferred != null && result.isNotEmpty() && result[0].first == preferred) 1 else 0
+            result.add(insertPos.coerceAtMost(result.size), direct)
+        }
+        return result
+    }
+
+    /** 后台静默预加载图片到磁盘与内存缓存 */
+    fun prefetch(url: String) {
+        if (url.isBlank()) return
+        val target = normalize(url)
+        if (cached(target) != null) return
+        scope.launch {
+            runCatching { fetch(target) }
+        }
     }
 
     private class Outcome(val result: Result?, val skipNode: Boolean)

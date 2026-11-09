@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -89,7 +90,13 @@ import com.mobilegh.i18n.trf
  * 免得一个 Composable 把「加载 + 搜索 + 排序 + 翻页 + 增删」全揽在自己身上。
  */
 @Composable
-internal fun StarredRepoPage(login: String, name: String) {
+fun StarTab() {
+    val login = Session.login ?: return
+    StarredRepoPage(login, "", isRootTab = true)
+}
+
+@Composable
+internal fun StarredRepoPage(login: String, name: String, isRootTab: Boolean = false) {
     val isMe = login.equals(Session.login, true)
     val signedIn = Session.token != null
     // 列表是 Star 的子集，网页版也放在 Stars 页；别人的公开列表可以看，但只有本人能新建
@@ -108,12 +115,13 @@ internal fun StarredRepoPage(login: String, name: String) {
     androidx.activity.compose.BackHandler(enabled = inDetail) { selectedList = null }
     Page(
         starredTitle(listsTab, selectedList, lists?.data), subtitle = subtitle,
+        back = if (isRootTab) inDetail else true,
         onBack = if (inDetail) ({ selectedList = null }) else null,
     ) { pad ->
         Column(Modifier.padding(pad)) {
             // 进入某个列表后不再显示「全部 Star / 列表」页签，只有标题栏的返回，界面更干净
             if (signedIn && !inDetail) {
-                Segmented(
+                com.mobilegh.ui.components.Segmented(
                     listOf(tr("全部 Star"), tr("列表")), tab,
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 ) { index ->
@@ -485,7 +493,16 @@ internal fun StarListRow(list: GitHubStarList, enabled: Boolean = true, onClick:
 @Composable
 internal fun StarListCard(name: String, description: String, count: Int, isPrivate: Boolean, updatedAt: String = "", enabled: Boolean = true, onClick: () -> Unit) {
     val g = Gh.c
-    Card(Modifier.padding(horizontal = 16.dp, vertical = 5.dp).clickable(enabled = enabled, onClick = onClick)) {
+    Card(
+        Modifier
+            .padding(horizontal = 16.dp, vertical = 5.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                enabled = enabled,
+                onClick = onClick,
+            )
+    ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             IconBadge(
                 if (isPrivate) R.drawable.oc_lock else R.drawable.oc_checklist,

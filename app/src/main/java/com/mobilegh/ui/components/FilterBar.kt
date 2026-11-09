@@ -1,5 +1,13 @@
 package com.mobilegh.ui.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -17,6 +25,7 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
@@ -32,6 +41,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,20 +49,32 @@ import androidx.compose.ui.unit.dp
 import com.mobilegh.R
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
+import com.mobilegh.ui.theme.Gh
 
-/** 搜索栏右侧的筛选按钮：有生效条件时用数量徽标提示 */
+/** 搜索栏右侧的筛选按钮：高度 44dp 对齐搜索框，无灰色大圆底高光，支持数量徽标 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilterEntry(count: Int, onClick: () -> Unit) {
+    val g = Gh.c
     val active = count > 0
     BadgedBox(badge = { if (active) Badge { Text("$count") } }) {
-        FilledTonalIconButton(
-            onClick = onClick,
-            modifier = Modifier.size(48.dp).semantics {
-                contentDescription = if (active) trf("筛选，已选 {0} 项", count) else tr("筛选")
-            },
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .border(1.dp, if (active) g.accent else g.borderMuted, RoundedCornerShape(22.dp))
+                .background(if (active) g.accent.copy(alpha = 0.08f) else Color.Transparent)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClick,
+                )
+                .semantics {
+                    contentDescription = if (active) trf("筛选，已选 {0} 项", count) else tr("筛选")
+                },
+            contentAlignment = Alignment.Center,
         ) {
-            Oc(R.drawable.oc_sliders, LocalContentColor.current, 20.dp)
+            Oc(R.drawable.oc_sliders, if (active) g.accent else g.fgMuted, 18.dp)
         }
     }
 }
@@ -80,30 +102,38 @@ fun ActiveFilterChips(chips: List<Pair<String, String>>, onRemove: (String) -> U
 }
 
 /**
- * 标题 + 单选项：选项少（2–3 个）且文字短时用分段按钮（一眼能看出全部选项），否则用可换行的筛选胶囊。
+ * 标题 + 单选项：选项少（2–4 个）且文字短时用分段按钮（一眼能看出全部选项），否则用可换行的筛选胶囊。
  */
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ChoicePicker(label: String, options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    val g = Gh.c
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        // 分段按钮最多 3 项：4 项时每段太窄，选中勾号会挤压文字，改用胶囊
-        if (options.size in 2..3 && options.all { it.length <= 8 }) {
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                options.forEachIndexed { i, text ->
-                    SegmentedButton(
-                        selected = i == selected,
-                        onClick = { onSelect(i) },
-                        shape = SegmentedButtonDefaults.itemShape(index = i, count = options.size),
-                        label = { Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    )
-                }
-            }
+        Text(label, style = MaterialTheme.typography.labelLarge, color = g.fgMuted)
+        if (options.size in 2..4 && options.all { it.length <= 8 }) {
+            Segmented(options, selected, Modifier.fillMaxWidth()) { onSelect(it) }
             return@Column
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             options.forEachIndexed { i, text ->
-                FilterChip(selected = i == selected, onClick = { onSelect(i) }, label = { Text(text) })
+                val chipSelected = i == selected
+                FilterChip(
+                    selected = chipSelected,
+                    onClick = { onSelect(i) },
+                    label = { Text(text) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        containerColor = g.canvasSubtle,
+                        labelColor = g.fgMuted,
+                        selectedContainerColor = if (g.dark) Color(0xFF28303C) else g.accent.copy(alpha = 0.15f),
+                        selectedLabelColor = if (g.dark) g.fg else g.accent,
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = chipSelected,
+                        borderColor = g.borderMuted,
+                        selectedBorderColor = if (g.dark) Color(0xFF444C56) else g.accent.copy(alpha = 0.4f),
+                    ),
+                )
             }
         }
     }
@@ -126,6 +156,8 @@ fun FilterSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = Gh.c.canvas,
+        tonalElevation = 0.dp,
     ) {
         Column(Modifier.fillMaxWidth()) {
             Row(

@@ -3,6 +3,7 @@ package com.mobilegh.ui.components
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -74,7 +75,12 @@ fun RepoItem(repo: Repo, showOwner: Boolean = true, extra: String? = null) {
     var menu by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth()
-            .combinedClickable(onClick = { nav.push(Screen.Repo(repo.owner.login, repo.name)) }, onLongClick = if (repo.htmlUrl.isBlank()) null else ({ menu = true }))
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = { nav.push(Screen.Repo(repo.owner.login, repo.name)) },
+                onLongClick = if (repo.htmlUrl.isBlank()) null else ({ menu = true }),
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         LinkActionsMenu(menu, { menu = false }, repo.htmlUrl)
@@ -123,7 +129,10 @@ fun RepoItem(repo: Repo, showOwner: Boolean = true, extra: String? = null) {
 fun UserItem(user: User, subtitle: String? = null) {
     val nav = LocalNav.current
     Row(
-        Modifier.fillMaxWidth().clickable {
+        Modifier.fillMaxWidth().clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+        ) {
             nav.push(if (user.type == "Organization") Screen.Org(user.login) else Screen.Profile(user.login))
         }.padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.Top,
@@ -154,7 +163,12 @@ fun IssueItem(issue: Issue, repoName: String? = null, onClick: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = if (issue.htmlUrl.isBlank()) null else ({ menu = true }))
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+                onLongClick = if (issue.htmlUrl.isBlank()) null else ({ menu = true }),
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         LinkActionsMenu(menu, { menu = false }, issue.htmlUrl)
@@ -195,7 +209,12 @@ fun PullItem(pr: Pull, onClick: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = if (pr.htmlUrl.isBlank()) null else ({ menu = true }))
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+                onLongClick = if (pr.htmlUrl.isBlank()) null else ({ menu = true }),
+            )
             .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         LinkActionsMenu(menu, { menu = false }, pr.htmlUrl)
@@ -253,9 +272,15 @@ fun EventItem(e: Event) {
     val (o, r) = e.repo.name.split('/').let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
     val (icon, action, detail, target) = describeEvent(e, o, r)
     Row(
-        Modifier.fillMaxWidth().clickable { nav.push(target) }.padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+        ) { nav.push(target) }.padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Avatar(e.actor.avatarUrl, 32.dp, Modifier.clickable { nav.push(Screen.Profile(e.actor.login)) })
+        Avatar(e.actor.avatarUrl, 32.dp, Modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+        ) { nav.push(Screen.Profile(e.actor.login)) })
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(

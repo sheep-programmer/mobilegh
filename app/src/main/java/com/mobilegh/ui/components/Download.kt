@@ -97,7 +97,7 @@ fun DownloadHost() {
             selected.state == DownloadState.Complete -> tr("下载完成")
             selected.state == DownloadState.Failed -> tr("下载失败")
             selected.state == DownloadState.Cancelled -> tr("已取消下载")
-            else -> tr("下载文件")
+            else -> tr("下载详情")
         }
         AlertDialog(
             onDismissRequest = { Downloads.selectedKey = null },
@@ -143,7 +143,15 @@ fun DownloadHost() {
                 when {
                     done -> TextButton({
                         if (selected.filename.endsWith(".apk", true)) Downloads.installApk(ctx, selected) else Downloads.open(ctx, selected)
-                    }) { Text(if (selected.filename.endsWith(".apk", true)) tr("安装更新") else tr("打开文件"), color = g.accent, fontWeight = FontWeight.SemiBold) }
+                    }) {
+                        val label = when {
+                            selected.filename.endsWith(".apk", true) -> {
+                                if (selected.isAppUpdate || com.mobilegh.data.Update.isPendingUpdate(selected.filename)) tr("安装更新") else tr("安装应用")
+                            }
+                            else -> tr("打开文件")
+                        }
+                        Text(label, color = g.accent, fontWeight = FontWeight.SemiBold)
+                    }
                     selected.active -> TextButton({ Downloads.selectedKey = null }) { Text(tr("后台下载"), color = g.accent, fontWeight = FontWeight.SemiBold) }
                     // 文件已不在时也走这里：按同一个 URL 重新下载
                     else -> TextButton({ Downloads.retry(selected) }) {
@@ -493,7 +501,15 @@ fun FileInfoDialog(info: FileInfo, onDismiss: () -> Unit) {
                     TextButton({
                         onDismiss()
                         if (done.filename.endsWith(".apk", true)) Downloads.installApk(ctx, done) else Downloads.open(ctx, done)
-                    }) { Text(tr("打开"), color = g.accent, fontWeight = FontWeight.SemiBold) }
+                    }) {
+                        val label = when {
+                            done.filename.endsWith(".apk", true) -> {
+                                if (done.isAppUpdate || com.mobilegh.data.Update.isPendingUpdate(done.filename)) tr("安装更新") else tr("安装应用")
+                            }
+                            else -> tr("打开")
+                        }
+                        Text(label, color = g.accent, fontWeight = FontWeight.SemiBold)
+                    }
                 }
                 else -> TextButton({ onDismiss(); Downloads.start(info.url, info.name, info.isPrivate, info.mimeType) }) {
                     Text(tr("下载"), color = g.accent, fontWeight = FontWeight.SemiBold)

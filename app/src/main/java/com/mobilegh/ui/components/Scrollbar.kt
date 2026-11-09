@@ -246,8 +246,8 @@ fun Modifier.columnScrollbar(state: ScrollState): Modifier = scrollbar(
 
 /** 带滚动条的 verticalScroll */
 @Composable
-fun Modifier.verticalScrollWithBar(state: ScrollState = rememberScrollState()): Modifier =
-    columnScrollbar(state).verticalScroll(state)
+fun Modifier.verticalScrollWithBar(state: ScrollState = rememberScrollState(), enabled: Boolean = true): Modifier =
+    columnScrollbar(state).verticalScroll(state, enabled = enabled)
 
 private class HScrollbarGeometry {
     var trackLeft = 0f

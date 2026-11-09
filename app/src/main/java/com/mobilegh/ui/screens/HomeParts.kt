@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
@@ -41,6 +42,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.BorderStroke
+import com.mobilegh.nav.LocalNav
+import com.mobilegh.nav.Tab
+import com.mobilegh.nav.Screen
+import com.mobilegh.nav.UserKind
+import com.mobilegh.ui.components.OcButton
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import com.mobilegh.data.PinnedRepo
+import com.mobilegh.data.Session
+import com.mobilegh.ui.components.Card
+import com.mobilegh.ui.components.IconText
+import com.mobilegh.ui.components.LangDot
+import com.mobilegh.ui.components.VisibilityBadge
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -155,16 +173,28 @@ data class HomeShortcut(
     val count: Int? = null,
 )
 
-/** 首页默认的八个入口；颜色取自 Primer，暗色模式用对应的亮色版本 */
+/** 首页默认的入口；颜色取自 Primer，暗色模式用对应的亮色版本 */
 @Composable
 fun homeShortcuts(
-    onIssues: () -> Unit, onPulls: () -> Unit, onRepos: () -> Unit, onOrgs: () -> Unit,
-    onStars: () -> Unit, onLists: () -> Unit, onGists: () -> Unit, onRecent: () -> Unit,
+    onActivity: () -> Unit = {},
+    onIssues: () -> Unit = {},
+    onPulls: () -> Unit = {},
+    onRepos: () -> Unit = {},
+    onOrgs: () -> Unit = {},
+    onStars: () -> Unit = {},
+    onLists: () -> Unit = {},
+    onGists: () -> Unit = {},
+    onRecent: () -> Unit = {},
     onFavorites: () -> Unit = {},
     onSaved: () -> Unit = {},
+    onProjects: () -> Unit = {},
+    onDrafts: () -> Unit = {},
+    onInvitations: () -> Unit = {},
+    invitationsCount: Int? = null,
 ): List<HomeShortcut> {
     val g = Gh.c
     return listOf(
+        HomeShortcut(R.drawable.oc_pulse, tr("动态"), g.accent, onActivity, BuiltinShortcut.Activity.id),
         HomeShortcut(R.drawable.oc_issue_opened, "Issues", g.success, onIssues, BuiltinShortcut.Issues.id),
         HomeShortcut(R.drawable.oc_git_pull_request, "Pull Requests", g.accent, onPulls, BuiltinShortcut.Pulls.id),
         HomeShortcut(R.drawable.oc_bookmark, tr("收藏夹"), g.severe, onFavorites, BuiltinShortcut.Favorites.id),
@@ -175,7 +205,212 @@ fun homeShortcuts(
         HomeShortcut(R.drawable.oc_checklist, tr("Star 列表"), g.done, onLists, BuiltinShortcut.Lists.id),
         HomeShortcut(R.drawable.oc_code_square, "Gists", g.sponsors, onGists, BuiltinShortcut.Gists.id),
         HomeShortcut(R.drawable.oc_history, tr("最近浏览"), g.accent, onRecent, BuiltinShortcut.Recent.id),
+        HomeShortcut(R.drawable.oc_table, tr("项目"), g.success, onProjects, BuiltinShortcut.Projects.id),
+        HomeShortcut(R.drawable.oc_pencil, tr("草稿"), g.attention, onDrafts, BuiltinShortcut.Drafts.id),
+        HomeShortcut(R.drawable.oc_mail, tr("待处理邀请"), g.done, onInvitations, BuiltinShortcut.Invitations.id, count = invitationsCount),
     )
+}
+
+/** 顶栏头像弹出的个人信息悬浮窗：展示头像、状态、仓库数、关注者、关注中等核心数据 */
+@Composable
+fun HomeProfileDialog(
+    login: String,
+    user: User?,
+    avatar: String?,
+    status: UserStatus? = null,
+    onSetStatus: () -> Unit,
+    onViewProfile: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val g = Gh.c
+    val nav = LocalNav.current
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .padding(vertical = 24.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = g.canvas,
+            border = BorderStroke(1.dp, g.border),
+            shadowElevation = 0.dp,
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                // 头部：头像 + 姓名 + 账号 + 关闭按钮
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Avatar(user?.avatarUrl ?: avatar, 52.dp)
+                    Spacer(Modifier.width(14.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            user?.name?.takeIf { it.isNotBlank() } ?: login,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = g.fg,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "@$login",
+                            fontSize = 13.sp,
+                            color = g.fgMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    OcButton(R.drawable.oc_x, onDismiss, g.fgMuted, description = tr("关闭"))
+                }
+
+                // 状态栏
+                Spacer(Modifier.height(14.dp))
+                if (status != null && !status.isEmpty) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, g.border, RoundedCornerShape(12.dp))
+                            .background(g.canvasSubtle, RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                onDismiss()
+                                onSetStatus()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (status.displayEmoji.isNotBlank()) Text(status.displayEmoji, fontSize = 16.sp)
+                        if (!status.message.isNullOrBlank()) Text(
+                            status.message,
+                            fontSize = 13.sp,
+                            color = g.fg,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (status.indicatesLimitedAvailability) Pill(tr("忙碌"), g.attention)
+                        Oc(R.drawable.oc_pencil, g.fgMuted, 14.dp)
+                    }
+                } else {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, g.borderMuted, RoundedCornerShape(12.dp))
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                onDismiss()
+                                onSetStatus()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("💬", fontSize = 14.sp)
+                        Text(tr("设置状态"), fontSize = 13.sp, color = g.fgMuted, modifier = Modifier.weight(1f))
+                        Oc(R.drawable.oc_plus, g.fgMuted, 14.dp)
+                    }
+                }
+
+                // 数据栏：仓库数、关注者、关注中
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(g.canvasSubtle)
+                        .border(1.dp, g.border, RoundedCornerShape(14.dp))
+                        .padding(vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    val repoCount = (user?.publicRepos ?: 0) + (user?.ownedPrivateRepos ?: 0)
+                    DialogStat(
+                        value = fmtCount(repoCount),
+                        label = tr("仓库"),
+                        onClick = {
+                            onDismiss()
+                            nav.select(Tab.Repos)
+                        },
+                    )
+                    Box(Modifier.width(1.dp).height(24.dp).background(g.borderMuted))
+                    DialogStat(
+                        value = fmtCount(user?.followers ?: 0),
+                        label = tr("关注者"),
+                        onClick = {
+                            onDismiss()
+                            nav.push(Screen.Users(UserKind.Followers, login))
+                        },
+                    )
+                    Box(Modifier.width(1.dp).height(24.dp).background(g.borderMuted))
+                    DialogStat(
+                        value = fmtCount(user?.following ?: 0),
+                        label = tr("关注中"),
+                        onClick = {
+                            onDismiss()
+                            nav.push(Screen.Users(UserKind.Following, login))
+                        },
+                    )
+                }
+
+                // 底部操作按钮
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(1.dp, g.border, RoundedCornerShape(10.dp))
+                            .clickable {
+                                onDismiss()
+                                nav.push(Screen.Settings)
+                            }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Oc(R.drawable.oc_gear, g.fgMuted, 16.dp)
+                            Text(tr("设置"), fontSize = 14.sp, color = g.fg)
+                        }
+                    }
+                    Box(
+                        Modifier
+                            .weight(1.5f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(g.btnPrimary)
+                            .clickable {
+                                onDismiss()
+                                onViewProfile()
+                            }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(tr("查看个人主页"), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DialogStat(value: String, label: String, onClick: () -> Unit) {
+    val g = Gh.c
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(value, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = g.fg)
+        Spacer(Modifier.height(2.dp))
+        Text(label, fontSize = 12.sp, color = g.fgMuted)
+    }
 }
 
 /** 保存的搜索在首页显示为快捷入口：Issue 用绿色、PR 用蓝色 */
@@ -201,7 +436,14 @@ fun HomeFavoriteRow(repo: FavoriteRepo, canUp: Boolean, canDown: Boolean, onOpen
     var menu by remember { mutableStateOf(false) }
     Row(
         Modifier.fillMaxWidth()
-            .combinedClickable(onClickLabel = tr("打开仓库"), onLongClickLabel = tr("调整收藏"), onLongClick = { menu = true }, onClick = onOpen)
+            .combinedClickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClickLabel = tr("打开仓库"),
+                onLongClickLabel = tr("调整收藏"),
+                onLongClick = { menu = true },
+                onClick = onOpen,
+            )
             .padding(horizontal = 16.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -409,5 +651,118 @@ fun ConfirmDeleteSearchDialog(search: SavedSearch, onDismiss: () -> Unit) {
         onDismiss()
     }) {
         Text(trf("「{0}」会从首页「我的工作」中移除。", search.name), color = g.fg)
+    }
+}
+
+/** 首页横向摆放的置顶仓库卡片 */
+@Composable
+fun HomePinnedCard(
+    p: PinnedRepo,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val g = Gh.c
+    Card(
+        modifier = modifier
+            .width(260.dp)
+            .clickable(onClick = onClick),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Oc(
+                    if (p.isPrivate) R.drawable.oc_lock else R.drawable.oc_repo,
+                    g.fgMuted,
+                    16.dp,
+                )
+                Spacer(Modifier.width(6.dp))
+                val fullName = if (p.owner.login.isNotEmpty() && !p.owner.login.equals(Session.login, ignoreCase = true)) {
+                    "${p.owner.login}/${p.name}"
+                } else {
+                    p.name
+                }
+                Text(
+                    text = fullName,
+                    color = g.accent,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(6.dp))
+                VisibilityBadge(p.isPrivate)
+            }
+
+            Spacer(Modifier.height(8.dp))
+
+            val desc = p.description
+            if (!desc.isNullOrBlank()) {
+                Text(
+                    text = desc,
+                    fontSize = 12.sp,
+                    color = g.fgMuted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 17.sp,
+                    modifier = Modifier.height(34.dp),
+                )
+            } else {
+                Spacer(Modifier.height(34.dp))
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                p.primaryLanguage?.let {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f, fill = false),
+                    ) {
+                        LangDot(it.name, it.color)
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            it.name,
+                            fontSize = 11.sp,
+                            color = g.fgMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                IconText(R.drawable.oc_star, fmtCount(p.stargazerCount))
+                if (p.forkCount > 0) {
+                    IconText(R.drawable.oc_repo_forked, fmtCount(p.forkCount))
+                }
+            }
+        }
+    }
+}
+
+/** 首页置顶仓库横向滚动排布 */
+@Composable
+fun HomePinnedRow(
+    pins: List<PinnedRepo>,
+    onOpen: (PinnedRepo) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        items(pins, key = { it.owner.login + "/" + it.name }) { p ->
+            HomePinnedCard(p = p, onClick = { onOpen(p) })
+        }
     }
 }

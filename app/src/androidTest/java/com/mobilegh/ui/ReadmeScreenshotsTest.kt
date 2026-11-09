@@ -14,6 +14,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -65,6 +66,8 @@ import com.mobilegh.i18n.tr
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import com.mobilegh.ui.components.ReadmeHeading
+import com.mobilegh.ui.screens.ReadmeTocSheet
 import com.mobilegh.ui.screens.AchievementsScreen
 import com.mobilegh.data.Web
 
@@ -131,7 +134,7 @@ class ReadmeScreenshotsTest {
             // 原始地址可能经镜像（如 jsDelivr 的 /gh/owner/repo@ref/ 路径），所以只按文件名结尾匹配
             p.endsWith("/src/Main.kt") -> sampleCode
             p == "/repos/mona/mobilegh/contents/README.md" ->
-                if (accept?.contains("html") == true) "<h1>demo</h1><p>Hello <strong>world</strong>, a <a href=\"https://github.com\">rendered</a> README.</p>" else sampleReadme
+                if (accept?.contains("html") == true) "<h1><a id=\"user-content-demo\" class=\"anchor\" href=\"#demo\"></a>demo</h1><p>Hello <strong>world</strong>, a <a href=\"https://github.com\">rendered</a> README.</p><h2><a id=\"user-content-features\" class=\"anchor\" href=\"#features\"></a>Features</h2><p>Feature list</p><h2><a id=\"user-content-install\" class=\"anchor\" href=\"#install\"></a>Installation</h2><p>How to install</p>" else sampleReadme
             p.endsWith("/README.md") -> sampleReadme
             p == "/repos/mona/mobilegh/contents/src/Main.kt" -> sampleCode
             // 作业日志：带时间戳的原始文本，页面里按分组、命令、警告、错误分别着色
@@ -141,6 +144,7 @@ class ReadmeScreenshotsTest {
             p == "/graphql" -> when {
                 body.contains("MobileGHRepositoryLists(") -> repoListsGraphql()
                 body.contains("MobileGHLists(") -> listsGraphql()
+                body.contains("pinnedItems") && body.contains("repositoryOwner") -> pinnedGraphql()
                 else -> graphql()
             }
             p.startsWith("/user/repos") || p.endsWith("/repos") -> "[${repos.joinToString(",")}]"
@@ -218,6 +222,15 @@ class ReadmeScreenshotsTest {
         return """{"data":{"viewer":{"login":"mona"},"repository":{"id":"R_mobilegh","viewerHasStarred":true,"lists":{"nodes":[$nodes]}}}}"""
     }
 
+    private fun pinnedGraphql(): String {
+        val pins = listOf(
+            """{"name":"mobilegh","owner":{"login":"mona"},"description":"A GitHub client for Android built with Jetpack Compose","stargazerCount":340,"forkCount":42,"isPrivate":false,"primaryLanguage":{"name":"Kotlin","color":"#A97BFF"}}""",
+            """{"name":"octokit.rb","owner":{"login":"octokit"},"description":"Ruby toolkit for the GitHub API","stargazerCount":3800,"forkCount":960,"isPrivate":false,"primaryLanguage":{"name":"Ruby","color":"#701516"}}""",
+            """{"name":"private-notes","owner":{"login":"mona"},"description":"Personal notes and snippets","stargazerCount":5,"forkCount":0,"isPrivate":true,"primaryLanguage":{"name":"Markdown","color":"#083fa1"}}"""
+        ).joinToString(",")
+        return """{"data":{"repositoryOwner":{"pinnedItems":{"nodes":[$pins]}}}}"""
+    }
+
     private fun graphql(): String {
         val weeks = (0 until 53).joinToString(",") { w ->
             "{\"contributionDays\":[" + (0 until 7).joinToString(",") { d ->
@@ -262,6 +275,11 @@ class ReadmeScreenshotsTest {
         // 模拟器剪贴板里可能残留之前测试复制的链接，会让首页冒出「剪贴板快捷打开」提示，截图前先清空
         compose.runOnUiThread {
             (compose.activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).clearPrimaryClip()
+            compose.activity.getSharedPreferences("permissions", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("notification_requested", true)
+                .putBoolean("background_requested", true)
+                .apply()
         }
         I18n.select(if (lang == "en") AppLanguage.English else AppLanguage.Chinese)
         Session.themeMode = 1
@@ -325,7 +343,17 @@ class ReadmeScreenshotsTest {
         )
         n.tabEntries.getValue(Tab.Home).bag["star-lists:mona:mona:${Session.generation}"] = Loader(n.root.scope) { lists }.also { it.accept(lists) }
     }) { }
+
+    @Test fun homeProfilePopup() {
+        val n = Navigator().also { nav = it }
+        compose.setContent { MobileGhTheme { AppRoot(n) } }
+        Thread.sleep(1500)
+        compose.onNodeWithTag("home_avatar_btn").performClick()
+        Thread.sleep(1000)
+        saveScreen("01-home-profile-popup")
+    }
     @Test fun repos() = shot("02-repos") { it.tab = Tab.Repos }
+    @Test fun starTab() = shot("03-star-tab") { it.tab = Tab.Star }
     @Test fun reposFilter() {
         val n = Navigator().also { nav = it }
         n.tab = Tab.Repos
@@ -349,6 +377,25 @@ class ReadmeScreenshotsTest {
         saveScreen("14-search-filter")
     }
     @Test fun repo() = shot("03-repo") { it.push(Screen.Repo("mona", "mobilegh")) }
+    @Test fun readmeToc() {
+        val headings = listOf(
+            ReadmeHeading(1, "mobilegh", "mobilegh"),
+            ReadmeHeading(2, "Features", "features"),
+            ReadmeHeading(2, "Architecture", "architecture"),
+            ReadmeHeading(3, "UI Layer", "ui-layer"),
+            ReadmeHeading(3, "Data Layer", "data-layer"),
+            ReadmeHeading(2, "Installation", "installation"),
+            ReadmeHeading(2, "License", "license"),
+        )
+        compose.setContent {
+            MobileGhTheme {
+                ReadmeTocSheet(headings = headings, onDismiss = {}, onPick = {})
+            }
+        }
+        Thread.sleep(1200)
+        compose.waitForIdle()
+        saveScreen("03c-readme-toc-sheet")
+    }
     /** 分支选择是底部弹层，单独截整屏（弹层是另一个窗口） */
     @Test fun branchPicker() = shot("03b-branch-picker", after = {
         compose.onAllNodesWithText("main")[0].performClick()
@@ -364,7 +411,7 @@ class ReadmeScreenshotsTest {
     @Test fun compareScreen() = shot("06-compare", after = {
         compose.onNodeWithText("app/src/Main.kt", substring = true).performClick()
     }) { it.push(Screen.Compare("mona", "mobilegh", "main", "dev")) }
-    @Test fun notifications() = shot("07-notifications") { it.tab = Tab.Notifications }
+    @Test fun notifications() = shot("07-notifications") { it.push(Screen.Notifications) }
     @Test fun insights() = shot("08-insights", wait = 3500, after = { tapCharts() }) { it.push(Screen.Insights("mona", "mobilegh")) }
     @Test fun settings() = shot("10-settings") { it.push(Screen.Settings) }
     @Test fun login() {

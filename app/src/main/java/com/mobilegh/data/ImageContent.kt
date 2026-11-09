@@ -60,4 +60,52 @@ internal object ImageContent {
         }
         return output.toByteArray()
     }
+
+    data class DataUri(
+        val mime: String?,
+        val isSvg: Boolean,
+        val bytes: ByteArray,
+    ) {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is DataUri) return false
+            return mime == other.mime && isSvg == other.isSvg && bytes.contentEquals(other.bytes)
+        }
+        override fun hashCode(): Int = (mime?.hashCode() ?: 0) * 31 + bytes.contentHashCode()
+    }
+
+    /**
+     * 解析 data: 协议的内联资源（如 Shields.io 徽章内的 SVG/PNG logo）。
+     * 支持 base64 与 URL 编码两种形式，并判断是否为矢量 SVG。
+     */
+    fun parseDataUri(uri: String): DataUri? {
+        if (!uri.startsWith("data:", ignoreCase = true)) return null
+        val comma = uri.indexOf(',')
+        if (comma < 0) return null
+        val header = uri.substring(5, comma).trim().lowercase()
+        val dataPart = uri.substring(comma + 1)
+        val isBase64 = header.contains(";base64") || header.endsWith("base64")
+        val rawBytes = if (isBase64) {
+            val clean = dataPart.filterNot { it.isWhitespace() }
+            runCatching { java.util.Base64.getDecoder().decode(clean) }
+                .recoverCatching { java.util.Base64.getMimeDecoder().decode(clean) }
+                .getOrNull()
+        } else {
+            runCatching {
+                java.net.URLDecoder.decode(dataPart, "UTF-8").toByteArray(Charsets.UTF_8)
+            }.recoverCatching {
+                dataPart.toByteArray(Charsets.UTF_8)
+            }.getOrNull()
+        } ?: return null
+
+        if (rawBytes.isEmpty()) return null
+        val declaredMime = header.substringBefore(';').trim().ifEmpty { null }
+        val isSvg = declaredMime == "image/svg+xml" ||
+            header.contains("image/svg") ||
+            mimeOf("", rawBytes) == "image/svg+xml" ||
+            rawBytes.toString(Charsets.UTF_8).trimStart().startsWith("<svg", ignoreCase = true)
+
+        val resolvedMime = declaredMime ?: (if (isSvg) "image/svg+xml" else mimeOf("", rawBytes))
+        return DataUri(mime = resolvedMime, isSvg = isSvg, bytes = rawBytes)
+    }
 }

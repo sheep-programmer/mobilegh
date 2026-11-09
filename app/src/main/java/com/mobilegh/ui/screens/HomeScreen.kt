@@ -3,45 +3,26 @@ package com.mobilegh.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import com.mobilegh.data.BuiltinShortcut
-import com.mobilegh.ui.screens.SyncAchievements
-import com.mobilegh.ui.components.GhButton
-import com.mobilegh.ui.components.Oc
-import androidx.compose.ui.Alignment
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
-import com.mobilegh.data.FavoriteRepo
+import com.mobilegh.data.BuiltinShortcut
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.HomePrefs
 import com.mobilegh.data.Involvement
@@ -50,38 +31,20 @@ import com.mobilegh.data.Session
 import com.mobilegh.data.StarListAccount
 import com.mobilegh.data.UserLists
 import com.mobilegh.data.UserStatusApi
-import com.mobilegh.data.Web
+import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.RepoKind
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.Tab
 import com.mobilegh.nav.friendly
 import com.mobilegh.nav.rememberLoader
-import com.mobilegh.nav.rememberPager
 import com.mobilegh.nav.retain
+import com.mobilegh.ui.Badges
+import com.mobilegh.ui.components.*
+import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import com.mobilegh.ui.components.Card
-import com.mobilegh.ui.components.Dropdown
-import com.mobilegh.ui.components.MenuAction
-import com.mobilegh.ui.components.MenuGroup
-import com.mobilegh.ui.components.MoreMenu
-import com.mobilegh.ui.components.Chips
-import com.mobilegh.ui.components.EventCat
-import com.mobilegh.ui.components.EventItem
-import com.mobilegh.ui.components.parseInstant
-import com.mobilegh.ui.components.HDivider
-import com.mobilegh.ui.components.eventCat
-import com.mobilegh.ui.components.IssueItem
-import com.mobilegh.ui.components.OcButton
-import com.mobilegh.ui.components.Page
-import com.mobilegh.ui.components.PagedList
-import com.mobilegh.ui.components.SectionTitle
-import com.mobilegh.ui.components.SectionActionChip
-import com.mobilegh.ui.components.TextLink
-import com.mobilegh.ui.components.UserStatusBottomSheet
-import com.mobilegh.ui.theme.Gh
-import com.mobilegh.i18n.tr
 
 @Composable
 fun HomeScreen() {
@@ -90,8 +53,6 @@ fun HomeScreen() {
     val login = Session.login ?: return
     val me = rememberLoader("me") { GitHub.viewer(it) }
     val lists = rememberStarListCatalog(login)
-    val badges = rememberLoader("home-achievements:$login") { force -> Web.achievements(login, self = true, force = force) }
-    SyncAchievements(login, badges)
     val listsRevision by UserLists.changes.collectAsState()
     val observedRevision = retain("home-collections-revision:$login") { mutableLongStateOf(listsRevision) }
     LaunchedEffect(listsRevision) {
@@ -100,71 +61,162 @@ fun HomeScreen() {
             lists.refresh()
         }
     }
-    com.mobilegh.ui.components.RefreshProfileOnChange(me)
+    RefreshProfileOnChange(me)
     val userStatus = rememberLoader("home-status:$login") { runCatching { UserStatusApi.getStatus(login, isViewer = true) }.getOrNull() }
     var showStatusSheet by remember { mutableStateOf(false) }
+    var showProfilePopup by remember { mutableStateOf(false) }
     val invites = rememberLoader("inv") { f ->
         GitHub.repoInvitations(f).size + runCatching { GitHub.orgInvitations(f).size }.getOrDefault(0)
     }
-    val contrib = rememberContrib(login)
-    val feed = rememberPager("feed") { p, f -> GitHub.received(login, p, f) }
-    var cat by rememberSaveable { mutableStateOf(EventCat.All) }
+    val pinned = rememberLoader("home-pinned:$login") { runCatching { GitHub.pinned(login) }.getOrDefault(emptyList()) }
     val state = rememberLazyListState()
     val layout = HomePrefs.layout()
+    // 首次进入或未同步过时，自动将 GitHub 官方置顶仓库同步至收藏夹
+    LaunchedEffect(pinned.data, layout.pinnedSynced) {
+        val pins = pinned.data
+        if (pins != null && !layout.pinnedSynced) {
+            if (pins.isNotEmpty() && layout.favorites.isEmpty()) {
+                HomePrefs.syncWithPinned(pins, merge = false)
+            } else {
+                HomePrefs.markPinnedSynced()
+            }
+        }
+    }
     val shortcuts = arrangedShortcuts(
         layout,
         homeShortcuts(
+            onActivity = { nav.push(Screen.Feed) },
             onIssues = { nav.push(Screen.MyIssues(false)) },
             onPulls = { nav.push(Screen.MyIssues(true)) },
             onRepos = { nav.select(Tab.Repos) },
             onOrgs = { nav.push(Screen.Orgs) },
-            onStars = { nav.push(Screen.Repos(RepoKind.Starred, login)) },
+            onStars = { nav.select(Tab.Star) },
             onLists = { nav.push(Screen.StarLists(login)) },
             onGists = { nav.push(Screen.Gists(null)) },
             onRecent = { nav.push(Screen.RecentRepositories) },
             onFavorites = { nav.push(Screen.Favorites) },
             onSaved = { nav.push(Screen.Saved) },
+            onProjects = { nav.push(Screen.Projects(com.mobilegh.data.ProjectOwnerKind.User, login)) },
+            onDrafts = { nav.push(Screen.Drafts) },
+            onInvitations = { nav.push(Screen.Invitations) },
+            invitationsCount = invites.data?.takeIf { it > 0 },
         ),
     ) { nav.push(savedSearchScreen(it.query)) }
     com.mobilegh.nav.OnTabReselect(Tab.Home) { state.animateScrollToItem(0) }
-    // 首页「新建列表」直接在这里弹出创建框，不跳转到列表页
     var creatingList by remember { mutableStateOf(false) }
     var creatingBusy by remember { mutableStateOf(false) }
     var creatingError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-    // 移出收藏后的撤销提示
     val snackbar = remember { SnackbarHostState() }
+    val unread by Badges.unreadFlow.collectAsState()
+    val refreshing = me.refreshing || userStatus.refreshing || lists.refreshing || invites.refreshing || pinned.refreshing
 
     Page(
-        tr("首页"), back = false, contentWindowInsets = WindowInsets(0), snackbar = snackbar,
+        title = tr("首页"),
+        back = false,
+        contentWindowInsets = WindowInsets(0),
+        snackbar = snackbar,
         actions = {
-            OcButton(R.drawable.oc_plus, { nav.push(Screen.CreateRepo) })
-            OcButton(R.drawable.oc_gear, { nav.push(Screen.Settings) })
+            // 搜索
+            OcButton(R.drawable.oc_search, { nav.push(Screen.Search()) }, description = tr("搜索"))
+            // 创建
+            OcButton(R.drawable.oc_plus, { nav.push(Screen.CreateRepo) }, description = tr("新建仓库"))
+            // 消息（带未读角标）
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .clickable { nav.push(Screen.Notifications) },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (unread > 0) {
+                    BadgedBox(badge = {
+                        Badge(containerColor = g.accent) {
+                            Text(if (unread > 99) "99+" else "$unread", fontSize = 9.sp)
+                        }
+                    }) {
+                        Oc(R.drawable.oc_bell, g.fg, 20.dp)
+                    }
+                } else {
+                    Oc(R.drawable.oc_bell, g.fg, 20.dp)
+                }
+            }
+            Spacer(Modifier.width(2.dp))
+            // 我的（圆形头像按钮，点击弹出个人信息悬浮窗）
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .clickable { showProfilePopup = true }
+                    .testTag("home_avatar_btn"),
+                contentAlignment = Alignment.Center,
+            ) {
+                Avatar(me.data?.avatarUrl ?: Session.avatar, size = 28.dp)
+            }
         },
     ) { pad ->
-        PagedList(
-            feed, Modifier.padding(pad).fillMaxSize(), state,
-            empty = tr("关注一些开发者或 Star 一些仓库后，这里会显示动态"),
-            emptyIcon = R.drawable.oc_pulse, emptyAction = tr("去探索"), onEmptyAction = { nav.select(Tab.Explore) },
-            onRefresh = { me.refresh(); userStatus.refresh(); invites.refresh(); contrib.refresh(); lists.refresh(); badges.refresh() },
-            // 非「全部」分类是本地过滤，关闭自动翻页，避免稀有分类连续拉取空页；底部保留「加载更多」
-            autoLoad = cat == EventCat.All,
-            itemFilter = { cat == EventCat.All || eventCat(it) == cat },
-            // 按发生时间倒序严格排列，确保最新动态排在最上方
-            itemSort = compareByDescending<com.mobilegh.data.Event> { parseInstant(it.createdAt)?.toEpochMilli() ?: Long.MIN_VALUE },
-            itemKey = { it.id },
-            header = {
-                item { HomeProfile(login, me.data, Session.avatar, userStatus.data, onSetStatus = { showStatusSheet = true }) { nav.select(Tab.Me) } }
-                invites.data?.takeIf { it > 0 }?.let { n -> item { HomeInviteBanner(n) { nav.push(Screen.Invitations) } } }
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = {
+                me.refresh()
+                userStatus.refresh()
+                invites.refresh()
+                lists.refresh()
+                pinned.refresh()
+            },
+            modifier = Modifier.padding(pad).fillMaxSize(),
+        ) {
+            ScrollbarLazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = state,
+            ) {
+                invites.data?.takeIf { it > 0 }?.let { n ->
+                    item { HomeInviteBanner(n) { nav.push(Screen.Invitations) } }
+                }
 
-                // 收藏夹区块（外显，贴合官方 App 首页排版）
+                // 1. 我的工作区块（排在最上方）
+                val displayShortcuts = shortcuts.filterNot {
+                    it.id == BuiltinShortcut.Favorites.id || it.id == BuiltinShortcut.Lists.id
+                }
+                item {
+                    SectionTitle(tr("我的工作")) {
+                        SectionActionChip(tr("编辑"), tooltip = tr("自定义我的工作入口")) {
+                            nav.push(Screen.HomeCustomize)
+                        }
+                    }
+                }
+                item {
+                    if (displayShortcuts.isEmpty()) {
+                        Text(
+                            tr("所有入口都已隐藏，点「编辑」可重新显示"),
+                            Modifier.padding(horizontal = 16.dp),
+                            fontSize = 13.sp,
+                            color = g.fgMuted,
+                        )
+                    } else {
+                        HomeShortcuts(displayShortcuts)
+                    }
+                }
+
+                // 2. 收藏夹区块（常用工作仓库直达）
                 item {
                     SectionTitle(
                         tr("收藏夹"),
                         trailing = {
-                            if (layout.favorites.isNotEmpty()) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    SectionActionChip(tr("添加"), tooltip = tr("添加收藏")) { nav.push(Screen.AddFavorites) }
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                SectionActionChip(tr("同步"), tooltip = tr("同步 GitHub 置顶仓库")) {
+                                    scope.launch {
+                                        val pins = runCatching { GitHub.pinned(login) }.getOrDefault(emptyList())
+                                        if (pins.isNotEmpty()) {
+                                            HomePrefs.syncWithPinned(pins, merge = true)
+                                            snackbar.showSnackbar(trf("已同步 {0} 个 GitHub 置顶仓库", pins.size))
+                                        } else {
+                                            snackbar.showSnackbar(tr("GitHub 暂无置顶仓库"))
+                                        }
+                                    }
+                                }
+                                SectionActionChip(tr("添加"), tooltip = tr("添加收藏")) { nav.push(Screen.AddFavorites) }
+                                if (layout.favorites.isNotEmpty()) {
                                     SectionActionChip(tr("整理"), tooltip = tr("整理收藏")) { nav.push(Screen.HomeCustomize) }
                                 }
                             }
@@ -174,30 +226,43 @@ fun HomeScreen() {
                 item {
                     if (layout.favorites.isEmpty()) {
                         Card(Modifier.padding(horizontal = 16.dp)) {
-                            Column(
-                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                Text(
-                                    tr("将仓库加入收藏夹以便随时快速访问，而无需搜索"),
-                                    color = g.fgMuted,
-                                    fontSize = 14.sp,
-                                    lineHeight = 20.sp,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(horizontal = 8.dp),
-                                )
-                                Spacer(Modifier.height(14.dp))
-                                Box(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .border(1.dp, g.border, RoundedCornerShape(10.dp))
-                                        .background(g.canvas)
-                                        .clickable { nav.push(Screen.AddFavorites) }
-                                        .padding(vertical = 11.dp),
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Text(tr("添加收藏"), color = g.accent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Column(Modifier.fillMaxWidth().padding(14.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Oc(R.drawable.oc_bookmark, g.attention, 18.dp)
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(
+                                        tr("添加常用仓库到收藏夹以便快速直达，支持与 GitHub 官方置顶仓库同步。"),
+                                        fontSize = 12.sp,
+                                        color = g.fgMuted,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                                Spacer(Modifier.height(10.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    GhButton(
+                                        tr("同步 GitHub 置顶"),
+                                        Modifier.weight(1f),
+                                        icon = R.drawable.oc_sync,
+                                        primary = true,
+                                    ) {
+                                        scope.launch {
+                                            val pins = runCatching { GitHub.pinned(login) }.getOrDefault(emptyList())
+                                            if (pins.isNotEmpty()) {
+                                                HomePrefs.syncWithPinned(pins, merge = true)
+                                                snackbar.showSnackbar(trf("已同步 {0} 个 GitHub 置顶仓库", pins.size))
+                                            } else {
+                                                snackbar.showSnackbar(tr("GitHub 暂无置顶仓库，去添加常用仓库"))
+                                                nav.push(Screen.AddFavorites)
+                                            }
+                                        }
+                                    }
+                                    GhButton(
+                                        tr("添加收藏"),
+                                        Modifier.weight(1f),
+                                        icon = R.drawable.oc_plus,
+                                    ) {
+                                        nav.push(Screen.AddFavorites)
+                                    }
                                 }
                             }
                         }
@@ -220,65 +285,72 @@ fun HomeScreen() {
                     }
                 }
 
-                // 快捷键区块
-                val displayShortcuts = shortcuts.filterNot { it.id == BuiltinShortcut.Favorites.id }
-                item { SectionTitle(tr("快捷键")) { SectionActionChip(tr("编辑"), tooltip = tr("自定义快捷入口")) { nav.push(Screen.HomeCustomize) } } }
-                item {
-                    if (displayShortcuts.isEmpty()) {
-                        Text(tr("所有快捷入口都已隐藏，点「编辑」可重新显示"), Modifier.padding(horizontal = 16.dp), fontSize = 13.sp, color = g.fgMuted)
-                    } else {
-                        HomeShortcuts(displayShortcuts)
-                    }
-                }
-                // 贡献详情在「我的」页的贡献活动区块里，所以按钮文字如实写成查看全部贡献
-                item { SectionTitle(tr("贡献")) { SectionActionChip(tr("详情"), tooltip = tr("查看全部贡献")) { nav.select(Tab.Me) } } }
-                item {
-                    Card(Modifier.padding(horizontal = 16.dp)) {
-                        Column {
-                            ContributionBody(contrib, full = false)
-                            HDivider()
-                            HomeAchievementsRow(badges.data, badges.error, onOpen = { nav.push(Screen.Achievements(login)) }, onRetry = { badges.load(true) })
+                // 3. Star 列表区块（极简横卡展示，点「全部」进入完整管理）
+                val allLists = lists.data.orEmpty()
+                if (allLists.isNotEmpty() || lists.loading) {
+                    item {
+                        SectionTitle(tr("Star 列表")) {
+                            SectionActionChip(tr("全部"), tooltip = tr("全部 Star 列表")) {
+                                nav.push(Screen.StarLists(login))
+                            }
                         }
                     }
-                }
-                // 这里列的是 GitHub Star 列表（与「我的」里的 Star 列表是同一批），不是首页的收藏仓库
-                item { SectionTitle(tr("Star 列表")) { SectionActionChip(tr("全部"), tooltip = tr("全部 Star 列表")) { nav.push(Screen.StarLists(login)) } } }
-                item {
-                    // 首页和列表页共用搜索/排序状态，两处看到的顺序一致
-                    val listBrowser = rememberSharedListBrowser("home-lists:$login")
-                    Column {
-                        SearchBox(
-                            listBrowser.input, listBrowser.query, { listBrowser.input = it },
-                            { listBrowser.apply() }, { listBrowser.clear() },
-                            tr("搜索 Star 列表"), tr("名称或描述"),
-                            Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                        )
-                        SortBar(
-                            LIST_SORTS, listBrowser.sort, listBrowser.descending,
-                            { listBrowser.pick(it) }, { listBrowser.descending = !listBrowser.descending },
-                        )
+                    item {
                         HomeLists(
-                            lists.data?.let { listBrowser.shown(it) }, lists.data?.size ?: 0, lists.error,
+                            allLists.take(8),
+                            allLists.size,
+                            lists.error,
                             onList = { nav.push(Screen.StarLists(login, it.id)) },
                             onAll = { nav.push(Screen.StarLists(login)) },
                             onCreate = { creatingList = true },
                             onRetry = { lists.load(true) },
                         )
                     }
+                } else {
+                    item {
+                        SectionTitle(tr("Star 列表")) {
+                            SectionActionChip(tr("创建"), tooltip = tr("新建 Star 列表")) {
+                                creatingList = true
+                            }
+                        }
+                    }
+                    item {
+                        Card(Modifier.padding(horizontal = 16.dp)) {
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable { creatingList = true }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Oc(R.drawable.oc_checklist, g.accent, 18.dp)
+                                Spacer(Modifier.width(10.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(tr("创建 Star 列表"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+                                    Text(tr("将 Star 的开源项目分类归纳整理"), fontSize = 11.sp, color = g.fgMuted)
+                                }
+                                Oc(R.drawable.oc_plus, g.accent, 14.dp)
+                            }
+                        }
+                    }
                 }
-                item {
-                    SectionTitle(tr("动态"), trailing = {
-                        Dropdown(
-                            label = cat.label,
-                            options = EventCat.filterOptions.map { it.label },
-                            onSelect = { cat = EventCat.filterOptions[it] },
-                            active = cat != EventCat.All,
-                        )
-                    })
-                }
-            },
-        ) { EventItem(it) }
+                item { Spacer(Modifier.height(32.dp)) }
+            }
+        }
     }
+
+    if (showProfilePopup) {
+        HomeProfileDialog(
+            login = login,
+            user = me.data,
+            avatar = Session.avatar,
+            status = userStatus.data,
+            onSetStatus = { showStatusSheet = true },
+            onViewProfile = { nav.push(Screen.Me) },
+            onDismiss = { showProfilePopup = false },
+        )
+    }
+
     if (creatingList) GitHubListEditor(null, creatingBusy, creatingError, onDismiss = {
         if (!creatingBusy) { creatingList = false; creatingError = null }
     }) { name, description, privateList ->
@@ -292,6 +364,7 @@ fun HomeScreen() {
             finally { creatingBusy = false }
         }
     }
+
     if (showStatusSheet) {
         UserStatusBottomSheet(
             current = userStatus.data,

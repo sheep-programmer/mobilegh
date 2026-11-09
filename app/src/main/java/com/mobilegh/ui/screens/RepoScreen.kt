@@ -94,7 +94,15 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.Surface
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.mobilegh.ui.components.HtmlView
+import com.mobilegh.ui.components.HtmlParser
 import com.mobilegh.ui.components.HtmlAnchorRequest
 import com.mobilegh.ui.components.ReadmeHeading
 import com.mobilegh.ui.components.readmeHeadings
@@ -151,12 +159,17 @@ fun RepoScreen(owner: String, name: String) {
     val ref = retain("ref") { mutableStateOf<String?>(null) }
     val readme = rememberLoader("readme:${ref.value}") { force ->
         val html = GitHub.readme(owner, name, ref.value, force)
-        // 缓存里的 README 可能带着已过期的视频令牌（请求会 404），这时重新取一份再渲染
-        if (html != null && force.not() && com.mobilegh.data.MediaProxy.hasExpiredToken(html)) {
+        val finalHtml = if (html != null && force.not() && com.mobilegh.data.MediaProxy.hasExpiredToken(html)) {
             GitHub.readme(owner, name, ref.value, true)
         } else {
             html
         }
+        // 在后台线程预先解析，滑入视口时直接命中解析缓存，不阻塞主线程与避免大对象引发 GC 尖峰
+        if (finalHtml != null) {
+            val base = "https://github.com/$owner/$name/blob/${ref.value ?: "main"}/"
+            HtmlParser.parseCached(finalHtml, base)
+        }
+        finalHtml
     }
     val langs = rememberLoader("langs") { GitHub.languages(owner, name) }
     // 开放中的 Issue / PR 数：Issue 走搜索（与网页计数一致），PR 走 Link 头；搜索不可用时 Issue 数退回公式
@@ -455,7 +468,8 @@ fun RepoScreen(owner: String, name: String) {
                                                     .clip(CircleShape)
                                                     .background(g.canvasSubtle)
                                                     .border(1.dp, g.border, CircleShape)
-                                                    .clickable { tocOpen = true },
+                                                    .clickable { tocOpen = true }
+                                                    .semantics { contentDescription = tr("README 目录") },
                                                 contentAlignment = Alignment.Center,
                                             ) {
                                                 Oc(R.drawable.oc_list_unordered, g.fg, 16.dp)
@@ -898,33 +912,140 @@ private fun ReadmeBody(
     )
 }
 
-/** README 目录：底部弹层列出标题（按层级缩进），点一项滚动到对应位置。标题来自 README 的 HTML 源串，不读 WebView。 */
-@OptIn(ExperimentalMaterial3Api::class)
+/** README 目录：平稳的底部弹层，点一项滚动到对应位置。绝无多余回弹或弹簧乱跳，滑动极为平稳。 */
 @Composable
-private fun ReadmeTocSheet(headings: List<ReadmeHeading>, onDismiss: () -> Unit, onPick: (ReadmeHeading) -> Unit) {
+internal fun ReadmeTocSheet(headings: List<ReadmeHeading>, onDismiss: () -> Unit, onPick: (ReadmeHeading) -> Unit) {
     val g = Gh.c
-    ModalBottomSheet(
+    Dialog(
         onDismissRequest = onDismiss,
-        containerColor = g.canvasSubtle,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(tr("目录"), color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            ScrollbarLazyColumn(
-                Modifier.fillMaxWidth().heightIn(max = 480.dp).clip(RoundedCornerShape(12.dp))
-                    .background(g.canvas, RoundedCornerShape(12.dp)).border(1.dp, g.border, RoundedCornerShape(12.dp)),
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss,
+                ),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.65f)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}, // 拦截内部点击，防止误触发关闭
+                    ),
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                color = g.canvas,
+                border = BorderStroke(1.dp, g.border),
+                shadowElevation = 0.dp,
             ) {
-                itemsIndexed(headings) { i, h ->
-                    Text(
-                        h.text,
-                        color = if (h.level <= 2) g.fg else g.fgMuted,
-                        fontSize = if (h.level <= 2) 15.sp else 14.sp,
-                        fontWeight = if (h.level == 1) FontWeight.SemiBold else FontWeight.Normal,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth().clickable { onPick(h) }
-                            .padding(start = (12 + (h.level - 1) * 14).dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
-                    )
-                    if (i < headings.lastIndex) HDivider()
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .navigationBarsPadding(),
+                ) {
+                    // 顶栏拖动指示条（保持视觉精致感）
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 10.dp, bottom = 6.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(36.dp)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                                .background(g.borderMuted),
+                        )
+                    }
+
+                    // 标题栏：图标 + 标题 + 条目数 + 关闭按钮
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Oc(R.drawable.oc_list_unordered, g.fg, 18.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = tr("README 目录"),
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = g.fg,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = "${headings.size} " + tr("项"),
+                            fontSize = 12.sp,
+                            color = g.fgMuted,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .background(g.canvasSubtle)
+                                .clickable(onClick = onDismiss),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Oc(R.drawable.oc_x, g.fg, 14.dp)
+                        }
+                    }
+
+                    Spacer(Modifier.height(4.dp))
+                    HDivider()
+
+                    // 目录列表：纯粹平稳的原生列表滑动，无弹性跳动
+                    ScrollbarLazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    ) {
+                        itemsIndexed(headings) { i, h ->
+                            val isTopLevel = h.level <= 2
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onPick(h) }
+                                    .padding(
+                                        start = (16 + (h.level - 1) * 14).dp,
+                                        end = 16.dp,
+                                        top = 13.dp,
+                                        bottom = 13.dp,
+                                    ),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                if (h.level > 1) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(5.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isTopLevel) g.accent else g.fgMuted),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Text(
+                                    text = h.text,
+                                    color = if (isTopLevel) g.fg else g.fgMuted,
+                                    fontSize = if (h.level == 1) 15.sp else 14.sp,
+                                    fontWeight = if (h.level == 1) FontWeight.SemiBold else FontWeight.Normal,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (i < headings.lastIndex) {
+                                HDivider(Modifier.padding(start = (16 + (h.level - 1) * 14).dp))
+                            }
+                        }
+                    }
                 }
             }
         }

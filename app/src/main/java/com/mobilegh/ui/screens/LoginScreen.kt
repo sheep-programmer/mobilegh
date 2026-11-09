@@ -4,6 +4,10 @@ import android.os.SystemClock
 import com.mobilegh.ui.components.verticalScrollWithBar
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
@@ -100,6 +104,14 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
     val device = flow.device
     var remaining by remember { mutableIntStateOf(0) }
     var retryIn by remember { mutableIntStateOf(0) }
+    var isStartingAuth by remember { mutableStateOf(false) }
+
+    // 当从网页授权返回且未完成时，自动重置授权状态，避免按钮保持禁用
+    LaunchedEffect(GitHubWebLogin.url) {
+        if (GitHubWebLogin.url == null && approvalSetup.waitingForBrowser) {
+            MobileApprovalOAuth.cancel(ctx)
+        }
+    }
 
     BackHandler(device != null) {
         flow.cancel()
@@ -109,9 +121,9 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
     BackHandler(menu && !logs && !authenticator) { menu = false }
     LaunchedEffect(device) {
         if (device == null) return@LaunchedEffect
-        // 自动复制验证码并在应用内无缝打开授权页面（双线同步）
+        // 自动复制验证码并在应用内无缝打开授权页面
         ctx.copy(device.userCode, trf("验证码 {0} 已复制，请在页面粘贴", device.userCode))
-        GitHubWebLogin.request(tr("输入授权码（双线同步）"), device.verificationUri)
+        GitHubWebLogin.request(tr("输入授权码"), device.verificationUri, onDismiss = { flow.cancel() })
         while (isActive) {
             val nowMs = SystemClock.elapsedRealtime()
             remaining = ((flow.deadline - nowMs).coerceAtLeast(0) / 1000).toInt()
@@ -174,55 +186,152 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
                 Spacer(Modifier.height(16.dp))
                 GhButton(if (busy) tr("正在登录…") else tr("登录"), Modifier.fillMaxWidth(), primary = true,
                     enabled = token.isNotBlank() && !busy) { flow.signIn(token) }
-                TextLink(tr("生成 Token")) { ctx.openBrowser(TOKEN_URL) }
+                Spacer(Modifier.height(8.dp))
+                GhButton(tr("在网页生成 Token"), Modifier.fillMaxWidth(), primary = false, icon = R.drawable.oc_link_external) {
+                    ctx.openBrowser(TOKEN_URL)
+                }
             } else {
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Oc(R.drawable.oc_shield_lock, g.accent, 28.dp)
                         Text(tr("使用 GitHub 账号"), fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
-                        Text(tr("登录后自动启用数字审批，验证请求会弹窗并通知你。"), color = g.fgMuted, fontSize = 14.sp)
-                        GhButton(tr("继续"), Modifier.fillMaxWidth(), primary = true,
-                            enabled = !busy && !approvalSetup.busy, icon = R.drawable.oc_mark_github) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(g.canvasSubtle)
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Oc(R.drawable.oc_shield_lock, g.accent, 16.dp)
+                            Text(
+                                tr("登录后自动启用数字审批，验证请求会弹窗并通知你。"),
+                                color = g.fgMuted,
+                                fontSize = 13.sp,
+                                lineHeight = 18.sp,
+                            )
+                        }
+                        GhButton(
+                            text = if (isStartingAuth) tr("正在打开授权…") else tr("继续"),
+                            modifier = Modifier.fillMaxWidth(),
+                            primary = true,
+                            icon = R.drawable.oc_mark_github,
+                            enabled = !busy && !approvalSetup.busy && !isStartingAuth,
+                        ) {
                             approvalStartError = null
-                            runCatching { MobileApprovalOAuth.begin(ctx, if (reauthorizing) ApprovalOAuthPurpose.Reauthorize else ApprovalOAuthPurpose.SignIn) }
-                                .onSuccess { authUrl ->
-                                    GitHubWebLogin.request(tr("GitHub 授权登录（双线同步）"), authUrl)
-                                }
-                                .onFailure { approvalStartError = it.message?.takeIf { m -> m.isNotBlank() } ?: tr("无法开始 GitHub 授权，请重试") }
+                            isStartingAuth = true
+                            if (approvalSetup.busy) {
+                                MobileApprovalOAuth.cancel(ctx)
+                            }
+                            runCatching {
+                                MobileApprovalOAuth.begin(ctx, if (reauthorizing) ApprovalOAuthPurpose.Reauthorize else ApprovalOAuthPurpose.SignIn)
+                            }.onSuccess { authUrl ->
+                                isStartingAuth = false
+                                GitHubWebLogin.request(
+                                    customTitle = tr("GitHub 授权登录"),
+                                    urlToOpen = authUrl,
+                                    onDismiss = { MobileApprovalOAuth.cancel(ctx) },
+                                )
+                            }.onFailure { err ->
+                                isStartingAuth = false
+                                approvalStartError = err.message?.takeIf { m -> m.isNotBlank() } ?: tr("无法开始 GitHub 授权，请重试")
+                            }
+                        }
+                        if (approvalSetup.busy) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(g.canvasSubtle)
+                                    .border(1.dp, g.border, RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = g.accent)
+                                Text(
+                                    approvalSetup.notice ?: if (approvalSetup.waitingForBrowser) tr("正在等待 GitHub 授权…") else tr("正在自动启用数字审批…"),
+                                    modifier = Modifier.weight(1f),
+                                    color = g.fg,
+                                    fontSize = 13.sp,
+                                )
+                                GhButton(
+                                    text = tr("取消"),
+                                    primary = false,
+                                    onClick = { MobileApprovalOAuth.cancel(ctx) },
+                                )
+                            }
                         }
                         approvalStartError?.let { InlineError(it) }
-                        if (approvalSetup.busy) {
-                            Text(approvalSetup.notice ?: if (approvalSetup.waitingForBrowser) tr("正在等待 GitHub 授权") else tr("正在自动启用数字审批…"), color = g.fgMuted, fontSize = 13.sp)
-                            if (approvalSetup.waitingForBrowser) TextLink(tr("取消授权")) { MobileApprovalOAuth.cancel(ctx) }
-                        }
                         approvalSetup.error?.let {
                             InlineError(it, retry = if (approvalSetup.canRetry) ({ MobileApprovalOAuth.retry(ctx) }) else null)
                         }
-                        TextLink(tr("使用设备授权码登录（网页授权 · 支持 Projects 权限）")) { flow.authorize() }
+                        GhButton(
+                            text = if (busy) tr("正在连接…") else tr("网页授权"),
+                            modifier = Modifier.fillMaxWidth(),
+                            primary = false,
+                            icon = R.drawable.oc_globe,
+                            enabled = !busy && !approvalSetup.busy && !isStartingAuth,
+                        ) {
+                            flow.authorize()
+                        }
                     }
                 }
             }
         } else {
             val d = device
             Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(if (flow.confirming) tr("正在确认账号") else tr("浏览器授权码"), fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
                     Text(d.userCode, fontSize = 28.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = g.accent)
                     if (!flow.confirming) Text(trf("{0}:{1} 后过期", remaining / 60, (remaining % 60).toString().padStart(2, '0')), color = g.fgMuted, fontSize = 12.sp)
-                    Text(tr("此码填写在浏览器；验证数字可在下方输入并批准。"), color = g.fgMuted, fontSize = 12.sp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(g.canvasSubtle)
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Oc(R.drawable.oc_info, g.accent, 14.dp)
+                        Text(tr("此码填写在浏览器；验证数字可在下方输入并批准。"), color = g.fgMuted, fontSize = 12.sp)
+                    }
                     GhButton(tr("在应用内打开授权"), Modifier.fillMaxWidth(), primary = true, enabled = !flow.confirming, icon = R.drawable.oc_shield_lock) {
                         ctx.copy(d.userCode, trf("验证码 {0} 已复制，请在页面粘贴", d.userCode))
-                        GitHubWebLogin.request(tr("输入授权码（双线同步）"), d.verificationUri)
+                        GitHubWebLogin.request(tr("输入授权码"), d.verificationUri, onDismiss = { flow.cancel() })
                     }
-                    TextLink(tr("在系统外部浏览器打开")) { ctx.copy(d.userCode); ctx.openBrowser(d.verificationUri) }
-                    TextLink(tr("仅复制验证码")) { ctx.copy(d.userCode) }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = g.fgMuted)
-                        Text(if (flow.confirming) tr("GitHub 已授权，正在连接账号") else tr("等待 GitHub 授权"), color = g.fgMuted, fontSize = 13.sp)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        GhButton(tr("系统浏览器"), Modifier.weight(1f), primary = false, icon = R.drawable.oc_link_external) {
+                            ctx.copy(d.userCode)
+                            ctx.openBrowser(d.verificationUri)
+                        }
+                        GhButton(tr("复制验证码"), Modifier.weight(1f), primary = false, icon = R.drawable.oc_copy) {
+                            ctx.copy(d.userCode)
+                        }
                     }
-                    flow.notice?.let { Text(it, color = g.fgMuted, fontSize = 13.sp) }
-                    if (retryIn > 0) Text(trf("{0} 秒后自动重试", retryIn), color = g.fgMuted, fontSize = 13.sp)
-                    TextLink(tr("取消")) { flow.cancel() }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(g.canvasSubtle)
+                            .border(1.dp, g.border, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = g.accent)
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                if (flow.confirming) tr("GitHub 已授权，正在连接账号…") else tr("等待 GitHub 授权…"),
+                                color = g.fg, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+                            )
+                            flow.notice?.let { Text(it, color = g.fgMuted, fontSize = 12.sp) }
+                            if (retryIn > 0) Text(trf("{0} 秒后自动重试", retryIn), color = g.fgMuted, fontSize = 12.sp)
+                        }
+                        GhButton(tr("取消"), primary = false, onClick = { flow.cancel() })
+                    }
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -232,9 +341,26 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
         flow.error?.let { InlineError(it, Modifier.padding(vertical = 4.dp)) }
         Spacer(Modifier.height(if (device == null) 24.dp else 12.dp))
         // 设备授权码流程里才需要验证器验证码，随手可点；其余入口都收进右上角菜单
-        if (device != null) TextLink(tr("使用验证器验证码")) { authenticator = true }
-        if (device == null) Text(tr("凭据仅加密保存在本机"), Modifier.padding(top = 12.dp, bottom = 32.dp), color = g.fgMuted, fontSize = 12.sp)
-        else Spacer(Modifier.height(16.dp))
+        if (device != null) {
+            GhButton(tr("使用验证器验证码"), Modifier.fillMaxWidth(), primary = false, icon = R.drawable.oc_key) { authenticator = true }
+        }
+        if (device == null) {
+            Row(
+                modifier = Modifier
+                    .padding(top = 16.dp, bottom = 32.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(g.canvasSubtle)
+                    .border(1.dp, g.border, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Oc(R.drawable.oc_lock, g.fgMuted, 13.dp)
+                Text(tr("凭据仅加密保存在本机"), color = g.fgMuted, fontSize = 12.sp)
+            }
+        } else {
+            Spacer(Modifier.height(16.dp))
+        }
     }
     if (networkSettings) NetworkSettingsDialog { networkSettings = false }
     if (showUpdate) UpdateDialog(onDismiss = { showUpdate = false })
@@ -284,7 +410,20 @@ private fun LoginMenuPage(
             MenuGroup {
                 MenuRow(R.drawable.oc_question, tr("登录帮助"), g.severe, onClick = onHelp)
             }
-            Text(tr("凭据仅加密保存在本机"), Modifier.padding(start = 16.dp, top = 20.dp, bottom = 32.dp), color = g.fgMuted, fontSize = 12.sp)
+            Spacer(Modifier.height(24.dp))
+            Row(
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .clip(CircleShape)
+                    .background(g.canvasSubtle)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Oc(R.drawable.oc_lock, g.fgMuted, 13.dp)
+                Text(tr("凭据仅加密保存在本机"), color = g.fgMuted, fontSize = 12.sp)
+            }
+            Spacer(Modifier.height(32.dp))
         }
     }
 }

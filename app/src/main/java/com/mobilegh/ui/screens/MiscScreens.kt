@@ -331,31 +331,54 @@ fun SettingsScreen() {
 private fun SettingsHome(open: (SettingsPage) -> Unit, onLogout: () -> Unit) {
     val g = Gh.c
     val nav = LocalNav.current
-    SectionTitle(tr("账号"))
-    MenuGroup {
-        Session.accounts.forEach { a ->
-            val cur = a.login == Session.login
+
+    // 顶部紧凑当前账号条（不重复首页多账号列表，精简压缩）
+    val curLogin = Session.login
+    val curAccount = Session.accounts.firstOrNull { it.login == curLogin }
+    if (curAccount != null) {
+        Card(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+        ) {
             Row(
-                Modifier.fillMaxWidth().clickable(enabled = !cur) { Session.switchTo(a.login) }.padding(horizontal = 16.dp, vertical = 10.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Avatar(a.avatarUrl, 36.dp)
-                Spacer(Modifier.width(12.dp))
-                Text(a.login, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, color = g.fg)
-                if (cur) Pill(tr("当前"), g.success) else Text(tr("切换"), color = g.accent, fontSize = 13.sp)
+                Avatar(curAccount.avatarUrl, 32.dp)
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(curAccount.login, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = g.fg)
+                    Text(tr("当前已登录"), fontSize = 12.sp, color = g.fgMuted)
+                }
+                if (Session.accounts.size > 1) {
+                    Text(
+                        trf("切换账号 ({0})", Session.accounts.size),
+                        fontSize = 12.sp,
+                        color = g.accent,
+                        modifier = Modifier
+                            .clickable {
+                                val nextIdx = (Session.accounts.indexOfFirst { it.login == curLogin } + 1) % Session.accounts.size
+                                Session.switchTo(Session.accounts[nextIdx].login)
+                            }
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                    )
+                }
             }
         }
-        MenuRow(R.drawable.oc_plus, tr("添加账号")) { nav.push(Screen.Login) }
     }
-    Spacer(Modifier.height(16.dp))
+
+    Spacer(Modifier.height(6.dp))
     MenuGroup {
         MenuRow(R.drawable.oc_sun, tr("外观与语言"), g.accent, value = themeName() + " · " + languageName()) { open(SettingsPage.Appearance) }
         MenuRow(R.drawable.oc_lock, tr("安全与隐私"), g.done, value = if (AppLock.enabled) tr("应用锁已开启") else null) { open(SettingsPage.Security) }
         MenuRow(R.drawable.oc_shield_lock, tr("两步验证与数字批准"), g.success, count = Session.totpAccounts().size.takeIf { it > 0 }) { open(SettingsPage.TwoFactor) }
-        MenuRow(R.drawable.oc_globe, tr("网络与加速"), g.attention, value = accelerationName()) { open(SettingsPage.Network) }
     }
-    Spacer(Modifier.height(16.dp))
+    Spacer(Modifier.height(10.dp))
     MenuGroup {
+        MenuRow(R.drawable.oc_globe, tr("网络与加速"), g.attention, value = accelerationName()) { open(SettingsPage.Network) }
         MenuRow(R.drawable.oc_key, tr("Token 与 API 配额"), g.severe) { open(SettingsPage.Quota) }
         MenuRow(R.drawable.oc_log, tr("存储与诊断"), g.fgMuted, value = AppLog.entries.size.toString() + tr(" 条日志")) { open(SettingsPage.Storage) }
         MenuRow(
@@ -363,7 +386,7 @@ private fun SettingsHome(open: (SettingsPage) -> Unit, onLogout: () -> Unit) {
             value = if (Update.available != null) tr("有新版") else "v${BuildConfig.VERSION_NAME}",
         ) { open(SettingsPage.About) }
     }
-    Spacer(Modifier.height(24.dp))
+    Spacer(Modifier.height(18.dp))
     GhButton(tr("退出当前账号"), Modifier.padding(horizontal = 16.dp).fillMaxWidth(), danger = true, icon = R.drawable.oc_sign_out, onClick = onLogout)
 }
 

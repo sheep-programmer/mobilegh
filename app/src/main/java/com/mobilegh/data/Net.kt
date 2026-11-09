@@ -391,9 +391,11 @@ object Net {
         val failed = synchronized(this) { currentFailures(cls) }
         val okId = synchronized(this) { imageOk[cls] }
         val list = imageCandidates(url, raw, failed, okId)
-        // camo（README 里外链图片的缓存地址）只由 GitHub 自己提供；实测公共代理对它一律 403/404，
-        // 先试代理只会给每张 README 图片白加几秒延迟，因此直连优先。
-        return if (cls == "camo") list.sortedBy { if (it.first == DIRECT.id) 0 else 1 } else list
+        // camo 与头像只由 GitHub 自身及其 Fastly CDN 稳定提供；公共代理常返回 403 或超时。
+        // 未有成功节点记忆时直连优先，将等待压低至百毫秒级。
+        if (cls == "camo") return list.sortedBy { if (it.first == DIRECT.id) 0 else 1 }
+        if (cls == "avatar" && okId == null) return list.sortedBy { if (it.first == DIRECT.id) 0 else 1 }
+        return list
     }
 
     private fun imageCandidates(

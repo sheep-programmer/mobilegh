@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -123,6 +124,9 @@ fun AppRoot(nav: Navigator) {
                         com.mobilegh.ui.components.NotificationPermissionHost()
                         // 启动检查发现新版本时自动弹出更新提示
                         if (Session.token != null) UpdatePromptHost()
+                        LinkMenuHost()
+                        ExternalLinkDialogHost()
+                        GitHubWebLoginHost()
                     }
                 }
             }
@@ -239,44 +243,36 @@ private fun Main(nav: Navigator) {
             .padding(bottom = if (nav.stack.isEmpty()) 80.dp else 0.dp)
             .navigationBarsPadding().imePadding(),
     )
-    LinkMenuHost()
-    ExternalLinkDialogHost()
-    GitHubWebLoginHost()
     }
 }
 
 @Composable
 private fun RootNavigationBar(nav: Navigator) {
     val g = Gh.c
-    val unread by Badges.unreadFlow.collectAsState()
+    val bottomTabs = listOf(Tab.Home, Tab.Repos, Tab.Star, Tab.Explore)
     Column {
         HDivider()
-        NavigationBar(containerColor = g.header, tonalElevation = androidx.compose.ui.unit.Dp.Hairline) {
-            Tab.entries.forEach { t ->
+        NavigationBar(containerColor = g.header, tonalElevation = 0.dp) {
+            bottomTabs.forEach { t ->
                 val sel = nav.tab == t
                 val icon = when (t) {
                     Tab.Home -> if (sel) R.drawable.oc_home_fill else R.drawable.oc_home
                     Tab.Repos -> R.drawable.oc_repo
+                    Tab.Star -> if (sel) R.drawable.oc_star_fill else R.drawable.oc_star
+                    Tab.Explore -> if (sel) R.drawable.oc_telescope_fill else R.drawable.oc_telescope
                     Tab.Notifications -> if (sel) R.drawable.oc_bell_fill else R.drawable.oc_bell
-                    Tab.Explore -> R.drawable.oc_search
                     Tab.Me -> if (sel) R.drawable.oc_person_fill else R.drawable.oc_person
                 }
                 NavigationBarItem(
                     selected = sel,
                     onClick = { nav.select(t) },
-                    icon = {
-                        if (t == Tab.Notifications && unread > 0) {
-                            BadgedBox(badge = { Badge(containerColor = g.accent) { Text(if (unread > 99) "99+" else "$unread", fontSize = 9.sp) } }) {
-                                Oc(icon, if (sel) g.fg else g.fgMuted, 22.dp)
-                            }
-                        } else {
-                            Oc(icon, if (sel) g.fg else g.fgMuted, 22.dp)
-                        }
-                    },
-                    label = { Text(t.title, fontSize = 11.sp) },
+                    icon = { Oc(icon, if (sel) g.accent else g.fgMuted, 22.dp) },
+                    label = { Text(t.title, fontSize = 11.sp, color = if (sel) g.accent else g.fgMuted) },
                     colors = NavigationBarItemDefaults.colors(
-                        indicatorColor = g.neutralMuted,
-                        selectedTextColor = g.fg,
+                        indicatorColor = Color.Transparent,
+                        selectedIconColor = g.accent,
+                        unselectedIconColor = g.fgMuted,
+                        selectedTextColor = g.accent,
                         unselectedTextColor = g.fgMuted,
                     ),
                 )
@@ -294,8 +290,9 @@ private fun RootTabs(nav: Navigator, holder: SaveableStateHolder) {
                 when (nav.tab) {
                     Tab.Home -> HomeScreen()
                     Tab.Repos -> ReposTab()
-                    Tab.Notifications -> NotificationsScreen()
+                    Tab.Star -> StarTab()
                     Tab.Explore -> ExploreScreen()
+                    Tab.Notifications -> NotificationsScreen()
                     Tab.Me -> MeScreen()
                 }
             }
@@ -378,5 +375,11 @@ private fun ScreenHost(s: Screen) {
         Screen.Reauthorize -> LoginScreen(reauthorizing = true)
         is Screen.MyIssues -> MyIssuesScreen(s.pulls, s.preset)
         Screen.HomeCustomize -> HomeCustomizeScreen()
+        Screen.NewShortcut -> NewShortcutScreen()
+        Screen.Feed -> FeedScreen()
+        Screen.Notifications -> NotificationsScreen()
+        Screen.Me -> MeScreen()
+        Screen.Trending -> TrendingScreen()
+        Screen.CuratedLists -> CuratedListsScreen()
     }
 }

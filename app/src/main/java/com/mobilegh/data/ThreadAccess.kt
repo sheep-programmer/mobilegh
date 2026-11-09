@@ -18,6 +18,40 @@ data class ThreadAccess(val write: Boolean, val triage: Boolean, val author: Boo
 
     val toggleDraft: Boolean get() = author || write
 
+    /**
+     * 判断是否可以重新开启 Issue 或 PR：
+     * - 已合并的 PR 永远无法重新开启
+     * - 被锁定的议题只有拥有协作权限（triage/write）的用户可以重新开启，普通作者无权重新开启
+     * - 未锁定时：协作者可重新开启；普通作者若议题被标记为 not_planned 或被他人关闭，则无权重新开启
+     */
+    fun canReopen(
+        locked: Boolean,
+        merged: Boolean = false,
+        stateReason: String? = null,
+        closedByLogin: String? = null,
+        me: String? = null,
+    ): Boolean {
+        if (merged) return false
+        if (locked) return triage
+        if (!changeState) return false
+        if (triage) return true
+        if (stateReason == "not_planned") return false
+        if (closedByLogin != null && me != null && !closedByLogin.equals(me, ignoreCase = true)) return false
+        return true
+    }
+
+    /**
+     * 判断是否可以关闭 Issue 或 PR：
+     * - 已合并的 PR 无法执行关闭
+     * - 被锁定的议题只有拥有协作权限（triage/write）的用户可以关闭
+     * - 未锁定时，作者与协作者均可关闭
+     */
+    fun canClose(locked: Boolean, merged: Boolean = false): Boolean {
+        if (merged) return false
+        if (locked) return triage
+        return changeState
+    }
+
     companion object {
         val None = ThreadAccess(write = false, triage = false, author = false)
 

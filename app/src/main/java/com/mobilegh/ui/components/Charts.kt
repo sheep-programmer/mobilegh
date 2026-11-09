@@ -145,7 +145,8 @@ fun LineChart(
         if (selected in a.indices) drawValueBubble(
             measurer,
             listOf(labels.getOrElse(selected) { "" }, "$nameA ${a[selected]}", "$nameB ${b.getOrElse(selected) { 0 }}"),
-            leftPad + selected * stepX, minOf(yOf(a[selected]), yOf(b.getOrElse(selected) { 0 })), g.fg, g.canvas,
+            leftPad + selected * stepX, minOf(yOf(a[selected]), yOf(b.getOrElse(selected) { 0 })),
+            g.canvas, g.fg, borderColor = g.border,
         ) else drawText(measurer, tr("点按或长按图表查看每天的数值"), Offset(leftPad, 4.dp.toPx()), style)
     }
 }
@@ -174,7 +175,7 @@ fun BarChart(
             .height(height + ChartBubbleSpace)
             .testTag("chart")
             .semantics { contentDescription = summary }
-            .chartSelect(values.size, onDoubleTap = onDoubleTap) { selected = it }
+            .chartSelect(values.size, selected = selected, onDoubleTap = onDoubleTap) { selected = it }
     ) {
         if (values.isEmpty()) return@Canvas
         val top = ChartBubbleSpace.toPx()
@@ -194,9 +195,10 @@ fun BarChart(
             val v = values[selected]
             drawValueBubble(
                 measurer, listOfNotNull("$v$unit", labels.getOrNull(selected)?.takeIf { it.isNotBlank() }),
-                (selected + 0.5f) * slot, size.height - barH(v), g.fg, g.canvas,
+                (selected + 0.5f) * slot, size.height - barH(v),
+                background = g.canvas, foreground = g.fg, borderColor = g.border,
             )
-        } else drawText(measurer, tr("点按或长按柱子查看数值"), Offset(0f, 4.dp.toPx()), TextStyle(fontSize = 10.sp, color = g.fgMuted))
+        } else drawText(measurer, tr("点按柱子查看数值，再次点按取消"), Offset(0f, 4.dp.toPx()), TextStyle(fontSize = 10.sp, color = g.fgMuted))
     }
 }
 

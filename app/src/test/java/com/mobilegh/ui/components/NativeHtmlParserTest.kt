@@ -248,4 +248,28 @@ class NativeHtmlBadgeTest {
         val page = parse("<p><a href=\"https://x.io/page\"><img src=\"p.png\"></a></p>").blocks.single() as HtmlBlock.Image
         assertEquals("https://x.io/page", page.link)
     }
+
+    @Test fun extractImageUrlsFindsImagesInVariousBlocks() {
+        val html = """
+            <div align="center">
+                <img src="docs/brand/icon.png" width="96">
+                <p>
+                    <a href="https://example.com"><img src="https://img.shields.io/badge/test-blue"></a>
+                </p>
+                <img src="site/img/home.jpg">
+            </div>
+            <table><tr><td><img src="site/img/cell.jpg"></td></tr></table>
+        """.trimIndent()
+        val parsed = parse(html)
+        val extracted = HtmlParser.extractImageUrls(parsed.blocks)
+        assertEquals(
+            listOf(
+                "https://github.com/a/b/blob/main/docs/brand/icon.png",
+                "https://img.shields.io/badge/test-blue",
+                "https://github.com/a/b/blob/main/site/img/home.jpg",
+                "https://github.com/a/b/blob/main/site/img/cell.jpg"
+            ),
+            extracted
+        )
+    }
 }

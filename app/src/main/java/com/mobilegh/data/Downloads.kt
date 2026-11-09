@@ -182,6 +182,8 @@ data class DownloadTask(
     val nodeName: String? = null,
     /** 排队中用户点了「暂停」：不提交给 DownloadManager，直到用户继续。只对应用内排队的任务有效 */
     val paused: Boolean = false,
+    /** 是否是 MobileGH 应用自身的更新安装包 */
+    val isAppUpdate: Boolean = false,
 ) {
     val active get() = state in setOf(DownloadState.Preparing, DownloadState.Queued, DownloadState.Running, DownloadState.Waiting)
     /** 还在应用内排队、尚未交给 DownloadManager 的任务（没有 managerId） */
@@ -319,8 +321,23 @@ object Downloads {
         if (visible) pump()
     }
 
-    fun start(rawUrl: String, filename: String?, isPrivate: Boolean, mimeType: String? = null) {
-        tasks.firstOrNull { it.url == rawUrl && it.active }?.let { selectedKey = it.key; showHistory = false; return }
+    fun start(
+        rawUrl: String,
+        filename: String?,
+        isPrivate: Boolean,
+        mimeType: String? = null,
+        isAppUpdate: Boolean = false,
+        openDialog: Boolean = false,
+    ) {
+        tasks.firstOrNull { it.url == rawUrl && it.active }?.let {
+            if (openDialog) {
+                selectedKey = it.key
+                showHistory = false
+            } else {
+                if (::context.isInitialized) context.toast(trf("该任务正在下载中：{0}", it.filename))
+            }
+            return
+        }
         val task = DownloadTask(
             url = rawUrl,
             filename = safeFilename(filename ?: Uri.parse(rawUrl).lastPathSegment ?: "download"),
@@ -330,6 +347,7 @@ object Downloads {
             targets = if (isPrivate) emptyList() else Net.downloadTargets(rawUrl),
             // 统一先记为排队，由 pump() 按名额决定是否立即开始
             state = DownloadState.Queued,
+            isAppUpdate = isAppUpdate,
         )
         tasks.add(0, task)
         // 超出保留数量的较早记录移出列表，并计数，让界面能说明移掉了多少条
@@ -337,10 +355,14 @@ object Downloads {
             val dropKeys = overflow.map { it.key }.toSet()
             tasks.removeAll { it.key in dropKeys }
             droppedRecords += overflow.size
-            prefs.edit().putInt("dropped", droppedRecords).apply()
+            if (::prefs.isInitialized) prefs.edit().putInt("dropped", droppedRecords).apply()
         }
-        selectedKey = task.key
-        showHistory = false
+        if (openDialog) {
+            selectedKey = task.key
+            showHistory = false
+        } else {
+            if (::context.isInitialized) context.toast(trf("已开始下载：{0}", task.filename))
+        }
         AppLog.info("download", tr("开始下载：") + task.filename + "（" + (if (isPrivate) "private" else "public") + "）")
         save()
         pump()
@@ -917,7 +939,7 @@ object Downloads {
         if (task.active) return
         if (task.state == DownloadState.Complete) {
             tasks.removeAll { it.key == task.key }
-            start(task.url, task.filename, task.isPrivate, task.mimeType)
+            start(task.url, task.filename, task.isPrivate, task.mimeType, isAppUpdate = task.isAppUpdate, openDialog = true)
             return
         }
         tasks.firstOrNull { it.key == task.key }?.let { current ->

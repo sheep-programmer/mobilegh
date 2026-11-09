@@ -206,7 +206,7 @@ fun ReadmeZoomResetPill(
         shape = RoundedCornerShape(24.dp),
         color = g.canvasSubtle.copy(alpha = 0.96f),
         border = BorderStroke(1.dp, g.border),
-        shadowElevation = 6.dp,
+        shadowElevation = 0.dp,
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),

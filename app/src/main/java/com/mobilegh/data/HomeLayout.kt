@@ -13,8 +13,9 @@ import com.mobilegh.i18n.trf
 
 /** 首页「我的工作」里的内置入口；顺序即默认布局 */
 enum class BuiltinShortcut(val id: String) {
-    Issues("issues"), Pulls("pulls"), Favorites("favorites"), Saved("saved"), Repos("repos"), Orgs("orgs"),
-    Stars("stars"), Lists("lists"), Gists("gists"), Recent("recent");
+    Activity("activity"), Issues("issues"), Pulls("pulls"), Favorites("favorites"), Saved("saved"), Repos("repos"), Orgs("orgs"),
+    Stars("stars"), Lists("lists"), Gists("gists"), Recent("recent"),
+    Projects("projects"), Drafts("drafts"), Invitations("invitations");
 
     companion object {
         fun of(id: String) = entries.firstOrNull { it.id == id }
@@ -41,6 +42,7 @@ data class HomeLayout(
     val favorites: List<FavoriteRepo> = emptyList(),
     val shortcuts: List<ShortcutSlot>? = null,
     val searches: List<SavedSearch> = emptyList(),
+    val pinnedSynced: Boolean = false,
 ) {
     /** 实际生效的入口顺序：未知 id 丢弃，新增的内置入口与保存的搜索追加在末尾 */
     fun slots(): List<ShortcutSlot> {
@@ -127,6 +129,29 @@ class HomeLayoutStore internal constructor(private val storage: LocalRecordStora
         it.copy(favorites = favorites.filter { f -> repoName.matches(f.fullName) }.distinctBy { f -> f.fullName.lowercase() }.take(HomeLayout.MAX_FAVORITES))
     }
 
+    fun markPinnedSynced(login: String): HomeLayout = change(login) { it.copy(pinnedSynced = true) }
+
+    /** 同步 GitHub 官方置顶仓库到收藏夹。merge=true 时保留本地已有收藏并追加新置顶，merge=false 时完全覆盖。 */
+    fun syncWithPinned(login: String, pinned: List<PinnedRepo>, merge: Boolean = true): HomeLayout = change(login) { l ->
+        val pinnedFavs = pinned.mapNotNull { p ->
+            val owner = p.owner.login
+            val name = p.name
+            if (owner.isNotBlank() && name.isNotBlank() && repoName.matches("$owner/$name")) {
+                FavoriteRepo(owner, name)
+            } else null
+        }
+        val nextFavs = if (pinnedFavs.isEmpty() && merge) {
+            l.favorites
+        } else if (!merge || l.favorites.isEmpty()) {
+            pinnedFavs.distinctBy { it.fullName.lowercase() }.take(HomeLayout.MAX_FAVORITES)
+        } else {
+            val existing = l.favorites.map { it.fullName.lowercase() }.toSet()
+            val newFavs = pinnedFavs.filterNot { it.fullName.lowercase() in existing }
+            (l.favorites + newFavs).distinctBy { it.fullName.lowercase() }.take(HomeLayout.MAX_FAVORITES)
+        }
+        l.copy(favorites = nextFavs, pinnedSynced = true)
+    }
+
     /** 撤销「移出收藏」：按原位放回；已经存在或已达上限时保持不变 */
     fun restoreFavorite(login: String, index: Int, repo: FavoriteRepo) = change(login) { l ->
         if (l.isFavorite(repo.owner, repo.name) || l.favorites.size >= HomeLayout.MAX_FAVORITES) l
@@ -137,6 +162,14 @@ class HomeLayoutStore internal constructor(private val storage: LocalRecordStora
 
     fun setShortcutVisible(login: String, id: String, visible: Boolean) =
         change(login) { l -> l.copy(shortcuts = l.slots().map { if (it.id == id) it.copy(visible = visible) else it }) }
+
+    /** 直接按顺序更新所有入口与其可见性 */
+    fun setShortcuts(login: String, slots: List<ShortcutSlot>) = change(login) { l ->
+        val known = BuiltinShortcut.entries.map { it.id } + l.searches.map { HomeLayout.searchSlotId(it.id) }
+        val valid = slots.filter { it.id in known }.distinctBy { it.id }
+        val missing = known.filter { id -> valid.none { it.id == id } }.map { ShortcutSlot(it, visible = false) }
+        l.copy(shortcuts = valid + missing)
+    }
 
     /** 恢复默认：内置入口回到默认顺序并全部显示；保存的搜索保留并排在后面 */
     fun resetShortcuts(login: String) = change(login) { it.copy(shortcuts = null) }
@@ -187,11 +220,14 @@ object HomePrefs {
 
     fun toggleFavorite(owner: String, name: String): Boolean = change { toggleFavorite(it, owner, name) } ?: false
     fun setFavorites(favorites: List<FavoriteRepo>) = change { setFavorites(it, favorites) }
+    fun syncWithPinned(pinned: List<PinnedRepo>, merge: Boolean = true): HomeLayout? = change { syncWithPinned(it, pinned, merge) }
+    fun markPinnedSynced(): HomeLayout? = change { markPinnedSynced(it) }
     fun moveFavorite(index: Int, delta: Int) = change { moveFavorite(it, index, delta) }
     fun removeFavorite(repo: FavoriteRepo) = change { removeFavorite(it, repo) }
     fun restoreFavorite(index: Int, repo: FavoriteRepo) = change { restoreFavorite(it, index, repo) }
     fun moveShortcut(index: Int, delta: Int) = change { moveShortcut(it, index, delta) }
     fun setShortcutVisible(id: String, visible: Boolean) = change { setShortcutVisible(it, id, visible) }
+    fun setShortcuts(slots: List<ShortcutSlot>) = change { setShortcuts(it, slots) }
     fun resetShortcuts() = change { resetShortcuts(it) }
     fun addSearch(name: String, icon: String, query: IssueQuery) = change { addSearch(it, name, icon, query) }
     fun removeSearch(id: String) = change { removeSearch(it, id) }

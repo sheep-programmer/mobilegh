@@ -12,18 +12,18 @@ class HomeLayoutTest {
         val l = store.read("alice")
         assertNull(l.shortcuts)
         assertEquals(defaults, l.visibleSlots().map { it.id })
-        assertEquals(listOf("issues", "pulls", "favorites", "saved", "repos", "orgs", "stars", "lists", "gists", "recent"), defaults)
+        assertEquals(listOf("activity", "issues", "pulls", "favorites", "saved", "repos", "orgs", "stars", "lists", "gists", "recent", "projects", "drafts", "invitations"), defaults)
     }
 
     @Test fun shortcutsCanBeHiddenReorderedAndReset() {
         store.setShortcutVisible("alice", "orgs", false)
         store.moveShortcut("alice", defaults.size - 1, -(defaults.size - 1))
         val l = store.read("alice")
-        assertEquals(listOf("recent") + defaults.dropLast(1), l.slots().map { it.id })
+        assertEquals(listOf(defaults.last()) + defaults.dropLast(1), l.slots().map { it.id })
         assertFalse(l.slots().first { it.id == "orgs" }.visible)
         assertFalse("orgs" in l.visibleSlots().map { it.id })
         store.moveShortcut("alice", 0, -1)
-        assertEquals("recent", store.read("alice").slots().first().id)
+        assertEquals(defaults.last(), store.read("alice").slots().first().id)
         store.resetShortcuts("alice")
         assertEquals(defaults, store.read("alice").visibleSlots().map { it.id })
     }
@@ -106,5 +106,39 @@ class HomeLayoutTest {
         assertEquals(listOf(1, 2, 3), listOf(1, 2, 3).moved(0, -1))
         assertEquals(listOf(2, 1, 3), listOf(1, 2, 3).moved(0, 1))
         assertEquals(listOf(1, 2, 3), listOf(1, 2, 3).moved(5, 1))
+    }
+
+    @Test fun syncWithPinnedPopulatesEmptyFavoritesAndMergesCleanly() {
+        val pins = listOf(
+            PinnedRepo(name = "pinned-1", owner = GqlOwner(login = "alice")),
+            PinnedRepo(name = "pinned-2", owner = GqlOwner(login = "alice")),
+        )
+        assertFalse(store.read("alice").pinnedSynced)
+        assertTrue(store.read("alice").favorites.isEmpty())
+
+        // Initial sync when empty populates favorites
+        store.syncWithPinned("alice", pins, merge = false)
+        val l1 = store.read("alice")
+        assertTrue(l1.pinnedSynced)
+        assertEquals(listOf("alice/pinned-1", "alice/pinned-2"), l1.favorites.map { it.fullName })
+
+        // Add a local favorite
+        store.toggleFavorite("alice", "mona", "local-repo")
+        assertEquals(3, store.read("alice").favorites.size)
+
+        // New pinned list from GitHub: pinned-2 and pinned-3
+        val updatedPins = listOf(
+            PinnedRepo(name = "pinned-2", owner = GqlOwner(login = "alice")),
+            PinnedRepo(name = "pinned-3", owner = GqlOwner(login = "alice")),
+        )
+        // With merge = true, local-repo is kept, pinned-3 is appended, pinned-2 is not duplicated
+        store.syncWithPinned("alice", updatedPins, merge = true)
+        val l2 = store.read("alice")
+        assertEquals(listOf("alice/pinned-1", "alice/pinned-2", "mona/local-repo", "alice/pinned-3"), l2.favorites.map { it.fullName })
+
+        // With merge = false, completely overwrites with updatedPins
+        store.syncWithPinned("alice", updatedPins, merge = false)
+        val l3 = store.read("alice")
+        assertEquals(listOf("alice/pinned-2", "alice/pinned-3"), l3.favorites.map { it.fullName })
     }
 }

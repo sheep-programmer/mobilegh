@@ -90,11 +90,52 @@ internal object HtmlParser {
     /** 预解析只用一个后台线程：滑动时不和界面线程抢 CPU */
     private val prewarmDispatcher = kotlinx.coroutines.Dispatchers.Default.limitedParallelism(1)
 
-    /** 预先解析：评论加载完成后在后台逐条解析好，滑到时就不用再解析。每条之间让出线程，随时可被取消 */
+    /** 提取前排关键图片地址，供后台预先拉取到本地缓存 */
+    fun extractImageUrls(blocks: List<HtmlBlock>, limit: Int = 16): List<String> {
+        val urls = LinkedHashSet<String>()
+        fun scanInlines(inlines: List<Inline>) {
+            for (i in inlines) {
+                if (urls.size >= limit) return
+                if (i is Inline.Image && i.src.isNotBlank() && !i.src.startsWith("data:")) {
+                    urls.add(i.src)
+                }
+            }
+        }
+        fun scanBlocks(list: List<HtmlBlock>) {
+            for (b in list) {
+                if (urls.size >= limit) return
+                when (b) {
+                    is HtmlBlock.Image -> if (b.src.isNotBlank() && !b.src.startsWith("data:")) urls.add(b.src)
+                    is HtmlBlock.ImageRow -> b.images.forEach { if (urls.size < limit && it.src.isNotBlank() && !it.src.startsWith("data:")) urls.add(it.src) }
+                    is HtmlBlock.Paragraph -> scanInlines(b.inlines)
+                    is HtmlBlock.Heading -> scanInlines(b.inlines)
+                    is HtmlBlock.Table -> {
+                        b.header.forEach { scanInlines(it) }
+                        b.rows.forEach { row -> row.forEach { scanInlines(it) } }
+                    }
+                    is HtmlBlock.Aligned -> scanBlocks(b.blocks)
+                    is HtmlBlock.Details -> scanBlocks(b.blocks)
+                    is HtmlBlock.ListBlock -> b.items.forEach { scanBlocks(it) }
+                    is HtmlBlock.Quote -> scanBlocks(b.blocks)
+                    else -> Unit
+                }
+            }
+        }
+        scanBlocks(blocks)
+        return urls.toList()
+    }
+
+    /** 预先解析：文档/评论加载完成后在后台逐条解析好，并静默预下载前排图片，滑到时秒开 */
     suspend fun prewarm(htmls: List<String>, baseUrl: String) = kotlinx.coroutines.withContext(prewarmDispatcher) {
         for (html in htmls) {
             kotlinx.coroutines.yield()
-            if (html.isNotBlank()) parseCached(html, baseUrl)
+            if (html.isNotBlank()) {
+                val parsed = parseCached(html, baseUrl)
+                val images = extractImageUrls(parsed.blocks)
+                for (imgUrl in images) {
+                    com.mobilegh.data.ImageFetch.prefetch(imgUrl)
+                }
+            }
         }
     }
 

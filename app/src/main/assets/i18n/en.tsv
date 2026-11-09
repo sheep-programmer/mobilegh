@@ -130,6 +130,8 @@ GitHub 返回的分页游标无效，请刷新重试	GitHub returned an invalid 
 GitHub 讨论数据不完整：{0}	GitHub discussion data is incomplete: {0}
 下载准备被中断，请重试	Download preparation was interrupted, please try again
 开始下载：	Download started: 
+已开始下载：{0}	Download started: {0}
+该任务正在下载中：{0}	Download in progress: {0}
 无法开始下载：	Cannot start the download: 
 无法开始下载	Cannot start the download
 请先登录 GitHub 后下载	Sign in to GitHub before downloading
@@ -605,9 +607,11 @@ MobileGH 已锁定	MobileGH is locked
 下载失败	Download failed
 已取消下载	Download canceled
 下载文件	Download file
+下载详情	Download details
 保存到 MobileGH 的下载目录	Save to MobileGH's download folder
 保存到手机「下载」文件夹	Save to the phone's Downloads folder
 安装更新	Install update
+安装应用	Install app
 打开文件	Open file
 后台下载	Download in background
 重新下载	Download again
@@ -875,6 +879,7 @@ GitHub 列表仓库读取不完整，请刷新	GitHub list repository reading is
  · 只读	 · read-only
  · 已同步	 · synced
 重新加载	Reload
+无法加载图片	Failed to load image
 新建 GitHub 列表	New GitHub list
 列表与 GitHub 同步；公开列表可被其他人查看。	Lists sync with GitHub; public lists can be viewed by others.
 查看公开的 GitHub 列表。	View public GitHub lists.
@@ -2977,3 +2982,20 @@ Release 资源	Release asset
 另有 {0} 次私有仓库贡献，因隐私设置未纳入上方公开成分。	Additional {0} private contributions are not included in public breakdown due to privacy settings.
 {0} 贡献构成	{0} contribution breakdown
 第 {0} 周贡献构成	Week {0} contribution breakdown
+热门推荐	Trending Recommendations
+换一批	Shuffle
+换一批推荐	Shuffle Recommendations
+查看全部热门	View All Trending
+README / 项目速览（内容预览）	README / Overview (Preview)
+展示一半内容	Half-content preview
+点击查看具体详情与完整内容	Tap to view full details and content
+关注动态	Activity Feed
+查看仓库全部内容与代码	View full repository and code
+默认分支：{0} · 最新推送：{1}	Default branch: {0} · Updated: {1}
+ · 协议：{0}	 · License: {0}
+调整入口顺序	Adjust shortcut order
+向左移动	Move left
+向右移动	Move right
+移到最前面	Move to front
+移到最后面	Move to end
+移出工作区	Remove from workspace

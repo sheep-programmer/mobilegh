@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Row
@@ -42,6 +43,7 @@ import com.mobilegh.i18n.tr
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 
 /**
@@ -117,13 +119,29 @@ internal fun SearchBox(
 /** 正序 / 倒序切换：和排序字段配合，避免每个字段在菜单里列两遍 */
 @Composable
 internal fun DirectionButton(descending: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
-    // 与排序胶囊同款：标准筛选胶囊，箭头表示方向；点按切换正序 / 倒序
-    FilterChip(
-        selected = false, onClick = onClick, enabled = enabled,
-        label = { Text(if (descending) tr("倒序") else tr("正序")) },
-        leadingIcon = { Oc(if (descending) R.drawable.oc_arrow_down else R.drawable.oc_arrow_up, LocalContentColor.current, 14.dp) },
-        modifier = Modifier.semantics { contentDescription = if (descending) tr("倒序，点按改为正序") else tr("正序，点按改为倒序") },
-    )
+    val g = Gh.c
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, g.borderMuted, RoundedCornerShape(8.dp))
+            .background(Color.Transparent)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .semantics { contentDescription = if (descending) tr("倒序，点按改为正序") else tr("正序，点按改为倒序") },
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Oc(if (descending) R.drawable.oc_arrow_down else R.drawable.oc_arrow_up, g.accent, 14.dp)
+            Text(
+                text = if (descending) tr("倒序") else tr("正序"),
+                fontSize = 13.sp,
+                color = g.fg,
+            )
+        }
+    }
 }
 
 /** 排序下拉 + 正序/倒序按钮：星标页、列表目录、列表详情共用一行同样的控件 */

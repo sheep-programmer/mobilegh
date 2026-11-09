@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -541,22 +542,64 @@ private fun BlockImage(block: HtmlBlock.Image) {
             onLongClick = if (link != null) { { openHtmlLink(ctx, nav, link, alt) } } else null,
         )
     val loaded = bmp
+    val shape = RoundedCornerShape(8.dp)
     if (loaded != null) {
         Image(loaded, alt.ifBlank { null }, base, contentScale = ContentScale.FillWidth)
     } else if (failed) {
         Box(
-            widthMod.height(72.dp).clip(RoundedCornerShape(6.dp)).background(g.neutralMuted)
-                .clickable { failed = false; attempt++ }.padding(12.dp),
+            widthMod
+                .heightIn(min = 76.dp, max = 130.dp)
+                .clip(shape)
+                .background(g.canvasSubtle)
+                .border(1.dp, g.borderMuted, shape)
+                .clickable { failed = false; attempt++ }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                if (alt.isNotBlank()) trf("图片加载失败：{0}（点按重试）", alt) else tr("图片加载失败（点按重试）"),
-                color = g.fgMuted, fontSize = 13.sp, textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis,
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Oc(R.drawable.oc_file_media, g.fgMuted, 16.dp)
+                    Text(
+                        alt.ifBlank { tr("无法加载图片") },
+                        color = g.fg,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(g.canvas)
+                        .border(1.dp, g.border, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Oc(R.drawable.oc_sync, g.accent, 12.dp)
+                    Text(tr("重新加载"), color = g.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
     } else {
-        val sized = if (ratio != null) base.aspectRatio(ratio) else if (w != null && w > 0) base.aspectRatio(1f) else base.height(160.dp)
-        Box(sized.background(g.neutralMuted))
+        val sized = if (ratio != null) base.aspectRatio(ratio) else if (w != null && w > 0) base.aspectRatio(1f) else base.height(120.dp)
+        Box(
+            sized
+                .clip(shape)
+                .background(g.canvasSubtle)
+                .border(1.dp, g.borderMuted, shape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Oc(R.drawable.oc_file_media, g.fgMuted.copy(alpha = 0.35f), 22.dp)
+        }
     }
 }
 
@@ -620,26 +663,49 @@ private fun RowImage(img: Inline.Image, maxWidth: Dp = Dp.Unspecified) {
             (img.width ?: 0) > 120 -> 120.dp
             else -> 24.dp
         }
-        Box(
-            Modifier.widthIn(max = maxWidth)
-                .size((img.width ?: 90).dp, placeholderH)
-                .clip(RoundedCornerShape(4.dp))
-                .background(g.neutralMuted)
-                .clickable {
-                    retry++
-                    if (!isBadge) ImageViewer.open(img.viewSrc ?: img.src, img.alt, link)
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            if (failed) {
+        val shape = RoundedCornerShape(4.dp)
+        if (failed) {
+            Box(
+                Modifier
+                    .widthIn(max = maxWidth)
+                    .then(if (img.width != null) Modifier.width(img.width.dp) else Modifier)
+                    .height(placeholderH)
+                    .clip(shape)
+                    .background(g.canvasSubtle)
+                    .border(1.dp, g.borderMuted, shape)
+                    .clickable {
+                        failed = false
+                        retry++
+                    }
+                    .padding(horizontal = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
                 Row(
-                    Modifier.padding(horizontal = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Oc(R.drawable.oc_sync, g.fgMuted, 14.dp)
-                    Text(tr("重试"), fontSize = 11.sp, color = g.fgMuted)
+                    Oc(R.drawable.oc_sync, g.accent, 12.dp)
+                    Text(
+                        img.alt.ifBlank { tr("重试") },
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = g.fgMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
+            }
+        } else {
+            Box(
+                Modifier
+                    .widthIn(max = maxWidth)
+                    .size((img.width ?: 72).dp, placeholderH)
+                    .clip(shape)
+                    .background(g.canvasSubtle)
+                    .border(1.dp, g.borderMuted, shape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Oc(R.drawable.oc_file_media, g.fgMuted.copy(alpha = 0.35f), 12.dp)
             }
         }
     } else {
@@ -681,6 +747,7 @@ private fun InlineImage(src: String, alt: String, width: Int, height: Int) {
         contentScale = ContentScale.Fit,
         placeholder = false,
         contentDescription = alt.ifBlank { null },
+        targetDim = maxOf(width, height) * 3,
     )
 }
 
@@ -821,47 +888,78 @@ private fun HtmlText(
             }
             drawContent()
         }
-    val clickable = body.pointerInput(text, nav, ctx, scroll) {
+    val clickable = if (built.links.isEmpty()) body else body.pointerInput(text, nav, ctx, scroll) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
-                val offset = layoutRef.get()?.getOffsetForPosition(down.position)
-                val o = offset ?: 0
-                val linkSpan = built.links.firstOrNull { o in it.start..it.end }
-                    ?: offset?.let { p ->
-                        val pClamped = p.coerceIn(0, (text.length - 1).coerceAtLeast(0))
-                        built.links.firstOrNull { pClamped in it.start..it.end }
-                    }
-                val link = linkSpan?.url
-                    ?: offset?.let { p ->
-                        val pClamped = p.coerceIn(0, (text.length - 1).coerceAtLeast(0))
-                        text.getStringAnnotations(MD_LINK_TAG, pClamped, (pClamped + 1).coerceAtMost(text.length))
-                            .firstOrNull()?.item
-                    }
-                com.mobilegh.data.AppLog.info("anchor", "tap down offset=$offset link=$link")
-                val startPos = down.position
-                val touchSlop = viewConfiguration.touchSlop
-                var isTap = false
-                val ended = withTimeoutOrNull(longPressMs) {
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (change.changedToUp()) {
-                            isTap = true
-                            break
-                        }
-                        if ((change.position - startPos).getDistance() > touchSlop) {
-                            break
-                        }
-                    }
-                    true
-                }
-                if (ended != null && isTap) {
-                    // 在超时之前抬起且未超出 touchSlop：是点按，打开链接
-                    if (link != null) onLink(link, linkSpan?.label)
+                val layout = layoutRef.get() ?: return@awaitEachGesture
+                if (text.isEmpty()) return@awaitEachGesture
+
+                // 检查触控点是否落在文本布局的有效范围（行高与左右文字边界）
+                if (down.position.y < 0f || down.position.y > layout.size.height) {
                     return@awaitEachGesture
                 }
-                // 超时仍按着：是长按。
-                if (link != null) {
+                val line = layout.getLineForVerticalPosition(down.position.y)
+                if (down.position.y < layout.getLineTop(line) || down.position.y > layout.getLineBottom(line)) {
+                    return@awaitEachGesture
+                }
+                val lineLeft = layout.getLineLeft(line)
+                val lineRight = layout.getLineRight(line)
+                if (down.position.x < lineLeft || down.position.x > lineRight) {
+                    return@awaitEachGesture
+                }
+                val offset = layout.getOffsetForPosition(down.position)
+                if (offset !in 0 until text.length) {
+                    return@awaitEachGesture
+                }
+
+                // 严格命中链接范围：start until end
+                val linkSpan = built.links.firstOrNull { offset in it.start until it.end }
+                val link = linkSpan?.url
+                    ?: text.getStringAnnotations(MD_LINK_TAG, offset, (offset + 1).coerceAtMost(text.length))
+                        .firstOrNull()?.item
+                    ?: return@awaitEachGesture
+
+                val startPos = down.position
+                val touchSlop = viewConfiguration.touchSlop
+                // 至少 500ms 的长按阈值，避免滑动或者快速轻按误判为长按
+                val longPressThreshold = maxOf(500L, longPressMs)
+                var isTap = false
+                var isCanceled = false
+
+                val timedOut = withTimeoutOrNull(longPressThreshold) {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Main)
+                        val change = event.changes.firstOrNull { it.id == down.id }
+                        if (change == null || change.isConsumed) {
+                            isCanceled = true
+                            return@withTimeoutOrNull false
+                        }
+                        if (change.changedToUp()) {
+                            change.consume()
+                            isTap = true
+                            return@withTimeoutOrNull false
+                        }
+                        if ((change.position - startPos).getDistance() > touchSlop) {
+                            isCanceled = true
+                            return@withTimeoutOrNull false
+                        }
+                    }
+                    false
+                } == null
+
+                if (isCanceled) {
+                    // 滑动位移超出 touchSlop，或者被外层滚动容器消费：立刻退出，不消费事件，不做选择或弹窗
+                    return@awaitEachGesture
+                }
+
+                if (isTap) {
+                    // 在长按阈值内抬手且未滑动：普通点按，打开链接
+                    onLink(link, linkSpan?.label)
+                    return@awaitEachGesture
+                }
+
+                if (timedOut) {
+                    // 按住不动且位移严格在 touchSlop 阈值内超过 500ms：触发长按选择与弹窗
                     val span = linkSpan ?: built.links.firstOrNull { it.url == link }
                     forced = span?.let { it.start until it.end }
                     if (link.startsWith("https://") || link.startsWith("http://")) {

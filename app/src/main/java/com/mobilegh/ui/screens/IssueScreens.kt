@@ -335,8 +335,13 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
             MoreMenu(buildList {
                 if (t != null) {
                     val open = t.issue.state == "open"
+                    val isLocked = t.issue.locked
                     if (isPull) {
                         val pr = t.pull
+                        val isMerged = pr?.merged == true
+                        val headMissing = pr != null && pr.head.repo == null
+                        val canReopen = access.canReopen(isLocked, isMerged || headMissing)
+                        val canClose = access.canClose(isLocked, isMerged)
                         if (open && pr != null && !pr.merged) {
                             if (pr.draft) { if (access.toggleDraft) add(MenuAction(tr("标记为可评审")) { setDraft(false) }) }
                             else if (access.merge) add(MenuAction(tr("合并 Pull Request…")) { mergeDialog = true })
@@ -353,13 +358,15 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
                             if (!access.author) add(MenuAction(tr("提交审查…")) { reviewDialog = true })
                             if (access.editMeta) add(MenuAction(tr("请求审查…")) { metaKind = "reviewers" })
                             if (!pr.draft && access.toggleDraft) add(MenuAction(tr("转为草稿")) { setDraft(true) })
-                            if (access.changeState) add(MenuAction(tr("关闭 Pull Request"), danger = true) {
-                                stateChange = StateChange(
-                                    tr("关闭 Pull Request？"), tr("关闭"), tr("关闭后仍可在网页或 App 中重新开启。"), danger = true,
-                                ) { GitHub.setPullState(owner, name, number, false) }
-                            })
-                        } else if (pr != null && !pr.merged && access.changeState) {
-                            add(MenuAction(tr("重新开启")) {
+                            if (access.changeState) {
+                                add(MenuAction(tr("关闭 Pull Request"), danger = true, enabled = canClose) {
+                                    stateChange = StateChange(
+                                        tr("关闭 Pull Request？"), tr("关闭"), tr("关闭后仍可在网页或 App 中重新开启。"), danger = true,
+                                    ) { GitHub.setPullState(owner, name, number, false) }
+                                })
+                            }
+                        } else if (pr != null) {
+                            add(MenuAction(tr("重新开启"), enabled = canReopen) {
                                 stateChange = StateChange(tr("重新开启 Pull Request？"), tr("重新开启"), tr("重新开启后会再次出现在开放列表中。"), danger = false) {
                                     GitHub.setPullState(owner, name, number, true)
                                 }
@@ -367,7 +374,7 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
                         }
                         add(MenuAction(tr("查看文件变更")) { nav.push(Screen.PullFiles(owner, name, number)) })
                         add(MenuAction(tr("复制检出命令")) { ctx.copy(prCheckoutCommand(number), tr("检出命令已复制")) })
-                    } else if (access.changeState) {
+                    } else {
                         // 置顶到仓库 Issue 列表顶部（网页版的 Pin issue），需要写权限
                         val isPinned = pinned.data
                         val nodeId = t.issue.nodeId
@@ -379,19 +386,28 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
                                 }) { GitHub.setIssuePinned(owner, name, nodeId, !isPinned) }
                             })
                         }
+                        val canReopen = access.canReopen(
+                            locked = isLocked,
+                            stateReason = t.issue.stateReason,
+                            closedByLogin = t.issue.closedBy?.login,
+                            me = Session.login,
+                        )
+                        val canClose = access.canClose(isLocked)
                         if (open) {
-                            add(MenuAction(tr("关闭（已完成）")) {
-                                stateChange = StateChange(tr("关闭 Issue？"), tr("关闭"), tr("关闭后仍可在网页或 App 中重新开启。"), danger = true) {
-                                    GitHub.setIssueState(owner, name, number, false, "completed")
-                                }
-                            })
-                            add(MenuAction(tr("关闭（不计划）")) {
-                                stateChange = StateChange(tr("关闭 Issue？"), tr("关闭"), tr("关闭后仍可在网页或 App 中重新开启。"), danger = true) {
-                                    GitHub.setIssueState(owner, name, number, false, "not_planned")
-                                }
-                            })
+                            if (access.changeState) {
+                                add(MenuAction(tr("关闭（已完成）"), danger = true, enabled = canClose) {
+                                    stateChange = StateChange(tr("关闭 Issue？"), tr("关闭"), tr("关闭后仍可在网页或 App 中重新开启。"), danger = true) {
+                                        GitHub.setIssueState(owner, name, number, false, "completed")
+                                    }
+                                })
+                                add(MenuAction(tr("关闭（不计划）"), danger = true, enabled = canClose) {
+                                    stateChange = StateChange(tr("关闭 Issue？"), tr("关闭"), tr("关闭后仍可在网页或 App 中重新开启。"), danger = true) {
+                                        GitHub.setIssueState(owner, name, number, false, "not_planned")
+                                    }
+                                })
+                            }
                         } else {
-                            add(MenuAction(tr("重新开启")) {
+                            add(MenuAction(tr("重新开启"), enabled = canReopen) {
                                 stateChange = StateChange(tr("重新开启 Issue？"), tr("重新开启"), tr("重新开启后会再次出现在开放列表中。"), danger = false) {
                                     GitHub.setIssueState(owner, name, number, true, "reopened")
                                 }

@@ -1013,7 +1013,8 @@ fun NotificationsScreen() {
 
     Page(
         if (selection) trf("已选择 {0} 条", selected.size) else tr("通知"),
-        back = false,
+        back = nav.stack.isNotEmpty() || selection,
+        onBack = if (selection) { { clearSelection() } } else null,
         contentWindowInsets = WindowInsets(0),
         subtitle = when {
             selection -> null

@@ -755,7 +755,8 @@ internal fun WeeklyContributionGraph(
                 drawValueBubble(
                     measurer,
                     listOf(selectedPoint.commits?.let { trf("{0} 次提交", contributionCount(it)) } ?: tr("数据缺失"), trf("{0} 起的一周", selectedPoint.start)),
-                    (sel + 0.5f) * slot, size.height - selectedBar, g.fg, g.canvas,
+                    (sel + 0.5f) * slot, size.height - selectedBar,
+                    g.canvas, g.fg, borderColor = g.border,
                 )
             }
         }

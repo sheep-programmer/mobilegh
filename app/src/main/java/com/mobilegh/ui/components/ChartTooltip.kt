@@ -21,17 +21,23 @@ import androidx.compose.ui.unit.sp
 val ChartBubbleSpace = 48.dp
 
 /**
- * 让图表响应手指：点按、长按都会选中手指下的那一列，左右拖动时选中项跟着走。双击可触发 [onDoubleTap]。
+ * 让图表响应手指：点按、长按都会选中手指下的那一列。再次点按已选中的列可取消选中。双击可触发 [onDoubleTap]。
  * [count] 是列数；每一列等宽，按横坐标换算出下标，并通过 [onSelect] 回调。
  */
 fun Modifier.chartSelect(
     count: Int,
+    selected: Int = -1,
     onDoubleTap: ((Int) -> Unit)? = null,
     onSelect: (Int) -> Unit,
 ): Modifier = this
-    .pointerInput(count, onDoubleTap) {
+    .pointerInput(count, selected, onDoubleTap) {
         detectTapGestures(
-            onTap = { o -> if (count > 0) onSelect(columnAt(o.x, size.width, count)) },
+            onTap = { o ->
+                if (count > 0) {
+                    val idx = columnAt(o.x, size.width, count)
+                    if (idx == selected) onSelect(-1) else onSelect(idx)
+                }
+            },
             onDoubleTap = if (onDoubleTap != null) { o ->
                 if (count > 0) {
                     val idx = columnAt(o.x, size.width, count)
@@ -39,13 +45,13 @@ fun Modifier.chartSelect(
                     onDoubleTap(idx)
                 }
             } else null,
-            onLongPress = { o -> if (count > 0) onSelect(columnAt(o.x, size.width, count)) },
+            onLongPress = { o ->
+                if (count > 0) {
+                    val idx = columnAt(o.x, size.width, count)
+                    if (idx == selected) onSelect(-1) else onSelect(idx)
+                }
+            },
         )
-    }
-    .pointerInput(count) {
-        detectHorizontalDragGestures { change, _ ->
-            if (count > 0) onSelect(columnAt(change.position.x, size.width, count))
-        }
     }
 
 /** 折线图版本：数据点从 [leftInset] 起等距排布到右边缘，手指落在哪个点附近就选哪个点 */
@@ -56,12 +62,6 @@ fun Modifier.chartSelectPoints(count: Int, leftInset: androidx.compose.ui.unit.D
             onTap = { o -> if (count > 0) onSelect(nearestPoint(o.x, inset, size.width.toFloat(), count)) },
             onLongPress = { o -> if (count > 0) onSelect(nearestPoint(o.x, inset, size.width.toFloat(), count)) },
         )
-    }
-    .pointerInput(count) {
-        val inset = leftInset.toPx()
-        detectHorizontalDragGestures { change, _ ->
-            if (count > 0) onSelect(nearestPoint(change.position.x, inset, size.width.toFloat(), count))
-        }
     }
 
 internal fun nearestPoint(x: Float, inset: Float, width: Float, count: Int): Int {
@@ -84,30 +84,37 @@ fun DrawScope.drawValueBubble(
     anchorY: Float,
     background: Color,
     foreground: Color,
+    borderColor: Color? = null,
 ) {
     if (lines.isEmpty()) return
     val first = TextStyle(fontSize = 12.sp, color = foreground, fontWeight = FontWeight.SemiBold)
     val rest = TextStyle(fontSize = 10.sp, color = foreground.copy(alpha = 0.8f))
     val layouts = lines.mapIndexed { i, text -> measurer.measure(text, if (i == 0) first else rest) }
-    val padX = 8.dp.toPx()
-    val padY = 4.dp.toPx()
+    val padX = 10.dp.toPx()
+    val padY = 5.dp.toPx()
     val pointer = 5.dp.toPx()
     val gap = 3.dp.toPx()
     val w = layouts.maxOf { it.size.width } + padX * 2
     val h = layouts.sumOf { it.size.height } + padY * 2
     val x = (anchorX - w / 2).coerceIn(0f, (size.width - w).coerceAtLeast(0f))
     val y = (anchorY - h - pointer - gap).coerceAtLeast(0f)
+
     drawRoundRect(background, Offset(x, y), Size(w, h), CornerRadius(6.dp.toPx()))
+    if (borderColor != null) {
+        drawRoundRect(borderColor, Offset(x, y), Size(w, h), CornerRadius(6.dp.toPx()), style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
+    }
     val tipX = anchorX.coerceIn(x + pointer * 2, (x + w - pointer * 2).coerceAtLeast(x + pointer * 2))
-    drawPath(
-        Path().apply {
-            moveTo(tipX - pointer, y + h)
-            lineTo(tipX + pointer, y + h)
-            lineTo(tipX, y + h + pointer)
-            close()
-        },
-        background,
-    )
+    val pointerPath = Path().apply {
+        moveTo(tipX - pointer, y + h)
+        lineTo(tipX + pointer, y + h)
+        lineTo(tipX, y + h + pointer)
+        close()
+    }
+    drawPath(pointerPath, background)
+    if (borderColor != null) {
+        drawPath(pointerPath, borderColor, style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
+    }
+
     var top = y + padY
     layouts.forEach { layout ->
         drawText(layout, topLeft = Offset(x + (w - layout.size.width) / 2, top))

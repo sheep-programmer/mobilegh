@@ -36,4 +36,39 @@ class ImageContentTest {
         val attachment = "https://private-user-images.githubusercontent.com/1/image.png?jwt=example"
         assertEquals(attachment, ImageContent.normalize(attachment))
     }
+
+    @Test fun parseDataUriHandlesBase64SvgLogoFromShieldsBadges() {
+        // Shields.io Safari badge logo
+        val safariDataUri = "data:image/svg+xml;base64,PHN2ZyBmaWxsPSJ3aGl0ZSIgcm9sZT0iaW1nIiB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHRpdGxlPlNhZmFyaTwvdGl0bGU+PC9zdmc+"
+        val parsed = ImageContent.parseDataUri(safariDataUri)
+        org.junit.Assert.assertNotNull(parsed)
+        assertEquals("image/svg+xml", parsed?.mime)
+        assertEquals(true, parsed?.isSvg)
+        assertEquals(true, parsed?.bytes?.toString(Charsets.UTF_8)?.contains("<title>Safari</title>"))
+    }
+
+    @Test fun parseDataUriHandlesUrlEncodedSvg() {
+        val encodedUri = "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Ctitle%3EAndroid%3C%2Ftitle%3E%3C%2Fsvg%3E"
+        val parsed = ImageContent.parseDataUri(encodedUri)
+        org.junit.Assert.assertNotNull(parsed)
+        assertEquals("image/svg+xml", parsed?.mime)
+        assertEquals(true, parsed?.isSvg)
+        assertEquals(true, parsed?.bytes?.toString(Charsets.UTF_8)?.contains("<title>Android</title>"))
+    }
+
+    @Test fun parseDataUriHandlesBase64Png() {
+        // 1x1 transparent PNG
+        val pngDataUri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+        val parsed = ImageContent.parseDataUri(pngDataUri)
+        org.junit.Assert.assertNotNull(parsed)
+        assertEquals("image/png", parsed?.mime)
+        assertEquals(false, parsed?.isSvg)
+        assertEquals("image/png", ImageContent.mimeOf("", parsed?.bytes))
+    }
+
+    @Test fun parseDataUriRejectsMalformedUris() {
+        assertNull(ImageContent.parseDataUri("https://example.com/not-data.png"))
+        assertNull(ImageContent.parseDataUri("data:no-comma"))
+        assertNull(ImageContent.parseDataUri("data:image/svg+xml;base64,???not_base64!!!"))
+    }
 }

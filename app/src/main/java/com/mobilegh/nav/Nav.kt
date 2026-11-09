@@ -112,12 +112,24 @@ sealed interface Screen {
     @Serializable data object Reauthorize : Screen
     @Serializable data class MyIssues(val pulls: Boolean, val preset: IssueQuery? = null) : Screen
     @Serializable data object HomeCustomize : Screen
+    /** 新建快捷键页面（独立全屏页） */
+    @Serializable data object NewShortcut : Screen
+    /** 首页「我的工作」动态（关注的人与仓库事件流） */
+    @Serializable data object Feed : Screen
+    /** 消息通知页面（顶栏入口） */
+    @Serializable data object Notifications : Screen
+    /** 个人主页（顶栏头像入口） */
+    @Serializable data object Me : Screen
+    /** 热门趋势页面（热门仓库与开发者，多语言/周期筛选） */
+    @Serializable data object Trending : Screen
+    /** 精选列表页面（Awesome 系列与技术合集） */
+    @Serializable data object CuratedLists : Screen
 }
 
 @Serializable enum class UserKind { Followers, Following, Stargazers, Watchers, Contributors, Members }
 @Serializable enum class RepoKind { User, Starred, Org, Forks }
 
-enum class Tab(private val titleZh: String) { Home("首页"), Repos("仓库"), Notifications("通知"), Explore("探索"), Me("我的");
+enum class Tab(private val titleZh: String) { Home("首页"), Repos("仓库"), Star("Star"), Explore("探索"), Notifications("通知"), Me("我的");
     val title: String get() = tr(titleZh) }
 
 private val ids = AtomicLong()

@@ -69,8 +69,8 @@ internal fun ListsSummaryCard(
     val g = Gh.c
     Column(
         modifier.fillMaxWidth()
-            .border(1.dp, g.border, RoundedCornerShape(12.dp))
-            .background(g.canvasSubtle, RoundedCornerShape(12.dp))
+            .border(1.dp, g.borderMuted, RoundedCornerShape(12.dp))
+            .background(g.canvas, RoundedCornerShape(12.dp))
             .padding(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -95,18 +95,16 @@ internal fun ListsSummaryCard(
     }
 }
 
-/** 小标签：私有、仓库数、更新时间等元信息。用胶囊形状，换行后也不会挤成一团。 */
+/** 小标签：私有、仓库数、更新时间等元信息。扁平排版无多余灰框高光。 */
 @Composable
 internal fun ListPill(text: String, @DrawableRes icon: Int? = null) {
     val g = Gh.c
     Row(
-        Modifier.background(g.canvasSubtle, RoundedCornerShape(50))
-            .border(1.dp, g.borderMuted, RoundedCornerShape(50))
-            .padding(horizontal = 8.dp, vertical = 3.dp),
+        Modifier.padding(end = 10.dp, top = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Oc(icon, g.fgMuted, 11.dp)
+            Oc(icon, g.fgMuted, 12.dp)
             Spacer(Modifier.width(4.dp))
         }
         Text(text, fontSize = 12.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)

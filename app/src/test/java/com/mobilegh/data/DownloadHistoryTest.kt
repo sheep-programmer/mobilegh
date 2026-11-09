@@ -1,6 +1,7 @@
 package com.mobilegh.data
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -30,5 +31,12 @@ class DownloadHistoryTest {
     @Test fun activeTasksAreNeverReturnedAsOverflow() {
         val list = listOf(task(0, DownloadState.Queued)) + (1..21).map { task(it) } + task(22, DownloadState.Waiting)
         assertEquals(listOf("k21"), historyOverflow(list).map { it.key })
+    }
+
+    @Test fun appUpdateFlagPreservedAndDefaultsFalse() {
+        val regular = task(1)
+        assertFalse(regular.isAppUpdate)
+        val update = task(2).copy(isAppUpdate = true)
+        assertTrue(update.isAppUpdate)
     }
 }

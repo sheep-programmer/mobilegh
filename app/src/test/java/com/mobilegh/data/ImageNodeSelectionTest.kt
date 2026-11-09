@@ -38,6 +38,27 @@ class ImageNodeSelectionTest {
         // 公共代理对 camo 一律 403/404，先试代理只会给每张 README 图片加几秒延迟
         assertEquals(Net.DIRECT.id, Net.imageCandidates(camo).first().first)
     }
+
+    @Test fun avatarIsFetchedDirectlyFirstWhenNoNodeMemorized() {
+        // 头像在没有历史成功节点时直连优先，百毫秒直出，免去镜像 403 导致的长时等待
+        Net.markImageFail(avatar, "gh-proxy")
+        val candidates = Net.imageCandidates("https://avatars.githubusercontent.com/u/9999?v=4")
+        assertEquals(Net.DIRECT.id, candidates.first().first)
+    }
+
+    @Test fun directIsInInitialRaceWindow() {
+        val candidates = listOf(
+            "cdn1" to "https://cdn1.example.com/img.png",
+            "cdn2" to "https://cdn2.example.com/img.png",
+            "cdn3" to "https://cdn3.example.com/img.png",
+            "cdn4" to "https://cdn4.example.com/img.png",
+            "cdn5" to "https://cdn5.example.com/img.png",
+            Net.DIRECT.id to "https://raw.githubusercontent.com/img.png"
+        )
+        val prioritized = ImageFetch.prioritizeRaceCandidates(candidates, "cdn2")
+        assertEquals("cdn2", prioritized[0].first)
+        assertEquals(Net.DIRECT.id, prioritized[1].first)
+    }
 }
 
 /** 内置节点列表要保持可用：下线节点留在列表里会让测速和图片回退白等一轮超时 */

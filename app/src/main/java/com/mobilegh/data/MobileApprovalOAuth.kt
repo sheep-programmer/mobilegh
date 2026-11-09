@@ -77,7 +77,9 @@ object MobileApprovalOAuth {
         .readTimeout(25, TimeUnit.SECONDS).callTimeout(30, TimeUnit.SECONDS).followRedirects(false).build()
 
     fun begin(context: Context, purpose: ApprovalOAuthPurpose = ApprovalOAuthPurpose.ApprovalOnly): String {
-        check(!state.value.busy) { tr("正在等待 GitHub 授权") }
+        if (state.value.busy) {
+            cancel(context)
+        }
         lastCallback = null
         issued = null
         operation++

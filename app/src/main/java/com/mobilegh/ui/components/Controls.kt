@@ -1,5 +1,7 @@
 package com.mobilegh.ui.components
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.height
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -31,6 +33,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -66,7 +69,9 @@ import com.mobilegh.R
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -99,12 +104,25 @@ fun IconChips(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         options.forEachIndexed { i, opt ->
+            val chipSelected = i == selected
             FilterChip(
-                selected = i == selected,
+                selected = chipSelected,
                 onClick = { onSelect(i) },
                 enabled = enabled,
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = Gh.c.canvasSubtle,
+                    labelColor = Gh.c.fgMuted,
+                    selectedContainerColor = if (Gh.c.dark) Color(0xFF28303C) else Gh.c.accent.copy(alpha = 0.12f),
+                    selectedLabelColor = if (Gh.c.dark) Gh.c.fg else Gh.c.accent,
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = enabled,
+                    selected = chipSelected,
+                    borderColor = Gh.c.borderMuted,
+                    selectedBorderColor = if (Gh.c.dark) Color(0xFF444C56) else Gh.c.accent.copy(alpha = 0.4f),
+                ),
                 leadingIcon = opt.icon?.let { ic ->
-                    { Oc(ic, LocalContentColor.current, 14.dp) }
+                    { Oc(ic, if (chipSelected) (if (Gh.c.dark) Gh.c.fg else Gh.c.accent) else Gh.c.fgMuted, 14.dp) }
                 },
                 label = { Text(opt.label) },
             )
@@ -122,7 +140,25 @@ fun Chips(options: List<String>, selected: Int, modifier: Modifier = Modifier, e
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         options.forEachIndexed { i, s ->
-            FilterChip(selected = i == selected, onClick = { onSelect(i) }, enabled = enabled, label = { Text(s) })
+            val chipSelected = i == selected
+            FilterChip(
+                selected = chipSelected,
+                onClick = { onSelect(i) },
+                enabled = enabled,
+                label = { Text(s) },
+                colors = FilterChipDefaults.filterChipColors(
+                    containerColor = Gh.c.canvasSubtle,
+                    labelColor = Gh.c.fgMuted,
+                    selectedContainerColor = if (Gh.c.dark) Color(0xFF28303C) else Gh.c.accent.copy(alpha = 0.12f),
+                    selectedLabelColor = if (Gh.c.dark) Gh.c.fg else Gh.c.accent,
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = enabled,
+                    selected = chipSelected,
+                    borderColor = Gh.c.borderMuted,
+                    selectedBorderColor = if (Gh.c.dark) Color(0xFF444C56) else Gh.c.accent.copy(alpha = 0.4f),
+                ),
+            )
         }
     }
 }
@@ -144,7 +180,7 @@ fun Dropdown(label: String, options: List<String>, onSelect: (Int) -> Unit, modi
             shape = RoundedCornerShape(14.dp),
             containerColor = g.canvas,
             border = BorderStroke(1.dp, g.border.copy(alpha = 0.7f)),
-            shadowElevation = 8.dp,
+            shadowElevation = 0.dp,
         ) {
             Column(
                 modifier = Modifier
@@ -259,7 +295,7 @@ fun MultiSelectDropdown(
             shape = RoundedCornerShape(14.dp),
             containerColor = g.canvas,
             border = BorderStroke(1.dp, g.border.copy(alpha = 0.7f)),
-            shadowElevation = 8.dp,
+            shadowElevation = 0.dp,
         ) {
             Column(
                 modifier = Modifier
@@ -629,14 +665,48 @@ fun MultiSelectDialog(
 
 /** 与 [Dropdown] 外观一致的按钮，点按后由调用方决定打开什么（如选择弹窗） */
 @Composable
-fun DropdownButton(label: String, modifier: Modifier = Modifier, active: Boolean = false, menu: @Composable () -> Unit = {}, enabled: Boolean = true, onClick: () -> Unit) {
-    // 与筛选胶囊一致：标准 FilterChip 加向下箭头，菜单锚定在胶囊上
+fun DropdownButton(
+    label: String,
+    modifier: Modifier = Modifier,
+    active: Boolean = false,
+    menu: @Composable () -> Unit = {},
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val g = Gh.c
     Box(modifier) {
-        FilterChip(
-            selected = active, onClick = onClick, enabled = enabled,
-            label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            trailingIcon = { Oc(R.drawable.oc_chevron_down, LocalContentColor.current, 14.dp) },
-        )
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .border(
+                    width = 1.dp,
+                    color = if (active) g.accent.copy(alpha = 0.5f) else g.borderMuted,
+                    shape = RoundedCornerShape(8.dp),
+                )
+                .background(if (active) g.accent.copy(alpha = 0.08f) else Color.Transparent)
+                .clickable(enabled = enabled, onClick = onClick)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = label,
+                    fontSize = 13.sp,
+                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (active) g.accent else g.fg,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Oc(
+                    R.drawable.oc_chevron_down,
+                    if (active) g.accent else g.fgMuted,
+                    14.dp,
+                )
+            }
+        }
         menu()
     }
 }
@@ -645,10 +715,12 @@ data class MenuAction(
     val text: String,
     val danger: Boolean = false,
     @DrawableRes val icon: Int? = null,
+    val enabled: Boolean = true,
     val onClick: () -> Unit,
 ) {
-    constructor(text: String, onClick: () -> Unit) : this(text, false, null, onClick)
-    constructor(text: String, danger: Boolean, onClick: () -> Unit) : this(text, danger, null, onClick)
+    constructor(text: String, onClick: () -> Unit) : this(text, false, null, true, onClick)
+    constructor(text: String, danger: Boolean, onClick: () -> Unit) : this(text, danger, null, true, onClick)
+    constructor(text: String, danger: Boolean, @DrawableRes icon: Int?, onClick: () -> Unit) : this(text, danger, icon, true, onClick)
 }
 
 /** 智能推断操作对应的 Octicon 图标 */
@@ -680,6 +752,7 @@ fun inferActionIcon(text: String, danger: Boolean = false): Int {
         t.contains("历史") || t.contains("history") -> R.drawable.oc_history
         t.contains("自动换行") -> R.drawable.oc_wrap_text
         t.contains("关闭") || t.contains("close") -> R.drawable.oc_x_circle
+        t.contains("重新") || t.contains("reopen") -> R.drawable.oc_issue_reopened
         t.contains("上移") || t.contains("up") -> R.drawable.oc_arrow_up
         t.contains("下移") || t.contains("down") -> R.drawable.oc_arrow_down
         t.contains("添加") || t.contains("新建") || t.contains("add") || t.contains("new") -> R.drawable.oc_plus
@@ -696,8 +769,13 @@ fun MenuActionItem(
 ) {
     val g = Gh.c
     val iconRes = a.icon ?: inferActionIcon(a.text, a.danger)
-    val itemFg = if (a.danger) g.danger else g.fg
+    val itemFg = when {
+        !a.enabled -> g.fgMuted.copy(alpha = 0.45f)
+        a.danger -> g.danger
+        else -> g.fg
+    }
     val iconFg = when {
+        !a.enabled -> g.fgMuted.copy(alpha = 0.45f)
         a.danger -> g.danger
         iconRes == R.drawable.oc_check -> g.success
         else -> g.fgMuted
@@ -707,7 +785,10 @@ fun MenuActionItem(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
-            .clickable {
+            .semantics(mergeDescendants = true) {
+                if (!a.enabled) disabled()
+            }
+            .clickable(enabled = a.enabled) {
                 onDismiss()
                 a.onClick()
             }
@@ -749,7 +830,7 @@ fun CardDropdownMenu(
         shape = RoundedCornerShape(12.dp),
         containerColor = g.canvas,
         border = BorderStroke(1.dp, g.borderMuted.copy(alpha = 0.5f)),
-        shadowElevation = 8.dp,
+        shadowElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier
@@ -875,19 +956,108 @@ fun SwitchRow(title: String, desc: String? = null, checked: Boolean, enabled: Bo
     }
 }
 
-/** 分段切换（如 GitHub / 本机），选中项为实底 */
-@OptIn(ExperimentalMaterial3Api::class)
+/** 分段切换（如 GitHub / 本机、全部 Star / 列表等），无阴影纯扁平设计，未选中项自然融入轨道，选中项高亮清晰 */
 @Composable
-fun Segmented(options: List<String>, selected: Int, modifier: Modifier = Modifier, enabled: Boolean = true, onSelect: (Int) -> Unit) {
-    // 与筛选页一致：标准分段按钮，选中项填充色
-    SingleChoiceSegmentedButtonRow(modifier.fillMaxWidth()) {
+fun Segmented(
+    options: List<String>,
+    selected: Int,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onSelect: (Int) -> Unit,
+) {
+    val g = Gh.c
+    val trackBg = if (g.dark) Color(0xFF161B22) else Color(0xFFEFF1F4)
+    val selectedBg = if (g.dark) Color(0xFF28303C) else Color.White
+    val selectedBorder = if (g.dark) Color(0xFF38434F) else Color(0xFFD0D7DE)
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(trackBg)
+            .border(1.dp, g.borderMuted, RoundedCornerShape(8.dp))
+            .padding(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         options.forEachIndexed { i, label ->
-            SegmentedButton(
-                selected = i == selected, onClick = { onSelect(i) }, enabled = enabled,
-                shape = SegmentedButtonDefaults.itemShape(index = i, count = options.size),
-                label = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            )
+            val isSelected = i == selected
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(6.dp))
+                    .then(
+                        if (isSelected) {
+                            Modifier
+                                .background(selectedBg)
+                                .border(1.dp, selectedBorder, RoundedCornerShape(6.dp))
+                        } else {
+                            Modifier.background(Color.Transparent)
+                        }
+                    )
+                    .clickable(
+                        enabled = enabled,
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { onSelect(i) }
+                    .padding(vertical = 6.dp, horizontal = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = label,
+                    fontSize = 13.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (isSelected) (if (g.dark) Color.White else g.accent) else g.fgMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
+    }
+}
+
+/** 顶栏页签导航（对齐 GitHub 官方设计）：扁平下划线指示条，无卡片阴影，无黑底凹槽 */
+@Composable
+fun GhTopTabBar(
+    tabs: List<String>,
+    selected: Int,
+    modifier: Modifier = Modifier,
+    onSelect: (Int) -> Unit,
+) {
+    val g = Gh.c
+    Column(modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            tabs.forEachIndexed { index, title ->
+                val isSelected = index == selected
+                Column(
+                    modifier = Modifier
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) { onSelect(index) }
+                        .padding(top = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = title,
+                        fontSize = 14.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (isSelected) g.accent else g.fgMuted,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
+                    Box(
+                        Modifier
+                            .height(2.5.dp)
+                            .width(if (isSelected) 36.dp else 0.dp)
+                            .clip(RoundedCornerShape(1.dp))
+                            .background(if (isSelected) g.accent else Color.Transparent)
+                    )
+                }
+            }
+        }
+        HDivider()
     }
 }
 

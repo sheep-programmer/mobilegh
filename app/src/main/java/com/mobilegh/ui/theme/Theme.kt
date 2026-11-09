@@ -192,6 +192,14 @@ fun isDarkMode(): Boolean = when (Session.themeMode) {
     else -> isSystemInDarkTheme()
 }
 
+private object NoIndication : androidx.compose.foundation.IndicationNodeFactory {
+    override fun create(interactionSource: androidx.compose.foundation.interaction.InteractionSource): androidx.compose.ui.Modifier.Node {
+        return object : androidx.compose.ui.Modifier.Node() {}
+    }
+    override fun equals(other: Any?): Boolean = other === this
+    override fun hashCode(): Int = 0
+}
+
 @Composable
 fun MobileGhTheme(content: @Composable () -> Unit) {
     val dark = isDarkMode()
@@ -246,7 +254,11 @@ fun MobileGhTheme(content: @Composable () -> Unit) {
         labelMedium = t.labelMedium.copy(fontSize = 12.sp),
     )
     CompositionLocalProvider(LocalGh provides g) {
-        MaterialTheme(colorScheme = scheme, typography = typo, content = content)
+        MaterialTheme(colorScheme = scheme, typography = typo) {
+            CompositionLocalProvider(androidx.compose.foundation.LocalIndication provides NoIndication) {
+                content()
+            }
+        }
     }
 }
 

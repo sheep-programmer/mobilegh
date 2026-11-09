@@ -108,6 +108,10 @@ object Update {
         scope.launch { runCatching { check(force = false) } }
     }
 
+    /** 是否是正在或等待安装的本应用安装包 */
+    fun isPendingUpdate(filename: String): Boolean =
+        ::prefs.isInitialized && prefs.getString("pendingFile", null) == filename
+
     /** 下载并安装；完成后调用方负责触发安装 */
     fun download(info: Info) {
         // 记下待安装的版本：下次启动时若已是这个版本，说明安装包已经装好，可以删除
@@ -117,6 +121,7 @@ object Update {
             filename = info.assetName,
             isPrivate = false,
             mimeType = "application/vnd.android.package-archive",
+            isAppUpdate = true,
         )
     }
 

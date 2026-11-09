@@ -74,8 +74,8 @@ fun CompactSearchField(
     val shape = RoundedCornerShape(28.dp)
     Row(
         modifier.fillMaxWidth().heightIn(min = 44.dp).clip(shape)
-            .background(if (focused) g.canvas else g.canvasSubtle, shape)
-            .border(if (focused) 2.dp else 1.dp, if (focused) g.accent else g.border, shape)
+            .background(g.canvas, shape)
+            .border(if (focused) 1.5.dp else 1.dp, if (focused) g.accent else g.borderMuted, shape)
             .padding(start = 12.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

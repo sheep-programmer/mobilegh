@@ -18,6 +18,7 @@ class App : Application() {
         super.onCreate()
         com.mobilegh.i18n.I18n.init(this)
         Api.cacheDir = cacheDir
+        com.mobilegh.data.ImageFetch.init(cacheDir)
         AppLog.init(this)
         com.mobilegh.data.AppNetwork.init(this)
         Net.init(this)

@@ -98,6 +98,7 @@ import com.mobilegh.ui.components.MenuRow
 import com.mobilegh.ui.components.MenuGroup
 import com.mobilegh.ui.components.MoreMenu
 import com.mobilegh.ui.components.HtmlView
+import com.mobilegh.ui.components.HtmlParser
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
@@ -211,8 +212,13 @@ fun ContributionBody(state: ContribState, full: Boolean) {
                 )
                 val st = contribStats(c.contributionCalendar)
                 Spacer(Modifier.height(8.dp))
-                HDivider()
-                Row(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .background(g.canvasSubtle, RoundedCornerShape(10.dp))
+                        .border(1.dp, g.borderMuted, RoundedCornerShape(10.dp)),
+                ) {
                     // 读作「当前连续 N 天」：标签是类别，数值带单位
                     StatCell(trf("{0} 天", st.current), tr("当前连续"), Modifier.weight(1f))
                     StatCell(trf("{0} 天", st.longest), tr("最长连续"), Modifier.weight(1f))
@@ -279,16 +285,13 @@ fun ContributionBody(state: ContribState, full: Boolean) {
                             height = 64.dp,
                             labels = listOf(tr("周日"), tr("周一"), tr("周二"), tr("周三"), tr("周四"), tr("周五"), tr("周六")),
                             unit = tr(" 次贡献"),
-                            onDoubleTap = { wd -> inspectingWeekday = wd },
                         )
                         Row(Modifier.fillMaxWidth()) {
-                            listOf(tr("日"), tr("一"), tr("二"), tr("三"), tr("四"), tr("五"), tr("六")).forEachIndexed { idx, label ->
+                            listOf(tr("日"), tr("一"), tr("二"), tr("三"), tr("四"), tr("五"), tr("六")).forEach { label ->
                                 Text(
                                     label,
                                     Modifier
                                         .weight(1f)
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .clickable { inspectingWeekday = idx }
                                         .padding(vertical = 4.dp),
                                     fontSize = 11.sp,
                                     color = g.fgMuted,
@@ -348,7 +351,13 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
     val contrib = rememberContrib(login)
     val pinned = rememberLoader("pinned:$login") { runCatching { GitHub.pinned(login) }.getOrDefault(emptyList()) }
     val orgs = rememberLoader("orgs:$login") { if (isSelf) GitHub.myOrgs(it) else GitHub.userOrgs(login, it) }
-    val profileReadme = rememberLoader("readme:$login") { force -> runCatching { GitHub.readme(login, login, null, force) }.getOrNull() }
+    val profileReadme = rememberLoader("readme:$login") { force ->
+        val html = runCatching { GitHub.readme(login, login, null, force) }.getOrNull()
+        if (html != null) {
+            HtmlParser.parseCached(html, "https://github.com/$login/$login/blob/main/")
+        }
+        html
+    }
     val userStatus = rememberLoader("status:$login") { runCatching { UserStatusApi.getStatus(login, isViewer = isSelf) }.getOrNull() }
     var showStatusDialog by remember { mutableStateOf(false) }
     val following = retain("following:$login") { mutableStateOf<Boolean?>(null) }
@@ -368,9 +377,11 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
     if (me) com.mobilegh.nav.OnTabReselect(Tab.Me) { state.animateScrollToItem(0) }
 
     Page(
-        if (me) tr("我的") else login, back = !me, contentWindowInsets = if (me) WindowInsets(0) else null,
+        if (me) tr("我的") else login,
+        back = !me || nav.stack.isNotEmpty(),
+        contentWindowInsets = if (me && nav.stack.isEmpty()) WindowInsets(0) else null,
         actions = {
-            if (me) OcButton(R.drawable.oc_gear, { nav.push(Screen.Settings) })
+            if (me || isSelf) OcButton(R.drawable.oc_gear, { nav.push(Screen.Settings) }, description = tr("设置"))
             MoreMenu(
                 listOfNotNull(
                     if (isSelf) MenuAction(tr("编辑资料")) { nav.push(Screen.EditProfile) } else null,
@@ -404,43 +415,43 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
                             }
                         }
                     }
-                    item { AchievementsStrip(login, self = isSelf) }
                     profileReadme.data?.let { html ->
                         item { ProfileReadmeCard(login, html) }
                     }
-                    item { SectionTitle(tr("贡献活动")) { SectionActionChip(text = tr("动态"), tooltip = tr("动态")) { nav.push(Screen.Activity(login)) } } }
-                    item { Card(Modifier.padding(horizontal = 16.dp)) { ContributionBody(contrib, full = true) } }
                     val pins = pinned.data.orEmpty()
                     if (pins.isNotEmpty()) {
                         item { SectionTitle(tr("置顶")) }
                         items(pins, key = { it.owner.login + "/" + it.name }) { PinnedCard(it) }
                     }
+                    item { AchievementsStrip(login, self = isSelf) }
+                    item { SectionTitle(tr("贡献活动")) { SectionActionChip(text = tr("动态"), tooltip = tr("动态")) { nav.push(Screen.Activity(login)) } } }
+                    item { Card(Modifier.padding(horizontal = 16.dp)) { ContributionBody(contrib, full = true) } }
                     item { Spacer(Modifier.height(16.dp)) }
-                    item {
-                        MenuGroup {
-                            MenuRow(R.drawable.oc_repo, tr("仓库"), g.fgMuted, count = u.publicRepos + (if (isSelf) u.ownedPrivateRepos ?: 0 else 0)) {
-                                if (isSelf) nav.select(Tab.Repos).also { nav.popToRoot() } else nav.push(Screen.Repos(RepoKind.User, login))
-                            }
-                            MenuRow(R.drawable.oc_star, "Star", g.attention) { nav.push(Screen.Repos(RepoKind.Starred, login)) }
-                            MenuRow(R.drawable.oc_checklist, tr("Star 列表"), g.done) { nav.push(Screen.StarLists(login)) }
-                            MenuRow(R.drawable.oc_table, tr("项目"), g.success) { nav.push(Screen.Projects(ProjectOwnerKind.User, login)) }
-                            MenuRow(R.drawable.oc_organization, tr("组织"), g.severe, count = orgList.size.takeIf { it > 0 }) {
-                                when (orgRowTarget(isSelf, orgList.size)) {
-                                    OrgRowTarget.MyOrgs -> nav.push(Screen.Orgs)
-                                    OrgRowTarget.Single -> nav.push(Screen.Org(orgList.first().login))
-                                    // 多个或没有时打开列表弹窗（没有时显示空状态），不再静默无反应
-                                    OrgRowTarget.List -> { showOrgs = true }
+                    if (!isSelf) {
+                        item {
+                            MenuGroup {
+                                MenuRow(R.drawable.oc_repo, tr("仓库"), g.fgMuted, count = u.publicRepos) {
+                                    nav.push(Screen.Repos(RepoKind.User, login))
                                 }
-                            }
-                            MenuRow(R.drawable.oc_code_square, "Gists", g.sponsors, count = u.publicGists + (u.privateGists ?: 0)) {
-                                nav.push(Screen.Gists(if (isSelf) null else login))
-                            }
-                            MenuRow(R.drawable.oc_pulse, tr("动态"), g.accent) { nav.push(Screen.Activity(login)) }
-                            if (isSelf) {
-                                // 写到一半的 Issue、评论、PR 等：自动保存，在这里集中查看和继续编辑
-                                MenuRow(R.drawable.oc_pencil, tr("草稿"), g.attention) { nav.push(Screen.Drafts) }
-                                MenuRow(R.drawable.oc_mail, tr("待处理邀请"), g.done) { nav.push(Screen.Invitations) }
-                                MenuRow(R.drawable.oc_gear, tr("设置"), g.fgMuted) { nav.push(Screen.Settings) }
+                                MenuRow(R.drawable.oc_star, "Star", g.attention) {
+                                    nav.push(Screen.Repos(RepoKind.Starred, login))
+                                }
+                                MenuRow(R.drawable.oc_organization, tr("组织"), g.severe, count = orgList.size.takeIf { it > 0 }) {
+                                    when (orgRowTarget(isSelf, orgList.size)) {
+                                        OrgRowTarget.MyOrgs -> nav.push(Screen.Orgs)
+                                        OrgRowTarget.Single -> nav.push(Screen.Org(orgList.first().login))
+                                        OrgRowTarget.List -> { showOrgs = true }
+                                    }
+                                }
+                                MenuRow(R.drawable.oc_code_square, "Gists", g.sponsors, count = u.publicGists) {
+                                    nav.push(Screen.Gists(login))
+                                }
+                                MenuRow(R.drawable.oc_pulse, tr("动态"), g.accent) {
+                                    nav.push(Screen.Activity(login))
+                                }
+                                MenuRow(R.drawable.oc_table, tr("项目"), g.success) {
+                                    nav.push(Screen.Projects(ProjectOwnerKind.User, login))
+                                }
                             }
                         }
                     }

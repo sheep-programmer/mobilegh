@@ -11,6 +11,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -58,8 +59,12 @@ fun AuthenticatorScreen(onBack: (() -> Unit)? = null) {
     }) { pad ->
         ScrollbarLazyColumn(Modifier.padding(pad).fillMaxSize().background(g.canvas), verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(16.dp)) {
             item { MobileApprovalCard() }
-            item { Text(tr("验证器验证码"), color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 16.sp) }
-            item { Text(tr("选择 GitHub 的「验证器应用」，复制这里的六位码完成验证。"), color = g.fgMuted, fontSize = 14.sp) }
+            item {
+                Column(Modifier.padding(horizontal = 4.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(tr("验证器验证码"), color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text(tr("选择 GitHub 的「验证器应用」，复制这里的六位码完成验证。"), color = g.fgMuted, fontSize = 13.sp)
+                }
+            }
             if (accounts.isEmpty()) item {
                 Card {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -91,7 +96,11 @@ fun AuthenticatorScreen(onBack: (() -> Unit)? = null) {
                     }
                 }
             }
-            item { TextLink(tr("打开 GitHub 两步验证设置")) { ctx.openBrowser("https://github.com/settings/security") } }
+            item {
+                Box(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 24.dp), contentAlignment = Alignment.Center) {
+                    TextLink(tr("打开 GitHub 两步验证设置")) { ctx.openBrowser("https://github.com/settings/security") }
+                }
+            }
         }
     }
     deleting?.let { login ->

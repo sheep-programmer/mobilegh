@@ -4,6 +4,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -55,7 +58,11 @@ fun ScrollToTopButton(target: ScrollTopTarget) {
             onClick = { scope.launch { state?.animateScrollToItem(0) } },
             containerColor = g.canvas,
             contentColor = g.fg,
-            modifier = Modifier.padding(bottom = 8.dp).semantics { contentDescription = tr("回到顶部") },
+            elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
+            modifier = Modifier
+                .padding(bottom = 8.dp)
+                .border(1.dp, g.border, CircleShape)
+                .semantics { contentDescription = tr("回到顶部") },
         ) {
             Oc(R.drawable.oc_arrow_up, g.fg, 18.dp)
         }

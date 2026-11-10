@@ -97,6 +97,7 @@ import com.mobilegh.nav.retain
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.GhButton
+import com.mobilegh.ui.components.ButtonRowAdaptive
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.RadioRow
 import com.mobilegh.ui.components.GhField
@@ -966,7 +967,7 @@ private fun ThreadHeader(
                     Text(tr("这是一个草稿 PR，标记为可评审后才能合并，并会通知审查者。"), fontSize = 12.sp, color = g.fgMuted)
                     GhButton(tr("标记为可评审"), Modifier.fillMaxWidth(), primary = true, icon = R.drawable.oc_eye, onClick = onReady)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ButtonRowAdaptive {
                     GhButton(tr("文件变更"), icon = R.drawable.oc_file_diff) { nav.push(Screen.PullFiles(owner, name, pr.number)) }
                     GhButton(tr("浏览分支"), icon = R.drawable.oc_code) {
                         val repo = pr.head.repo

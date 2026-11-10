@@ -120,6 +120,7 @@ fun AppRoot(nav: Navigator) {
                         Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.BottomEnd) { DownloadHost() }
                         com.mobilegh.ui.components.ImageViewerHost()
                         com.mobilegh.ui.components.VideoViewerHost()
+                        com.mobilegh.ui.components.YouTubeViewerHost()
                         com.mobilegh.ui.components.MobileApprovalHost()
                         com.mobilegh.ui.components.NotificationPermissionHost()
                         // 启动检查发现新版本时自动弹出更新提示

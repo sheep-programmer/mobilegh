@@ -302,12 +302,12 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
                         ctx.copy(d.userCode, trf("验证码 {0} 已复制，请在页面粘贴", d.userCode))
                         GitHubWebLogin.request(tr("输入授权码"), d.verificationUri, onDismiss = { flow.cancel() })
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        GhButton(tr("系统浏览器"), Modifier.weight(1f), primary = false, icon = R.drawable.oc_link_external) {
+                    ButtonRowAdaptive(Modifier.fillMaxWidth()) {
+                        GhButton(tr("系统浏览器"), primary = false, icon = R.drawable.oc_link_external) {
                             ctx.copy(d.userCode)
                             ctx.openBrowser(d.verificationUri)
                         }
-                        GhButton(tr("复制验证码"), Modifier.weight(1f), primary = false, icon = R.drawable.oc_copy) {
+                        GhButton(tr("复制验证码"), primary = false, icon = R.drawable.oc_copy) {
                             ctx.copy(d.userCode)
                         }
                     }

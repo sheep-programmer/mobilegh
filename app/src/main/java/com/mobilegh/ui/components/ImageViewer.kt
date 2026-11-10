@@ -257,12 +257,12 @@ private fun ImageViewerContent(url: String, title: String) {
                 )
             }
             if (data != null) {
-                Row(
+                ButtonRowAdaptive(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0x99000000)).navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    spacing = 12.dp,
                 ) {
-                    GhButton(tr("保存到相册"), Modifier.weight(1f), primary = true, icon = R.drawable.oc_download, enabled = !busy) {
+                    GhButton(tr("保存到相册"), primary = true, icon = R.drawable.oc_download, enabled = !busy) {
                         if (data.bytes.isEmpty()) {
                             // 超大 GIF 没有读进内存：交给下载器流式写到「下载」文件夹
                             ctx.downloadFile(url, saveName(url, title, mime), isPrivate = false, mimeType = mime)
@@ -284,7 +284,7 @@ private fun ImageViewerContent(url: String, title: String) {
                             }
                         } else save(request)
                     }
-                    if (data.bytes.isNotEmpty()) GhButton(tr("分享"), Modifier.weight(1f), icon = R.drawable.oc_share_android, enabled = !busy) {
+                    if (data.bytes.isNotEmpty()) GhButton(tr("分享"), icon = R.drawable.oc_share_android, enabled = !busy) {
                         busy = true
                         scope.launch {
                             try {

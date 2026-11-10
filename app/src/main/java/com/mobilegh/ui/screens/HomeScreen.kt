@@ -238,10 +238,9 @@ fun HomeScreen() {
                                     )
                                 }
                                 Spacer(Modifier.height(10.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                ButtonRowAdaptive {
                                     GhButton(
                                         tr("同步 GitHub 置顶"),
-                                        Modifier.weight(1f),
                                         icon = R.drawable.oc_sync,
                                         primary = true,
                                     ) {
@@ -258,7 +257,6 @@ fun HomeScreen() {
                                     }
                                     GhButton(
                                         tr("添加收藏"),
-                                        Modifier.weight(1f),
                                         icon = R.drawable.oc_plus,
                                     ) {
                                         nav.push(Screen.AddFavorites)

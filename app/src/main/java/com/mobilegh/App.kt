@@ -17,9 +17,10 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         com.mobilegh.i18n.I18n.init(this)
+        // 日志与崩溃处理器尽早安装：之后的初始化出错也能留下记录
+        AppLog.init(this)
         Api.cacheDir = cacheDir
         com.mobilegh.data.ImageFetch.init(cacheDir)
-        AppLog.init(this)
         com.mobilegh.data.AppNetwork.init(this)
         Net.init(this)
         Session.init(this)

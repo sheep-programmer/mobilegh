@@ -938,7 +938,16 @@ private fun wrapHtmlDocument(body: String, dark: Boolean, extraTags: String): St
   var IMG=/\.(png|jpe?g|gif|webp|svg|avif|bmp)([?#]|$)/i;
   document.addEventListener('click',function(e){
     var vid=e.target.closest('video');
-    if(vid){e.preventDefault();e.stopPropagation();var vs=vid.currentSrc||vid.src||((vid.querySelector('source')||{}).src)||'';if(vs){try{Bridge.video(vs);}catch(x){}}return;}
+    if(vid){
+      // 视频只有点中中间的播放键才全屏播放；点画面其它地方不反应，避免误触
+      e.preventDefault();e.stopPropagation();
+      var box=(vid.parentNode&&vid.parentNode.classList&&vid.parentNode.classList.contains('vid-wrap'))?vid.parentNode:vid;
+      var br=box.getBoundingClientRect();
+      if(Math.hypot(e.clientX-(br.left+br.width/2),e.clientY-(br.top+br.height/2))<=32){
+        var vs=vid.currentSrc||vid.src||((vid.querySelector('source')||{}).src)||'';if(vs){try{Bridge.video(vs);}catch(x){}}
+      }
+      return;
+    }
     var img=e.target.closest('img');
     if(img&&!img.closest('.tl-head')){
       var la=img.closest('a'), lh=la?(la.getAttribute('href')||''):'';
@@ -962,7 +971,7 @@ private fun wrapHtmlDocument(body: String, dark: Boolean, extraTags: String): St
   // 视频：去掉原生控件（点击会被影子 DOM 吃掉），外层包一层自绘播放图标；点击由上面的监听交给原生播放器
   document.querySelectorAll('video').forEach(function(v){
     if(v.parentNode&&v.parentNode.classList&&v.parentNode.classList.contains('vid-wrap')) return;
-    v.removeAttribute('controls'); v.setAttribute('playsinline','');
+    v.removeAttribute('controls'); v.setAttribute('playsinline',''); v.setAttribute('preload','metadata');
     var w=document.createElement('span'); w.className='vid-wrap';
     v.parentNode.insertBefore(w,v); w.appendChild(v);
   });

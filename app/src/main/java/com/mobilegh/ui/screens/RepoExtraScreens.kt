@@ -477,11 +477,18 @@ private fun ReleaseForm(owner: String, name: String, seed: ReleaseSeed, modifier
                 entry.act({
                     busy = false
                     error = if (it.contains("already_exists", true) || it.contains("already exists", true)) trf("标签 {0} 已有对应的 Release", tagName) else it
-                }) {
+                }, label = if (rel == null) tr("发布 Release") else tr("保存 Release")) {
+                    // saved 为 null 表示 Release 已生效、只是响应无法解析：仍按成功处理，避免用户重复发布
                     val saved = if (rel == null) GitHub.createRelease(owner, name, form) else GitHub.updateRelease(owner, name, rel.id, form)
                     RepoWrite.changed(owner, name)
                     draft.submitted(submitted)
-                    ctx.toast(if (rel != null) tr("已保存") else if (saved.draft) tr("已保存草稿") else trf("已发布 {0}", saved.name?.takeIf { n -> n.isNotBlank() } ?: saved.tagName))
+                    ctx.toast(
+                        when {
+                            rel != null -> tr("已保存")
+                            form.draft -> tr("已保存草稿")
+                            else -> trf("已发布 {0}", saved?.name?.takeIf { n -> n.isNotBlank() } ?: saved?.tagName ?: tagName)
+                        },
+                    )
                     nav.pop()
                 }
             }

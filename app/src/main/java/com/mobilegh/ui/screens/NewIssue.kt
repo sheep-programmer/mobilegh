@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
+import com.mobilegh.data.AppLog
 import com.mobilegh.data.DraftAnswer
 import com.mobilegh.data.DraftOption
 import com.mobilegh.data.DraftValue
@@ -196,7 +197,7 @@ fun NewIssueScreen(owner: String, name: String) {
         val submitted = newIssueDraft(title, formBody, meta, template?.file, answers)
         val m = meta
         draft.update(submitted)
-        entry.act({ busy = false; ctx.toast(it) }) {
+        entry.act({ busy = false; ctx.toast(it) }, label = tr("创建 Issue")) {
             val i = GitHub.createIssue(
                 owner, name, submitted.title.trim(), submitted.body,
                 labels = m.labels.map { it.key },
@@ -204,9 +205,15 @@ fun NewIssueScreen(owner: String, name: String) {
                 milestone = m.milestone?.key?.toIntOrNull(),
             )
             draft.submitted(submitted)
+            AppLog.info("issue", trf("已创建 {0}", "$owner/$name" + (i?.let { " #${it.number}" } ?: "")))
             // 新 Issue 会出现在列表里：已打开的列表页要刷新
             nav.refreshRetained { s -> s is Screen.Issues && s.owner.equals(owner, true) && s.name.equals(name, true) }
-            if (createMore) {
+            if (i == null) {
+                // 已创建，只是响应无法解析：提示并回到列表，不能让用户重新提交（会重复创建）
+                busy = false
+                ctx.toast(tr("Issue 已提交，请到列表查看"))
+                nav.pop()
+            } else if (createMore) {
                 busy = false
                 ctx.toast(trf("已创建 {0}", "#${i.number}"))
                 apply(template, keepAnswers = false)

@@ -71,4 +71,23 @@ class ImageContentTest {
         assertNull(ImageContent.parseDataUri("data:no-comma"))
         assertNull(ImageContent.parseDataUri("data:image/svg+xml;base64,???not_base64!!!"))
     }
+
+    @Test fun parseUrlHandlesCjkAndSpacesWithoutThrowing() {
+        val url = "https://raw.githubusercontent.com/owner/repo/main/docs/Screenshot/全键盘_下滑_light.jpg"
+        val parsed = ImageContent.parseUrl(url)
+        org.junit.Assert.assertNotNull(parsed)
+        assertEquals("raw.githubusercontent.com", parsed?.first)
+        assertEquals("/owner/repo/main/docs/Screenshot/全键盘_下滑_light.jpg", parsed?.second)
+        assertNull(parsed?.third)
+
+        val urlWithQuery = "https://github.com/a/b/blob/main/path with space/图 片.png?raw=true&token=abc#hash"
+        val parsedWithQuery = ImageContent.parseUrl(urlWithQuery)
+        org.junit.Assert.assertNotNull(parsedWithQuery)
+        assertEquals("github.com", parsedWithQuery?.first)
+        assertEquals("/a/b/blob/main/path with space/图 片.png", parsedWithQuery?.second)
+        assertEquals("raw=true&token=abc", parsedWithQuery?.third)
+
+        val normalized = ImageContent.normalize(urlWithQuery)
+        assertEquals("https://raw.githubusercontent.com/a/b/main/path with space/图 片.png?raw=true&token=abc", normalized)
+    }
 }

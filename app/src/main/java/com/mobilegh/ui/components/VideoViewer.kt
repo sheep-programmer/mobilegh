@@ -1,6 +1,11 @@
 package com.mobilegh.ui.components
 
 import android.net.Uri
+import android.view.View
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.FrameLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -153,3 +158,137 @@ internal fun VideoViewerContent(src: String, onPlayer: (ExoPlayer) -> Unit = {})
 
 /** 1x、1.25x 这类写法：整数不带小数点 */
 private fun speedLabel(s: Float): String = (if (s % 1f == 0f) s.toInt().toString() else s.toString()) + "x"
+
+/**
+ * YouTube 视频的应用内播放器。YouTube 的视频地址不是直链，不能交给 ExoPlayer，
+ * 这里用网页嵌入播放器（youtube-nocookie）全屏显示；有问题时可以用「在浏览器打开」。
+ */
+object YouTubeViewer {
+    var id by mutableStateOf<String?>(null)
+        private set
+    var title by mutableStateOf("")
+        private set
+
+    fun open(id: String, title: String = "") {
+        this.id = id
+        this.title = title
+    }
+
+    fun close() { id = null }
+}
+
+@Composable
+fun YouTubeViewerHost() {
+    val id = YouTubeViewer.id ?: return
+    Dialog(
+        onDismissRequest = { YouTubeViewer.close() },
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        YouTubeViewerContent(id, YouTubeViewer.title)
+    }
+}
+
+/**
+ * 用 YouTube 的 IFrame API 播放：播放器报错（如视频所有者禁止嵌入，错误 101 / 150 / 152）时回调原生层，
+ * 显示说明并提供「在浏览器打开」。嵌入页的基地址设为 youtube.com，播放器据此判断来源，避免来源被拒绝。
+ */
+private fun youTubeEmbedHtml(id: String): String =
+    "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
+        "<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}" +
+        "#p{position:absolute;left:0;top:0;width:100%;height:100%}</style></head><body>" +
+        "<div id=\"p\"></div>" +
+        "<script src=\"https://www.youtube.com/iframe_api\"></script>" +
+        "<script>function onYouTubeIframeAPIReady(){new YT.Player('p',{width:'100%',height:'100%',videoId:'$id'," +
+        "playerVars:{playsinline:1,rel:0},events:{onError:function(e){Bridge.failed(e.data)}}});}</script>" +
+        "</body></html>"
+
+/** 播放器报错的回调：JavaScript 线程调用，由调用方切回主线程 */
+private class YouTubeBridge(private val onFailed: (Int) -> Unit) {
+    @android.webkit.JavascriptInterface
+    fun failed(code: Int) = onFailed(code)
+}
+
+@Composable
+private fun YouTubeViewerContent(id: String, title: String) {
+    val failed = remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().background(Color.Black)) {
+        Row(
+            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OcButton(R.drawable.oc_x, { YouTubeViewer.close() }, Color.White, description = tr("关闭"))
+            Text(
+                title.ifBlank { "YouTube" }, Modifier.weight(1f).padding(horizontal = 6.dp),
+                color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            OcButton(R.drawable.oc_link_external, { ExternalLinkDialog.show("https://youtu.be/$id", title) }, Color.White, description = tr("在浏览器打开"))
+        }
+        Box(Modifier.fillMaxWidth().weight(1f)) {
+        AndroidView(
+            factory = { c ->
+                val frame = FrameLayout(c)
+                val web = WebView(c).apply {
+                    setBackgroundColor(android.graphics.Color.BLACK)
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    webViewClient = WebViewClient()
+                }
+                web.addJavascriptInterface(YouTubeBridge { web.post { failed.value = true } }, "Bridge")
+                frame.addView(web, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+                // 全屏按钮：播放器请求全屏时，把它的视图盖在网页之上；退出时收起
+                web.webChromeClient = object : WebChromeClient() {
+                    private var custom: View? = null
+                    private var callback: WebChromeClient.CustomViewCallback? = null
+
+                    override fun onShowCustomView(view: View, cb: WebChromeClient.CustomViewCallback) {
+                        if (custom != null) { cb.onCustomViewHidden(); return }
+                        custom = view
+                        callback = cb
+                        frame.addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+                        web.visibility = View.GONE
+                    }
+
+                    override fun onHideCustomView() {
+                        custom?.let { frame.removeView(it) }
+                        custom = null
+                        callback?.onCustomViewHidden()
+                        callback = null
+                        web.visibility = View.VISIBLE
+                    }
+                }
+                web.loadDataWithBaseURL("https://www.youtube.com/", youTubeEmbedHtml(id), "text/html", "utf-8", null)
+                frame
+            },
+            // 先从容器里摘下网页再销毁，不在仍附着于视图树时销毁
+            onRelease = { frame ->
+                (frame.getChildAt(0) as? WebView)?.let { web ->
+                    frame.removeAllViews()
+                    web.stopLoading()
+                    web.destroy()
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (failed.value) YouTubeUnavailable(id, title)
+        }
+    }
+}
+
+/** 视频所有者禁止了网页嵌入（或播放器报错）：说明原因，并提供在浏览器打开的入口 */
+@Composable
+private fun YouTubeUnavailable(id: String, title: String) {
+    Column(
+        Modifier.fillMaxSize().background(Color.Black).padding(horizontal = 24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(tr("这个视频无法在应用内播放"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(8.dp))
+        Text(tr("视频所有者可能禁止了网页嵌入，可以到 YouTube 上观看。"), color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
+        Spacer(Modifier.height(16.dp))
+        GhButton(tr("在浏览器打开"), primary = true, icon = R.drawable.oc_link_external) {
+            ExternalLinkDialog.show("https://youtu.be/$id", title)
+        }
+    }
+}

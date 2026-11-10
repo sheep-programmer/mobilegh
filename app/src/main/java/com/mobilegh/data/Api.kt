@@ -302,6 +302,28 @@ object Api {
         return withContext(Dispatchers.Default) { json.decodeFromString(text) }
     }
 
+    /**
+     * 创建 / 修改类请求（新建 Issue、保存 Release 等）。
+     * 服务端按 2xx 接受后，即使响应体解析失败，操作也已经生效：此时若抛错，用户会以为没成功而重复提交
+     * （例如重复创建 Issue）。所以这里只在解析失败时记日志并返回 null，由调用方按「已提交」处理；HTTP 错误照常抛出。
+     */
+    suspend inline fun <reified T> sendWrite(
+        method: String,
+        path: String,
+        body: JsonElement? = null,
+        headers: Map<String, String> = emptyMap(),
+    ): T? {
+        val text = ensureOk(call(method, path, body, headers = headers)).body
+        return try {
+            withContext(Dispatchers.Default) { json.decodeFromString<T>(text) }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AppLog.warn("network", trf("写入已生效，但响应解析失败：{0} {1}", method, path.substringBefore('?').take(120)), e)
+            null
+        }
+    }
+
     suspend fun exec(method: String, path: String, body: JsonElement? = null, headers: Map<String, String> = emptyMap()) {
         ensureOk(call(method, path, body, headers = headers))
     }

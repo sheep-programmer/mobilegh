@@ -1,5 +1,8 @@
 package com.mobilegh.ui.components
 
+import com.mobilegh.data.AppLog
+import com.mobilegh.data.ImageContent
+import com.mobilegh.i18n.trf
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 import org.jsoup.nodes.Node
@@ -18,6 +21,8 @@ internal sealed interface HtmlBlock {
     /** 一排并排的图片：徽章行、并排的截图。按图片自身大小流式排列，放不下自动换行 */
     data class ImageRow(val images: List<Inline.Image>) : HtmlBlock
     data class Video(val src: String) : HtmlBlock
+    /** YouTube 视频（链接封面或 iframe）：显示封面，点播放键后在应用内播放。thumb 为封面地址，没有时用 YouTube 标准封面 */
+    data class YouTube(val id: String, val thumb: String?, val title: String) : HtmlBlock
     data class Details(val open: Boolean, val summary: List<Inline>, val blocks: List<HtmlBlock>) : HtmlBlock
     /** 必须在浏览器里运行脚本才能显示的片段（Mermaid 等图表、数学公式）：只有这一块交给 WebView */
     data class Web(val html: String, val baseUrl: String) : HtmlBlock
@@ -82,9 +87,24 @@ internal object HtmlParser {
     fun parseCached(html: String, baseUrl: String): ParsedHtml {
         val key = cacheKey(html, baseUrl)
         synchronized(cache) { cache[key] }?.let { return it }
-        val parsed = parse(html, baseUrl)
+        // 解析在界面组合时调用：内容异常（嵌套过深、结构畸形）若直接抛出，会让整个 Issue / Release 页面崩溃。
+        // 失败时退回纯文本显示，并把原因写入诊断日志。
+        val parsed = try {
+            parse(html, baseUrl)
+        } catch (e: Throwable) {
+            AppLog.error("render", trf("HTML 解析失败，已退回纯文本：{0}", e.javaClass.simpleName), e)
+            plainFallback(html)
+        }
         synchronized(cache) { cache[key] = parsed }
         return parsed
+    }
+
+    /** 解析失败时的兜底：只保留文字，不做任何结构解析，长度也有上限 */
+    private fun plainFallback(html: String): ParsedHtml {
+        val text = runCatching { Jsoup.parse(html).text() }
+            .getOrElse { html.replace(Regex("<[^>]*>"), " ") }
+            .take(20_000)
+        return ParsedHtml(if (text.isBlank()) emptyList() else listOf(HtmlBlock.Paragraph(listOf(Inline.Text(text)))))
     }
 
     /** 预解析只用一个后台线程：滑动时不和界面线程抢 CPU */
@@ -141,12 +161,38 @@ internal object HtmlParser {
 
     /** 相对地址按页面地址解析；页内锚点原样保留，交给渲染层跳转。 */
     private class Ctx(val baseUrl: String) {
-        private val base = runCatching { URI(baseUrl) }.getOrNull()
+        fun url(raw: String): String = safeResolve(baseUrl, raw)
+    }
 
-        fun url(raw: String): String {
-            val u = raw.trim()
-            if (u.isEmpty() || u.startsWith("#") || u.startsWith("data:")) return u
-            return runCatching { base?.resolve(u)?.toString() ?: u }.getOrDefault(u)
+    /** 安全解析相对 URL，对空格、特殊字符及非 ASCII/CJK 字符做分段编码，避免 URI.create 抛 IllegalArgumentException */
+    internal fun safeResolve(baseUrl: String, rel: String): String {
+        val trimmed = rel.trim()
+        if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith("data:")) return trimmed
+        if (trimmed.contains("://")) return trimmed
+        val baseUri = runCatching { URI(baseUrl) }.getOrNull()
+        val queryPart = if (trimmed.contains('?')) "?" + trimmed.substringAfter('?') else ""
+        val pathPart = trimmed.substringBefore('?')
+        val encodedPath = pathPart.split('/').joinToString("/") { seg ->
+            runCatching {
+                val decoded = java.net.URLDecoder.decode(seg, "UTF-8")
+                java.net.URLEncoder.encode(decoded, "UTF-8")
+                    .replace("+", "%20")
+                    .replace("%2F", "/")
+            }.getOrDefault(seg)
+        }
+        val encodedRel = encodedPath + queryPart
+        val resolved = runCatching { baseUri?.resolve(encodedRel)?.toString() }.getOrNull()
+        if (resolved != null) return resolved
+
+        return if (trimmed.startsWith("/")) {
+            if (baseUrl.contains("://")) {
+                val scheme = baseUrl.substringBefore("://")
+                val host = baseUrl.substringAfter("://").substringBefore('/')
+                "$scheme://$host$trimmed"
+            } else trimmed
+        } else {
+            val dir = if (baseUrl.endsWith("/")) baseUrl else baseUrl.substringBeforeLast('/') + "/"
+            dir + trimmed
         }
     }
 
@@ -270,6 +316,8 @@ internal object HtmlParser {
                     .ifBlank { el.attr("data-canonical-src") }
                 if (src.isNotBlank()) out += HtmlBlock.Video(ctx.url(src))
             }
+            // 内嵌的 YouTube 播放器（iframe）：同样显示封面，点按在应用内播放
+            tag == "iframe" -> youtubeId(el.attr("src"))?.let { out += HtmlBlock.YouTube(it, null, el.attr("title")) }
             else -> out += blocks(el, ctx, emptySet())
         }
     }
@@ -294,7 +342,10 @@ internal object HtmlParser {
         for (item in inl) {
             if (item is Inline.Image && !isInlineImage(item)) {
                 emit()
-                out += HtmlBlock.Image(item.src, item.alt, item.width, item.height, item.link, item.viewSrc)
+                // 链接到 YouTube 的封面（或封面本身来自 YouTube）是视频，不当成普通图片：显示封面并可在应用内播放
+                val yt = youtubeId(item.link) ?: youtubeId(item.src)
+                out += if (yt != null) HtmlBlock.YouTube(yt, item.src, item.alt)
+                else HtmlBlock.Image(item.src, item.alt, item.width, item.height, item.link, item.viewSrc)
             } else {
                 seg += item
             }
@@ -320,6 +371,32 @@ internal object HtmlParser {
 
     /** 高度不超过一行字（24px）的图片当作文字中的徽章 / 图标（行内），更大的图片单独成块显示。 */
     internal fun isInlineImage(i: Inline.Image) = (i.height ?: 0) in 1..24
+
+    private val YOUTUBE_ID = Regex("""[A-Za-z0-9_-]{11}""")
+
+    /**
+     * 从 YouTube 相关地址取出视频编号：youtu.be/ID、youtube.com/watch?v=ID、/shorts/ID、/embed/ID，
+     * 以及封面图 img.youtube.com/vi/ID/...。不是视频的地址（频道、搜索等）返回 null。
+     */
+    internal fun youtubeId(url: String?): String? {
+        if (url.isNullOrBlank()) return null
+        val (rawHost, path, query) = ImageContent.parseUrl(url.trim()) ?: return null
+        val host = rawHost.removePrefix("www.").removePrefix("m.")
+        val segs = path.split('/').filter { it.isNotEmpty() }
+        val id = when (host) {
+            "youtu.be" -> segs.firstOrNull()
+            "img.youtube.com", "i.ytimg.com" -> if (segs.firstOrNull() in setOf("vi", "vi_webp")) segs.getOrNull(1) else null
+            "youtube.com", "youtube-nocookie.com" -> when (segs.firstOrNull()) {
+                "shorts", "embed", "live", "v" -> segs.getOrNull(1)
+                "watch" -> query?.split('&')?.map { it.substringBefore('#') }?.firstOrNull { it.startsWith("v=") }?.removePrefix("v=")
+                else -> null
+            }
+            else -> null
+        }
+        return id?.takeIf { YOUTUBE_ID.matches(it) }
+    }
+
+    internal fun youtubeThumb(id: String) = "https://img.youtube.com/vi/$id/hqdefault.jpg"
 
     private fun collect(el: Element, style: InlineStyle, ctx: Ctx): MutableList<Inline> =
         mutableListOf<Inline>().also { inlineChildren(el, style, ctx, it) }

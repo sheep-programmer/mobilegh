@@ -82,6 +82,7 @@ import com.mobilegh.ui.components.FileInfo
 import com.mobilegh.ui.components.FileInfoDialog
 import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.GhButton
+import com.mobilegh.ui.components.ButtonRowAdaptive
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.GhTooltip
@@ -296,12 +297,12 @@ fun RepoScreen(owner: String, name: String) {
                     item { RepoHeader(r, onEdited = { repo.refresh() }) }
                     item {
                         // Star / Watch / Fork
-                        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ButtonRowAdaptive(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 4.dp)) {
                             val s = starStatus.data == true
                             GhButton(
                                 "${if (s) tr("已 Star") else "Star"} ${fmtCount(r.stargazersCount)}",
                                 // 写入期间不改成禁用态，否则点一下按钮会灰一下；重复点击由 onClick 里的 starBusy 挡住
-                                Modifier.weight(1f), icon = if (s) R.drawable.oc_star_fill else R.drawable.oc_star, iconTint = if (s) g.star else null,
+                                icon = if (s) R.drawable.oc_star_fill else R.drawable.oc_star, iconTint = if (s) g.star else null,
                                 // 只在第一次读取 Star 状态之前禁用；下拉刷新期间保持可用，按钮不会闪
                                 enabled = entry.sameAccount() && starStatus.data != null,
                                 // 和 GitHub 一样：点按切换 Star；只有已 Star 的仓库才能长按管理所在列表
@@ -339,7 +340,7 @@ fun RepoScreen(owner: String, name: String) {
                                     }
                                 }
                             }
-                            GhButton(watching.data?.title ?: if (watching.loading && watching.data == null) tr("读取订阅…") else tr("订阅设置"), Modifier.weight(1f), icon = R.drawable.oc_eye, enabled = entry.sameAccount()) {
+                            GhButton(watching.data?.title ?: if (watching.loading && watching.data == null) tr("读取订阅…") else tr("订阅设置"), icon = R.drawable.oc_eye, enabled = entry.sameAccount()) {
                                 showSubscription = true
                             }
                         }

@@ -2,6 +2,7 @@ package com.mobilegh.ui.components
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -27,6 +28,15 @@ class NativeHtmlParserTest {
         val link = p.inlines.filterIsInstance<Inline.Text>().first { it.style.link != null }
         assertEquals("https://github.com/a/b/blob/main/docs/x.md", link.style.link)
         assertEquals("doc", link.text)
+    }
+
+    @Test fun relativeLinksWithCjkResolveAgainstPageBase() {
+        val p = parse("<p><img src=\"docs/Screenshot/全键盘_下滑_light.jpg\" alt=\"pic\"></p>").blocks.single() as HtmlBlock.Image
+        println("Resolved image src: ${p.src}")
+        assertEquals("https://github.com/a/b/blob/main/docs/Screenshot/%E5%85%A8%E9%94%AE%E7%9B%98_%E4%B8%8B%E6%BB%91_light.jpg", p.src)
+        // Test OkHttp request builder with encoded CJK URL
+        val req = okhttp3.Request.Builder().url(p.src).build()
+        assertEquals("https://github.com/a/b/blob/main/docs/Screenshot/%E5%85%A8%E9%94%AE%E7%9B%98_%E4%B8%8B%E6%BB%91_light.jpg", req.url.toString())
     }
 
     @Test fun pageAnchorLinksStayAsFragments() {
@@ -151,6 +161,13 @@ class NativeHtmlParserTest {
         val t = trimInlines(listOf(Inline.Break, Inline.Text("  a  "), Inline.Break, Inline.Text("   ")))
         assertEquals(listOf(Inline.Text("a")), t)
     }
+
+    /** 异常内容（嵌套极深）不能让解析抛出：界面组合时抛出会直接崩溃整个 Issue / Release 页面 */
+    @Test fun pathologicalNestingNeverThrowsWhileRendering() {
+        val html = "<div>".repeat(5000) + "深层文字" + "</div>".repeat(5000)
+        val parsed = HtmlParser.parseCached(html, base)
+        assertTrue(parsed.blocks.isNotEmpty())
+    }
 }
 
 class NativeHtmlBadgeTest {
@@ -271,5 +288,45 @@ class NativeHtmlBadgeTest {
             ),
             extracted
         )
+    }
+}
+
+class YouTubeEmbedTest {
+    private val base = "https://github.com/a/b/blob/main/"
+    private fun parse(html: String) = HtmlParser.parse(html, base)
+
+    @Test fun youtubeIdFromCommonLinkForms() {
+        assertEquals("QRuh1oByT3M", HtmlParser.youtubeId("https://youtu.be/QRuh1oByT3M"))
+        assertEquals("QRuh1oByT3M", HtmlParser.youtubeId("https://www.youtube.com/watch?v=QRuh1oByT3M&t=10s"))
+        assertEquals("QRuh1oByT3M", HtmlParser.youtubeId("https://youtube.com/shorts/QRuh1oByT3M"))
+        assertEquals("QRuh1oByT3M", HtmlParser.youtubeId("https://www.youtube-nocookie.com/embed/QRuh1oByT3M"))
+        assertEquals("QRuh1oByT3M", HtmlParser.youtubeId("https://img.youtube.com/vi/QRuh1oByT3M/maxresdefault.jpg"))
+    }
+
+    @Test fun nonVideoYouTubeLinksAreNotVideos() {
+        assertNull(HtmlParser.youtubeId("https://www.youtube.com/@somechannel"))
+        assertNull(HtmlParser.youtubeId("https://www.youtube.com/results?search_query=x"))
+        assertNull(HtmlParser.youtubeId("https://youtu.be/short"))
+        assertNull(HtmlParser.youtubeId("https://example.com/watch?v=QRuh1oByT3M"))
+        assertNull(HtmlParser.youtubeId(null))
+    }
+
+    @Test fun linkedThumbnailBecomesYouTubeBlockNotImage() {
+        val html = "<p><a href=\"https://youtu.be/QRuh1oByT3M\">" +
+            "<img src=\"https://img.youtube.com/vi/QRuh1oByT3M/maxresdefault.jpg\" alt=\"100-second demo\"></a></p>"
+        val block = parse(html).blocks.single() as HtmlBlock.YouTube
+        assertEquals("QRuh1oByT3M", block.id)
+        assertEquals("100-second demo", block.title)
+    }
+
+    @Test fun embeddedIframeBecomesYouTubeBlock() {
+        val block = parse("<iframe src=\"https://www.youtube.com/embed/QRuh1oByT3M\" title=\"demo\"></iframe>").blocks.single()
+        assertTrue(block is HtmlBlock.YouTube)
+        assertEquals("QRuh1oByT3M", (block as HtmlBlock.YouTube).id)
+    }
+
+    @Test fun ordinaryLinkedImageStaysAnImage() {
+        val block = parse("<p><a href=\"https://x.io/page\"><img src=\"https://x.io/p.png\" alt=\"pic\"></a></p>").blocks.single()
+        assertTrue(block is HtmlBlock.Image)
     }
 }

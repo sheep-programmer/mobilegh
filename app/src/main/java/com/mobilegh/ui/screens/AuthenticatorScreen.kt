@@ -70,7 +70,7 @@ fun AuthenticatorScreen(onBack: (() -> Unit)? = null) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(tr("添加 GitHub 验证器"), color = g.fg, fontWeight = FontWeight.SemiBold)
                         Text(tr("扫码导入 GitHub 两步验证设置页的二维码，或手动粘贴密钥 / otpauth 链接。"), color = g.fgMuted, fontSize = 14.sp)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ButtonRowAdaptive {
                             GhButton(tr("扫码导入"), primary = true, icon = R.drawable.oc_scan) { scanning = true }
                             GhButton(tr("手动添加"), icon = R.drawable.oc_key) { editingSecret = null; editing = true }
                         }

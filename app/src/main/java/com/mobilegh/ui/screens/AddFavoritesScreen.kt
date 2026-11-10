@@ -43,6 +43,7 @@ import com.mobilegh.nav.rememberLoader
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.CompactSearchField
 import com.mobilegh.ui.components.GhButton
+import com.mobilegh.ui.components.ButtonRowAdaptive
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.MenuGroup
@@ -286,7 +287,7 @@ fun FavoritesScreen() {
                         textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(18.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    ButtonRowAdaptive(spacing = 10.dp) {
                         GhButton(tr("同步 GitHub 置顶"), icon = R.drawable.oc_sync, primary = true) {
                             syncPinned()
                         }

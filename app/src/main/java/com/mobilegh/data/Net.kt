@@ -273,7 +273,7 @@ object Net {
         privateRepos.add(fullName.lowercase())
     }
 
-    private fun isPrivate(o: String, r: String) = "$o/$r".lowercase() in privateRepos
+    fun isPrivate(o: String, r: String) = "$o/$r".lowercase() in privateRepos
 
     /** 该仓库是否已知为私有（用于下载时决定直连+带 Token 还是走加速） */
     fun isPrivateRepo(fullName: String) = fullName.lowercase() in privateRepos
@@ -284,11 +284,26 @@ object Net {
         NodeType.Prefix -> "${node.base}https://raw.githubusercontent.com/$o/$r/$ref/$path"
     }
 
+    const val GITHUB_API_ID = "github-api"
+
+    fun githubApiContentsUrl(raw: List<String>): String {
+        val o = raw[0]
+        val r = raw[1]
+        val ref = raw[2]
+        val decodedRef = runCatching { java.net.URLDecoder.decode(ref, "UTF-8") }.getOrDefault(ref)
+        val encodedRef = java.net.URLEncoder.encode(decodedRef, "UTF-8").replace("+", "%20")
+        val encodedPath = raw.drop(3).joinToString("/") { seg ->
+            val dec = runCatching { java.net.URLDecoder.decode(seg, "UTF-8") }.getOrDefault(seg)
+            java.net.URLEncoder.encode(dec, "UTF-8").replace("+", "%20")
+        }
+        return "${apiBase}/repos/$o/$r/contents/$encodedPath" + (if (encodedRef.isNotEmpty()) "?ref=$encodedRef" else "")
+    }
+
     /** 解析 raw.githubusercontent.com 链接 */
-    private fun parseRaw(url: String): List<String>? {
-        val u = runCatching { URI(url) }.getOrNull() ?: return null
-        if (u.host != "raw.githubusercontent.com") return null
-        val segs = (u.rawPath ?: "").split('/').filter { it.isNotEmpty() }
+    fun parseRaw(url: String): List<String>? {
+        val (host, path) = ImageContent.parseUrl(url) ?: return null
+        if (host != "raw.githubusercontent.com") return null
+        val segs = path.split('/').filter { it.isNotEmpty() }
         return if (segs.size >= 4) segs else null
     }
 
@@ -320,7 +335,7 @@ object Net {
     private const val IMAGE_FAIL_TTL_MS = 2 * 60 * 1000L
 
     fun imageClass(url: String): String {
-        val host = runCatching { URI(url).host }.getOrNull()?.lowercase() ?: return "other"
+        val host = ImageContent.parseUrl(url)?.first ?: return "other"
         return when {
             host == "raw.githubusercontent.com" || host == "gist.githubusercontent.com" -> "raw"
             host == "avatars.githubusercontent.com" -> "avatar"
@@ -358,10 +373,12 @@ object Net {
 
     /** 签名 URL 本身就是凭据，不能转发给公共镜像。 */
     fun requiresDirectImage(url: String): Boolean {
-        val uri = runCatching { URI(url) }.getOrNull() ?: return true
-        if (uri.scheme != "https" || uri.host == "private-user-images.githubusercontent.com" ||
-            uri.host == "objects.githubusercontent.com") return true
-        val privateQuery = uri.rawQuery.orEmpty().split('&').any {
+        val parsed = ImageContent.parseUrl(url) ?: return true
+        val host = parsed.first
+        if (!url.startsWith("https://", ignoreCase = true) || host == "private-user-images.githubusercontent.com" ||
+            host == "objects.githubusercontent.com") return true
+        val query = parsed.third
+        val privateQuery = query.orEmpty().split('&').any {
             val key = runCatching { java.net.URLDecoder.decode(it.substringBefore('='), "UTF-8") }.getOrDefault("").lowercase()
             key in setOf("jwt", "token", "access_token", "auth", "signature", "sig", "policy", "credential", "expires") ||
                 key.startsWith("x-amz-") || key.startsWith("x-goog-")
@@ -380,13 +397,22 @@ object Net {
      * 本轮已经被证明与同类资源不兼容的节点（见 [markImageFail]）会被直接跳过，不再白等一次失败。
      */
     fun imageCandidates(url: String): List<Pair<String, String>> {
-        if (mode == 2 || requiresDirectImage(url)) return listOf(DIRECT.id to url)
         val raw = parseRaw(url)
-        val host = runCatching { URI(url).host }.getOrNull() ?: return listOf(DIRECT.id to url)
+        val host = ImageContent.parseUrl(url)?.first ?: return listOf(DIRECT.id to url)
+        if (requiresDirectImage(url)) {
+            if (raw != null) return listOf(GITHUB_API_ID to githubApiContentsUrl(raw), DIRECT.id to url)
+            return listOf(DIRECT.id to url)
+        }
+        if (mode == 2) {
+            if (raw != null) return listOf(GITHUB_API_ID to githubApiContentsUrl(raw), DIRECT.id to url)
+            return listOf(DIRECT.id to url)
+        }
         if (raw == null && !isGithubImageHost(host) &&
             !(host == "github.com" && url.contains("/user-attachments/"))
         ) return listOf(DIRECT.id to url)
-        if (raw != null && isPrivate(raw[0], raw[1])) return listOf(DIRECT.id to url)
+        if (raw != null && isPrivate(raw[0], raw[1])) {
+            return listOf(GITHUB_API_ID to githubApiContentsUrl(raw), DIRECT.id to url)
+        }
         val cls = imageClass(url)
         val failed = synchronized(this) { currentFailures(cls) }
         val okId = synchronized(this) { imageOk[cls] }
@@ -412,13 +438,17 @@ object Net {
             ),
         )
         val list = ArrayList<Pair<String, String>>()
+        val query = ImageContent.parseUrl(url)?.third
         for (n in ordered) {
             val u = if (raw != null) {
                 build(n, raw[0], raw[1], raw[2], raw.drop(3).joinToString("/"))?.let { candidate ->
-                    URI(url).rawQuery?.let { "$candidate?$it" } ?: candidate
+                    query?.let { "$candidate?$it" } ?: candidate
                 }
             } else if (n.type == NodeType.Prefix) n.base + url else null
             if (u != null) list += n.id to u
+        }
+        if (raw != null) {
+            list += GITHUB_API_ID to githubApiContentsUrl(raw)
         }
         list += DIRECT.id to url
         return list.distinctBy { it.second }

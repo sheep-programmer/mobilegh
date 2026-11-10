@@ -683,11 +683,14 @@ object GitHub {
         Checks(a.getOrDefault(emptyList()), b.getOrDefault(emptyList()))
     }
 
-    /** 没有推送权限时，GitHub 会静默忽略 labels / assignees / milestone */
+    /**
+     * 没有推送权限时，GitHub 会静默忽略 labels / assignees / milestone。
+     * 返回 null 表示 Issue 已创建但响应无法解析，调用方应按「已提交」处理，不要重试（否则会重复创建）。
+     */
     suspend fun createIssue(
         o: String, n: String, title: String, body: String,
         labels: List<String> = emptyList(), assignees: List<String> = emptyList(), milestone: Int? = null,
-    ) = Api.send<Issue>("POST", "${r(o, n)}/issues", buildJsonObject {
+    ): Issue? = Api.sendWrite<Issue>("POST", "${r(o, n)}/issues", buildJsonObject {
         put("title", title)
         put("body", body)
         if (labels.isNotEmpty()) put("labels", JsonArray(labels.map { JsonPrimitive(it) }))
@@ -815,8 +818,9 @@ object GitHub {
         if (!form.draft) put("make_latest", if (form.latest && !form.prerelease) "true" else "false")
     }
 
-    suspend fun createRelease(o: String, n: String, form: ReleaseEdit) = Api.send<Release>("POST", "${r(o, n)}/releases", releaseBody(form))
-    suspend fun updateRelease(o: String, n: String, id: Long, form: ReleaseEdit) = Api.send<Release>("PATCH", "${r(o, n)}/releases/$id", releaseBody(form))
+    // 写入后响应解析失败时返回 null：Release 已生效，调用方不要再次提交（否则会因标签已存在而失败，或产生重复内容）
+    suspend fun createRelease(o: String, n: String, form: ReleaseEdit): Release? = Api.sendWrite<Release>("POST", "${r(o, n)}/releases", releaseBody(form))
+    suspend fun updateRelease(o: String, n: String, id: Long, form: ReleaseEdit): Release? = Api.sendWrite<Release>("PATCH", "${r(o, n)}/releases/$id", releaseBody(form))
     suspend fun deleteRelease(o: String, n: String, id: Long) = Api.exec("DELETE", "${r(o, n)}/releases/$id")
 
     /** 让 GitHub 根据两次发布之间合并的 PR 生成说明 */

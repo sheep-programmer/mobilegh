@@ -73,15 +73,25 @@ object Images {
         return null
     }
 
-    suspend fun load(url: String, maxDim: Int = 2048): ImageBitmap? {
-        cached(url, maxDim)?.let { return it }
+    suspend fun load(url: String, maxDim: Int = 2048, force: Boolean = false): ImageBitmap? {
+        if (!force) {
+            cached(url, maxDim)?.let { return it }
+        } else {
+            val raw = ImageFetch.cacheKey(url)
+            ladder.forEach { dim -> mem.remove(MEM_KEY.format(raw, dim)) }
+            mem.remove(key(url, maxDim))
+        }
         val memKey = key(url, maxDim)
         val mine = CompletableDeferred<ImageBitmap?>()
-        val running = synchronized(decoding) { decoding.getOrPut(memKey) { mine } }
+        val running = if (!force) {
+            synchronized(decoding) { decoding.getOrPut(memKey) { mine } }
+        } else {
+            mine
+        }
         if (running !== mine) return running.await()
         return try {
             val bmp = withContext(Dispatchers.IO) {
-                val r = ImageFetch.fetch(url) ?: return@withContext null
+                val r = ImageFetch.fetch(url, force) ?: return@withContext null
                 decode(r.bytes, maxDim)?.also { if (memKey == key(url, maxDim)) mem.put(memKey, it) }
             }
             mine.complete(bmp)
@@ -90,7 +100,7 @@ object Images {
             mine.complete(null)
             null
         } finally {
-            synchronized(decoding) { decoding.remove(memKey) }
+            if (!force) synchronized(decoding) { decoding.remove(memKey) }
         }
     }
 

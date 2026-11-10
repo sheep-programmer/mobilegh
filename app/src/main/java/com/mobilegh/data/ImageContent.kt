@@ -2,17 +2,36 @@ package com.mobilegh.data
 
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
-import java.net.URI
 
 /** 不依赖 Android 的图片地址、格式及限读校验。 */
 internal object ImageContent {
+    /** 安全解析 URL 中的 host、path、query，避免 URI 遇空格/特殊字符时抛异常导致解析直接失败 */
+    fun parseUrl(url: String): Triple<String, String, String?>? {
+        val idx = url.indexOf("://")
+        if (idx <= 0) return null
+        val after = url.substring(idx + 3)
+        var pathStart = after.length
+        for (c in charArrayOf('/', '?', '#')) {
+            val p = after.indexOf(c)
+            if (p in 0 until pathStart) pathStart = p
+        }
+        val host = (if (pathStart < after.length) after.substring(0, pathStart) else after)
+            .substringBefore(':')
+            .trim()
+            .lowercase()
+        val rest = if (pathStart < after.length) after.substring(pathStart) else "/"
+        val path = rest.substringBefore('?').substringBefore('#')
+        val query = if (rest.contains('?')) rest.substringAfter('?').substringBefore('#') else null
+        return Triple(host, path, query)
+    }
+
     fun normalize(url: String): String {
-        val u = runCatching { URI(url) }.getOrNull() ?: return url
-        if (u.host != "github.com") return url
-        val segs = (u.rawPath ?: "").split('/').filter { it.isNotEmpty() }
+        val (host, path, query) = parseUrl(url) ?: return url
+        if (host != "github.com") return url
+        val segs = path.split('/').filter { it.isNotEmpty() }
         return if (segs.size >= 5 && (segs[2] == "blob" || segs[2] == "raw")) {
-            "https://raw.githubusercontent.com/${segs[0]}/${segs[1]}/${segs.drop(3).joinToString("/")}" +
-                (u.rawQuery?.let { "?$it" } ?: "")
+            val q = if (!query.isNullOrEmpty()) "?$query" else ""
+            "https://raw.githubusercontent.com/${segs[0]}/${segs[1]}/${segs.drop(3).joinToString("/")}$q"
         } else url
     }
 

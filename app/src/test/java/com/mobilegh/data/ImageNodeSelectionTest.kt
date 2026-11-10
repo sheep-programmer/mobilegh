@@ -59,6 +59,29 @@ class ImageNodeSelectionTest {
         assertEquals("cdn2", prioritized[0].first)
         assertEquals(Net.DIRECT.id, prioritized[1].first)
     }
+
+    @Test fun githubApiCandidateIsInInitialRaceWindow() {
+        val candidates = listOf(
+            "cdn1" to "https://cdn1.example.com/img.png",
+            "cdn2" to "https://cdn2.example.com/img.png",
+            "cdn3" to "https://cdn3.example.com/img.png",
+            "cdn4" to "https://cdn4.example.com/img.png",
+            "cdn5" to "https://cdn5.example.com/img.png",
+            Net.GITHUB_API_ID to "https://api.github.com/repos/o/r/contents/img.png",
+            Net.DIRECT.id to "https://raw.githubusercontent.com/o/r/main/img.png"
+        )
+        val prioritized = ImageFetch.prioritizeRaceCandidates(candidates, null)
+        assertTrue(prioritized.take(4).any { it.first == Net.DIRECT.id })
+        assertTrue(prioritized.take(4).any { it.first == Net.GITHUB_API_ID })
+    }
+
+    @Test fun githubApiContentsUrlEncodesSegmentsAndRef() {
+        val raw = listOf("owner", "repo", "main", "docs", "Screenshot", "全键盘_下滑_light.jpg")
+        val url = Net.githubApiContentsUrl(raw)
+        assertTrue(url.startsWith("https://api.github.com/repos/owner/repo/contents/docs/Screenshot/"))
+        assertTrue(url.contains("%E5%85%A8%E9%94%AE%E7%9B%98_%E4%B8%8B%E6%BB%91_light.jpg"))
+        assertTrue(url.endsWith("?ref=main"))
+    }
 }
 
 /** 内置节点列表要保持可用：下线节点留在列表里会让测速和图片回退白等一轮超时 */

@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.mobilegh.data.ApiException
+import com.mobilegh.data.AppLog
 import com.mobilegh.data.Session
 import com.mobilegh.data.networkHint
 import kotlinx.coroutines.CancellationException
@@ -364,8 +365,12 @@ fun <T> rememberPager(
     fetch: suspend (page: Int, force: Boolean) -> List<T> = { _, _ -> error(tr("Pager 缺少数据源")) },
 ): Pager<T> = retain(key) { e -> Pager(e.scope, pageSize, hasMore, fetchPage, fetch).also { it.loadMore() } }
 
-/** 在页面作用域内执行一次性操作（如 star、合并），并返回错误提示 */
-fun Entry.act(onError: (String) -> Unit = {}, onDone: () -> Unit = {}, block: suspend () -> Unit) {
+/**
+ * 在页面作用域内执行一次性操作（如 star、合并），并返回错误提示。
+ * 失败会写入诊断日志：HTTP 错误记一行摘要；网络错误记摘要；解析异常和其它未知异常记录堆栈。
+ * [label] 是操作名（如「创建 Issue」），写进日志便于定位是哪一步出的问题。
+ */
+fun Entry.act(onError: (String) -> Unit = {}, onDone: () -> Unit = {}, label: String? = null, block: suspend () -> Unit) {
     scope.launch {
         try {
             block()
@@ -373,8 +378,19 @@ fun Entry.act(onError: (String) -> Unit = {}, onDone: () -> Unit = {}, block: su
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
+            logActionFailure(label, e)
             onError(e.friendly())
         }
+    }
+}
+
+private fun logActionFailure(label: String?, e: Throwable) {
+    val what = (label ?: tr("操作")) + " " + tr("失败")
+    when (e) {
+        is ApiException -> AppLog.warn("action", "$what：HTTP ${e.code} ${e.message}")
+        is java.io.IOException -> AppLog.warn("action", "$what：${e.javaClass.simpleName}", e)
+        // 其余都是意外情况（解析异常、空指针等），需要堆栈才能定位
+        else -> AppLog.error("action", "$what：${e.javaClass.simpleName}", e)
     }
 }
 

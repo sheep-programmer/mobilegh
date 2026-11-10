@@ -60,6 +60,13 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.semantics.Role
+import com.mobilegh.data.VideoRoute
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
@@ -242,6 +249,7 @@ private fun RenderBlock(block: HtmlBlock, muted: Boolean) {
         is HtmlBlock.Image -> BlockImage(block)
         is HtmlBlock.ImageRow -> ImageRowBlock(block)
         is HtmlBlock.Video -> VideoTile(block.src)
+        is HtmlBlock.YouTube -> YouTubeTile(block)
         is HtmlBlock.Details -> DetailsBlock(block)
         is HtmlBlock.Web -> WebHtmlView(block.html, Modifier.fillMaxWidth(), block.baseUrl)
         is HtmlBlock.Aligned -> Column(
@@ -520,9 +528,9 @@ private fun BlockImage(block: HtmlBlock.Image) {
     var failed by remember(src) { mutableStateOf(false) }
     var attempt by remember(src) { mutableIntStateOf(0) }
     LaunchedEffect(src, attempt) {
-        if (bmp == null) {
+        if (bmp == null || attempt > 0) {
             failed = false
-            bmp = runCatching { Images.load(src, 1024) }.getOrNull()
+            bmp = runCatching { Images.load(src, 1024, force = attempt > 0) }.getOrNull()
             failed = bmp == null
         }
     }
@@ -633,9 +641,9 @@ private fun RowImage(img: Inline.Image, maxWidth: Dp = Dp.Unspecified) {
     var bmp by remember(img.src) { mutableStateOf(Images.cached(img.src, 1024)) }
     var failed by remember(img.src) { mutableStateOf(false) }
     LaunchedEffect(img.src, retry) {
-        if (bmp == null) {
+        if (bmp == null || retry > 0) {
             failed = false
-            val loaded = runCatching { Images.load(img.src, 1024) }.getOrNull()
+            val loaded = runCatching { Images.load(img.src, 1024, force = retry > 0) }.getOrNull()
             if (loaded != null) {
                 bmp = loaded
             } else {
@@ -726,15 +734,108 @@ private fun RowImage(img: Inline.Image, maxWidth: Dp = Dp.Unspecified) {
     }
 }
 
+/** 视频首帧缓存：列表滚动、重组时同一个视频不重复抽帧 */
+private object VideoFrameCache {
+    private val cache = android.util.LruCache<String, ImageBitmap>(16)
+    fun get(src: String): ImageBitmap? = cache.get(src)
+    fun put(src: String, frame: ImageBitmap) { cache.put(src, frame) }
+}
+
+/** 抽取视频约第 1 秒的一帧作为封面；失败返回 null，页面只显示占位，不影响之后的播放。 */
+private suspend fun extractVideoFrame(src: String): ImageBitmap? = withContext(Dispatchers.IO) {
+    val playable = runCatching { VideoRoute.pick(src) }.getOrDefault(src)
+    val retriever = android.media.MediaMetadataRetriever()
+    try {
+        retriever.setDataSource(playable, HashMap())
+        val option = android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+        (retriever.getFrameAtTime(1_000_000L, option) ?: retriever.getFrameAtTime(0L, option))?.asImageBitmap()
+    } catch (_: Exception) {
+        null
+    } finally {
+        runCatching { retriever.release() }
+    }
+}
+
+/**
+ * 视频占位：显示首帧封面，中间一个播放键、右下角「放大播放」。
+ * 只有点播放键或「放大播放」才会全屏播放；点画面其它地方没有反应，避免滑动时误触。
+ */
 @Composable
 private fun VideoTile(src: String) {
     val g = Gh.c
+    var frame by remember(src) { mutableStateOf(VideoFrameCache.get(src)) }
+    LaunchedEffect(src) {
+        if (frame == null) {
+            extractVideoFrame(src)?.let {
+                VideoFrameCache.put(src, it)
+                frame = it
+            }
+        }
+    }
+    val shape = RoundedCornerShape(6.dp)
     Box(
-        Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(6.dp)).background(g.neutralMuted)
-            .clickable { VideoViewer.open(src) },
+        Modifier.fillMaxWidth().height(180.dp).clip(shape).background(Color.Black).border(1.dp, g.borderMuted, shape),
         contentAlignment = Alignment.Center,
     ) {
-        Text("▶ " + tr("视频"), color = g.fg, fontSize = 15.sp)
+        frame?.let { Image(it, null, Modifier.matchParentSize(), contentScale = ContentScale.Crop) }
+        if (frame == null) {
+            Text(tr("视频"), Modifier.align(Alignment.TopStart).padding(10.dp), color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
+        }
+        Box(
+            Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.55f))
+                .clickable(role = Role.Button) { VideoViewer.open(src) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("▶", Modifier.padding(start = 3.dp), color = Color.White, fontSize = 22.sp)
+        }
+        Row(
+            Modifier.align(Alignment.BottomEnd).padding(8.dp).clip(RoundedCornerShape(50))
+                .background(Color.Black.copy(alpha = 0.55f))
+                .clickable(role = Role.Button) { VideoViewer.open(src) }
+                .padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Oc(R.drawable.oc_screen_full, Color.White, 12.dp)
+            Spacer(Modifier.width(4.dp))
+            Text(tr("放大播放"), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+/**
+ * YouTube 视频：显示封面，中间一个播放键，点播放键（或封面）在应用内全屏播放。
+ * 以前它被当成普通图片：点击只会弹出链接菜单，看起来像一张打不开的图。
+ */
+@Composable
+private fun YouTubeTile(block: HtmlBlock.YouTube) {
+    val g = Gh.c
+    val shape = RoundedCornerShape(8.dp)
+    val play = { YouTubeViewer.open(block.id, block.title) }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(shape).background(Color.Black)
+                .border(1.dp, g.borderMuted, shape)
+                .clickable(role = Role.Button, onClick = play),
+            contentAlignment = Alignment.Center,
+        ) {
+            NetImage(
+                block.thumb ?: HtmlParser.youtubeThumb(block.id),
+                Modifier.matchParentSize(),
+                contentScale = ContentScale.Crop,
+                placeholder = false,
+                targetDim = 1024,
+            )
+            Box(
+                Modifier.size(64.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.6f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("▶", Modifier.padding(start = 4.dp), color = Color.White, fontSize = 26.sp)
+            }
+        }
+        Text(
+            block.title.ifBlank { "YouTube" },
+            color = g.fgMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

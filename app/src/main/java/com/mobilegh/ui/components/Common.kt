@@ -81,6 +81,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -490,7 +492,8 @@ fun GhButton(
             Oc(icon, iconTint?.takeIf { enabled } ?: if (!enabled || primary || danger) LocalContentColor.current else g.fgMuted)
             Spacer(Modifier.width(6.dp))
         }
-        Text(text, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+        // 按钮文字始终单行：窄屏下宁可省略，也不逐字断行（如「同步 GitHub 置 / 顶」）
+        Text(text, fontWeight = FontWeight.Medium, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
     val shape = ButtonDefaults.shape
     val pad = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
@@ -524,6 +527,59 @@ fun GhButton(
             colors = colors,
             content = content,
         )
+    }
+}
+
+/**
+ * 并排的操作按钮（如「同步 GitHub 置顶」「添加收藏」）。
+ * 宽度够时并排、按剩余宽度均分；窄屏放不下时每颗按钮独占一行、满宽显示。
+ * 替代 Row + weight(1f)：后者在窄屏会把按钮压成半宽，文字被迫逐字断行。
+ */
+@Composable
+fun ButtonRowAdaptive(
+    modifier: Modifier = Modifier,
+    spacing: Dp = 8.dp,
+    content: @Composable () -> Unit,
+) {
+    Layout(content = content, modifier = modifier) { measurables, constraints ->
+        if (measurables.isEmpty()) return@Layout layout(constraints.minWidth, constraints.minHeight) {}
+        val gapPx = spacing.roundToPx()
+        val gaps = gapPx * (measurables.size - 1)
+        // 按钮自然宽度（按文字长度算出，不受分配宽度影响）
+        val naturals = measurables.map { it.maxIntrinsicWidth(0) }
+        val naturalTotal = naturals.sum() + gaps
+        val bounded = constraints.hasBoundedWidth
+        val horizontal = !bounded || naturalTotal <= constraints.maxWidth
+        val width = if (bounded) constraints.maxWidth else naturalTotal
+        val placeables: List<androidx.compose.ui.layout.Placeable>
+        val height: Int
+        if (horizontal) {
+            // 多出来的宽度均分给每颗按钮，保持并排等宽的观感
+            val slack = if (bounded) (constraints.maxWidth - naturalTotal) / measurables.size else 0
+            placeables = measurables.mapIndexed { i, m ->
+                val w = naturals[i] + slack
+                m.measure(Constraints(minWidth = w, maxWidth = w, minHeight = 0, maxHeight = constraints.maxHeight))
+            }
+            height = placeables.maxOf { it.height }
+        } else {
+            placeables = measurables.map { m ->
+                m.measure(Constraints(minWidth = width, maxWidth = width, minHeight = 0, maxHeight = constraints.maxHeight))
+            }
+            height = placeables.sumOf { it.height } + gaps
+        }
+        layout(width, height) {
+            var x = 0
+            var y = 0
+            placeables.forEach { p ->
+                if (horizontal) {
+                    p.placeRelative(x, 0)
+                    x += p.width + gapPx
+                } else {
+                    p.placeRelative(0, y)
+                    y += p.height + gapPx
+                }
+            }
+        }
     }
 }
 
@@ -659,6 +715,8 @@ fun SectionActionChip(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
                 color = g.fg,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }

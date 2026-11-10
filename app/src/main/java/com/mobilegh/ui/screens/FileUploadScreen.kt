@@ -55,6 +55,7 @@ import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.EmptyState
 import com.mobilegh.ui.components.ErrorState
 import com.mobilegh.ui.components.GhButton
+import com.mobilegh.ui.components.ButtonRowAdaptive
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.HDivider
@@ -289,12 +290,12 @@ fun UploadFilesScreen(owner: String, name: String, path: String, ref: String?) {
                             trf("这是一个空仓库：上传会把选中的内容直接建成 {0} 的第一个提交。", t.baseRef),
                             Modifier.padding(horizontal = 16.dp, vertical = 4.dp), fontSize = 12.sp, lineHeight = 17.sp, color = g.fgMuted,
                         )
-                        if (t.canPush) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            GhButton(tr("选择文件"), Modifier.weight(1f), icon = R.drawable.oc_file, enabled = !st.busy && !st.reading) {
+                        if (t.canPush) ButtonRowAdaptive(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            GhButton(tr("选择文件"), icon = R.drawable.oc_file, enabled = !st.busy && !st.reading) {
                                 st.reading = true
                                 runCatching { pickFiles.launch(arrayOf("*/*")) }.onFailure { st.reading = false; ctx.toast(tr("这台设备没有可用的文件选择器")) }
                             }
-                            GhButton(tr("选择文件夹"), Modifier.weight(1f), icon = R.drawable.oc_file_directory, enabled = !st.busy && !st.reading) {
+                            GhButton(tr("选择文件夹"), icon = R.drawable.oc_file_directory, enabled = !st.busy && !st.reading) {
                                 st.reading = true
                                 runCatching { pickFolder.launch(null) }.onFailure { st.reading = false; ctx.toast(tr("这台设备没有可用的目录选择器")) }
                             }

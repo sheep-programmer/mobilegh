@@ -155,7 +155,7 @@ fun ContributorsScreen(owner: String, name: String) {
         }.collect { remaining -> if (remaining in 1..LOAD_AHEAD_ITEMS) pager.loadNext() }
     }
     val pagedList = remember(current, showingList, pagingState.records, pagingState.nextPage) {
-        if (showingList) current?.copy(records = pagingState.records, truncated = pagingState.nextPage != null,
+        if (showingList && current != null) current.copy(records = pagingState.records, truncated = pagingState.nextPage != null,
             nextPage = pagingState.nextPage) else null
     }
     val snapshot = when {
@@ -419,8 +419,9 @@ private fun ContributorDetailCard(
                     .padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                if (!contributor.author?.avatarUrl.isNullOrBlank()) {
-                    Avatar(contributor.author!!.avatarUrl, 36.dp, square = contributor.author.type == "Organization")
+                val author = contributor.author
+                if (!author?.avatarUrl.isNullOrBlank()) {
+                    Avatar(author.avatarUrl, 36.dp, square = author.type == "Organization")
                 } else {
                     Box(Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(g.canvasSubtle), contentAlignment = Alignment.Center) {
                         Oc(R.drawable.oc_people, g.fgMuted, 20.dp)
@@ -494,12 +495,19 @@ private fun PersonActivitySection(owner: String, name: String, login: String) {
     var loading by remember(owner, name, login) { mutableStateOf(true) }
     var error by remember(owner, name, login) { mutableStateOf<String?>(null) }
     var attempt by remember(owner, name, login) { mutableIntStateOf(0) }
+    // 已读到的周提交：往回翻时只请求新的 3 周，已经加载的部分不重新请求
+    val history = remember(owner, name, login) { com.mobilegh.data.PersonHistory() }
     LaunchedEffect(owner, name, login, attempt, weeksCount) {
         loading = true
         error = null
         try {
-            ContributionStats.personActivity(owner, name, login, weeksCount = weeksCount, onProgress = { activity = it })
-                .let { activity = it }
+            while (history.loadedWeeks < weeksCount) {
+                activity = ContributionStats.personActivityMore(
+                    owner, name, login, history,
+                    addWeeks = minOf(3, weeksCount - history.loadedWeeks),
+                    onProgress = { activity = it },
+                )
+            }
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -856,7 +864,7 @@ fun ContributorPreview(owner: String, name: String) {
                             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
                                 .clickable(enabled = login.isNotBlank()) { nav.push(Screen.Profile(login)) },
                                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (!user?.avatarUrl.isNullOrBlank()) Avatar(user!!.avatarUrl, 28.dp, square = user.type == "Organization")
+                                if (!user?.avatarUrl.isNullOrBlank()) Avatar(user.avatarUrl, 28.dp, square = user.type == "Organization")
                                 else Oc(R.drawable.oc_people, g.fgMuted, 28.dp)
                                 Text(login.ifBlank { user?.name?.takeIf { it.isNotBlank() } ?: tr("未关联账号的贡献者") },
                                     Modifier.weight(1f), color = g.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,

@@ -136,4 +136,39 @@ class UserListDetailLoaderTest {
         assertEquals(listOf("a", "b"), loader.items)
         assertFalse(loader.hasMore)
     }
+
+    @Test fun cachedDetailIsRestoredWithoutRefetchUnlessRevisionChanges() = runBlocking {
+        var calls = 0
+        var revision = 1L
+        val key = "test-detail-cache:${System.nanoTime()}"
+        val loader = UserListDetailLoader<String>(this, 100) { it }
+        loader.open("list-1", cacheKey = key, generation = 42, revisionProvider = { revision }) {
+            calls++
+            UserListPage(listOf("repo-1"), 1, null)
+        }
+        awaitIdle(loader)
+        assertEquals(1, calls)
+        assertEquals(listOf("repo-1"), loader.items)
+
+        // 离开再重新进入：未修改版本且未过期时直接命中缓存，不发起请求
+        val loader2 = UserListDetailLoader<String>(this, 100) { it }
+        loader2.open("list-1", cacheKey = key, generation = 42, revisionProvider = { revision }) {
+            calls++
+            UserListPage(listOf("repo-1", "repo-2"), 2, null)
+        }
+        assertEquals(1, calls)
+        assertEquals(listOf("repo-1"), loader2.items)
+        assertTrue(loader2.loaded)
+
+        // 列表版本变化后重新进入：先展示旧缓存，同时后台自动刷新
+        revision = 2L
+        val loader3 = UserListDetailLoader<String>(this, 100) { it }
+        loader3.open("list-1", cacheKey = key, generation = 42, revisionProvider = { revision }) {
+            calls++
+            UserListPage(listOf("repo-1", "repo-2"), 2, null)
+        }
+        awaitIdle(loader3)
+        assertEquals(2, calls)
+        assertEquals(listOf("repo-1", "repo-2"), loader3.items)
+    }
 }

@@ -203,7 +203,7 @@ fun HomeScreen() {
                     SectionTitle(
                         tr("收藏夹"),
                         trailing = {
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                 SectionActionChip(tr("同步"), tooltip = tr("同步 GitHub 置顶仓库")) {
                                     scope.launch {
                                         val pins = runCatching { GitHub.pinned(login) }.getOrDefault(emptyList())
@@ -216,8 +216,12 @@ fun HomeScreen() {
                                     }
                                 }
                                 SectionActionChip(tr("添加"), tooltip = tr("添加收藏")) { nav.push(Screen.AddFavorites) }
+                                // 整理进入只含收藏夹的整理视图，不涉及「我的工作」；超过 8 个时最右上角展示「全部」查看
                                 if (layout.favorites.isNotEmpty()) {
-                                    SectionActionChip(tr("整理"), tooltip = tr("整理收藏")) { nav.push(Screen.HomeCustomize) }
+                                    SectionActionChip(tr("整理"), tooltip = tr("整理收藏")) { nav.push(Screen.FavoritesOrganize) }
+                                }
+                                if (layout.favorites.size > HOME_FAVORITES_MAX) {
+                                    SectionActionChip(tr("全部"), tooltip = trf("查看全部 {0} 个收藏", layout.favorites.size)) { nav.push(Screen.Favorites) }
                                 }
                             }
                         },
@@ -267,7 +271,8 @@ fun HomeScreen() {
                     } else {
                         Card(Modifier.padding(horizontal = 16.dp)) {
                             Column {
-                                layout.favorites.forEachIndexed { i, f ->
+                                // 首页最多显示 8 个，其余通过右上角「全部」查看
+                                layout.favorites.take(HOME_FAVORITES_MAX).forEachIndexed { i, f ->
                                     if (i > 0) HDivider()
                                     HomeFavoriteRow(
                                         repo = f,
@@ -395,3 +400,6 @@ fun MyIssuesScreen(pulls: Boolean, preset: IssueQuery? = null) {
     }
     if (saving) SaveSearchDialog(q, "${q.involves?.label ?: ""}${if (pulls) " Pull Requests" else " Issues"}".trim()) { saving = false }
 }
+
+/** 首页收藏夹最多直接显示的个数 */
+internal const val HOME_FAVORITES_MAX = 8

@@ -2999,3 +2999,40 @@ README / 项目速览（内容预览）	README / Overview (Preview)
 移到最前面	Move to front
 移到最后面	Move to end
 移出工作区	Remove from workspace
+查看全部 {0} 个收藏	View all {0} favorites
+这个视频无法在应用内播放	This video cannot be played in the app
+视频所有者可能禁止了网页嵌入，可以到 YouTube 上观看。	The video owner may have disabled embedding. You can watch it on YouTube.
+展开全部分组	Expand all groups
+折叠全部分组	Collapse all groups
+放大播放	Expand and play
+系统冻结	Frozen by system
+应用状态变化	App state changed
+应用更新安装	App updated
+Java 崩溃	Java crash
+原生崩溃	Native crash
+无响应（ANR）	ANR (Not Responding)
+内存不足	Low memory
+资源占用过高	Excessive resource usage
+用户结束	User requested
+用户停止	User stopped
+信号终止	Signaled
+正常退出	Exited normally
+初始化失败	Initialization failed
+权限变更	Permission change
+依赖进程退出	Dependency died
+其它	Other
+上次运行发生未捕获异常	Uncaught exception in previous run
+上次进程退出：{0}	Previous exit: {0}
+设备：	Device: 
+HTML 解析失败，已退回纯文本：{0}	HTML parse failed, fell back to plain text: {0}
+Issue 已提交，请到列表查看	Issue submitted; check the list
+写入已生效，但响应解析失败：{0} {1}	Write succeeded, but response failed to parse: {0} {1}
+保存 Release	Save release
+查看组织	View organization
+系统浏览器	System browser
+无轨迹记录	No breadcrumbs recorded
+无法获取线程快照	Unable to capture thread snapshot
+主线程卡顿超过 {0} 秒	Main thread blocked for over {0}s
+卡顿	Stalls
+导出崩溃历史	Export crash history
+暂无历史崩溃记录	No crash history yet

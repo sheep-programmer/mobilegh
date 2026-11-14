@@ -288,12 +288,21 @@ fun Avatar(url: String?, size: Dp, modifier: Modifier = Modifier, square: Boolea
 fun ZoomImage(url: String, modifier: Modifier = Modifier) {
     var scale by remember(url) { mutableFloatStateOf(1f) }
     var offset by remember(url) { mutableStateOf(Offset.Zero) }
+    var box by remember { mutableStateOf(IntSize.Zero) }
+    fun clamp(o: Offset, s: Float): Offset {
+        if (s <= 1f || box.width <= 0 || box.height <= 0) return Offset.Zero
+        val mx = box.width * (s - 1f) / 2f
+        val my = box.height * (s - 1f) / 2f
+        return Offset(o.x.coerceIn(-mx, mx), o.y.coerceIn(-my, my))
+    }
     val state = rememberTransformableState { zoom, pan, _ ->
-        scale = (scale * zoom).coerceIn(1f, 8f)
-        offset = if (scale == 1f) Offset.Zero else offset + pan * scale
+        val ns = (scale * zoom).coerceIn(1f, 8f)
+        scale = ns
+        offset = clamp(offset + pan, ns)
     }
     Box(
         modifier
+            .onSizeChanged { box = it; offset = clamp(offset, scale) }
             .pointerInput(url) {
                 detectTapGestures(
                     // 单击进入全屏查看器（可保存、分享）

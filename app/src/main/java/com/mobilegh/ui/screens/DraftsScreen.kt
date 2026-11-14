@@ -25,7 +25,7 @@ import com.mobilegh.data.Session
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 import com.mobilegh.nav.LocalNav
-import com.mobilegh.nav.Screen
+import com.mobilegh.nav.ScreenCodec
 import com.mobilegh.ui.components.EmptyState
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.HDivider
@@ -39,9 +39,6 @@ import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.relTime
 import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.theme.Gh
-import kotlinx.serialization.json.Json
-
-private val originJson = Json { ignoreUnknownKeys = true }
 
 /**
  * 草稿上下文键 → 列表里显示的位置说明。键的格式见各页面的 rememberDraft 调用，
@@ -97,7 +94,7 @@ fun DraftsScreen() {
             ScrollbarLazyColumn(Modifier.padding(pad).fillMaxSize()) {
                 items(list, key = { it.key }) { entry ->
                     val meta = entry.meta
-                    val target = meta?.origin?.let { runCatching { originJson.decodeFromString(Screen.serializer(), it) }.getOrNull() }
+                    val target = meta?.origin?.let { runCatching { ScreenCodec.draftJson.decodeFromString(ScreenCodec.screen, it) }.getOrNull() }
                     Row(
                         Modifier.fillMaxWidth()
                             .clickable {

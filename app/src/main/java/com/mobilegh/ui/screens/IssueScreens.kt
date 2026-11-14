@@ -273,7 +273,7 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
     val pinned = rememberLoader("issue-pinned") { _ -> if (isPull) null else runCatching { GitHub.issuePinned(owner, name, number) }.getOrNull() }
     val access = ThreadAccess.of(repo.data?.permissions, repo.data?.archived == true, t?.issue?.user?.login, Session.login)
     // 插入到光标处；视频用原生播放器的链接形式，图片保持 GitHub 的 Markdown 图语法（与新建 Issue 共用）
-    val attachLauncher = rememberCommentAttachments(repo?.data?.id) { url, alt ->
+    val attachLauncher = rememberCommentAttachments(repo.data?.id) { url, alt ->
         comment = insertAtCursor(comment, attachmentMarkdown(url, alt))
     }
     /** 相关议题（网页版 Issue 侧栏的 Relationships）；接口不可用时整块隐藏，不影响正文 */

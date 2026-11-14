@@ -420,7 +420,9 @@ private fun TableBlock(block: HtmlBlock.Table) {
     val shape = RoundedCornerShape(6.dp)
     val tableScroll = rememberScrollState()
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val colWidth = (maxWidth / columns).coerceAtLeast(120.dp)
+        // 2~3 列表格（常见截图画廊）优先适应可用宽度，避免最右侧图片被截断；更多列再按 120dp 横向滚动
+        val minCol = if (columns <= 3) 80.dp else 120.dp
+        val colWidth = (maxWidth / columns).coerceAtLeast(minCol)
         Box(
             Modifier
                 .fillMaxWidth()
@@ -619,16 +621,19 @@ private fun BlockImage(block: HtmlBlock.Image) {
 @Composable
 private fun ImageRowBlock(block: HtmlBlock.ImageRow) {
     val blockAlign = LocalBlockAlign.current
-    androidx.compose.foundation.layout.FlowRow(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = when (blockAlign) {
-            BlockAlign.Center -> Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
-            BlockAlign.End -> Arrangement.spacedBy(6.dp, Alignment.End)
-            null -> Arrangement.spacedBy(6.dp)
-        },
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        block.images.forEach { RowImage(it) }
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val rowMaxW = maxWidth
+        androidx.compose.foundation.layout.FlowRow(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = when (blockAlign) {
+                BlockAlign.Center -> Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
+                BlockAlign.End -> Arrangement.spacedBy(6.dp, Alignment.End)
+                null -> Arrangement.spacedBy(6.dp)
+            },
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            block.images.forEach { RowImage(it, rowMaxW) }
+        }
     }
 }
 

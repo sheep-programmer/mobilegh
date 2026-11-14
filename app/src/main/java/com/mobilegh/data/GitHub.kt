@@ -313,7 +313,8 @@ object GitHub {
     }
 
     suspend fun isStarred(o: String, n: String) = Api.exists("/user/starred/$o/$n")
-    suspend fun star(o: String, n: String, on: Boolean) = Api.exec(if (on) "PUT" else "DELETE", "/user/starred/$o/$n")
+    suspend fun star(o: String, n: String, on: Boolean) =
+        Api.exec(if (on) "PUT" else "DELETE", "/user/starred/$o/$n").also { StarListCache.onStarChanged() }
     suspend fun isWatching(o: String, n: String): Boolean = try {
         Api.get<JsonObject>("${r(o, n)}/subscription", force = true)["subscribed"]?.let { (it as JsonPrimitive).content == "true" } ?: false
     } catch (e: ApiException) {

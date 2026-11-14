@@ -42,11 +42,15 @@ android {
         applicationId = "com.mobilegh"
         minSdk = 26
         targetSdk = 36
-        versionCode = 51
-        versionName = "0.40.2"
+        versionCode = 52
+        versionName = "0.40.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GITHUB_CLIENT_ID", "\"$clientId\"")
         buildConfigField("String", "GITHUB_CLIENT_SETTINGS_URL", "\"$clientSettingsUrl\"")
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 
     // 按 ABI 拆分：默认主产物为 arm64-v8a（现代手机），同时产出 32 位与 x86 版本

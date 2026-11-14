@@ -28,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -46,6 +47,8 @@ import com.mobilegh.data.Session
 import com.mobilegh.data.StarFeed
 import com.mobilegh.data.StarFeedClient
 import com.mobilegh.data.StarListAccount
+import com.mobilegh.data.StarListCache
+import com.mobilegh.data.StarSnapshot
 import com.mobilegh.data.StarSearchUnavailable
 import com.mobilegh.data.StarredRepos
 import com.mobilegh.data.StarredReposClient
@@ -108,7 +111,14 @@ internal fun StarredRepoPage(login: String, name: String, isRootTab: Boolean = f
     LaunchedEffect(Session.generation) { StarredRepos.resetSupport() }
     val lists = if (signedIn) rememberStarListCatalog(login) else null
     val revision by UserLists.changes.collectAsState()
-    LaunchedEffect(revision) { if (lists?.data != null) lists.refresh() }
+    // 只有页面可见期间列表真的变化才刷新；进入页面时由快照决定要不要请求（见 rememberStarListCatalog）
+    val observedRevision = retain("star-page-revision:$login") { mutableLongStateOf(revision) }
+    LaunchedEffect(revision) {
+        if (observedRevision.longValue != revision) {
+            observedRevision.longValue = revision
+            if (lists?.data != null) lists.refresh()
+        }
+    }
     val subtitle = if (name.isNotEmpty()) "$login/$name" else login
     val inDetail = listsTab && selectedList != null
     // 在某个列表里时，返回键先回到列表目录，而不是直接退出已 Star 页
@@ -117,6 +127,8 @@ internal fun StarredRepoPage(login: String, name: String, isRootTab: Boolean = f
         starredTitle(listsTab, selectedList, lists?.data), subtitle = subtitle,
         back = if (isRootTab) inDetail else true,
         onBack = if (inDetail) ({ selectedList = null }) else null,
+        // 作为底部导航的根页签时，底部系统栏的留白已经由外层处理，这里再留一次会在列表下面多出一截空白
+        contentWindowInsets = if (isRootTab) androidx.compose.foundation.layout.WindowInsets(0) else null,
     ) { pad ->
         Column(Modifier.padding(pad)) {
             // 进入某个列表后不再显示「全部 Star / 列表」页签，只有标题栏的返回，界面更干净
@@ -265,7 +277,9 @@ private fun rememberStarFeedPager(
     val timeFeeds = Session.token != null && index == 0
     // 游标必须与 retained Pager 使用同一个 key：切走再切回时，页码和游标要一起恢复。
     val pagerKey = "rl-starred:$login:$index:$descending:$query:$searchSupported"
-    val cursors = retain("$pagerKey:cursors") { HashMap<Int, String?>() }
+    // 快照放在进程内：离开页面再回来时仍能拿到上次的页、游标和条目
+    val snapshot = StarListCache.snapshot<Repo>(pagerKey, Session.generation)
+    val cursors = snapshot.cursors
     val pageSize = when {
         searching -> StarredReposClient.PAGE_SIZE
         timeFeeds -> StarFeedClient.PAGE_SIZE
@@ -280,9 +294,43 @@ private fun rememberStarFeedPager(
                 STAR_SORTS[index].value, if (descending) "desc" else "asc",
             ))
         }
-    })
-    rememberPagerFreshness(pager, pagerKey)
+    }, restore = { p -> snapshot.pages > 0 && p.restoreFrom(snapshot.items, snapshot.pages, snapshot.ended) })
+    rememberStarPagerFreshness(pager, snapshot)
     return pager
+}
+
+/**
+ * 星标仓库列表的新鲜度：加载完成时把结果写入快照。重新进入时快照未过期则直接沿用、不发请求；
+ * 已过期（超过 [StarListCache.MAX_AGE_MS]，或期间有过 Star / Unstar）则在后台刷新第一页，
+ * 旧结果保持可见，直到新的第一页取回。下拉刷新仍由 PagedList 直接调用 refresh。
+ */
+@Composable
+private fun rememberStarPagerFreshness(
+    pager: Pager<Repo>,
+    snapshot: StarSnapshot<Repo>,
+    revision: () -> Long = { StarListCache.starRevision },
+) {
+    var sawLoading by remember(pager) { mutableStateOf(false) }
+    LaunchedEffect(pager, pager.loading) {
+        if (pager.loading) {
+            sawLoading = true
+        } else if (sawLoading) {
+            sawLoading = false
+            if (pager.loadedOnce && pager.error == null) {
+                snapshot.items = pager.items.toList()
+                snapshot.pages = pager.committedPages
+                snapshot.ended = pager.end
+                snapshot.loadedAtMs = System.currentTimeMillis()
+                snapshot.loadedRevision = revision()
+            }
+        }
+    }
+    LaunchedEffect(pager) {
+        val stale = StarListCache.isStale(
+            snapshot.loadedAtMs, snapshot.loadedRevision, revision(), System.currentTimeMillis(),
+        )
+        if (pager.loadedOnce && stale) pager.refresh()
+    }
 }
 
 /** 星标数据超过这个时间才在重新进入页面时刷新；下拉刷新不受此限制 */
@@ -630,19 +678,24 @@ private fun rememberListDetailPager(
     lists: Loader<List<GitHubStarList>>,
     account: StarListAccount,
 ): Pager<Repo> {
-    // Pager 只按页号取数据，游标由这里按页递增记录；列表被删除时返回空页而不是崩溃
-    // 游标与 Pager 同 key 保留，避免恢复第 N 页时却拿到一张空游标表。
+    // 列表详情同样用进程内快照缓存，离开再进入不重复请求，只在列表内容变更或过期时才刷
     val pagerKey = "rl-list:$selectedList:$descending"
-    val cursors = retain("$pagerKey:cursors") { HashMap<Int, String?>() }
-    val pager = rememberPager(pagerKey, pageSize = UserListsClient.DETAIL_PAGE_SIZE, fetchPage = { page, _ ->
-        val list = lists.data?.firstOrNull { it.id == selectedList }
-            ?: return@rememberPager PagerPage(emptyList(), hasMore = false)
-        if (page > 1 && cursors[page] == null) return@rememberPager PagerPage(emptyList(), hasMore = false)
-        val result = UserLists.items(account, list, cursors[page], descending = descending)
-        PagerPage(result.items.map { it.repo }, hasMore = result.nextCursor != null) {
-            cursors[page + 1] = result.nextCursor
-        }
-    })
-    rememberPagerFreshness(pager, pagerKey)
+    val snapshot = StarListCache.snapshot<Repo>(pagerKey, account.generation)
+    val cursors = snapshot.cursors
+    val pager = rememberPager(
+        pagerKey,
+        pageSize = UserListsClient.DETAIL_PAGE_SIZE,
+        restore = { p -> snapshot.pages > 0 && p.restoreFrom(snapshot.items, snapshot.pages, snapshot.ended) },
+        fetchPage = { page, _ ->
+            val list = lists.data?.firstOrNull { it.id == selectedList }
+                ?: return@rememberPager PagerPage(emptyList(), hasMore = false)
+            if (page > 1 && cursors[page] == null) return@rememberPager PagerPage(emptyList(), hasMore = false)
+            val result = UserLists.items(account, list, cursors[page], descending = descending)
+            PagerPage(result.items.map { it.repo }, hasMore = result.nextCursor != null) {
+                cursors[page + 1] = result.nextCursor
+            }
+        },
+    )
+    rememberStarPagerFreshness(pager, snapshot) { UserLists.changes.value }
     return pager
 }

@@ -533,7 +533,7 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId:
     Page(
         title,
         subtitle = when {
-            isRunning && j?.status == "in_progress" -> tr("作业实时运行中")
+            isRunning && j.status == "in_progress" -> tr("作业实时运行中")
             isRunning -> tr("作业排队中")
             else -> tr("作业日志")
         },
@@ -591,9 +591,9 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId:
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Oc(if (j?.status == "in_progress") R.drawable.oc_sync else R.drawable.oc_clock, g.accent, 11.dp)
+                            Oc(if (j.status == "in_progress") R.drawable.oc_sync else R.drawable.oc_clock, g.accent, 11.dp)
                             Spacer(Modifier.width(4.dp))
-                            Text(if (j?.status == "in_progress") tr("运行中") else tr("排队中"), color = g.accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text(if (j.status == "in_progress") tr("运行中") else tr("排队中"), color = g.accent, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 } else if (j != null) {
@@ -617,7 +617,7 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId:
                     ErrorState(job.error!!, Modifier.fillMaxSize()) { job.load(true) }
                 }
                 // 3. 任务正在运行中 (in_progress / queued / waiting)
-                isRunning && j != null -> {
+                isRunning -> {
                     JobLiveRunningView(
                         job = j,
                         targetUrl = targetUrl,

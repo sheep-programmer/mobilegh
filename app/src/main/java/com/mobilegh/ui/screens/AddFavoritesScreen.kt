@@ -236,13 +236,14 @@ private fun FavoriteCandidate(
  * 支持与 GitHub 官方置顶仓库双向打通与同步。
  */
 @Composable
-fun FavoritesScreen() {
+fun FavoritesScreen(initialOrganize: Boolean = false) {
     val g = Gh.c
     val nav = LocalNav.current
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val layout = HomePrefs.layout()
     val login = Session.login.orEmpty()
+    var organizing by rememberSaveable(initialOrganize) { mutableStateOf(initialOrganize) }
 
     fun syncPinned() {
         scope.launch {
@@ -258,14 +259,18 @@ fun FavoritesScreen() {
     }
 
     Page(
-        tr("收藏夹"), subtitle = trf("共 {0} 个仓库", layout.favorites.size), snackbar = snackbar,
+        if (organizing) tr("整理收藏") else tr("收藏夹"),
+        subtitle = trf("共 {0} 个仓库", layout.favorites.size),
+        snackbar = snackbar,
         actions = {
+            if (layout.favorites.isNotEmpty()) {
+                SectionActionChip(if (organizing) tr("完成") else tr("整理")) { organizing = !organizing }
+            }
             MoreMenu(
                 listOf(
                     MenuAction(tr("同步 GitHub 置顶"), icon = R.drawable.oc_sync) { syncPinned() },
                     MenuAction(tr("添加收藏")) { nav.push(Screen.AddFavorites) },
-                    if (layout.favorites.isNotEmpty()) MenuAction(tr("整理收藏")) { nav.push(Screen.HomeCustomize) } else null,
-                ).filterNotNull(),
+                ),
             )
         },
     ) { pad ->
@@ -300,12 +305,44 @@ fun FavoritesScreen() {
                         MenuGroup {
                             layout.favorites.forEachIndexed { i, f ->
                                 if (i > 0) HDivider()
-                                HomeFavoriteRow(
-                                    f, canUp = i > 0, canDown = i < layout.favorites.lastIndex,
-                                    onOpen = { nav.push(Screen.Repo(f.owner, f.name)) },
-                                    onMove = { d -> HomePrefs.moveFavorite(i, d) },
-                                    onRemove = { removeFavoriteWithUndo(scope, snackbar, i, f) },
-                                )
+                                if (organizing) {
+                                    Row(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Avatar("https://github.com/${f.owner}.png", 26.dp, square = true)
+                                        Spacer(Modifier.width(12.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                f.name,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = g.fg,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                            Text(
+                                                f.owner,
+                                                fontSize = 12.sp,
+                                                color = g.fgMuted,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
+                                        }
+                                        OcButton(R.drawable.oc_arrow_up, { HomePrefs.moveFavorite(i, -1) }, g.fgMuted, i > 0, description = trf("上移{0}", f.name))
+                                        OcButton(R.drawable.oc_arrow_down, { HomePrefs.moveFavorite(i, 1) }, g.fgMuted, i < layout.favorites.lastIndex, description = trf("下移{0}", f.name))
+                                        OcButton(R.drawable.oc_trash, { removeFavoriteWithUndo(scope, snackbar, i, f) }, g.fgMuted, description = trf("移出收藏 {0}", "${f.owner} / ${f.name}"))
+                                    }
+                                } else {
+                                    HomeFavoriteRow(
+                                        f, canUp = i > 0, canDown = i < layout.favorites.lastIndex,
+                                        onOpen = { nav.push(Screen.Repo(f.owner, f.name)) },
+                                        onMove = { d -> HomePrefs.moveFavorite(i, d) },
+                                        onRemove = { removeFavoriteWithUndo(scope, snackbar, i, f) },
+                                    )
+                                }
                             }
                         }
                     }

@@ -183,7 +183,7 @@ fun EditFileScreen(owner: String, name: String, ref: String?, path: String?, dir
     val webUrl = if (creating) "https://github.com/$owner/$name/new/${ref ?: t?.repo?.defaultBranch ?: "HEAD"}/$dir"
     else "https://github.com/$owner/$name/edit/${ref ?: t?.repo?.defaultBranch ?: "HEAD"}/$path"
     Page(
-        title = if (creating) tr("新建文件") else trf("编辑 {0}", path!!.substringAfterLast('/')),
+        title = if (creating) tr("新建文件") else trf("编辑 {0}", path?.substringAfterLast('/').orEmpty()),
         subtitle = "${t?.baseRef ?: ref ?: tr("默认分支")} · ${if (creating) "$owner/$name" else path}",
         onBack = { if (dirty) leaving = true else nav.pop() },
         actions = { OcButton(R.drawable.oc_check, { commitOpen = true }, g.accent, enabled = canCommit) },
@@ -197,7 +197,7 @@ fun EditFileScreen(owner: String, name: String, ref: String?, path: String?, dir
                         var line = 1
                         for (k in 0 until caret) if (v.text[k] == '\n') line++
                         Text(
-                            trf("{0} 行 · 第 {1} 行 · {2}", RepoWrite.lineCount(v.text), line, fmtSize(v.text.length.toLong())) + (if (e?.crlf == true) " · CRLF" else "") + (if (dirty) tr(" · 已修改") else ""),
+                            trf("{0} 行 · 第 {1} 行 · {2}", RepoWrite.lineCount(v.text), line, fmtSize(v.text.length.toLong())) + (if (e.crlf) " · CRLF" else "") + (if (dirty) tr(" · 已修改") else ""),
                             fontSize = 12.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
                         if (tooLarge) Text(tr("文件较大，草稿不会保存在本机"), fontSize = 11.sp, color = g.attention)
@@ -265,7 +265,7 @@ fun EditFileScreen(owner: String, name: String, ref: String?, path: String?, dir
 
     if (commitOpen && t != null && e != null) {
         CommitDialog(
-            owner, name, t, if (creating) newPath else path!!, creating,
+            owner, name, t, if (creating) newPath else path.orEmpty(), creating,
             content = { RepoWrite.fromEditor(st.text.text, e.crlf) }, sha = e.sha,
             onDismiss = { commitOpen = false },
             onConflict = { commitOpen = false; conflict = true },
@@ -274,7 +274,7 @@ fun EditFileScreen(owner: String, name: String, ref: String?, path: String?, dir
                 draft.submitted(DraftValue(if (creating) st.path else "", st.text.text))
                 ctx.toast(trf("已提交到 {0}", branch))
                 val shownRef = if (branch == t.baseRef) ref else branch
-                val finalPath = if (creating) newPath else path!!
+                val finalPath = if (creating) newPath else path.orEmpty()
                 when {
                     pr -> nav.replace(Screen.NewPull(owner, name, branch, t.prBase, summary, body))
                     !creating && shownRef == ref && nav.stack.dropLast(1).lastOrNull()?.screen == Screen.FileView(owner, name, finalPath, ref) -> nav.pop()

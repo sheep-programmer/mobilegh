@@ -248,6 +248,45 @@ fun aggregateContributions(
 /** 一年内的每周提交，给大仓库里展开的那一个人用；[truncated] 表示只取到了最近的一部分提交。 */
 data class PersonActivity(val weekly: List<ContributionPoint>, val truncated: Boolean)
 
+/**
+ * 某个人已经读到的周提交：按周累计，[loadedWeeks] 是已覆盖的周数（从本周往回数）。
+ * 往回翻时只读新窗口，已读的部分直接沿用。
+ */
+class PersonHistory {
+    internal val counts = mutableMapOf<LocalDate, Long>()
+    internal val missing = mutableSetOf<LocalDate>()
+    var loadedWeeks = 0
+        private set
+    var truncated = false
+        private set
+
+    internal fun commit(window: Map<LocalDate, Long>, currentWeek: LocalDate, first: Int, last: Int, incomplete: Boolean) {
+        window.forEach { (week, n) -> counts[week] = (counts[week] ?: 0L) + n }
+        missing += missingWeeks(window, currentWeek, first, last, incomplete)
+        truncated = truncated || incomplete
+        loadedWeeks = last + 1
+    }
+
+    /** 窗口没读完时，读到的最早一周及更早的周数据不完整，标为缺失 */
+    private fun missingWeeks(window: Map<LocalDate, Long>, currentWeek: LocalDate, first: Int, last: Int, incomplete: Boolean): Set<LocalDate> {
+        if (!incomplete) return emptySet()
+        val oldest = window.keys.minOrNull()
+        return (first..last).map { currentWeek.minusWeeks(it.toLong()) }
+            .filter { oldest == null || !it.isAfter(oldest) }.toSet()
+    }
+
+    internal fun snapshot(
+        currentWeek: LocalDate, weeks: Int, window: Map<LocalDate, Long>, first: Int, last: Int, incomplete: Boolean,
+    ): PersonActivity {
+        val missingNow = missing + missingWeeks(window, currentWeek, first, last, incomplete)
+        val weekly = ((weeks - 1) downTo 0).map { back ->
+            val start = currentWeek.minusWeeks(back.toLong())
+            ContributionPoint(start, if (start in missingNow) null else (counts[start] ?: 0L) + (window[start] ?: 0L))
+        }
+        return PersonActivity(weekly, truncated || incomplete)
+    }
+}
+
 object ContributionStats {
     /** 仓库首页展示累计提交最多的三位贡献者，不读周统计，也不多取。 */
     suspend fun preview(
@@ -548,6 +587,58 @@ object ContributionStats {
 
     /** 最多读取的提交页数：约 5000 条提交，超过的部分较早的周显示为缺失。 */
     private const val MAX_PERSON_PAGES = 50
+
+    /** 增量加载时每个窗口（一次「往回 3 周」）最多读取的提交页数：约 3000 条提交 */
+    private const val PAGES_PER_WINDOW = 30
+
+    /**
+     * 增量读取某人的周提交：只请求 [addWeeks] 周的新窗口（since / until 限定范围），
+     * 已经读过的周保留在 [history] 里，往回翻时不会重新请求。
+     * 窗口内提交太多读不完时，该窗口里较早的周标为缺失（null），较新的周仍然完整。
+     * 每读完一页通过 [onProgress] 交出当前结果。
+     */
+    suspend fun personActivityMore(
+        owner: String,
+        name: String,
+        login: String,
+        history: PersonHistory,
+        addWeeks: Int = 3,
+        force: Boolean = false,
+        request: suspend (String, Boolean) -> Resp = { path, refresh -> Api.call("GET", path, force = refresh) },
+        now: Instant = Instant.now(),
+        onProgress: (PersonActivity) -> Unit = {},
+    ): PersonActivity {
+        val currentWeek = weekStart(now.atOffset(ZoneOffset.UTC).toLocalDate())
+        val first = history.loadedWeeks
+        val last = first + addWeeks - 1
+        val since = currentWeek.minusWeeks(last.toLong()).atStartOfDay(ZoneOffset.UTC).toInstant()
+        // until 是闭区间：取上一个窗口起点的前一秒，避免同一条提交被两个窗口各算一次
+        val until = if (first == 0) null
+            else currentWeek.minusWeeks((first - 1).toLong()).atStartOfDay(ZoneOffset.UTC).toInstant().minusSeconds(1)
+        val windowCounts = mutableMapOf<LocalDate, Long>()
+        var more = true
+        var page = 1
+        while (more && page <= PAGES_PER_WINDOW) {
+            val range = "&since=$since" + (until?.let { "&until=$it" } ?: "")
+            val response = request("/repos/$owner/$name/commits?author=$login$range&per_page=100&page=$page", force)
+            Api.ensureOk(response)
+            val items = Api.json.parseToJsonElement(response.body) as? JsonArray
+                ?: throw IllegalStateException(tr("提交数据格式无效"))
+            items.forEach { item ->
+                val date = item.jsonObject["commit"]?.jsonObject?.get("author")?.jsonObject?.get("date")?.jsonPrimitive?.contentOrNull
+                    ?: return@forEach
+                val week = weekStart(Instant.parse(date).atOffset(ZoneOffset.UTC).toLocalDate())
+                windowCounts[week] = (windowCounts[week] ?: 0L) + 1
+            }
+            more = items.size >= 100
+            page++
+            if (more) onProgress(history.snapshot(currentWeek, first + addWeeks, windowCounts, first, last, incomplete = true))
+        }
+        val result = history.snapshot(currentWeek, first + addWeeks, windowCounts, first, last, incomplete = more)
+        // 提交：窗口读完（或读到上限）后才写入历史，中途取消不会留下半个窗口
+        history.commit(windowCounts, currentWeek, first, last, incomplete = more)
+        return result
+    }
 
     private fun personWeekly(counts: Map<LocalDate, Long>, now: Instant, weeksCount: Int, incomplete: Boolean): PersonActivity {
         // 提交按时间从新到旧读取：没读完时，最早读到的那一周及更早的数据可能不完整，显示为缺失，而不是 0

@@ -505,10 +505,23 @@ private fun ReleaseForm(owner: String, name: String, seed: ReleaseSeed, modifier
                 val list = seed.tags.filter { it.contains(q, true) }
                 ScrollbarLazyColumn(Modifier.heightIn(max = 360.dp)) {
                     boxedItems(list) { t ->
+                        val selected = t == tagName
                         Row(Modifier.fillMaxWidth().clickable { tag = t; pickTag = false }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Oc(if (t == tagName) R.drawable.oc_check else R.drawable.oc_tag, if (t == tagName) g.accent else g.fgMuted)
+                            Oc(R.drawable.oc_tag, if (selected) g.accent else g.fgMuted)
                             Spacer(Modifier.width(10.dp))
-                            Text(t, color = g.fg, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                t,
+                                Modifier.weight(1f),
+                                color = if (selected) g.accent else g.fg,
+                                fontSize = 14.sp,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (selected) {
+                                Spacer(Modifier.width(8.dp))
+                                Oc(R.drawable.oc_check, g.accent, 16.dp)
+                            }
                         }
                     }
                     if (list.isEmpty()) item { Text(tr("无匹配结果"), Modifier.padding(24.dp), color = g.fgMuted) }

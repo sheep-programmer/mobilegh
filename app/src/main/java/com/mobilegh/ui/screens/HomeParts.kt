@@ -12,8 +12,6 @@ import androidx.compose.material3.Text
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +29,7 @@ import com.mobilegh.ui.components.CardDropdownMenu
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MenuIcon
+import com.mobilegh.ui.components.dialogFrame
 import com.mobilegh.ui.components.offerUndo
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.rememberTick
@@ -168,7 +167,7 @@ private fun HomeStat(value: String, label: String) {
 
 /** id 对应 [BuiltinShortcut.id] 或保存的搜索的 slot id，用于按用户布局排序 */
 data class HomeShortcut(
-    @DrawableRes val icon: Int, val label: String, val color: Color, val onClick: () -> Unit, val id: String = label,
+    @get:DrawableRes val icon: Int, val label: String, val color: Color, val onClick: () -> Unit, val id: String = label,
     /** 非空时在图标右上角显示角标（与 GitHub 标签页的计数一致），标签文字保持干净 */
     val count: Int? = null,
 )
@@ -232,10 +231,10 @@ fun HomeProfileDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth(0.9f)
-                .padding(vertical = 24.dp),
-            shape = RoundedCornerShape(20.dp),
+                .padding(vertical = 24.dp)
+                .dialogFrame(),
+            shape = RoundedCornerShape(16.dp),
             color = g.canvas,
-            border = BorderStroke(1.dp, g.border),
             shadowElevation = 0.dp,
         ) {
             Column(Modifier.padding(20.dp)) {

@@ -26,7 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -57,6 +57,8 @@ fun LinkDefaultPrompt() {
             LinkDefault.set(LinkDefault.Status.Skipped)
         },
         containerColor = g.canvas,
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 0.dp,
         // 需要明确选择的提示：点框外不会关闭（以前点一下框外就被当成「跳过」，看起来像弹窗自己消失）
         properties = ModalDialogProperties,
         modifier = Modifier.dialogFrame(),

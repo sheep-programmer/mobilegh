@@ -183,12 +183,15 @@ fun MarkdownToolbar(
 
 @Composable
 private fun RowScope.ToolBtn(description: String, onClick: () -> Unit, content: @Composable () -> Unit) {
-    GhTooltip(description, modifier = Modifier.weight(1f)) {
-        Box(
-            Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick)
-                .semantics { contentDescription = description },
-            contentAlignment = Alignment.Center,
-        ) { content() }
+    // weight(1f) 必须直接放在 RowScope 的直接子组件上；传给 TooltipBox 会导致第一个按钮占满整行、其余 10 个格式按钮消失
+    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+        GhTooltip(description) {
+            Box(
+                Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(6.dp)).clickable(onClick = onClick)
+                    .semantics { contentDescription = description },
+                contentAlignment = Alignment.Center,
+            ) { content() }
+        }
     }
 }
 
@@ -374,11 +377,7 @@ fun MarkdownFullscreenSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 FmtBtn(tr("关闭"), onDismiss) { Oc(R.drawable.oc_x, g.fgMuted, 18.dp) }
-                Text(
-                    if (preview) tr("预览") else tr("编辑"),
-                    Modifier.weight(1f).padding(start = 2.dp),
-                    color = g.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
-                )
+                MarkdownModeBar(preview, onPreviewChange, Modifier.weight(1f))
                 trailing?.invoke()
             }
             HDivider()

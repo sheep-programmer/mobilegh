@@ -665,11 +665,10 @@ fun CommentComposerBar(
             OcButton(R.drawable.oc_paper_airplane, onSend, if (value.text.isBlank()) g.fgMuted else g.accent, enabled = !sending && value.text.isNotBlank())
         }
         // 格式工具栏放在输入框下方，只在编辑时出现；模式栏（编辑 / 预览 / 全屏）在输入框上方
-        if (editing || preview) {
-            if (!preview) {
-                MentionSuggestions(value, onValueChange, contextRepo, Modifier.padding(horizontal = 8.dp))
-                MarkdownToolbar(value, onValueChange, Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
-            }
+        // 编辑状态下始终显示（不再依赖输入框焦点，否则收起键盘后就只剩上方的模式栏）
+        if (!preview) {
+            MentionSuggestions(value, onValueChange, contextRepo, Modifier.padding(horizontal = 8.dp))
+            MarkdownToolbar(value, onValueChange, Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
         }
         DraftBinding(draft, DraftValue(body = value.text))
     }
@@ -683,7 +682,8 @@ fun CommentComposerBar(
     }
     if (preview) {
         MarkdownFullscreenSheet(
-            value, onValueChange, preview = true, onPreviewChange = { onPreviewChange(it) },
+            value, onValueChange, preview = true,
+            onPreviewChange = { if (!it) { onPreviewChange(false); fullscreenEdit = true } else onPreviewChange(true) },
             contextRepo = contextRepo, onDismiss = { onPreviewChange(false) },
             placeholder = placeholder, trailing = sendButton,
         )

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -64,7 +65,13 @@ fun LinkMenuHost() {
     val ctx = LocalContext.current
     val g = Gh.c
     val isDownloadable = remember(url) { com.mobilegh.data.Downloads.isDownloadableUrl(url) }
-    ModalBottomSheet(onDismissRequest = { LinkMenu.close() }, containerColor = g.canvas) {
+    ModalBottomSheet(
+        onDismissRequest = { LinkMenu.close() },
+        containerColor = g.canvas,
+        tonalElevation = 0.dp,
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        dragHandle = { BottomSheetDefaults.DragHandle(color = g.borderMuted) },
+    ) {
         Column(Modifier.navigationBarsPadding().padding(bottom = 16.dp)) {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 // 上面是链接文字（长按时选中的那段），下面是真实地址；只有地址时只显示一行

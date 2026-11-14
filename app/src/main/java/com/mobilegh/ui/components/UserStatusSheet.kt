@@ -82,6 +82,8 @@ fun UserStatusBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = g.canvas,
+        tonalElevation = 0.dp,
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         dragHandle = { BottomSheetDefaults.DragHandle(color = g.borderMuted) },
     ) {
         Column(
@@ -108,7 +110,7 @@ fun UserStatusBottomSheet(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .border(1.dp, g.border, RoundedCornerShape(12.dp))
+                    .border(1.dp, g.borderMuted.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
                     .background(g.canvasSubtle, RoundedCornerShape(12.dp))
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,

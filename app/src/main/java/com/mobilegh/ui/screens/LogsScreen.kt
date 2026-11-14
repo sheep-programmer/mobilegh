@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,6 +39,7 @@ import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.EmptyState
+import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.HDivider
@@ -45,6 +47,7 @@ import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MoreMenu
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.Pill
+import com.mobilegh.ui.components.copy
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.share
 import com.mobilegh.ui.theme.Gh
@@ -62,6 +65,8 @@ private val LOG_CATEGORIES = listOf(
     "actions" to "Actions",
     "webview" to tr("网页渲染"),
     "crash" to tr("崩溃"),
+    "exit" to tr("退出诊断"),
+    "stall" to tr("卡顿"),
     "app" to tr("应用"),
 )
 
@@ -79,14 +84,22 @@ fun LogsScreen(onBack: (() -> Unit)? = null) {
         (category == "all" || entry.category == category) &&
             (query.isBlank() || entry.message.contains(query, true) || entry.detail?.contains(query, true) == true)
     }
+    // 日志以 id 作为 LazyColumn 的 key，任何来源的重复 id 都会让整页抛异常，渲染前再去重一次
+    val unique = AppLog.dedupeById(filtered)
     Page(
         tr("日志与诊断"),
-        subtitle = filtered.size.toString() + tr(" 条"),
+        subtitle = unique.size.toString() + tr(" 条"),
         onBack = onBack,
         actions = {
             MoreMenu(listOf(
-                MenuAction(tr("导出当前筛选")) { ctx.share(AppLog.export(filtered)) },
+                MenuAction(tr("复制全部日志")) { ctx.copy(AppLog.export(all)) },
+                MenuAction(tr("复制当前筛选")) { ctx.copy(AppLog.export(unique)) },
+                MenuAction(tr("导出当前筛选")) { ctx.share(AppLog.export(unique)) },
                 MenuAction(tr("导出全部日志")) { ctx.share(AppLog.export(all)) },
+                MenuAction(tr("导出崩溃历史")) {
+                    val history = AppLog.crashHistoryText()
+                    if (history.isBlank()) ctx.copy(tr("暂无历史崩溃记录")) else ctx.share(history)
+                },
                 MenuAction(tr("清除全部日志"), danger = true) { confirmClear = true },
             ))
         },
@@ -104,7 +117,7 @@ fun LogsScreen(onBack: (() -> Unit)? = null) {
                     label = options.getOrElse(selIdx) { tr("全部") },
                     options = options,
                     onSelect = { category = LOG_CATEGORIES[it].first },
-                    active = category != null,
+                    active = category != "all",
                 )
             }
             HDivider(Modifier.padding(bottom = 6.dp))
@@ -115,11 +128,11 @@ fun LogsScreen(onBack: (() -> Unit)? = null) {
                 Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp),
                 placeholder = tr("搜索错误、请求路径或文件名"),
             )
-            if (filtered.isEmpty()) {
+            if (unique.isEmpty()) {
                 EmptyState(if (query.isBlank()) tr("暂无日志") else tr("没有匹配的日志"), R.drawable.oc_log, action = if (query.isBlank()) null else tr("清除搜索"), onAction = { query = "" })
             } else {
                 ScrollbarLazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
-                    items(filtered, key = { it.id }) { entry ->
+                    items(unique, key = { it.id }) { entry ->
                         LogRow(entry, expanded = expanded == entry.id) {
                             expanded = if (expanded == entry.id) null else entry.id
                         }
@@ -148,6 +161,7 @@ fun LogsScreen(onBack: (() -> Unit)? = null) {
 @Composable
 private fun LogRow(entry: AppLogEntry, expanded: Boolean, onClick: () -> Unit) {
     val g = Gh.c
+    val ctx = rememberCtx()
     val color = when (entry.level) {
         "ERROR" -> g.danger
         "WARN" -> g.attention
@@ -167,12 +181,27 @@ private fun LogRow(entry: AppLogEntry, expanded: Boolean, onClick: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     entry.detail,
-                    Modifier.fillMaxWidth().background(g.canvasInset).padding(8.dp).verticalScrollWithBar(),
+                    // LazyColumn 的 item 高度是无界的，直接套 verticalScroll 会抛
+                    // 「measured with an infinity maximum height」；heightIn 先给出上限再滚动
+                    Modifier.fillMaxWidth().heightIn(max = 320.dp).background(g.canvasInset).verticalScrollWithBar().padding(8.dp),
                     color = g.fgMuted,
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                     lineHeight = 16.sp,
                 )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    GhButton(tr("复制诊断详情"), icon = R.drawable.oc_copy) {
+                        ctx.copy(entry.detail)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    GhButton(tr("分享"), icon = R.drawable.oc_share_android) {
+                        ctx.share(entry.detail)
+                    }
+                }
             }
             if (expanded && entry.thread != null) {
                 Spacer(Modifier.height(5.dp))

@@ -513,7 +513,7 @@ fun BranchesScreen(owner: String, name: String) {
     Page(
         tr("分支与标签"), subtitle = "$owner/$name",
         actions = {
-            if (canPush) OcButton(R.drawable.oc_plus, { creatingFrom = r?.defaultBranch ?: "" })
+            if (canPush) OcButton(R.drawable.oc_plus, { creatingFrom = r.defaultBranch })
         },
     ) { pad ->
         Column(Modifier.padding(pad)) {

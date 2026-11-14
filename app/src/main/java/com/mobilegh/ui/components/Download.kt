@@ -23,8 +23,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
@@ -102,7 +100,8 @@ fun DownloadHost() {
         AlertDialog(
             onDismissRequest = { Downloads.selectedKey = null },
             containerColor = g.canvas,
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(16.dp),
+            tonalElevation = 0.dp,
             modifier = Modifier.dialogFrame(),
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -170,7 +169,8 @@ fun DownloadHost() {
         AlertDialog(
             onDismissRequest = { Downloads.showHistory = false },
             containerColor = g.canvas,
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(16.dp),
+            tonalElevation = 0.dp,
             modifier = Modifier.dialogFrame(),
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -207,45 +207,29 @@ fun DownloadHost() {
                                         }
                                         Box {
                                             IconButton({ menu = true }) { Oc(R.drawable.oc_kebab_horizontal, g.fgMuted, 18.dp) }
-                                            DropdownMenu(menu, { menu = false }, Modifier.background(g.canvas)) {
-                                                // 文件已不在时没有可打开的文件，只保留「重新下载」和移除记录
-                                                if (task.state == DownloadState.Complete && !missing) {
-                                                    DropdownMenuItem(
-                                                        text = { Text(tr("打开文件"), fontSize = 14.sp, color = g.fg) },
-                                                        onClick = { menu = false; Downloads.open(ctx, task) },
-                                                    )
-                                                    DropdownMenuItem(
-                                                        text = { Text(tr("打开所在文件夹"), fontSize = 14.sp, color = g.fg) },
-                                                        onClick = { menu = false; Downloads.revealFolder(ctx, task) },
-                                                    )
-                                                    DropdownMenuItem(
-                                                        text = { Text(tr("删除本地文件"), fontSize = 14.sp, color = g.danger) },
-                                                        onClick = { menu = false; pendingDelete = task },
-                                                    )
-                                                }
-                                                // 排队、传输中、已暂停的任务都能暂停 / 继续
-                                                if (task.canTogglePause) {
-                                                    DropdownMenuItem(
-                                                        text = { Text(if (task.paused) tr("继续") else tr("暂停"), fontSize = 14.sp, color = g.fg) },
-                                                        onClick = { menu = false; Downloads.togglePause(task) },
-                                                    )
-                                                }
-                                                if (task.active) {
-                                                    DropdownMenuItem(
-                                                        text = { Text(tr("取消下载"), fontSize = 14.sp, color = g.danger) },
-                                                        onClick = { menu = false; Downloads.cancel(task) },
-                                                    )
-                                                } else {
-                                                    DropdownMenuItem(
-                                                        text = { Text(tr("重新下载"), fontSize = 14.sp, color = g.fg) },
-                                                        onClick = { menu = false; Downloads.retry(task) },
-                                                    )
-                                                }
-                                                DropdownMenuItem(
-                                                    text = { Text(tr("从记录中移除"), fontSize = 14.sp, color = g.fgMuted) },
-                                                    onClick = { menu = false; Downloads.forget(ctx, task) },
-                                                )
-                                            }
+                                            CardDropdownMenu(
+                                                expanded = menu,
+                                                onDismissRequest = { menu = false },
+                                                actions = buildList {
+                                                    // 文件已不在时没有可打开的文件，只保留「重新下载」和移除记录
+                                                    if (task.state == DownloadState.Complete && !missing) {
+                                                        add(MenuAction(tr("打开文件"), icon = R.drawable.oc_file) { Downloads.open(ctx, task) })
+                                                        add(MenuAction(tr("打开所在文件夹"), icon = R.drawable.oc_file_directory) { Downloads.revealFolder(ctx, task) })
+                                                        add(MenuAction(tr("删除本地文件"), danger = true, icon = R.drawable.oc_trash) { pendingDelete = task })
+                                                    }
+                                                    // 排队、传输中、已暂停的任务都能暂停 / 继续
+                                                    if (task.canTogglePause) {
+                                                        val paused = task.paused
+                                                        add(MenuAction(if (paused) tr("继续") else tr("暂停"), icon = if (paused) R.drawable.oc_play else R.drawable.oc_clock) { Downloads.togglePause(task) })
+                                                    }
+                                                    if (task.active) {
+                                                        add(MenuAction(tr("取消下载"), danger = true, icon = R.drawable.oc_x) { Downloads.cancel(task) })
+                                                    } else {
+                                                        add(MenuAction(tr("重新下载"), icon = R.drawable.oc_sync) { Downloads.retry(task) })
+                                                    }
+                                                    add(MenuAction(tr("从记录中移除"), icon = R.drawable.oc_x_circle) { Downloads.forget(ctx, task) })
+                                                },
+                                            )
                                         }
                                     }
                                 }
@@ -268,7 +252,8 @@ fun DownloadHost() {
             AlertDialog(
                 onDismissRequest = { clearDialog = false },
                 containerColor = g.canvas,
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(16.dp),
+                tonalElevation = 0.dp,
                 modifier = Modifier.dialogFrame(),
                 title = { Text(tr("清空下载记录"), color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) },
                 text = { Text(tr("是否同时删除已下载到手机的文件？删除后无法恢复。正在下载或排队中的任务会保留。"), color = g.fgMuted, fontSize = 14.sp, lineHeight = 20.sp) },
@@ -459,7 +444,8 @@ fun FileInfoDialog(info: FileInfo, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = g.canvas,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 0.dp,
         modifier = Modifier.dialogFrame(),
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {

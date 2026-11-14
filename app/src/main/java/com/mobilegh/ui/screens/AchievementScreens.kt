@@ -65,7 +65,9 @@ import com.mobilegh.data.LocalStarListsStore
 import com.mobilegh.data.Repo
 import com.mobilegh.data.Session
 import com.mobilegh.data.StarListAccount
+import com.mobilegh.data.StarListCache
 import com.mobilegh.data.StarLists
+import com.mobilegh.data.StarSnapshot
 import com.mobilegh.data.Web
 import com.mobilegh.data.GitHubStarList
 import com.mobilegh.data.UserListRepository
@@ -495,19 +497,52 @@ internal class UserListDetailLoader<T>(
         private set
     var limited by mutableStateOf(false)
         private set
+    private data class CachedDetail<T>(
+        val items: List<T>,
+        val total: Int,
+        val cursor: String?,
+        val hasMore: Boolean,
+        val limited: Boolean,
+    )
+
     private var cursor: String? = null
     private var source: (suspend (String?) -> com.mobilegh.data.UserListPage<T>)? = null
     private var job: Job? = null
     private var operation = 0
     private var replaceOnRetry = true
+    private var cacheSnapshot: StarSnapshot<CachedDetail<T>>? = null
+    private var revisionProvider: (() -> Long)? = null
 
-    fun open(listId: String?, fetch: (suspend (String?) -> com.mobilegh.data.UserListPage<T>)? = null) {
+    fun open(
+        listId: String?,
+        cacheKey: String? = null,
+        generation: Int = 0,
+        revisionProvider: (() -> Long)? = null,
+        fetch: (suspend (String?) -> com.mobilegh.data.UserListPage<T>)? = null,
+    ) {
         operation++
         job?.cancel()
         loading = false
         items = emptyList(); cursor = null; loaded = false; error = null; total = 0
         hasMore = listId != null; limited = false
         source = fetch
+        this.revisionProvider = revisionProvider
+        cacheSnapshot = if (listId != null && cacheKey != null) StarListCache.snapshot(cacheKey, generation) else null
+        val snap = cacheSnapshot
+        val cached = snap?.value
+        if (listId != null && snap != null && cached != null) {
+            items = cached.items
+            total = cached.total
+            cursor = cached.cursor
+            hasMore = cached.hasMore
+            limited = cached.limited
+            loaded = true
+            val rev = revisionProvider?.invoke() ?: 0L
+            if (StarListCache.isStale(snap.loadedAtMs, snap.loadedRevision, rev, System.currentTimeMillis())) {
+                refresh()
+            }
+            return
+        }
         if (listId != null) refresh()
     }
 
@@ -537,6 +572,11 @@ internal class UserListDetailLoader<T>(
                 hasMore = cursor != null
                 limited = next.size > limit || (hasMore && items.size >= limit)
                 loaded = true
+                cacheSnapshot?.let { snap ->
+                    snap.value = CachedDetail(items, total, cursor, hasMore, limited)
+                    snap.loadedAtMs = System.currentTimeMillis()
+                    snap.loadedRevision = revisionProvider?.invoke() ?: 0L
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -556,8 +596,15 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
     val account = remember { StarListAccount(Session.login.orEmpty(), generation) }
     val self = login.equals(account.login, true)
     val revision by UserLists.changes.collectAsState()
-    var handledRevision by remember(account, login) { mutableLongStateOf(-1) }
-    var lists by remember { mutableStateOf<List<GitHubStarList>?>(null) }
+    val catalogKey = "star-lists:${account.login.lowercase(Locale.ROOT)}:${login.lowercase(Locale.ROOT)}:$generation"
+    val catalogSnapshot = StarListCache.snapshot<List<GitHubStarList>>(catalogKey, generation)
+    var handledRevision by remember(account, login) {
+        val fresh = catalogSnapshot.value != null && !StarListCache.isStale(
+            catalogSnapshot.loadedAtMs, catalogSnapshot.loadedRevision, UserLists.changes.value, System.currentTimeMillis(),
+        )
+        mutableLongStateOf(if (fresh) catalogSnapshot.loadedRevision else -1L)
+    }
+    var lists by remember { mutableStateOf(catalogSnapshot.value) }
     var selectedId by rememberSaveable(account, login, initialListId) { mutableStateOf(initialListId) }
     val detail = remember(account, login) { UserListDetailLoader<UserListRepository>(scope, UserListsClient.MAX_DETAIL_ITEMS) { it.nodeId } }
     val repositories = detail.items
@@ -577,8 +624,12 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
     val selected = lists?.firstOrNull { it.id == selectedId }
 
     suspend fun reload() {
-        lists = UserLists.lists(account, login)
-        if (selectedId != null && lists!!.none { it.id == selectedId }) selectedId = null
+        val loaded = UserLists.lists(account, login)
+        lists = loaded
+        catalogSnapshot.value = loaded
+        catalogSnapshot.loadedAtMs = System.currentTimeMillis()
+        catalogSnapshot.loadedRevision = UserLists.changes.value
+        if (selectedId != null && loaded.none { it.id == selectedId }) selectedId = null
     }
     fun load() {
         if (listLoading || saving) return
@@ -609,8 +660,13 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
     LaunchedEffect(selected?.id, itemDesc) {
         val list = selected
         if (list == null) detail.open(null)
-        // 正序从头部 after 往后翻，倒序从尾部 before 往回翻：方向变了就重新请求，不在本地反转
-        else detail.open(list.id) { cursor -> UserLists.items(account, list, cursor, descending = itemDesc) }
+        // 正序从头部 after 往后翻，倒序从尾部 before 往回翻：方向变了就重新请求，不在本地反转；同方向直接命中进程快照缓存
+        else detail.open(
+            list.id,
+            cacheKey = "gh-list-detail:${list.id}:$itemDesc",
+            generation = generation,
+            revisionProvider = { UserLists.changes.value },
+        ) { cursor -> UserLists.items(account, list, cursor, descending = itemDesc) }
     }
     LaunchedEffect(account, login, revision) {
         // Changes may originate from another screen, including a partially completed batch.

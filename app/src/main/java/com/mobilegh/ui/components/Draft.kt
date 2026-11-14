@@ -6,12 +6,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.sp
 import com.mobilegh.data.*
 import com.mobilegh.nav.LocalEntry
-import com.mobilegh.nav.Screen
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
-import kotlinx.serialization.json.Json
-
-private val originJson = Json { encodeDefaults = false }
+import com.mobilegh.nav.ScreenCodec
 
 @Composable
 fun rememberDraft(contextKey: String): DraftController {
@@ -20,7 +17,7 @@ fun rememberDraft(contextKey: String): DraftController {
     // 记下草稿所在的页面：「我的 → 草稿」里点一下就能回到这里继续写
     val screen = LocalEntry.current.screen
     return remember(login, Session.generation, contextKey) {
-        val origin = runCatching { originJson.encodeToString(Screen.serializer(), screen) }.getOrNull()
+        val origin = runCatching { ScreenCodec.draftJson.encodeToString(ScreenCodec.screen, screen) }.getOrNull()
         DraftController(Drafts.store(context), login, contextKey, origin)
     }
 }

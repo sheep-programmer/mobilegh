@@ -122,7 +122,9 @@ class MainActivity : FragmentActivity() {
         if (savedInstanceState == null) handleIntent(intent)
         setContent {
             val nav = vm.navFor(Session.generation)
-            // 栈或 Tab 变化时写入 SavedStateHandle，进程被系统回收后据此恢复
+            // 栈或 Tab 变化时写入 SavedStateHandle，进程被系统回收后据此恢复。
+            // 这里必须同步写：切到后台紧接着 onSaveInstanceState，异步编码会存下上一个页面。
+            // 编码本身很快，序列化器由 ScreenCodec 复用，构造开销已在启动时挪到后台线程。
             LaunchedEffect(nav) {
                 snapshotFlow { NavRestore.encode(nav.tab, nav.stack.map { it.screen }, Session.login) }
                     .distinctUntilChanged()

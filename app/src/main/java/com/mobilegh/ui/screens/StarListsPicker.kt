@@ -29,15 +29,17 @@ import com.mobilegh.data.Repo
 import com.mobilegh.data.RepositoryListMemberships
 import com.mobilegh.data.Session
 import com.mobilegh.data.StarListAccount
+import com.mobilegh.data.StarListCache
+import com.mobilegh.data.StarSnapshot
 import com.mobilegh.data.StarLists
 import com.mobilegh.data.UserLists
 import com.mobilegh.data.UserListsClient
 import com.mobilegh.data.starListsForRepository
 import com.mobilegh.nav.Loader
+import com.mobilegh.nav.retain
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.friendly
-import com.mobilegh.nav.rememberLoader
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.FilterSheet
 import com.mobilegh.ui.components.InlineError
@@ -61,8 +63,44 @@ import com.mobilegh.i18n.trf
 internal fun rememberStarListCatalog(login: String): Loader<List<GitHubStarList>> {
     val active = Session.login ?: login
     val account = remember(active, login, Session.generation) { StarListAccount(active, Session.generation) }
-    return rememberLoader("star-lists:${active.lowercase(Locale.ROOT)}:${login.lowercase(Locale.ROOT)}:${account.generation}") {
-        UserLists.lists(account, login)
+    val key = "star-lists:${active.lowercase(Locale.ROOT)}:${login.lowercase(Locale.ROOT)}:${account.generation}"
+    // 目录快照放在进程内：离开页面再回来时直接显示上次的列表，不必每次都请求
+    val snapshot = StarListCache.snapshot<List<GitHubStarList>>(key, account.generation)
+    val loader = retain(key) { e ->
+        Loader(e.scope) { _ -> UserLists.lists(account, login) }.also { l ->
+            val cached = snapshot.value
+            if (cached != null) l.accept(cached) else l.load()
+        }
+    }
+    rememberCatalogFreshness(loader, snapshot)
+    return loader
+}
+
+/**
+ * 目录的新鲜度：加载成功后写入快照；重新进入时快照过期（超时或列表有变化）才在后台刷新，
+ * 旧结果保持可见直到新数据到达。
+ */
+@Composable
+private fun rememberCatalogFreshness(loader: Loader<List<GitHubStarList>>, snapshot: StarSnapshot<List<GitHubStarList>>) {
+    var sawLoading by remember(loader) { mutableStateOf(false) }
+    LaunchedEffect(loader, loader.loading) {
+        if (loader.loading) {
+            sawLoading = true
+        } else if (sawLoading) {
+            sawLoading = false
+            val data = loader.data
+            if (data != null && loader.error == null) {
+                snapshot.value = data
+                snapshot.loadedAtMs = System.currentTimeMillis()
+                snapshot.loadedRevision = UserLists.changes.value
+            }
+        }
+    }
+    LaunchedEffect(loader) {
+        val stale = StarListCache.isStale(
+            snapshot.loadedAtMs, snapshot.loadedRevision, UserLists.changes.value, System.currentTimeMillis(),
+        )
+        if (snapshot.value != null && stale) loader.refresh()
     }
 }
 

@@ -5,6 +5,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.mobilegh.data.RepoWrite
 import com.mobilegh.nav.OnRepoChanged
 import androidx.annotation.DrawableRes
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,9 +21,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -88,12 +92,12 @@ import com.mobilegh.ui.components.PullItem
 import com.mobilegh.ui.components.Segmented
 import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.rememberTick
+import com.mobilegh.ui.components.verticalScrollWithBar
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.delay
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.TextButton
@@ -292,12 +296,48 @@ private fun FilterMenuChip(
         description = description,
         selected = selected,
         menu = {
-            DropdownMenu(open, { open = false }, containerColor = g.canvas) {
-                options.forEachIndexed { i, s ->
-                    DropdownMenuItem(
-                        text = { Text(s, color = g.fg) },
-                        onClick = { open = false; onSelect(i) },
-                    )
+            DropdownMenu(
+                expanded = open,
+                onDismissRequest = { open = false },
+                modifier = Modifier.widthIn(min = 160.dp, max = 260.dp).heightIn(max = 320.dp),
+                shape = RoundedCornerShape(12.dp),
+                containerColor = g.canvas,
+                border = BorderStroke(1.dp, g.borderMuted.copy(alpha = 0.5f)),
+                shadowElevation = 0.dp,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = 320.dp)
+                        .verticalScrollWithBar()
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    options.forEachIndexed { i, s ->
+                        val isSelected = s == label
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) g.accent.copy(alpha = 0.12f) else Color.Transparent)
+                                .clickable { open = false; onSelect(i) }
+                                .padding(horizontal = 12.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                s,
+                                color = if (isSelected) g.accent else g.fg,
+                                fontSize = 14.sp,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (isSelected) {
+                                Spacer(Modifier.width(8.dp))
+                                Oc(R.drawable.oc_check, g.accent, 16.dp)
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -382,7 +422,7 @@ fun IssueResults(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Strin
             val sort = if (q.sort == IssueSort.Updated) "updated" else "created"
             val pager = rememberPager("pulls:${q.key()}") { p, f -> GitHub.pulls(owner, name, q.state.api, p, f, sort, q.sort.order ?: "desc") }
             // 新建、关闭、评论等写入后列表自动刷新，不用手动下拉（跨仓库的列表监听任意仓库的变化）
-            OnRepoChanged(owner ?: RepoWrite.ANY, name ?: RepoWrite.ANY, RepoWrite.ISSUES) { pager.refresh() }
+            OnRepoChanged(owner, name, RepoWrite.ISSUES) { pager.refresh() }
             val close = rememberListCloser(pager, snackbar, key = { it.id }, message = { trf("已关闭 #{0}", it.number) }) { pr ->
                 GitHub.setPullState(owner, name, pr.number, false)
             }
@@ -395,7 +435,7 @@ fun IssueResults(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Strin
         else -> {
             val pager = rememberPager("issues:${q.key()}") { p, f -> GitHub.issues(owner, name, q.state.api, p, f, q.sort.field ?: "created", q.sort.order ?: "desc") }
             // 新建、关闭、评论等写入后列表自动刷新，不用手动下拉（跨仓库的列表监听任意仓库的变化）
-            OnRepoChanged(owner ?: RepoWrite.ANY, name ?: RepoWrite.ANY, RepoWrite.ISSUES) { pager.refresh() }
+            OnRepoChanged(owner, name, RepoWrite.ISSUES) { pager.refresh() }
             val close = rememberListCloser(pager, snackbar, key = { it.id }, message = { trf("已关闭 #{0}", it.number) }) { issue ->
                 GitHub.setIssueState(owner, name, issue.number, false)
             }

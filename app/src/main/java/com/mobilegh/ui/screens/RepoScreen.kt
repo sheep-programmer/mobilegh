@@ -91,6 +91,7 @@ import com.mobilegh.ui.components.CompactSearchField
 import com.mobilegh.ui.components.FieldAction
 import com.mobilegh.ui.components.RegisterScrollTop
 import com.mobilegh.ui.components.Segmented
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -493,7 +494,7 @@ fun RepoScreen(owner: String, name: String) {
                                     ) {
                                         ReadmeBody(
                                             html,
-                                            baseUrl = "https://github.com/$owner/$name/blob/${branch ?: r.defaultBranch ?: "main"}/",
+                                            baseUrl = "https://github.com/$owner/$name/blob/${branch ?: r.defaultBranch}/",
                                             onAnchor = { y ->
                                                 scope.launch {
                                                     val targetPx = with(density) { (y + 44).dp.roundToPx().coerceAtLeast(0) }
@@ -940,9 +941,9 @@ internal fun ReadmeTocSheet(headings: List<ReadmeHeading>, onDismiss: () -> Unit
                         indication = null,
                         onClick = {}, // 拦截内部点击，防止误触发关闭
                     ),
-                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
                 color = g.canvas,
-                border = BorderStroke(1.dp, g.border),
+                border = BorderStroke(1.dp, g.borderMuted.copy(alpha = 0.5f)),
                 shadowElevation = 0.dp,
             ) {
                 Column(
@@ -1074,7 +1075,10 @@ fun BranchPicker(owner: String, name: String, current: String, onDismiss: () -> 
     val list = pager.items.filter { refMatches(it.first, q) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = g.canvasSubtle,
+        containerColor = g.canvas,
+        tonalElevation = 0.dp,
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        dragHandle = { BottomSheetDefaults.DragHandle(color = g.borderMuted) },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1090,7 +1094,7 @@ fun BranchPicker(owner: String, name: String, current: String, onDismiss: () -> 
             when {
                 list.isNotEmpty() -> ScrollbarLazyColumn(
                     Modifier.fillMaxWidth().heightIn(max = 380.dp).clip(RoundedCornerShape(12.dp))
-                        .background(g.canvas, RoundedCornerShape(12.dp)).border(1.dp, g.border, RoundedCornerShape(12.dp)),
+                        .background(g.canvasSubtle, RoundedCornerShape(12.dp)).border(1.dp, g.borderMuted.copy(alpha = 0.5f), RoundedCornerShape(12.dp)),
                 ) {
                     itemsIndexed(list, key = { _, (branch, _) -> branch }) { i, (branch, sha) ->
                         val selected = branch == current

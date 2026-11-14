@@ -2,13 +2,11 @@ package com.mobilegh.nav
 
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -32,10 +30,7 @@ object NavRestore {
     private val HOME = RestoredNav(Tab.Home, emptyList())
 
     // 多态标记不能与 Screen 的字段重名（例如 Search.type、Projects.kind）
-    private val json = Json {
-        classDiscriminator = "_screen"
-        ignoreUnknownKeys = true
-    }
+    private val json = ScreenCodec.json
 
     /** 把 Tab 与栈编码为 JSON 文本；登录账号一并记录，恢复时用于校验。 */
     fun encode(tab: Tab, screens: List<Screen>, login: String?): String {
@@ -44,7 +39,7 @@ object NavRestore {
             put("v", VERSION)
             put("login", login)
             put("tab", tab.name)
-            put("stack", json.encodeToJsonElement(ListSerializer(Screen.serializer()), stack))
+            put("stack", json.encodeToJsonElement(ScreenCodec.screenList, stack))
         }.toString()
     }
 
@@ -62,7 +57,7 @@ object NavRestore {
         val tab = Tab.entries.firstOrNull { it.name == (obj["tab"] as? JsonPrimitive)?.contentOrNull } ?: return HOME
         val items = obj["stack"] as? JsonArray ?: return HOME
         val screens = items.mapNotNull { item ->
-            runCatching { json.decodeFromJsonElement(Screen.serializer(), item) }.getOrNull()
+            runCatching { json.decodeFromJsonElement(ScreenCodec.screen, item) }.getOrNull()
         }.filter { it != Screen.Root }
         return RestoredNav(tab, screens)
     }

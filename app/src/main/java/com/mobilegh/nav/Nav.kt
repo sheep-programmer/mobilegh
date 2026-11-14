@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import java.util.concurrent.atomic.AtomicLong
+import com.mobilegh.data.AppLog
 import com.mobilegh.data.History
 import com.mobilegh.data.IssueQuery
 import com.mobilegh.data.Session
@@ -103,6 +104,8 @@ sealed interface Screen {
     @Serializable data object AddFavorites : Screen
     /** 收藏夹列表（「我的工作」入口） */
     @Serializable data object Favorites : Screen
+    /** 仅整理收藏夹（不显示「我的工作」） */
+    @Serializable data object FavoritesOrganize : Screen
     /** 稍后阅读列表（「我的工作」入口） */
     @Serializable data object Saved : Screen
     @Serializable data object Authenticator : Screen
@@ -160,12 +163,14 @@ class Navigator {
 
     fun push(s: Screen) {
         History.navigation(s)
+        AppLog.trackScreen(s.toString())
         lastWasPush = true
         stack.add(Entry(s))
     }
 
     fun replace(s: Screen) {
         History.navigation(s)
+        AppLog.trackScreen("replace -> $s")
         lastWasPush = true
         stack.removeLastOrNull()?.dispose()
         stack.add(Entry(s))
@@ -175,6 +180,8 @@ class Navigator {
         if (stack.isEmpty()) return false
         lastWasPush = false
         stack.removeAt(stack.lastIndex).dispose()
+        val current = stack.lastOrNull()?.screen?.toString() ?: tab.title
+        AppLog.trackScreen("pop -> $current")
         return true
     }
 
@@ -182,12 +189,15 @@ class Navigator {
         lastWasPush = false
         stack.forEach { it.dispose() }
         stack.clear()
+        AppLog.trackScreen("popToRoot -> " + tab.title)
     }
 
     /** 进程重建后恢复 Tab 与栈。只应在刚创建的 Navigator 上调用；不记入浏览历史。 */
     fun restore(restored: RestoredNav) {
         tab = restored.tab
         restored.screens.forEach { stack.add(Entry(it)) }
+        val current = stack.lastOrNull()?.screen?.toString() ?: tab.title
+        AppLog.trackScreen("restore -> $current")
     }
 
     /**
@@ -225,7 +235,13 @@ class Navigator {
     }
 
     fun select(t: Tab) {
-        if (tab == t) reselect++ else tab = t
+        if (tab == t) {
+            reselect++
+            AppLog.breadcrumb("nav", tr("重选标签页：") + t.title)
+        } else {
+            tab = t
+            AppLog.trackScreen("Tab:" + t.title)
+        }
     }
 }
 

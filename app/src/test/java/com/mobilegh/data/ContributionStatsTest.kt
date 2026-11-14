@@ -445,6 +445,40 @@ class ContributionStatsTest {
         assertEquals(0L, activity.weekly.first().commits)
     }
 
+    @Test fun personActivityMoreOnlyRequestsTheNewWindowAndKeepsEarlierWeeks() = runBlocking {
+        fun commit(date: String) = """{"commit":{"author":{"date":"$date"}}}"""
+        val paths = mutableListOf<String>()
+        val history = PersonHistory()
+        val first = ContributionStats.personActivityMore("o", "r", "me", history, addWeeks = 3, now = now,
+            request = { path, _ -> paths += path; response(200, "[" + commit("2026-10-05T10:00:00Z") + "]") })
+        assertEquals(3, first.weekly.size)
+        assertEquals(3, history.loadedWeeks)
+        assertEquals(1L, first.weekly.last().commits)
+        assertFalse(paths.single().contains("until="))
+
+        // 往回再加载 3 周：只请求更早的窗口（带 until），已读的最近 3 周不会重新请求
+        val second = ContributionStats.personActivityMore("o", "r", "me", history, addWeeks = 3, now = now,
+            request = { path, _ -> paths += path; response(200, "[" + commit("2026-09-10T10:00:00Z") + "]") })
+        assertEquals(2, paths.size)
+        assertTrue(paths[1].contains("until="))
+        assertEquals(6, history.loadedWeeks)
+        assertEquals(6, second.weekly.size)
+        // 最近一周的数据沿用，没有被重新读取或丢失
+        assertEquals(1L, second.weekly.last().commits)
+        assertEquals(1L, second.weekly.single { it.start == LocalDate.parse("2026-09-06") }.commits)
+    }
+
+    @Test fun personActivityMoreBusyAuthorStillLoadsMoreThanFivePagesPerWindow() = runBlocking {
+        fun commit(date: String) = """{"commit":{"author":{"date":"$date"}}}"""
+        val full = "[" + (1..100).joinToString(",") { commit("2026-10-05T10:00:00Z") } + "]"
+        var pages = 0
+        val activity = ContributionStats.personActivityMore("o", "r", "busy", PersonHistory(), now = now,
+            request = { _, _ -> pages++; if (pages <= 8) response(200, full) else response(200, "[]") })
+        assertEquals(9, pages)
+        assertEquals(800L, activity.weekly.last().commits)
+        assertFalse(activity.truncated)
+    }
+
     @Test fun authorCommitCountIsReportedUnavailableWhenGitHubOmitsTheLastPage() = runBlocking {
         val noLast = Headers.Builder().add("Link", "<https://api.github.com/x?per_page=1&page=3>; rel=\"next\", <https://api.github.com/x?per_page=1&page=1>; rel=\"first\"").build()
         val failed = runCatching { ContributionStats.authorCommits("owner", "linux", "gregkh", request = { _, _ -> response(200, "[{}]", noLast) }) }

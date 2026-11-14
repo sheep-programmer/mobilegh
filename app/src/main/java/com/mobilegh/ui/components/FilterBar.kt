@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
@@ -158,6 +159,8 @@ fun FilterSheet(
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = Gh.c.canvas,
         tonalElevation = 0.dp,
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        dragHandle = { BottomSheetDefaults.DragHandle(color = Gh.c.borderMuted) },
     ) {
         Column(Modifier.fillMaxWidth()) {
             Row(

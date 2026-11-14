@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
@@ -131,6 +132,9 @@ fun DayContributionSheet(
             onDismissRequest = onDismiss,
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = g.canvas,
+            tonalElevation = 0.dp,
+            shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+            dragHandle = { BottomSheetDefaults.DragHandle(color = g.borderMuted) },
             contentWindowInsets = { WindowInsets(0) },
         ) {
             Column(
@@ -437,10 +441,13 @@ fun WeekdayContributionSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = g.canvas,
-            contentWindowInsets = { WindowInsets(0) },
-        ) {
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = g.canvas,
+        tonalElevation = 0.dp,
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        dragHandle = { BottomSheetDefaults.DragHandle(color = g.borderMuted) },
+        contentWindowInsets = { WindowInsets(0) },
+    ) {
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -592,10 +599,13 @@ fun ContributionPieSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = g.canvas,
-            contentWindowInsets = { WindowInsets(0) },
-        ) {
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = g.canvas,
+        tonalElevation = 0.dp,
+        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+        dragHandle = { BottomSheetDefaults.DragHandle(color = g.borderMuted) },
+        contentWindowInsets = { WindowInsets(0) },
+    ) {
             Column(
                 Modifier
                     .fillMaxWidth()

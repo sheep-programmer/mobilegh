@@ -17,6 +17,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.i18n.tr
 import com.mobilegh.ui.theme.Gh
+import kotlin.math.abs
 import kotlin.math.hypot
 
 /**
@@ -71,17 +73,20 @@ fun Modifier.readmeInlineZoom(
     val currentOnTransform by rememberUpdatedState(onTransform)
 
     return pointerInput(Unit) {
+        val touchSlop = viewConfiguration.touchSlop
         awaitEachGesture {
-            val firstDown = awaitFirstDown(requireUnconsumed = false)
+            val firstDown = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
 
             var isZooming = false
+            var isPanning = false
             var prevDist = 0f
             var prevCentroid = firstDown.position
+            var downPos = firstDown.position
             var localScale = currentScale
             var localOffset = currentOffset
 
             do {
-                val event = awaitPointerEvent()
+                val event = awaitPointerEvent(PointerEventPass.Initial)
                 val pressed = event.changes.filter { it.pressed }
 
                 if (pressed.size >= 2) {
@@ -92,10 +97,9 @@ fun Modifier.readmeInlineZoom(
 
                     if (!isZooming) {
                         isZooming = true
+                        isPanning = false
                         prevDist = dist
                         prevCentroid = centroid
-                        localScale = currentScale
-                        localOffset = currentOffset
                     } else {
                         if (prevDist > 0f && dist > 0f) {
                             val zoomRatio = dist / prevDist
@@ -119,22 +123,40 @@ fun Modifier.readmeInlineZoom(
                         prevCentroid = centroid
                     }
                     event.changes.forEach { it.consume() }
-                } else if (pressed.size == 1 && currentScale > 1.05f) {
+                } else if (pressed.size == 1 && localScale > 1.05f) {
                     val p = pressed[0]
                     if (isZooming) {
                         isZooming = false
+                        isPanning = true
                         prevCentroid = p.position
-                        localOffset = currentOffset
+                        downPos = p.position
                     } else {
-                        val pan = p.position - prevCentroid
-                        val targetOffset = clampReadmeOffset(localOffset + pan, currentScale, currentContentSize)
-                        localOffset = targetOffset
-                        currentOnTransform(currentScale, targetOffset)
-                        p.consume()
+                        if (!isPanning) {
+                            val moved = p.position - downPos
+                            if (hypot(moved.x, moved.y) > touchSlop) {
+                                isPanning = true
+                                prevCentroid = downPos
+                            }
+                        }
+                        if (isPanning) {
+                            val pan = p.position - prevCentroid
+                            val targetOffset = clampReadmeOffset(localOffset + pan, localScale, currentContentSize)
+                            val dx = targetOffset.x - localOffset.x
+                            val dy = targetOffset.y - localOffset.y
+                            val horizontalDominant = abs(pan.x) >= abs(pan.y)
+                            // 横向拖动或纵向仍在缩放范围内移动时拦截，避免子级表格横向滚动抢走平移；
+                            // 纵向已顶到缩放边界时放行给外层 LazyColumn 继续上下滚页面。
+                            if (horizontalDominant || abs(dx) > 0.5f || abs(dy) > 0.5f) {
+                                localOffset = targetOffset
+                                currentOnTransform(localScale, targetOffset)
+                                p.consume()
+                            }
+                        }
                     }
                     prevCentroid = p.position
                 } else {
                     isZooming = false
+                    isPanning = false
                     prevDist = 0f
                 }
             } while (event.changes.any { it.pressed })

@@ -204,7 +204,7 @@ fun OcButton(@DrawableRes icon: Int, onClick: () -> Unit, tint: Color = Gh.c.fg,
     }
     GhTooltip(label) {
         IconButton(onClick = onClick, enabled = enabled) {
-            Icon(painterResource(icon), label, Modifier.size(20.dp), tint = if (enabled) tint else Gh.c.fgMuted)
+            Icon(painterResource(icon), label, Modifier.size(20.dp), tint = if (enabled) tint else Gh.c.fgMuted.copy(alpha = 0.28f))
         }
     }
 }
@@ -683,7 +683,17 @@ fun StateBadge(s: IssueState) {
 @Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier, trailing: @Composable RowScope.() -> Unit = {}) {
     Row(modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 20.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = Gh.c.fg, modifier = Modifier.weight(1f))
+        Text(
+            text,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 16.sp,
+            color = Gh.c.fg,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Spacer(Modifier.width(8.dp))
         trailing()
     }
 }
@@ -716,6 +726,7 @@ fun SectionActionChip(
                 fontWeight = FontWeight.Medium,
                 color = g.fg,
                 maxLines = 1,
+                softWrap = false,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -783,11 +794,13 @@ fun MenuRow(
 
 @Composable
 fun Card(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val shape = RoundedCornerShape(8.dp)
     Box(
         modifier
             .fillMaxWidth()
-            .border(1.dp, Gh.c.border, RoundedCornerShape(8.dp))
-            .background(Gh.c.canvas, RoundedCornerShape(8.dp)),
+            .clip(shape)
+            .background(Gh.c.canvas, shape)
+            .border(1.dp, Gh.c.border, shape),
     ) { content() }
 }
 

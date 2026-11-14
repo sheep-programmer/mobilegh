@@ -57,7 +57,8 @@ fun UpdateDialog(onDismiss: () -> Unit, onSkip: (() -> Unit)? = null) {
         properties = if (onSkip != null) ModalDialogProperties else androidx.compose.ui.window.DialogProperties(),
         modifier = Modifier.dialogFrame(),
         containerColor = g.canvas,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 0.dp,
         title = { Text(tr("在线更新"), color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) },
         text = {
             Column {

@@ -67,8 +67,6 @@ import com.mobilegh.i18n.tr
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.ui.text.font.FontWeight
 import com.mobilegh.i18n.trf
 
@@ -444,24 +442,18 @@ internal fun CodeZoomDialog(code: String, language: String? = null, onDismiss: (
                 OcButton(R.drawable.oc_copy, { ctx.copy(code) }, g.fg)
                 Box {
                     OcButton(R.drawable.oc_kebab_horizontal, { menu = true }, g.fg)
-                    DropdownMenu(menu, { menu = false }, containerColor = g.canvas) {
-                        DropdownMenuItem(
-                            text = { Text(tr("自动换行"), color = g.fg) },
-                            leadingIcon = { if (wrap) Oc(R.drawable.oc_check, g.fg, 16.dp) },
-                            onClick = {
+                    CardDropdownMenu(
+                        expanded = menu,
+                        onDismissRequest = { menu = false },
+                        actions = listOf(
+                            MenuAction(tr("自动换行"), icon = R.drawable.oc_wrap_text, checked = wrap) {
                                 wrap = !wrap
                                 prefs.edit().putBoolean("wrap", wrap).apply()
                             },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(trf("增大字号（当前 {0}）", fontSp), color = g.fg) },
-                            onClick = { setFont(fontSp + 1) },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(trf("缩小字号（当前 {0}）", fontSp), color = g.fg) },
-                            onClick = { setFont(fontSp - 1) },
-                        )
-                    }
+                            MenuAction(trf("增大字号（当前 {0}）", fontSp), icon = R.drawable.oc_unfold) { setFont(fontSp + 1) },
+                            MenuAction(trf("缩小字号（当前 {0}）", fontSp), icon = R.drawable.oc_fold) { setFont(fontSp - 1) },
+                        ),
+                    )
                 }
             }
             HDivider()

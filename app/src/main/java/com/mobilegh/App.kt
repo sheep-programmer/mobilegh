@@ -19,6 +19,9 @@ class App : Application() {
         com.mobilegh.i18n.I18n.init(this)
         // 日志与崩溃处理器尽早安装：之后的初始化出错也能留下记录
         AppLog.init(this)
+        // 导航栈序列化器在后台线程先建好：它要构造 75 个页面类型的描述符，
+        // 首次在主线程上做会卡住冷启动（卡顿看门狗实测抓到过 5 秒）
+        Thread({ com.mobilegh.nav.ScreenCodec.warmUp() }, "screen-codec-warmup").apply { isDaemon = true }.start()
         Api.cacheDir = cacheDir
         com.mobilegh.data.ImageFetch.init(cacheDir)
         com.mobilegh.data.AppNetwork.init(this)

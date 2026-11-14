@@ -82,7 +82,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 /** 筛选标签选项（支持图标） */
 data class IconChipOption(
     val label: String,
-    @DrawableRes val icon: Int? = null,
+    @get:DrawableRes val icon: Int? = null,
 )
 
 /** 可横向滑动且支持首部图标的筛选标签 */
@@ -177,9 +177,9 @@ fun Dropdown(label: String, options: List<String>, onSelect: (Int) -> Unit, modi
             modifier = Modifier
                 .widthIn(min = 180.dp, max = 280.dp)
                 .heightIn(max = 360.dp),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(12.dp),
             containerColor = g.canvas,
-            border = BorderStroke(1.dp, g.border.copy(alpha = 0.7f)),
+            border = BorderStroke(1.dp, g.borderMuted.copy(alpha = 0.5f)),
             shadowElevation = 0.dp,
         ) {
             Column(
@@ -231,7 +231,7 @@ fun Dropdown(label: String, options: List<String>, onSelect: (Int) -> Unit, modi
 data class MultiSelectOption(
     val id: String,
     val label: String,
-    @DrawableRes val icon: Int? = null,
+    @get:DrawableRes val icon: Int? = null,
 )
 
 /**
@@ -292,9 +292,9 @@ fun MultiSelectDropdown(
             modifier = Modifier
                 .widthIn(min = 210.dp, max = 310.dp)
                 .heightIn(max = 360.dp),
-            shape = RoundedCornerShape(14.dp),
+            shape = RoundedCornerShape(12.dp),
             containerColor = g.canvas,
-            border = BorderStroke(1.dp, g.border.copy(alpha = 0.7f)),
+            border = BorderStroke(1.dp, g.borderMuted.copy(alpha = 0.5f)),
             shadowElevation = 0.dp,
         ) {
             Column(
@@ -473,6 +473,7 @@ fun MultiSelectDialog(
         titleContentColor = g.fg,
         textContentColor = g.fg,
         shape = RoundedCornerShape(16.dp),
+        tonalElevation = 0.dp,
         modifier = Modifier.dialogFrame().widthIn(min = 280.dp, max = 400.dp),
         title = {
             Row(
@@ -714,13 +715,15 @@ fun DropdownButton(
 data class MenuAction(
     val text: String,
     val danger: Boolean = false,
-    @DrawableRes val icon: Int? = null,
+    @get:DrawableRes val icon: Int? = null,
     val enabled: Boolean = true,
+    val checked: Boolean? = null,
     val onClick: () -> Unit,
 ) {
-    constructor(text: String, onClick: () -> Unit) : this(text, false, null, true, onClick)
-    constructor(text: String, danger: Boolean, onClick: () -> Unit) : this(text, danger, null, true, onClick)
-    constructor(text: String, danger: Boolean, @DrawableRes icon: Int?, onClick: () -> Unit) : this(text, danger, icon, true, onClick)
+    constructor(text: String, onClick: () -> Unit) : this(text, false, null, true, null, onClick)
+    constructor(text: String, danger: Boolean, onClick: () -> Unit) : this(text, danger, null, true, null, onClick)
+    constructor(text: String, danger: Boolean, @DrawableRes icon: Int?, onClick: () -> Unit) : this(text, danger, icon, true, null, onClick)
+    constructor(text: String, @DrawableRes icon: Int?, checked: Boolean?, onClick: () -> Unit) : this(text, false, icon, true, checked, onClick)
 }
 
 /** 智能推断操作对应的 Octicon 图标 */
@@ -801,11 +804,19 @@ fun MenuActionItem(
             text = a.text,
             color = itemFg,
             fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
+            fontWeight = if (a.checked == true) FontWeight.SemiBold else FontWeight.Medium,
             modifier = Modifier.weight(1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (a.checked != null) {
+            Spacer(Modifier.width(8.dp))
+            if (a.checked) {
+                Oc(R.drawable.oc_check, g.accent, 16.dp)
+            } else {
+                Spacer(Modifier.width(16.dp))
+            }
+        }
     }
 }
 
@@ -909,7 +920,7 @@ fun GhField(
             shape = shape,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = g.accent,
-                unfocusedBorderColor = g.border,
+                unfocusedBorderColor = g.borderMuted,
                 focusedContainerColor = g.canvas,
                 unfocusedContainerColor = g.canvasSubtle,
                 focusedLabelColor = g.accent,
@@ -1160,12 +1171,13 @@ fun InFileSearchBar(
 }
 
 /**
- * 弹窗描边：精致柔和的细描边，圆角 16dp，搭配阴影与遮罩自然突出边界，避免生硬突兀的黑框
+ * 弹窗描边：精致柔和的细描边，圆角 16dp，搭配阴影与遮罩自然突出边界，避免生硬突兀的黑框与内层溢出
  */
 @Composable
 fun Modifier.dialogFrame(): Modifier {
     val g = Gh.c
-    return border(1.dp, g.borderMuted.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+    val shape = RoundedCornerShape(16.dp)
+    return clip(shape).border(1.dp, g.borderMuted.copy(alpha = 0.5f), shape)
 }
 
 /** 强制显示的弹窗属性：点框外、点遮罩都不会关闭，只能通过弹窗里的按钮（或返回键）处理 */
@@ -1192,6 +1204,7 @@ fun GhDialog(
         titleContentColor = g.fg,
         textContentColor = g.fg,
         shape = RoundedCornerShape(16.dp),
+        tonalElevation = 0.dp,
         // 弹窗与浅色页面底色接近时容易看不出边界，明确描边
         modifier = Modifier.dialogFrame(),
         title = { Text(title, fontWeight = FontWeight.SemiBold, fontSize = 18.sp) },

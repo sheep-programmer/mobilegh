@@ -26,6 +26,14 @@ object MobileApprovalNotifications {
     private const val LEGACY_REQUEST_CHANNEL = "github_2fa_requests"
     private const val LEGACY_MONITOR_CHANNEL = "github_2fa_monitor"
 
+    /**
+     * 频道只需建一次。这些调用都是到 system_server 的 binder 往返，system_server 忙的时候
+     * 单次能阻塞好几秒；之前每次 onStart 都调一遍，卡顿看门狗抓到过
+     * `deleteNotificationChannel` 阻塞主线程超过 5 秒。所以进程内只做一次。
+     */
+    @Volatile private var channelsReady = false
+    private val channelLock = Any()
+
     fun allowed(context: Context): Boolean = (Build.VERSION.SDK_INT < 33 ||
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&
         NotificationManagerCompat.from(context).areNotificationsEnabled()
@@ -35,13 +43,19 @@ object MobileApprovalNotifications {
      * 频道用普通重要级别（不悬浮、不打断），旧的「正在监控」常驻通知频道一并清掉。
      */
     fun channels(context: Context) {
-        val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(REQUEST_CHANNEL, tr("GitHub 两步验证"), NotificationManager.IMPORTANCE_DEFAULT).apply {
-            description = tr("应用不在前台时，提醒有一条 GitHub 数字确认请求")
-            lockscreenVisibility = Notification.VISIBILITY_PRIVATE
-        })
-        runCatching { manager.deleteNotificationChannel(LEGACY_REQUEST_CHANNEL) }
-        runCatching { manager.deleteNotificationChannel(LEGACY_MONITOR_CHANNEL) }
+        if (channelsReady) return
+        synchronized(channelLock) {
+            if (channelsReady) return
+            val manager = context.getSystemService(NotificationManager::class.java) ?: return
+            manager.createNotificationChannel(NotificationChannel(REQUEST_CHANNEL, tr("GitHub 两步验证"), NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = tr("应用不在前台时，提醒有一条 GitHub 数字确认请求")
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+            })
+            channelsReady = true
+            // 删旧频道只是清理，失败不影响新频道
+            runCatching { manager.deleteNotificationChannel(LEGACY_REQUEST_CHANNEL) }
+            runCatching { manager.deleteNotificationChannel(LEGACY_MONITOR_CHANNEL) }
+        }
     }
 
     private fun intent(context: Context, request: Int? = null): PendingIntent {

@@ -87,6 +87,7 @@ object Api {
             }
             .addInterceptor { chain ->
                 val req = chain.request()
+                AppLog.breadcrumb("network", "${req.method} ${req.url.encodedPath}")
                 val b = req.newBuilder().header("User-Agent", "MobileGH/1.0 (Android)")
                 val token = Session.token
                 val generation = Session.generation
@@ -168,7 +169,17 @@ object Api {
         }
         try {
             return withContext(Dispatchers.IO) {
-                Resp(response.code, response.body.string(), response.headers)
+                val body = response.body.string()
+                // 非 2xx 记录路径、状态码与响应摘要：崩溃报告里常看到「解析失败」，需要知道服务器到底返回了什么
+                if (response.code >= 400) {
+                    AppLog.warn(
+                        "network",
+                        trf("请求失败：{0} {1} → HTTP {2}", method, path.take(160), response.code),
+                        null,
+                        body.take(600),
+                    )
+                }
+                Resp(response.code, body, response.headers)
             }
         } finally {
             response.close()

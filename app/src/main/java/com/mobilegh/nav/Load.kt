@@ -191,6 +191,21 @@ class Pager<T>(
     /** 正在进行的是全量或分块加载（而非普通翻页与刷新），界面据此决定是否显示“停止”按钮 */
     val fullScanning: Boolean get() = loading && isFullScan(active)
 
+    /** 已经提交的页数（即最后一个成功加载的页码） */
+    val committedPages: Int get() = page
+
+    /**
+     * 用之前缓存的结果恢复状态，不发起请求。只在从未加载过、且没有条目时有效，返回是否恢复成功。
+     */
+    fun restoreFrom(cached: List<T>, pages: Int, ended: Boolean): Boolean {
+        if (loadedOnce || items.isNotEmpty() || pages <= 0) return false
+        items.addAll(cached)
+        page = pages
+        end = ended
+        loadedOnce = true
+        return true
+    }
+
     fun loadMore() {
         if (!loading && !end) request(Request.More)
     }
@@ -361,9 +376,15 @@ fun <T> rememberPager(
     key: String,
     pageSize: Int = 30,
     hasMore: ((page: Int) -> Boolean)? = null,
+    /** 返回 true 表示已用缓存恢复，首次不再自动请求第一页 */
+    restore: ((Pager<T>) -> Boolean)? = null,
     fetchPage: (suspend (page: Int, force: Boolean) -> PagerPage<T>)? = null,
     fetch: suspend (page: Int, force: Boolean) -> List<T> = { _, _ -> error(tr("Pager 缺少数据源")) },
-): Pager<T> = retain(key) { e -> Pager(e.scope, pageSize, hasMore, fetchPage, fetch).also { it.loadMore() } }
+): Pager<T> = retain(key) { e ->
+    Pager(e.scope, pageSize, hasMore, fetchPage, fetch).also { pager ->
+        if (restore?.invoke(pager) != true) pager.loadMore()
+    }
+}
 
 /**
  * 在页面作用域内执行一次性操作（如 star、合并），并返回错误提示。
@@ -386,11 +407,12 @@ fun Entry.act(onError: (String) -> Unit = {}, onDone: () -> Unit = {}, label: St
 
 private fun logActionFailure(label: String?, e: Throwable) {
     val what = (label ?: tr("操作")) + " " + tr("失败")
+    val msg = e.message?.takeIf { it.isNotBlank() }?.let { " - $it" } ?: ""
     when (e) {
         is ApiException -> AppLog.warn("action", "$what：HTTP ${e.code} ${e.message}")
-        is java.io.IOException -> AppLog.warn("action", "$what：${e.javaClass.simpleName}", e)
+        is java.io.IOException -> AppLog.warn("action", "$what：${e.javaClass.simpleName}$msg", e)
         // 其余都是意外情况（解析异常、空指针等），需要堆栈才能定位
-        else -> AppLog.error("action", "$what：${e.javaClass.simpleName}", e)
+        else -> AppLog.error("action", "$what：${e.javaClass.simpleName}$msg", e)
     }
 }
 
@@ -402,7 +424,7 @@ private fun logActionFailure(label: String?, e: Throwable) {
 fun OnRepoChanged(owner: String, name: String, kind: String = com.mobilegh.data.RepoWrite.CODE, refresh: () -> Unit) {
     val v = com.mobilegh.data.RepoChanges.version(owner, name, kind)
     // 按调用位置区分：同一页面里多处监听同一种变化时，各自记录已处理的版本，不会一处刷新后另一处就跳过
-    val site = androidx.compose.runtime.currentCompositeKeyHash
+    val site = androidx.compose.runtime.currentCompositeKeyHashCode
     val seen = retain("repo-change:$kind:$site") { intArrayOf(v) }
     androidx.compose.runtime.LaunchedEffect(v) {
         if (v != seen[0]) {

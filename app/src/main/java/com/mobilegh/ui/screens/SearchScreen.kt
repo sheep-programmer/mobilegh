@@ -27,8 +27,6 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -100,6 +98,7 @@ import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trc
 import com.mobilegh.i18n.trf
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
@@ -108,7 +107,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Tab
@@ -610,11 +609,32 @@ private fun PickerRow(label: String, value: String, options: List<String>, onSel
             label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             singleLine = true,
-            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = 320.dp),
+            containerColor = Gh.c.canvas,
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, Gh.c.borderMuted.copy(alpha = 0.5f)),
+            shadowElevation = 0.dp,
+        ) {
             options.forEachIndexed { i, text ->
-                DropdownMenuItem(text = { Text(text) }, onClick = { onSelect(i); expanded = false })
+                val isSelected = text == value
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text,
+                            color = if (isSelected) Gh.c.accent else Gh.c.fg,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                        )
+                    },
+                    trailingIcon = if (isSelected) {
+                        { Oc(R.drawable.oc_check, Gh.c.accent, 16.dp) }
+                    } else null,
+                    onClick = { onSelect(i); expanded = false },
+                )
             }
         }
     }

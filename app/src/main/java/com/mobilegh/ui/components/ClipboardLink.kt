@@ -65,6 +65,8 @@ fun ClipboardLinkHost(nav: Navigator, modifier: Modifier = Modifier) {
             }
             if (!suggest) {
                 nav.clipboardLinks.note(texts)
+                val copiedLink = texts.firstNotNullOfOrNull(Links::clipboardLink)
+                if (copiedLink?.target != pending?.target) pending = null
                 return
             }
             val update = nav.clipboardLinks.inspect(texts) ?: return
@@ -72,7 +74,12 @@ fun ClipboardLinkHost(nav: Navigator, modifier: Modifier = Modifier) {
         }
         val inspectLater = Runnable { inspect(suggest = true) }
         val clipboardChanged = Runnable { inspect(suggest = false) }
-        val listener = ClipboardManager.OnPrimaryClipChangedListener { view.post(clipboardChanged) }
+        // 后台复制的事件可能延迟到 ON_RESUME 后、窗口聚焦前送达，不能误记为应用内复制。
+        val listener = ClipboardManager.OnPrimaryClipChangedListener {
+            if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && view.hasWindowFocus()) {
+                view.post(clipboardChanged)
+            }
+        }
         val focusListener = ViewTreeObserver.OnWindowFocusChangeListener { focused -> if (focused) view.post(inspectLater) }
         val observer = LifecycleEventObserver { _, event ->
             when (event) {

@@ -120,24 +120,15 @@ private fun approvalRequestLabel(type: String) = when (type) {
 fun NotificationPermissionHost() {
     val ctx = rememberCtx()
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val state by MobileApprovalMonitor.state.collectAsStateWithLifecycle()
     val prefs = remember { ctx.getSharedPreferences("permissions", android.content.Context.MODE_PRIVATE) }
-    val background = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
-    fun requestBackground() {
-        val power = ctx.getSystemService(PowerManager::class.java)
-        if (!prefs.getBoolean("background_requested", false) && !power.isIgnoringBatteryOptimizations(ctx.packageName)) {
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${ctx.packageName}"))
-            if (intent.resolveActivity(ctx.packageManager) != null) {
-                prefs.edit().putBoolean("background_requested", true).apply()
-                background.launch(intent)
-            }
-        }
-    }
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { requestBackground() }
-    LaunchedEffect(lifecycle) {
-        if (Build.VERSION.SDK_INT >= 33 && lifecycle.isAtLeast(Lifecycle.State.RESUMED) && !prefs.getBoolean("notification_requested", false)) {
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    // 只有用户已开启数字审批时才请求通知权限；启动应用不再主动弹系统授权或电池白名单。
+    LaunchedEffect(lifecycle, state.enabled) {
+        if (state.enabled && Build.VERSION.SDK_INT >= 33 && lifecycle.isAtLeast(Lifecycle.State.RESUMED) && !prefs.getBoolean("notification_requested", false)) {
             prefs.edit().putBoolean("notification_requested", true).apply()
             permission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else if (lifecycle.isAtLeast(Lifecycle.State.RESUMED)) requestBackground()
+        }
     }
 }
 

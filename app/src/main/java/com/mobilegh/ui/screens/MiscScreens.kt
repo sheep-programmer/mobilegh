@@ -49,6 +49,7 @@ import com.mobilegh.data.AppLog
 import com.mobilegh.data.DeviceAuth
 import com.mobilegh.data.Downloads
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.CdnNode
 import com.mobilegh.data.Net
 import com.mobilegh.data.NodeType
 import com.mobilegh.data.ProxyMode
@@ -187,6 +188,7 @@ fun SettingsScreen() {
                 SettingsPage.Security -> {
                     LoginLifetimeSection()
                     AppLockSection()
+                    NotificationScheduleSection()
                     SectionTitle(tr("桌面小组件"))
                     MenuGroup {
                         SwitchRow(tr("隐藏通知详情"), tr("桌面仅显示未读数量，不显示仓库名称和标题；应用锁不保护桌面内容"),
@@ -404,7 +406,11 @@ private fun languageName() = when (com.mobilegh.i18n.I18n.choice) {
 private fun accelerationModeLabels() = listOf(tr("自动（推荐）"), tr("手动选择"), tr("关闭"))
 
 @Composable
-private fun accelerationName() = accelerationModeLabels()[Net.mode.coerceIn(0, 2)]
+private fun accelerationName() = trf(
+    "文件 {0} · 下载 {1}",
+    accelerationModeLabels()[Net.rawMode.coerceIn(0, 2)],
+    accelerationModeLabels()[Net.downloadMode.coerceIn(0, 2)],
+)
 
 /** 外观与语言：主题、界面语言、代码换行 */
 @Composable
@@ -510,6 +516,57 @@ private fun QuotaSection() {
 }
 
 @Composable
+private fun AccelerationSetting(
+    icon: Int,
+    title: String,
+    description: String,
+    mode: Int,
+    selected: CdnNode,
+    options: List<CdnNode>,
+    onMode: (Int) -> Unit,
+    onNode: (String) -> Unit,
+) {
+    val g = Gh.c
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MenuIcon(icon, g.attention)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, fontSize = 15.sp, color = g.fg)
+                Text(description, fontSize = 12.sp, color = g.fgMuted)
+                Text(
+                    when (mode) {
+                        0 -> trf("自动当前：{0}", selected.name)
+                        1 -> trf("手动当前：{0}", selected.name)
+                        else -> tr("已关闭，仅直连 GitHub")
+                    },
+                    fontSize = 11.sp,
+                    color = g.fgMuted,
+                )
+            }
+            val modes = accelerationModeLabels()
+            Dropdown(modes[mode.coerceIn(0, 2)], modes, onMode)
+        }
+        if (mode == 1) {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 54.dp, end = 16.dp, bottom = 10.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                Dropdown(
+                    selected.name,
+                    options.map { it.name },
+                    { index -> onNode(options[index].id) },
+                    active = true,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit, onLogin: () -> Unit) {
     val g = Gh.c
     LaunchedEffect(Unit) {
@@ -521,23 +578,27 @@ private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit, onLogin: () -> 
         else com.mobilegh.ui.components.TextLink(tr("立即测速")) { Net.speedTestAsync() }
     }
     MenuGroup {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        MenuIcon(R.drawable.oc_zap, g.attention)
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(tr("加速模式"), fontSize = 15.sp, color = g.fg)
-            Text(
-                when (Net.mode) {
-                    0 -> trf("自动：源码/图片 {0} · 下载 {1}", Net.rawNode().name, Net.downloadNode().name)
-                    1 -> trf("手动：源码/图片 {0} · 下载 {1}", Net.rawNode().name, Net.downloadNode().name)
-                    else -> tr("已关闭，全部直连 GitHub")
-                },
-                fontSize = 12.sp, color = g.fgMuted,
-            )
-        }
-        val modes = accelerationModeLabels()
-        Dropdown(modes[Net.mode], modes, { Net.changeMode(it) })
-    }
+        AccelerationSetting(
+            icon = R.drawable.oc_file,
+            title = tr("文件与图片"),
+            description = tr("源码原文、raw 文件与 README 图片"),
+            mode = Net.rawMode,
+            selected = Net.rawNode(),
+            options = Net.nodes,
+            onMode = Net::changeRawMode,
+            onNode = Net::setRawManual,
+        )
+        HDivider()
+        AccelerationSetting(
+            icon = R.drawable.oc_download,
+            title = tr("下载与克隆"),
+            description = tr("Release、源码压缩包、文件下载与 git clone"),
+            mode = Net.downloadMode,
+            selected = Net.downloadNode(),
+            options = Net.nodes.filter { it.type != NodeType.JsDelivr },
+            onMode = Net::changeDownloadMode,
+            onNode = Net::setDownloadManual,
+        )
     }
     Spacer(Modifier.height(8.dp))
     MenuGroup {
@@ -548,7 +609,7 @@ private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit, onLogin: () -> 
                 if (i > 0) HDivider()
                 val ms = Net.latency[n.id]
                 Row(
-                    Modifier.fillMaxWidth().clickable { Net.setManual(n.id) }.padding(horizontal = 16.dp, vertical = 10.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(
@@ -576,7 +637,7 @@ private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit, onLogin: () -> 
                         )
                     }
                     if (n.id == raw) { Pill(tr("文件"), g.accent); Spacer(Modifier.width(4.dp)) }
-                    if (n.id == dl && n.type != NodeType.Direct) { Pill(tr("下载"), g.done); Spacer(Modifier.width(4.dp)) }
+                    if (n.id == dl) { Pill(tr("下载"), g.done); Spacer(Modifier.width(4.dp)) }
                     Text(
                         when { ms == null -> "—"; ms < 0 -> tr("超时"); else -> "${ms}ms" },
                         fontSize = 12.sp, fontFamily = FontFamily.Monospace,
@@ -588,7 +649,7 @@ private fun NetworkSection(onAdd: () -> Unit, onApi: () -> Unit, onLogin: () -> 
         }
     }
     Text(
-        tr("加速仅用于公开内容：README 图片、源码原文、Release 下载与克隆地址。Token 不会发送给加速节点；私有仓库始终直连。点按节点可手动指定。"),
+        tr("加速仅用于公开内容，Token 不会发送给加速节点；私有仓库始终直连。文件与下载分别设置：自动可按测速选择，手动只使用指定节点并以直连兜底，关闭则仅直连。下方列表用于查看测速和支持范围。"),
         Modifier.padding(horizontal = 20.dp, vertical = 6.dp), fontSize = 12.sp, lineHeight = 18.sp, color = g.fgMuted,
     )
     MenuGroup {
@@ -680,7 +741,15 @@ private fun SettingsImportDialog(onDismiss: () -> Unit) {
             } else {
                 Text(tr("将写入以下设置："), color = g.fg, fontSize = 14.sp)
                 Text(trf("应用网络代理：{0}", ProxyMode.valueOf(payload.network.mode).label), color = g.fgMuted, fontSize = 13.sp)
-                Text(trf("加速节点：{0}", accelerationModeLabels()[payload.acceleration.mode]), color = g.fgMuted, fontSize = 13.sp)
+                Text(
+                    trf(
+                        "文件 {0} · 下载 {1}",
+                        accelerationModeLabels()[payload.acceleration.mode],
+                        accelerationModeLabels()[payload.acceleration.downloadMode],
+                    ),
+                    color = g.fgMuted,
+                    fontSize = 13.sp,
+                )
                 Text(trf("自定义加速节点：{0} 个", payload.customNodes.size), color = g.fgMuted, fontSize = 13.sp)
                 if (payload.apiProxy.isBlank()) {
                     Text(tr("API 反向代理：官方"), color = g.fgMuted, fontSize = 13.sp)

@@ -33,10 +33,11 @@ data class DraftValue(
     val title: String = "",
     val body: String = "",
     val category: String? = null,
-    /** 仅新建 Issue 使用：标签、指派人、里程碑 */
+    /** 仅新建 Issue 使用：标签、指派人、里程碑、类型 */
     val labels: List<DraftOption> = emptyList(),
     val assignees: List<DraftOption> = emptyList(),
     val milestone: DraftOption? = null,
+    val issueType: DraftOption? = null,
     /** 新建 Issue 使用：所选模板的文件名与 YAML 表单的答案 */
     val template: String? = null,
     val answers: List<DraftAnswer> = emptyList(),
@@ -44,7 +45,7 @@ data class DraftValue(
     val meta: DraftMeta? = null,
 ) {
     val empty: Boolean get() = title.isBlank() && body.isBlank() && labels.isEmpty() && assignees.isEmpty() &&
-        milestone == null && template == null && answers.isEmpty()
+        milestone == null && issueType == null && template == null && answers.isEmpty()
 }
 
 class DraftStore internal constructor(private val storage: LocalRecordStorage) {

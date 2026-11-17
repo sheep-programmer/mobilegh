@@ -27,7 +27,11 @@ import com.mobilegh.nav.act
 class CommentAttachmentState(val uploading: String?, val pick: () -> Unit)
 
 @Composable
-fun rememberCommentAttachments(repoId: Long?, onUploaded: (url: String, fileName: String) -> Unit): CommentAttachmentState {
+fun rememberCommentAttachments(
+    repoId: Long?,
+    onUploadingChange: (Boolean) -> Unit = {},
+    onUploaded: (url: String, fileName: String) -> Unit,
+): CommentAttachmentState {
     val ctx = rememberCtx()
     val entry = LocalEntry.current
     var uploading by remember { mutableStateOf<String?>(null) }
@@ -44,8 +48,10 @@ fun rememberCommentAttachments(repoId: Long?, onUploaded: (url: String, fileName
             return
         }
         uploading = name
+        onUploadingChange(true)
         entry.act({
             uploading = null
+            onUploadingChange(false)
             ctx.toast(trf("附件上传失败：{0}", it))
         }) {
             require(repoId != null && repoId > 0) { tr("无法确定所属仓库，请稍后重试") }
@@ -53,6 +59,7 @@ fun rememberCommentAttachments(repoId: Long?, onUploaded: (url: String, fileName
                 resolver.openInputStream(uri) ?: throw IllegalStateException(tr("无法读取所选文件"))
             }
             uploading = null
+            onUploadingChange(false)
             onUploaded(url, name)
             ctx.toast(tr("附件已插入"))
         }

@@ -19,7 +19,6 @@ object Links {
 
     private val ownerPattern = Regex("[A-Za-z0-9][A-Za-z0-9-]{0,38}")
     private val repoPattern = Regex("[A-Za-z0-9_.-]{1,100}")
-    private val bareHost = Regex("(?i)^(?:(?:www\\.)?github\\.com|api\\.github\\.com|raw\\.githubusercontent\\.com|gist\\.github\\.com)/.*$")
     private val cloneUrl = Regex("(?i)^(?:git@github\\.com:|ssh://git@github\\.com/)([^\\s]+)$")
     private val shortRepo = Regex("^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$")
     private val markdownLink = Regex("^\\[[^]\\r\\n]*]\\(([^\\s()]+)\\)$")
@@ -45,7 +44,7 @@ object Links {
 
     data class InputLink(val url: String, val target: Screen)
 
-    fun inputLink(text: String): InputLink? {
+    fun inputLink(text: String, activeApiHost: String = "api.github.com"): InputLink? {
         val raw = normalizeInput(text) ?: return null
         val full = raw.substringBefore('#')
         // 搜索链接的关键词在查询参数里，要保留；其余链接丢掉 ?tab= 之类的会话参数
@@ -55,7 +54,7 @@ object Links {
         val positional = raw.contains('#') && positionalFragment(raw)
         val withFragment = if (positional) url + "#" + raw.substringAfter('#') else url
         // 返回的 url 会被交给 receive 再次解析（外部打开时就是这样），所以它必须带着片段
-        return fromInput(withFragment)?.let { InputLink(withFragment, it) }
+        return fromInput(withFragment, activeApiHost)?.let { InputLink(withFragment, it) }
     }
 
     fun sharedLink(text: String): InputLink? =
@@ -64,9 +63,9 @@ object Links {
         }.firstOrNull()
 
     /** 搜索提交时识别完整链接、无协议地址和 Git 克隆地址；普通搜索语法返回 null。 */
-    fun fromInput(input: String): Screen? {
+    fun fromInput(input: String, activeApiHost: String = "api.github.com"): Screen? {
         val url = normalizeInput(input) ?: return null
-        return route(url) ?: repositoryLink(url)?.target
+        return route(url, activeApiHost) ?: repositoryLink(url)?.target
     }
 
     /**
@@ -100,7 +99,11 @@ object Links {
         }
         if (value.any(Char::isWhitespace)) return null
         cloneUrl.matchEntire(value)?.let { return "https://github.com/${it.groupValues[1]}" }
-        if (bareHost.matches(value) || shortRepo.matches(value)) return "https://${if (shortRepo.matches(value)) "github.com/" else ""}$value"
+        if (shortRepo.matches(value)) return "https://github.com/$value"
+        if (!value.contains("://") && value.contains('/')) {
+            val candidate = "https://$value"
+            if (parse(candidate)?.first?.host != null) return candidate
+        }
         return value
     }
 
@@ -132,7 +135,33 @@ object Links {
         return RepositoryLink(repo, route(url) ?: repo, url.substringBefore('#').substringBefore('?'))
     }
 
-    fun route(url: String): Screen? {
+    /** 仅识别真正的 HTTPS 子域，例如 corp.ghe.com；伪造后缀、裸 ghe.com 和非默认端口均不接受。 */
+    fun enterpriseHost(url: String): String? {
+        val (u, _) = parse(url) ?: return null
+        if (!u.scheme.equals("https", ignoreCase = true)) return null
+        return u.host?.lowercase()?.takeIf { it.endsWith(".ghe.com") }
+    }
+
+    /**
+     * 企业站点只能由当前账号精确配置的 Web/API Host 打开；只承认这一对形式，不递归剥离 api.。
+     * URL 与账号配置都经过同一个严格 URI 解析器，企业链接始终要求 HTTPS、默认端口且无 userinfo。
+     */
+    fun enterpriseHostAllowed(url: String, activeApiHost: String): Boolean {
+        val host = strictHttpsHost(url, allowPath = true) ?: return false
+        val active = strictHttpsHost(activeApiHost, allowPath = false) ?: return false
+        val counterpart = if (active.startsWith("api.")) active.removePrefix("api.") else "api.$active"
+        return host == active || host == counterpart
+    }
+
+    private fun strictHttpsHost(value: String, allowPath: Boolean): String? {
+        val candidate = if (value.contains("://")) value else "https://$value"
+        val (u, segs) = parse(candidate) ?: return null
+        if (!u.scheme.equals("https", ignoreCase = true)) return null
+        if (!allowPath && (segs.isNotEmpty() || u.rawQuery != null || u.rawFragment != null)) return null
+        return u.host?.lowercase()?.takeIf(String::isNotBlank)
+    }
+
+    fun route(url: String, activeApiHost: String = "api.github.com"): Screen? {
         val (u, segs) = parse(url) ?: return null
         val host = u.host?.lowercase() ?: return null
         val screen = when (host) {
@@ -142,7 +171,12 @@ object Links {
             "raw.githubusercontent.com" ->
                 if (segs.size >= 4 && repository(segs[0], segs[1]) != null) Screen.Blob(segs[0], segs[1], segs.drop(2).joinToString("/")) else null
             "gist.github.com" -> segs.getOrNull(1)?.let { Screen.GistDetail(it) } ?: segs.getOrNull(0)?.let { Screen.Gists(it) }
-            else -> null
+            // 企业站点的 API 形式与 github.com 的 api.github.com 一样走 API 路径解析
+            else -> when {
+                !enterpriseHostAllowed(url, activeApiHost) -> null
+                host.startsWith("api.") -> api(segs)
+                else -> search(u, segs) ?: web(u, segs)
+            }
         }
         // 片段只在这里解析：路径解析本身不关心片段
         return when (screen) {

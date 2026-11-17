@@ -708,7 +708,7 @@ internal fun WeeklyContributionGraph(
     }
     val labelHeight = with(density) { (labels.filterNotNull().maxOfOrNull { it.size.height } ?: 0).toDp() }
     // 选中的周：默认不选中；点按选中某一周，再点一次同一周取消选中；亦可左右拖动或前后切换
-    var selected by remember(visible) { mutableStateOf<Int?>(null) }
+    var selected by remember(visible) { mutableStateOf<Int?>(visible.lastIndex) }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         MutedText(trf("每周提交{0} · 已知最高 {1}", if (points.size > 52) tr(" · 最近 52 个返回周") else trf(" · {0} 周", visible.size), peakLabel))
         Canvas(

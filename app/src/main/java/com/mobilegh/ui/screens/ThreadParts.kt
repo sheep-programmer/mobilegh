@@ -261,12 +261,27 @@ fun TimelineCard(
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun MetaBlock(issue: Issue, reviewers: List<Pair<User, String?>>? = null, copilot: CopilotAction? = null, onEdit: ((String) -> Unit)?) = MetaRows(
+fun MetaBlock(
+    issue: Issue,
+    reviewers: List<Pair<User, String?>>? = null,
+    copilot: CopilotAction? = null,
+    issueType: com.mobilegh.data.IssueType? = null,
+    showIssueType: Boolean = false,
+    issueTypeLoading: Boolean = false,
+    issueTypeError: String? = null,
+    onIssueTypeRetry: () -> Unit = {},
+    onEdit: ((String) -> Unit)?,
+) = MetaRows(
     labels = issue.labels.map { it.name to it.color },
     assignees = issue.assignees.map { it.login to it.avatarUrl },
     milestone = issue.milestone?.title,
     reviewers = reviewers,
     copilot = copilot,
+    issueType = issueType?.toMetaOpt(),
+    showIssueType = showIssueType,
+    issueTypeLoading = issueTypeLoading,
+    issueTypeError = issueTypeError,
+    onIssueTypeRetry = onIssueTypeRetry,
     onEdit = onEdit,
 )
 
@@ -279,6 +294,11 @@ fun MetaRows(
     milestone: String?,
     reviewers: List<Pair<User, String?>>? = null,
     copilot: CopilotAction? = null,
+    issueType: MetaOpt? = null,
+    showIssueType: Boolean = false,
+    issueTypeLoading: Boolean = false,
+    issueTypeError: String? = null,
+    onIssueTypeRetry: () -> Unit = {},
     /** null 表示只读（没有 triage 权限），不显示铅笔也不可点 */
     onEdit: ((String) -> Unit)?,
 ) {
@@ -357,6 +377,17 @@ fun MetaRows(
         row(R.drawable.oc_milestone, tr("里程碑"), "milestone") {
             Text(milestone ?: tr("无"), fontSize = 13.sp, color = if (milestone == null) g.fgMuted else g.fg)
         }
+        if (showIssueType) {
+            HDivider()
+            row(R.drawable.oc_issue_opened, tr("类型"), "issueType") {
+                when {
+                    issueTypeError != null -> InlineError(issueTypeError, retry = onIssueTypeRetry)
+                    issueTypeLoading -> CircularProgressIndicator(Modifier.size(18.dp), color = g.fgMuted, strokeWidth = 2.dp)
+                    issueType == null -> Text(tr("无"), fontSize = 13.sp, color = g.fgMuted)
+                    else -> LabelChip(issueType.label, issueType.color ?: "6e7781")
+                }
+            }
+        }
     }
 }
 
@@ -367,11 +398,14 @@ class MetaOpt(val key: String, val label: String, val avatar: String? = null, va
  * 读取仓库的候选项；milestoneByTitle 为 true 时里程碑以标题为 key（用于搜索筛选）。
  * reviewers 排除 exclude（PR 作者不能审查自己的 PR，GitHub 会直接返回 422）
  */
-suspend fun loadMetaOptions(kind: String, owner: String, name: String, milestoneByTitle: Boolean = false, exclude: String? = null): List<MetaOpt> = when (kind) {
+suspend fun loadMetaOptions(kind: String, owner: String, name: String, milestoneByTitle: Boolean = false, exclude: String? = null, optionByName: Boolean = false): List<MetaOpt> = when (kind) {
     "labels" -> GitHub.repoLabels(owner, name).map { MetaOpt(it.name, it.name, color = it.color) }
     "assignees" -> GitHub.repoAssignees(owner, name).map { MetaOpt(it.login, it.login, avatar = it.avatarUrl) }
     "reviewers" -> GitHub.reviewerCandidates(owner, name).filter { !it.login.equals(exclude, true) }
         .map { MetaOpt(it.login, it.login, avatar = it.avatarUrl) }
+    "issueType" -> GitHub.issueTypeOptions(owner, name).filter { it.enabled }.map {
+        if (optionByName) MetaOpt(it.name, it.name, color = issueTypeHex(it.color)) else it.toMetaOpt()
+    }
     else -> GitHub.repoMilestones(owner, name).map { MetaOpt(if (milestoneByTitle) it.title else it.number.toString(), it.title) }
 }
 
@@ -381,14 +415,14 @@ private class MetaOptions(val options: List<MetaOpt>?, val error: String?, val r
 class CopilotAction(val busy: Boolean, val onClick: () -> Unit)
 
 @Composable
-private fun rememberMetaOptions(kind: String, owner: String, name: String, milestoneByTitle: Boolean = false, exclude: String? = null): MetaOptions {
+private fun rememberMetaOptions(kind: String, owner: String, name: String, milestoneByTitle: Boolean = false, exclude: String? = null, optionByName: Boolean = false): MetaOptions {
     var loadError by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableStateOf(0) }
     val options by produceState<List<MetaOpt>?>(null, kind, attempt) {
         value = null
         loadError = null
         value = try {
-            loadMetaOptions(kind, owner, name, milestoneByTitle, exclude)
+            loadMetaOptions(kind, owner, name, milestoneByTitle, exclude, optionByName)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Throwable) {
@@ -420,7 +454,7 @@ private fun MetaOptionList(
             CircularProgressIndicator(Modifier.size(24.dp), color = g.fgMuted, strokeWidth = 2.dp)
         }
         state.options.isEmpty() -> Text(
-            when (kind) { "labels" -> tr("这个仓库还没有标签"); "assignees" -> tr("没有可指派的人"); "reviewers" -> tr("没有可请求审查的协作者"); else -> tr("没有进行中的里程碑") },
+            when (kind) { "labels" -> tr("这个仓库还没有标签"); "assignees" -> tr("没有可指派的人"); "reviewers" -> tr("没有可请求审查的协作者"); "issueType" -> tr("这个仓库还没有 Issue 类型"); else -> tr("没有进行中的里程碑") },
             color = g.fgMuted, fontSize = 14.sp,
         )
         else -> Column(Modifier.heightIn(max = 360.dp).verticalScrollWithBar()) {
@@ -454,11 +488,21 @@ private fun MetaOptionList(
  * 标签（多选）/ 指派人（多选）/ 审查者（多选，仅 PR）/ 里程碑（单选，可清空）选择框，保存后调用 onSaved 刷新
  */
 @Composable
-fun MetaDialog(kind: String, owner: String, name: String, number: Int, issue: Issue, pull: Pull? = null, onDismiss: () -> Unit, onSaved: () -> Unit) {
+fun MetaDialog(
+    kind: String,
+    owner: String,
+    name: String,
+    number: Int,
+    issue: Issue,
+    pull: Pull? = null,
+    issueType: com.mobilegh.data.IssueType? = null,
+    onDismiss: () -> Unit,
+    onSaved: () -> Unit,
+) {
     val ctx = rememberCtx()
     val scope = rememberCoroutineScope()
-    val single = kind == "milestone"
-    val title = when (kind) { "labels" -> tr("编辑标签"); "assignees" -> tr("编辑指派人"); "reviewers" -> tr("请求审查"); else -> tr("选择里程碑") }
+    val single = kind == "milestone" || kind == "issueType"
+    val title = when (kind) { "labels" -> tr("编辑标签"); "assignees" -> tr("编辑指派人"); "reviewers" -> tr("请求审查"); "issueType" -> tr("选择 Issue 类型"); else -> tr("选择里程碑") }
     val initialReviewers = remember { mutableStateListOf<String>().apply { addAll(pull?.requestedReviewers.orEmpty().map { it.login }) } }
     val state = rememberMetaOptions(kind, owner, name, exclude = pull?.user?.login)
     val selected = remember {
@@ -467,6 +511,7 @@ fun MetaDialog(kind: String, owner: String, name: String, number: Int, issue: Is
                 "labels" -> it.addAll(issue.labels.map { l -> l.name })
                 "assignees" -> it.addAll(issue.assignees.map { a -> a.login })
                 "reviewers" -> it.addAll(initialReviewers)
+                "issueType" -> issueType?.let { type -> it.add(type.id) }
                 else -> issue.milestone?.let { m -> it.add(m.number.toString()) }
             }
         }
@@ -488,6 +533,7 @@ fun MetaDialog(kind: String, owner: String, name: String, number: Int, issue: Is
                         remove = { GitHub.removeReviewers(owner, name, number, it) },
                         onChanged = onSaved,
                     )
+                    "issueType" -> GitHub.setIssueType(issue.nodeId ?: throw IllegalStateException(tr("缺少 Issue 节点 ID")), submitted.firstOrNull())
                     else -> GitHub.setMilestone(owner, name, number, submitted.firstOrNull()?.toIntOrNull())
                 }
                 ctx.toast(tr("已保存"))
@@ -509,7 +555,7 @@ fun MetaDialog(kind: String, owner: String, name: String, number: Int, issue: Is
                 CompactSearchField(filter, { filter = it }, tr("筛选"))
                 Spacer(Modifier.height(8.dp))
             }
-            MetaOptionList(kind, state, selected, single, tr("无里程碑"), filter = filter, enabled = !saving)
+            MetaOptionList(kind, state, selected, single, if (kind == "issueType") tr("无类型") else tr("无里程碑"), filter = filter, enabled = !saving)
         }
     }
 }
@@ -526,17 +572,19 @@ fun MetaPicker(
     title: String,
     initial: List<String>,
     onDismiss: () -> Unit,
-    single: Boolean = kind == "milestone",
+    single: Boolean = kind == "milestone" || kind == "issueType",
     noneLabel: String = tr("无"),
     freeText: Boolean = false,
     milestoneByTitle: Boolean = false,
+    /** Issue Type 搜索以名称为 key；详情和新建仍以 Node ID 为 key。 */
+    optionByName: Boolean = false,
     /** 多选上限：达到后其余选项禁用，并在框内显示 [limitNote] */
     maxSelect: Int? = null,
     limitNote: String? = null,
     onPick: (List<MetaOpt>) -> Unit,
 ) {
     val g = Gh.c
-    val state = rememberMetaOptions(kind, owner, name, milestoneByTitle)
+    val state = rememberMetaOptions(kind, owner, name, milestoneByTitle, optionByName = optionByName)
     val selected = remember { mutableStateListOf<String>().also { it.addAll(initial) } }
     var text by remember { mutableStateOf("") }
     GhDialog(title, onDismiss, confirm = tr("确定"), confirmEnabled = state.options != null || (freeText && text.isNotBlank()), onConfirm = {
@@ -668,7 +716,7 @@ fun CommentComposerBar(
         // 编辑状态下始终显示（不再依赖输入框焦点，否则收起键盘后就只剩上方的模式栏）
         if (!preview) {
             MentionSuggestions(value, onValueChange, contextRepo, Modifier.padding(horizontal = 8.dp))
-            MarkdownToolbar(value, onValueChange, Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+            MarkdownToolbar(value, onValueChange, Modifier.padding(horizontal = 8.dp, vertical = 2.dp), showSavedReplies = true)
         }
         DraftBinding(draft, DraftValue(body = value.text))
     }

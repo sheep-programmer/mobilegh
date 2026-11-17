@@ -76,6 +76,54 @@ class EnglishDictionaryTest {
         }
     }
 
+    @Test fun logSharingMessagesHaveEnglishTranslations() {
+        val keys = entries.map { it.first }.toSet()
+        listOf("分享日志", "日志文件导出失败", "日志导出失败：")
+            .forEach { assertTrue("缺少日志分享英文译文：$it", it in keys) }
+    }
+
+    @Test fun builtInShortcutKeysHaveEnglishTranslations() {
+        val keys = entries.map { it.first }.toSet()
+        listOf(
+            "动态", "Issues", "Pull Requests", "收藏夹", "稍后阅读", "仓库", "组织",
+            "已 Star", "Star 列表", "Gists", "最近浏览", "项目", "草稿", "待处理邀请"
+        ).forEach { assertTrue("缺少 Shortcut 英文译文：$it", it in keys) }
+    }
+
+    @Test fun shareValidationMessagesHaveEnglishTranslations() {
+        val keys = entries.map { it.first }.toSet()
+        listOf(
+            "每次最多分享 10 个附件",
+            "附件总大小不能超过 50 MB",
+            "无法读取附件大小",
+            "无法创建分享缓存目录",
+            "只支持 PNG、JPEG 或 GIF 图片"
+        ).forEach { assertTrue("缺少英文译文：$it", it in keys) }
+    }
+
+    @Test fun importRepositoryKeysHaveEnglishTranslations() {
+        val keys = entries.map { it.first }.toSet()
+        listOf(
+            "导入仓库",
+            "导入已有仓库",
+            "源 Git URL",
+            "私有源仓库",
+            "源用户名",
+            "源密码或访问令牌",
+            "目标所有者",
+            "目标仓库名称",
+            "开始导入",
+            "导入任务",
+            "仅迁移 Git 提交历史、分支和标签；不迁移 Issues、Pull Requests、Releases、Wiki、LFS 对象、仓库设置或 Submodule 内容。",
+            "HTTP 连接不安全",
+            "HTTP 会以明文传输 Git 内容和凭据。确定继续吗？",
+            "需要重新输入源仓库凭据",
+            "取消导入",
+            "删除任务",
+            "打开仓库",
+        ).forEach { assertTrue("缺少 Import 英文译文：$it", it in keys) }
+    }
+
     @Test fun contextEntriesHaveABaseTranslationOrStandAlone() {
         val keys = entries.map { it.first }.toSet()
         entries.filter { '|' in it.first && it.first.substringBefore('|').isNotEmpty() }.forEach { (key, _) ->

@@ -108,6 +108,7 @@ class ReviewApiTest {
         assertEquals(PullReviewState.REVIEW_REQUIRED, PullStatusQuery.reviewStateOf("REVIEW_REQUIRED"))
         assertEquals(PullReviewState.NONE, PullStatusQuery.reviewStateOf(null))
         assertEquals(PullReviewState.NONE, PullStatusQuery.reviewStateOf(""))
+        assertEquals(PullReviewState.NONE, PullStatusQuery.reviewStateOf("A_FUTURE_REVIEW_DECISION"))
     }
 
     @Test fun rollupStateMapsToCiState() {

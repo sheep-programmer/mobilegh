@@ -68,6 +68,14 @@ class LinkNavigationTest {
         }
     }
 
+    /** 应用内复制本会话刻意不提示；链接在离开应用后复制，回来时提示。 */
+    private fun copyWhileAway(text: String) {
+        compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        copy(text)
+        compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        compose.waitUntil(5_000) { compose.activity.hasWindowFocus() }
+    }
+
     @Test fun keyboardSearchOpensPastedRepositoryAddress() {
         showSearch()
         val field = compose.onNodeWithContentDescription("搜索 仓库")
@@ -86,7 +94,7 @@ class LinkNavigationTest {
 
     @Test fun clipboardPromptOpensAnExplicitRepositoryLink() {
         showClipboard()
-        copy("https://github.com/octocat/Hello-World")
+        copyWhileAway("https://github.com/octocat/Hello-World")
         compose.waitUntil(5_000) { compose.onAllNodesWithText("打开").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("打开").performClick()
         compose.runOnIdle { assertEquals(Screen.Repo("octocat", "Hello-World"), nav.top.screen) }
@@ -103,7 +111,7 @@ class LinkNavigationTest {
     @Test fun clipboardIssueLinkCanBeOpenedFromItsRepositoryPage() {
         compose.runOnUiThread { nav.push(Screen.Repo("octocat", "Hello-World")) }
         showClipboard()
-        copy("https://github.com/octocat/Hello-World/issues/42")
+        copyWhileAway("https://github.com/octocat/Hello-World/issues/42")
         compose.waitUntil(5_000) { compose.onAllNodesWithText("打开").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("打开").performClick()
         compose.runOnIdle { assertEquals(Screen.IssueDetail("octocat", "Hello-World", 42, false), nav.top.screen) }
@@ -111,9 +119,7 @@ class LinkNavigationTest {
 
     @Test fun clipboardCopiedWhileAwayIsDetectedWhenTheAppResumes() {
         showClipboard()
-        compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
-        copy("https://github.com/octocat/Hello-World")
-        compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        copyWhileAway("https://github.com/octocat/Hello-World")
         compose.waitUntil(5_000) {
             compose.onAllNodesWithText("剪贴板有 octocat/Hello-World，可快速打开").fetchSemanticsNodes().isNotEmpty()
         }
@@ -123,7 +129,7 @@ class LinkNavigationTest {
 
     @Test fun replacingClipboardWithOrdinaryTextHidesThePrompt() {
         showClipboard()
-        copy("https://github.com/octocat/Hello-World")
+        copyWhileAway("https://github.com/octocat/Hello-World")
         compose.waitUntil(5_000) { compose.onAllNodesWithText("打开").fetchSemanticsNodes().isNotEmpty() }
         copy("hello world")
         compose.waitUntil(5_000) { compose.onAllNodesWithText("打开").fetchSemanticsNodes().isEmpty() }

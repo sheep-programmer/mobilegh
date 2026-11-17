@@ -1004,8 +1004,10 @@ fun Segmented(
                             Modifier.background(Color.Transparent)
                         }
                     )
-                    .clickable(
+                    .selectable(
+                        selected = isSelected,
                         enabled = enabled,
+                        role = Role.Tab,
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                     ) { onSelect(i) }

@@ -79,6 +79,7 @@ import com.mobilegh.nav.refreshRetained
 import com.mobilegh.ui.components.rememberDraft
 import com.mobilegh.ui.components.DraftBinding
 import com.mobilegh.data.Issue
+import com.mobilegh.data.IssueHierarchy
 import com.mobilegh.data.IssueQuery
 import com.mobilegh.data.relatedIssueLabel
 import com.mobilegh.data.relatedIssueRepo
@@ -186,6 +187,12 @@ private class StateChange(
  */
 internal fun prCheckoutCommand(number: Int): String = "git fetch origin pull/$number/head:pr-$number && git checkout pr-$number"
 
+/** 标题、元数据、间距、正文之前仅计算实际展示的增强卡片，保证评论深链定位准确。 */
+internal fun threadTimelineOffset(isPull: Boolean, hasHierarchy: Boolean, hasRelated: Boolean, hasClosingIssues: Boolean): Int =
+    4 + (if (!isPull && hasHierarchy) 1 else 0) +
+        (if (!isPull && hasRelated) 1 else 0) +
+        (if (isPull && hasClosingIssues) 1 else 0)
+
 @Composable
 fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean, commentId: Long? = null) {
     val g = Gh.c
@@ -278,9 +285,22 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
     }
     /** 相关议题（网页版 Issue 侧栏的 Relationships）；接口不可用时整块隐藏，不影响正文 */
     val related = rememberLoader("related") { f -> GitHub.relatedIssues(owner, name, number, f) }
+    // Issue Type 只存在 GraphQL 中，单独加载；部分 Token 无权限时不能阻塞整个详情
+    val issueType = rememberLoader("issue-type") { if (isPull) null else GitHub.issueType(owner, name, number) }
+    // 父子层级单独失败时不影响 Issue 正文、评论或类型编辑
+    val hierarchy = rememberLoader("hierarchy") { f -> if (isPull) null else GitHub.issueHierarchy(owner, name, number, f) }
+    // PR 的关闭关联只读；空列表不展示卡片，失败不影响正文
+    val closing = rememberLoader("closing-issues") { f -> if (isPull) GitHub.closingIssues(owner, name, number, f) else null }
     var relatedPicker by remember { mutableStateOf(false) }
+    var childPicker by remember { mutableStateOf(false) }
+    var parentPicker by remember { mutableStateOf(false) }
 
-    fun reload() = data.load(true)
+    fun reload() {
+        data.load(true)
+        issueType.load(true)
+        hierarchy.load(true)
+        closing.load(true)
+    }
 
     /** 写入成功后刷新导航栈里同一仓库的列表（状态、新建会改变列表内容） */
     fun refreshIssueList() = nav.refreshRetained { s -> s is Screen.Issues && s.owner.equals(owner, true) && s.name.equals(name, true) }
@@ -328,6 +348,35 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
             ctx.toast(tr("已移除相关议题"))
             related.load(true)
         }) { GitHub.removeRelatedIssue(owner, name, number, issue.id) }
+    }
+
+    fun addChild(issue: com.mobilegh.data.IssueRef) {
+        val current = t?.issue?.nodeId ?: return
+        write(onSuccess = { childPicker = false; ctx.toast(tr("已添加子 Issue")); refreshIssueList() }) {
+            IssueHierarchy.addSubIssue(current, issue.nodeId)
+        }
+    }
+
+    fun removeChild(issue: com.mobilegh.data.IssueRef) {
+        val current = t?.issue?.nodeId ?: return
+        write(onSuccess = { ctx.toast(tr("已移除子 Issue")); refreshIssueList() }) {
+            IssueHierarchyActions.removeChild(current, issue.nodeId).getOrThrow()
+        }
+    }
+
+    fun replaceParent(issue: com.mobilegh.data.IssueRef) {
+        val current = t?.issue?.nodeId ?: return
+        write(onSuccess = { parentPicker = false; ctx.toast(tr("已更新父 Issue")); refreshIssueList() }) {
+            IssueHierarchyActions.replaceParent(current, issue.nodeId).getOrThrow()
+        }
+    }
+
+    fun removeParent() {
+        val current = t?.issue?.nodeId ?: return
+        val parent = hierarchy.data?.parent ?: return
+        write(onSuccess = { ctx.toast(tr("已移除父 Issue")); refreshIssueList() }) {
+            IssueHierarchyActions.removeParent(parent.nodeId, current).getOrThrow()
+        }
     }
 
     Page(
@@ -489,9 +538,14 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
                 HtmlParser.prewarm(listOfNotNull(th.issue.bodyHtml ?: th.pull?.bodyHtml) + comments.mapNotNull { it.bodyHtml }, "https://github.com/$owner/$name/")
             }
             // 从 #issuecomment-N 链接进来：评论加载后滚动到它。
-            // 列表项顺序固定为：标题、元数据、（Issue 才有的）相关议题、间距、正文，之后才是按时间排好的评论与审查
+            // 列表项顺序固定为：标题、元数据、（Issue 才有的）层级、相关议题、间距、正文，之后才是按时间排好的评论与审查
             val anchorIndex = commentId?.let { id ->
-                val before = 4 + if (!isPull && related.data != null) 1 else 0
+                val before = threadTimelineOffset(
+                    isPull = isPull,
+                    hasHierarchy = hierarchy.data != null && !th.issue.nodeId.isNullOrBlank(),
+                    hasRelated = related.data != null,
+                    hasClosingIssues = !closing.data.isNullOrEmpty(),
+                )
                 val timeline = (comments.map { it.createdAt to it as Any } + th.reviews.filter { it.state != "PENDING" }.map { it.submittedAt to it as Any })
                     .sortedBy { it.first ?: "" }
                 timeline.indexOfFirst { val e = it.second; (e as? Comment)?.id == id || (e as? Review)?.id == id }.takeIf { it >= 0 }?.let { before + it }
@@ -507,7 +561,34 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
                     )
                 }
                 val copilot = if (!isPull && th.issue.state == "open" && access.write) CopilotAction(copilotBusy) { copilotConfirm = true } else null
-                item { MetaBlock(th.issue, reviewers = th.pull?.let { reviewerStates(it, th.reviews) }, copilot = copilot, onEdit = if (access.editMeta) ({ metaKind = it }) else null) }
+                item {
+                    MetaBlock(
+                        th.issue,
+                        reviewers = th.pull?.let { reviewerStates(it, th.reviews) },
+                        copilot = copilot,
+                        issueType = issueType.data,
+                        showIssueType = !isPull,
+                        issueTypeLoading = !isPull && issueType.loading,
+                        issueTypeError = if (isPull) null else issueType.error,
+                        onIssueTypeRetry = { issueType.load(true) },
+                        onEdit = if (access.editMeta) ({ metaKind = it }) else null,
+                    )
+                }
+                // 层级与相关议题分别加载，任何增强接口失败都不遮挡 Issue 正文
+                val currentNodeId = th.issue.nodeId
+                val h = hierarchy.data
+                if (!isPull && h != null && !currentNodeId.isNullOrBlank()) {
+                    item(key = "hierarchy") {
+                        IssueHierarchyCard(
+                            owner, name, number, currentNodeId, h,
+                            canEdit = access.triage, busy = writing,
+                            onAdd = { childPicker = true },
+                            onChangeParent = { parentPicker = true },
+                            onRemoveParent = ::removeParent,
+                            onRemoveChild = ::removeChild,
+                        )
+                    }
+                }
                 // 相关议题只在 Issue 上展示（与网页版 Issue 侧栏一致，没有关联时也显示空状态）
                 val rel = related.data
                 if (!isPull && rel != null) {
@@ -519,6 +600,11 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
                             onRemove = ::removeRelated,
                         )
                     }
+                }
+                // PR 只读展示合并后将关闭的 Issue；没有写操作，也不与 Issue 的相关议题混用
+                val closingIssues = closing.data
+                if (isPull && !closingIssues.isNullOrEmpty()) {
+                    item(key = "closing-issues") { ClosingIssuesCard(closingIssues) }
                 }
                 item { Spacer(Modifier.height(8.dp)) }
                 val base = "https://github.com/$owner/$name/"
@@ -615,7 +701,12 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
     }
 
     metaKind?.let { k ->
-        t?.let { th -> MetaDialog(k, owner, name, number, th.issue, pull = th.pull, onDismiss = { metaKind = null }, onSaved = ::reload) }
+        t?.let { th ->
+            MetaDialog(
+                k, owner, name, number, th.issue, pull = th.pull, issueType = issueType.data,
+                onDismiss = { metaKind = null }, onSaved = ::reload,
+            )
+        }
     }
     editing?.let { (cid, text) ->
         key(cid) {
@@ -681,6 +772,16 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
         GhDialog(tr("删除评论"), { if (!writing) deleting = null }, confirm = if (writing) tr("删除中…") else tr("删除"), danger = true, confirmEnabled = !writing, onConfirm = {
             write(onSuccess = { deleting = null }) { GitHub.deleteComment(owner, name, cid); ctx.toast(tr("已删除")) }
         }) { Text(tr("删除后无法恢复。"), color = g.fg) }
+    }
+    t?.issue?.nodeId?.let { currentNodeId ->
+        if (childPicker) IssueHierarchyPicker(
+            owner, name, currentNodeId, hierarchy.data?.subIssues.orEmpty(), tr("添加子 Issue"), writing,
+            onDismiss = { if (!writing) childPicker = false }, onPick = ::addChild,
+        )
+        if (parentPicker) IssueHierarchyPicker(
+            owner, name, currentNodeId, hierarchy.data?.subIssues.orEmpty(), tr("设置父 Issue"), writing,
+            onDismiss = { if (!writing) parentPicker = false }, onPick = ::replaceParent,
+        )
     }
     if (relatedPicker) RelatedIssuePicker(
         owner, name, number, related.data.orEmpty(), busy = writing,

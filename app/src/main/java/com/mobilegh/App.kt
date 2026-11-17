@@ -12,6 +12,7 @@ import com.mobilegh.data.Session
 import com.mobilegh.data.Update
 import com.mobilegh.data.History
 import com.mobilegh.data.LinkDefault
+import com.mobilegh.service.ImportServices
 
 class App : Application() {
     override fun onCreate() {
@@ -30,6 +31,8 @@ class App : Application() {
         AppLock.init(this)
         WidgetStore.init(this)
         com.mobilegh.data.NotificationStore.init(this)
+        com.mobilegh.data.BackgroundNotificationSettings.init(this)
+        com.mobilegh.service.NotificationPollingWorker.sync(this)
         WidgetStore.listener = { kind -> Widgets.update(this, kind) }
         com.mobilegh.data.MobileApprovalMonitor.reload(this)
         History.init(this)
@@ -38,6 +41,8 @@ class App : Application() {
         Update.init(this)
         LinkDefault.init(this)
         Downloads.init(this)
+        // 仓库导入：共享 runtime + 启动时把上次中断的任务标记为可重试
+        ImportServices.init(this)
         // 上次更新的安装包：若已是新版本在运行，删除安装包以省空间
         Update.removeInstalledPackage(this)
         // 启动后台静默检查一次新版本（走加速节点，失败不影响使用）

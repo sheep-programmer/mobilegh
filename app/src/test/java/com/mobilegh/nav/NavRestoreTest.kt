@@ -1,12 +1,16 @@
 package com.mobilegh.nav
 
+import com.mobilegh.MainDispatcherRule
 import com.mobilegh.data.IssueQuery
 import com.mobilegh.data.IssueStateFilter
 import com.mobilegh.data.ProjectOwnerKind
 import org.junit.Assert.assertEquals
+import org.junit.Rule
 import org.junit.Test
 
 class NavRestoreTest {
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
     private val stack = listOf(
         Screen.Repo("octo", "hello"),
         Screen.FileView("octo", "hello", "README.md", "main", 3..9),
@@ -20,11 +24,30 @@ class NavRestoreTest {
         Screen.StarLists("octo", local = true),
         Screen.GistEditor(null),
         Screen.Settings,
+        Screen.ImportRepo,
     )
+
+    @Test fun newIssueParentIdentitySurvivesNavigationRestore() {
+        val parent = Screen.NewIssue("octo", "hello", parentNodeId = "I_parent", parentNumber = 42)
+        assertEquals(parent, NavRestore.decode(NavRestore.encode(Tab.Repos, listOf(parent), "octo"), "octo")?.screens?.single())
+        val old = NavRestore.decode("""{"v":1,"login":"octo","tab":"Repos","stack":[{"_screen":"com.mobilegh.nav.Screen.NewIssue","owner":"octo","name":"hello"}]}""", "octo")
+        assertEquals(Screen.NewIssue("octo", "hello"), old?.screens?.single())
+    }
 
     @Test fun roundTripKeepsTabAndEveryScreen() {
         val text = NavRestore.encode(Tab.Repos, stack, "octo")
         assertEquals(RestoredNav(Tab.Repos, stack), NavRestore.decode(text, "octo"))
+    }
+
+    @Test fun actionsSettingsSectionsSurviveNavigationRestore() {
+        ActionsSettingsSection.entries.forEach { section ->
+            val screen = Screen.ActionsSettings("octo", "hello", section)
+            val restored = NavRestore.decode(
+                NavRestore.encode(Tab.Repos, listOf(screen), "octo"),
+                "octo",
+            )
+            assertEquals(screen, restored?.screens?.single())
+        }
     }
 
     @Test fun encodeDropsTheRootEntry() {

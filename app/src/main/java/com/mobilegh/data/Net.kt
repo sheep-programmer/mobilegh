@@ -82,7 +82,7 @@ object Net {
 
     /** 未测速前的默认值：取自实测延迟最低且稳定的节点 */
     private const val DEFAULT_RAW = "jsd-mirror"
-    private const val DEFAULT_DL = "gh-proxy"
+    internal const val DEFAULT_DL = "gh-proxy"
 
     private const val TEST_PATH = "github/gitignore/main/Global/macOS.gitignore"
     private const val TEST_MARK = "DS_Store"
@@ -90,8 +90,10 @@ object Net {
     private lateinit var prefs: SharedPreferences
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    var mode by mutableIntStateOf(0) // 0 自动 1 手动 2 关闭
-    var manualId by mutableStateOf(DEFAULT_RAW)
+    var rawMode by mutableIntStateOf(0) // 0 自动 1 手动 2 关闭
+    var downloadMode by mutableIntStateOf(0)
+    var manualRawId by mutableStateOf(DEFAULT_RAW)
+    var manualDownloadId by mutableStateOf(DEFAULT_DL)
     var apiProxy by mutableStateOf("")
     val custom = mutableStateListOf<CdnNode>()
 
@@ -112,7 +114,8 @@ object Net {
 
     fun init(ctx: Context) {
         prefs = ctx.getSharedPreferences("net", Context.MODE_PRIVATE)
-        mode = prefs.getInt("mode", 0)
+        val legacyMode = prefs.getInt("mode", 0)
+        val legacyManual = prefs.getString("manual", DEFAULT_RAW) ?: DEFAULT_RAW
         // 旧版本可能保存过 http:// 地址：Token 不能再发往明文地址，校验不过就回退官方 API
         apiProxy = prefs.getString("api", "")?.takeIf { apiProxyError(it) == null } ?: ""
         lastTest = prefs.getLong("lastTest", 0)
@@ -120,8 +123,18 @@ object Net {
         prefs.getString("custom", null)?.let {
             runCatching { custom.addAll(Api.plain.decodeFromString(ListSerializer(CdnNode.serializer()), it)) }
         }
-        // 保存过的节点可能已经下线（内置列表里删掉了），回退到默认值而不是留着一个用不了的 id
-        manualId = validOr(prefs.getString("manual", DEFAULT_RAW), DEFAULT_RAW)
+        manualRawId = validOr(prefs.getString("manualRaw", legacyManual), DEFAULT_RAW)
+        rawMode = prefs.getInt("rawMode", legacyMode)
+        val legacyDownloadId = legacyManual.takeIf { id ->
+            nodes.any { it.id == id && it.type != NodeType.JsDelivr }
+        } ?: DEFAULT_DL
+        // 旧版文件选择为 jsDelivr 时，下载实际上偷偷使用自动节点；迁移后明确显示为自动。
+        val legacyDownloadMode = if (legacyMode == 1 && legacyDownloadId != legacyManual) 0 else legacyMode
+        downloadMode = prefs.getInt("downloadMode", legacyDownloadMode)
+        manualDownloadId = validOr(
+            prefs.getString("manualDownload", legacyDownloadId),
+            DEFAULT_DL,
+        ).takeIf { id -> byId(id)?.type != NodeType.JsDelivr } ?: DEFAULT_DL
         bestRawId = validOr(prefs.getString("bestRaw", DEFAULT_RAW), DEFAULT_RAW)
         bestDlId = validOr(prefs.getString("bestDl", DEFAULT_DL), DEFAULT_DL)
         prefs.getString("latency", null)?.let {
@@ -223,16 +236,17 @@ object Net {
 
     private fun byId(id: String) = nodes.firstOrNull { it.id == id }
 
-    fun rawNode(): CdnNode = when (mode) {
+    fun rawNode(): CdnNode = when (rawMode) {
         2 -> DIRECT
-        1 -> byId(manualId) ?: DIRECT
+        1 -> byId(manualRawId) ?: DIRECT
         else -> byId(bestRawId) ?: JSD
     }
 
-    fun dlNode(): CdnNode = when (mode) {
+    fun dlNode(): CdnNode = when (downloadMode) {
         2 -> DIRECT
-        1 -> byId(manualId)?.takeIf { it.type != NodeType.JsDelivr } ?: byId(bestDlId) ?: DIRECT
-        else -> byId(bestDlId) ?: DIRECT
+        // 损坏或旧版的不兼容下载选择只能直连，不能悄悄换成另一条自动代理。
+        1 -> byId(manualDownloadId)?.takeIf { it.type != NodeType.JsDelivr } ?: DIRECT
+        else -> byId(bestDlId)?.takeIf { it.type != NodeType.JsDelivr } ?: DIRECT
     }
 
     /** 当前下载使用的节点，供下载日志和设置页显示。 */
@@ -263,10 +277,23 @@ object Net {
      * 手动选定的节点只按用户的选择来（不擅自换），关闭加速时只有直连。
      */
     fun downloadTargets(url: String): List<DownloadTarget> {
-        if (mode == 2 || !isProxyable(url)) return listOf(DownloadTarget(DIRECT.id, DIRECT.name, url))
+        if (downloadMode == 2 || !isProxyable(url)) return listOf(DownloadTarget(DIRECT.id, DIRECT.name, url))
         val preferred = dlNode()
-        val candidates = if (mode == 1) listOf(preferred) else nodes
-        return orderDownloadTargets(candidates, url, latency, downloadFailed, downloadOkId ?: preferred.id, speeds = speeds, maxProxies = MAX_DOWNLOAD_PROXIES)
+        val ordered = orderDownloadTargets(
+            if (downloadMode == 1) listOf(preferred) else nodes,
+            url,
+            latency,
+            downloadFailed,
+            downloadOkId ?: preferred.id,
+            speeds = speeds,
+            maxProxies = MAX_DOWNLOAD_PROXIES,
+        )
+        // 自动测速选择直连时，UI 与实际请求必须一致；代理保留为后续后备而不是抢在前面。
+        if (shouldPreferDirectFirst(downloadMode, preferred, downloadFailed)) {
+            return listOf(DownloadTarget(DIRECT.id, DIRECT.name, url)) +
+                ordered.filterNot { it.nodeId == DIRECT.id }
+        }
+        return ordered
     }
 
     fun markPrivate(fullName: String) {
@@ -403,7 +430,7 @@ object Net {
             if (raw != null) return listOf(GITHUB_API_ID to githubApiContentsUrl(raw), DIRECT.id to url)
             return listOf(DIRECT.id to url)
         }
-        if (mode == 2) {
+        if (rawMode == 2) {
             if (raw != null) return listOf(GITHUB_API_ID to githubApiContentsUrl(raw), DIRECT.id to url)
             return listOf(DIRECT.id to url)
         }
@@ -430,10 +457,13 @@ object Net {
         failed: Set<String>,
         okId: String?,
     ): List<Pair<String, String>> {
-        val ordered = nodes.filter { it.type != NodeType.Direct && it.id !in failed }.sortedWith(
+        val selectedRawId = rawNode().id
+        val ordered = nodes.filter {
+            it.type != NodeType.Direct && it.id !in failed && (rawMode != 1 || it.id == selectedRawId)
+        }.sortedWith(
             compareBy<CdnNode>(
                 { it.id != okId },
-                { it.id != rawNode().id },
+                { it.id != selectedRawId },
                 { latency[it.id]?.takeIf { l -> l >= 0 } ?: Long.MAX_VALUE },
             ),
         )
@@ -454,11 +484,18 @@ object Net {
         return list.distinctBy { it.second }
     }
 
-    /** 源码文本：jsDelivr 会缓存分支内容，因此只使用实时转发的代理节点 */
+    /** 源码文本：手动严格跟随文件选择；自动在文件类健康 Prefix 中选优，不借用下载状态。 */
     fun freshRawUrl(o: String, r: String, ref: String, encodedPath: String): String? {
-        if (mode == 2 || isPrivate(o, r)) return null
-        val node = rawNode().let { if (it.type == NodeType.JsDelivr) dlNode() else it }
-        return if (node.type == NodeType.Prefix) build(node, o, r, ref, encodedPath) else null
+        if (rawMode == 2 || isPrivate(o, r)) return null
+        val selected = rawNode()
+        val node = when {
+            selected.type == NodeType.Prefix -> selected
+            rawMode == 0 -> nodes.filter { node ->
+                node.type == NodeType.Prefix && (latency[node.id] ?: -1) >= 0
+            }.minByOrNull { latency.getValue(it.id) } ?: byId(DEFAULT_DL)
+            else -> null
+        }
+        return if (node?.type == NodeType.Prefix) build(node, o, r, ref, encodedPath) else null
     }
 
     private fun isProxyable(url: String) = isProxyableDownloadUrl(url)
@@ -477,8 +514,32 @@ object Net {
 
     // ---------------- 设置 ----------------
 
-    fun changeMode(m: Int) { mode = m; prefs.edit().putInt("mode", m).apply() }
-    fun setManual(id: String) { manualId = id; mode = 1; prefs.edit().putString("manual", id).putInt("mode", 1).apply() }
+    fun changeRawMode(value: Int) {
+        require(value in 0..2)
+        rawMode = value
+        prefs.edit().putInt("rawMode", value).apply()
+    }
+
+    fun changeDownloadMode(value: Int) {
+        require(value in 0..2)
+        downloadMode = value
+        prefs.edit().putInt("downloadMode", value).apply()
+    }
+
+    fun setRawManual(id: String) {
+        require(byId(id) != null)
+        manualRawId = id
+        rawMode = 1
+        prefs.edit().putString("manualRaw", id).putInt("rawMode", 1).apply()
+    }
+
+    fun setDownloadManual(id: String) {
+        require(byId(id)?.let { it.type != NodeType.JsDelivr } == true)
+        manualDownloadId = id
+        downloadMode = 1
+        prefs.edit().putString("manualDownload", id).putInt("downloadMode", 1).apply()
+    }
+
     /** 保存 API 反向代理地址；不合法时抛出带中文说明的异常（界面会先校验，这里是最后一道保护） */
     fun setApi(url: String) {
         apiProxyError(url)?.let { throw IllegalArgumentException(it) }
@@ -490,7 +551,13 @@ object Net {
     fun addCustom(name: String, base: String): Boolean {
         val b = base.trim().let { if (it.endsWith("/")) it else "$it/" }
         if (!b.startsWith("https://")) return false
-        val n = CdnNode("c${System.currentTimeMillis()}", name.ifBlank { URI(b).host ?: b }, NodeType.Prefix, b, custom = true)
+        val n = CdnNode(
+            nextCustomNodeId(nodes.mapTo(HashSet()) { it.id }, System.currentTimeMillis()),
+            name.ifBlank { URI(b).host ?: b },
+            NodeType.Prefix,
+            b,
+            custom = true,
+        )
         custom.add(n)
         saveCustom()
         speedTestAsync()
@@ -500,7 +567,8 @@ object Net {
     fun removeCustom(id: String) {
         custom.removeAll { it.id == id }
         saveCustom()
-        if (manualId == id) changeMode(0)
+        if (manualRawId == id) changeRawMode(0)
+        if (manualDownloadId == id) changeDownloadMode(0)
     }
 
     private fun saveCustom() = prefs.edit().putString("custom", Api.plain.encodeToString(ListSerializer(CdnNode.serializer()), custom.toList())).apply()
@@ -568,10 +636,8 @@ object Net {
                     return if (direct >= 0 && direct - results[best.id]!! < 80) DIRECT.id else best.id
                 }
                 bestRawId = pick(list, DEFAULT_RAW)
-                // 下载优先使用 Prefix 代理；直连只作为所有下载代理都测速失败时的后备。
-                val downloadProxies = list.filter { it.type == NodeType.Prefix }
-                bestDlId = downloadProxies.filter { (results[it.id] ?: -1) >= 0 }
-                    .minByOrNull { results[it.id] ?: Long.MAX_VALUE }?.id ?: DIRECT.id
+                // 下载只允许 Prefix 与直连；直连足够快时也必须成为真实首选。
+                bestDlId = selectAutoDownloadNode(list, results)
                 lastTest = System.currentTimeMillis()
                 prefs.edit()
                     .putString("bestRaw", bestRawId)
@@ -590,6 +656,27 @@ object Net {
     }
 
     fun nodeName(id: String) = byId(id)?.name ?: id
+}
+
+/** 自动下载选优只看 Prefix 代理和直连；直连与最快代理相差不足 80ms 时优先直连。 */
+internal fun selectAutoDownloadNode(candidates: List<CdnNode>, results: Map<String, Long>): String {
+    val eligible = candidates.filter { it.type == NodeType.Prefix || it.type == NodeType.Direct }
+    val best = eligible.filter { (results[it.id] ?: -1) >= 0 }
+        .minByOrNull { results.getValue(it.id) }
+        ?.id ?: return Net.DIRECT.id
+    val direct = results[Net.DIRECT.id] ?: -1
+    return if (direct >= 0 && direct - results.getValue(best) < 80) Net.DIRECT.id else best
+}
+
+/** 自动直连只有在没有近期失败记忆时才强制排第一。 */
+internal fun shouldPreferDirectFirst(mode: Int, preferred: CdnNode, failedNodes: Set<String>): Boolean =
+    mode == 0 && preferred.type == NodeType.Direct && preferred.id !in failedNodes
+
+/** 同毫秒连续导入也必须得到不同自定义节点 ID。 */
+internal fun nextCustomNodeId(existingIds: Set<String>, now: Long): String {
+    var value = now
+    while ("c$value" in existingIds) value += 1
+    return "c$value"
 }
 
 /** 属于 GitHub 下载内容的地址（Release、源码包、raw、gist 原文）。 */

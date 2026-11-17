@@ -10,12 +10,14 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import com.mobilegh.data.AppLock
 import com.mobilegh.data.Session
 import com.mobilegh.data.Downloads
@@ -31,9 +33,12 @@ import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.AppRoot
 import com.mobilegh.ui.theme.MobileGhTheme
 import com.mobilegh.i18n.tr
+import com.mobilegh.i18n.trf
 
 class NavVm(private val state: SavedStateHandle) : ViewModel() {
     var pendingUrl by mutableStateOf(state.get<String>("pendingUrl"))
+        private set
+    var pendingShare by mutableStateOf(state.get<String>("pendingShare"))
         private set
     private var gen = -1
     private var current = Navigator()
@@ -58,12 +63,36 @@ class NavVm(private val state: SavedStateHandle) : ViewModel() {
         pendingUrl = url
     }
 
-    fun openPending(nav: Navigator) {
+    fun receiveShare(id: String) {
+        state["pendingShare"] = id
+        pendingShare = id
+    }
+
+    fun openPending(nav: Navigator, context: android.content.Context? = null) {
         if (Session.token == null) return
+        val share = pendingShare
+        if (share != null) {
+            state.remove<String>("pendingShare")
+            pendingShare = null
+            nav.push(com.mobilegh.nav.Screen.ShareIssue(share))
+            return
+        }
         val url = pendingUrl ?: return
+        val enterpriseHost = Links.enterpriseHost(url)
+        if (enterpriseHost != null && !Links.enterpriseHostAllowed(url, com.mobilegh.data.Net.apiHost)) {
+            // 保留 pendingUrl：切换或登录到对应企业账号后，LaunchedEffect 会再次尝试。
+            context?.toast(trf("此链接属于 {0}，请切换或登录对应企业账号", enterpriseHost))
+            return
+        }
         state.remove<String>("pendingUrl")
         pendingUrl = null
-        val target = Links.fromInput(url) ?: return
+        val destination = com.mobilegh.nav.WidgetRoutes.resolve(url, com.mobilegh.data.HomePrefs.layout(), Session.login.orEmpty())
+        if (destination != null) {
+            nav.tab = destination.tab
+            destination.screen?.let(nav::push)
+            return
+        }
+        val target = Links.fromInput(url, com.mobilegh.data.Net.apiHost) ?: return
         nav.pushLink(target)
     }
 
@@ -85,12 +114,14 @@ class MainActivity : FragmentActivity() {
         super.onStart()
         if (startedActivities++ == 0) AppLock.onForeground()
         Downloads.setForeground(true)
+        com.mobilegh.data.BackgroundNotificationSettings.setForeground(true)
         com.mobilegh.data.MobileApprovalMonitor.setForeground(this, true)
     }
 
     override fun onStop() {
         startedActivities = (startedActivities - 1).coerceAtLeast(0)
         Downloads.setForeground(startedActivities > 0)
+        com.mobilegh.data.BackgroundNotificationSettings.setForeground(startedActivities > 0)
         com.mobilegh.data.MobileApprovalMonitor.setForeground(this, startedActivities > 0)
         // 旋转、切换深浅色等重建不算离开应用
         if (startedActivities == 0 && !isChangingConfigurations) AppLock.onBackground()
@@ -130,7 +161,7 @@ class MainActivity : FragmentActivity() {
                     .distinctUntilChanged()
                     .collect { vm.saveNav(it) }
             }
-            LaunchedEffect(Session.generation, vm.pendingUrl) { vm.openPending(nav) }
+            LaunchedEffect(Session.generation, vm.pendingUrl, vm.pendingShare) { vm.openPending(nav, this@MainActivity) }
             // 登录、切换账号、退出登录后刷新桌面小组件
             LaunchedEffect(Session.generation) { Widgets.update(applicationContext) }
             LaunchedEffect(AppLock.enabled, AppLock.locked) { updateSecureFlags() }
@@ -168,8 +199,23 @@ class MainActivity : FragmentActivity() {
             intent.getStringExtra(WidgetIntents.EXTRA_URL)?.let(vm::receive)
             return
         }
-        val link = IncomingLinks.fromIntent(intent)
-        if (link != null) vm.receive(link.url)
-        else if (intent?.action == Intent.ACTION_SEND) toast(tr("分享内容中没有可打开的 GitHub 链接"))
+        val link = IncomingLinks.fromIntent(intent, com.mobilegh.data.Net.apiHost)
+        val url = link?.url ?: IncomingLinks.enterpriseUrl(intent?.action, intent?.dataString)
+        if (url != null) vm.receive(url)
+        else if (intent?.action == Intent.ACTION_SEND || intent?.action == Intent.ACTION_SEND_MULTIPLE) {
+            // content:// 的临时读取授权只在本 Activity 生命周期可靠，先复制到专用缓存再进入导航。
+            lifecycleScope.launch {
+                try {
+                    val id = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        com.mobilegh.nav.ShareIntents.import(this@MainActivity, intent)
+                    }
+                    if (id != null) vm.receiveShare(id) else toast(tr("分享内容无法用于创建 Issue"))
+                } catch (c: kotlinx.coroutines.CancellationException) {
+                    throw c
+                } catch (e: Exception) {
+                    toast(e.message ?: tr("无法读取分享内容"))
+                }
+            }
+        }
     }
 }

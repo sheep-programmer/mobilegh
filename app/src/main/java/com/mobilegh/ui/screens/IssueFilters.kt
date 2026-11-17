@@ -129,7 +129,7 @@ fun savedSearchScreen(q: IssueQuery): Screen {
     else Screen.MyIssues(q.pulls, q)
 }
 
-private enum class FilterDialog { Author, Assignee, Labels, Milestone }
+private enum class FilterDialog { Author, Assignee, Labels, Milestone, IssueType }
 
 /**
  * Issue / PR 列表顶部的搜索与筛选栏：搜索框、状态、排序与各项筛选，下方是可移除的已生效筛选。
@@ -209,6 +209,11 @@ fun IssueFilterBar(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Str
                     description = trf("{0}：{1}", tr("里程碑"), query.milestone ?: tr("不限")),
                     selected = query.milestone != null,
                 ) { dialog = FilterDialog.Milestone }
+                if (!query.pulls) FilterValueChip(
+                    label = query.issueType?.let { trf("类型：{0}", it) } ?: tr("类型"),
+                    description = trf("{0}：{1}", tr("类型"), query.issueType ?: tr("不限")),
+                    selected = query.issueType != null,
+                ) { dialog = FilterDialog.IssueType }
             }
             if (query.pulls) {
                 val reviews = listOf<ReviewFilter?>(null) + ReviewFilter.entries
@@ -252,6 +257,10 @@ fun IssueFilterBar(query: IssueQuery, onChange: (IssueQuery) -> Unit, owner: Str
             "milestone", owner, name, tr("按里程碑筛选"), listOfNotNull(query.milestone), { dialog = null },
             single = true, noneLabel = tr("不限"), milestoneByTitle = true,
         ) { onChange(query.copy(milestone = it.firstOrNull()?.key)) }
+        FilterDialog.IssueType -> MetaPicker(
+            "issueType", owner, name, tr("按类型筛选"), listOfNotNull(query.issueType), { dialog = null },
+            single = true, noneLabel = tr("不限"), optionByName = true,
+        ) { onChange(query.copy(issueType = it.firstOrNull()?.key)) }
         null -> {}
     }
 }

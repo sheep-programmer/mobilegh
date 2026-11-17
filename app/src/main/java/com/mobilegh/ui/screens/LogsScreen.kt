@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,7 +50,8 @@ import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.copy
 import com.mobilegh.ui.components.rememberCtx
-import com.mobilegh.ui.components.share
+import com.mobilegh.ui.components.shareLog
+import com.mobilegh.ui.components.toast
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
 
@@ -74,6 +76,7 @@ private val LOG_CATEGORIES = listOf(
 fun LogsScreen(onBack: (() -> Unit)? = null) {
     val g = Gh.c
     val ctx = rememberCtx()
+    val scope = rememberCoroutineScope()
     var category by rememberSaveable { mutableStateOf("all") }
     var query by rememberSaveable { mutableStateOf("") }
     var confirmClear by rememberSaveable { mutableStateOf(false) }
@@ -94,11 +97,12 @@ fun LogsScreen(onBack: (() -> Unit)? = null) {
             MoreMenu(listOf(
                 MenuAction(tr("复制全部日志")) { ctx.copy(AppLog.export(all)) },
                 MenuAction(tr("复制当前筛选")) { ctx.copy(AppLog.export(unique)) },
-                MenuAction(tr("导出当前筛选")) { ctx.share(AppLog.export(unique)) },
-                MenuAction(tr("导出全部日志")) { ctx.share(AppLog.export(all)) },
+                MenuAction(tr("导出当前筛选")) { ctx.shareLog(scope, "filtered") { AppLog.export(unique) } },
+                MenuAction(tr("导出全部日志")) { ctx.shareLog(scope, "all") { AppLog.export(all) } },
                 MenuAction(tr("导出崩溃历史")) {
                     val history = AppLog.crashHistoryText()
-                    if (history.isBlank()) ctx.copy(tr("暂无历史崩溃记录")) else ctx.share(history)
+                    if (history.isBlank()) ctx.toast(tr("暂无历史崩溃记录"))
+                    else ctx.shareLog(scope, "crash-history") { history }
                 },
                 MenuAction(tr("清除全部日志"), danger = true) { confirmClear = true },
             ))
@@ -162,6 +166,7 @@ fun LogsScreen(onBack: (() -> Unit)? = null) {
 private fun LogRow(entry: AppLogEntry, expanded: Boolean, onClick: () -> Unit) {
     val g = Gh.c
     val ctx = rememberCtx()
+    val scope = rememberCoroutineScope()
     val color = when (entry.level) {
         "ERROR" -> g.danger
         "WARN" -> g.attention
@@ -199,7 +204,7 @@ private fun LogRow(entry: AppLogEntry, expanded: Boolean, onClick: () -> Unit) {
                     }
                     Spacer(Modifier.width(8.dp))
                     GhButton(tr("分享"), icon = R.drawable.oc_share_android) {
-                        ctx.share(entry.detail)
+                        ctx.shareLog(scope, "entry") { entry.detail.orEmpty() }
                     }
                 }
             }

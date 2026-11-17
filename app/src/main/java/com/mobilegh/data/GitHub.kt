@@ -153,7 +153,8 @@ object GitHub {
     suspend fun acceptOrg(org: String) = Api.exec("PATCH", "/user/memberships/orgs/$org", buildJsonObject { put("state", "active") })
 
     // ---------------- 仓库 ----------------
-    suspend fun repo(o: String, n: String, force: Boolean = false) = Api.get<Repo>(r(o, n), force).also { if (it.isPrivate) Net.markPrivate(it.fullName) }
+    suspend fun repo(o: String, n: String, force: Boolean = false, headers: Map<String, String> = emptyMap()) =
+        Api.get<Repo>(r(o, n), force, headers = headers).also { if (it.isPrivate) Net.markPrivate(it.fullName) }
     suspend fun repoLicense(o: String, n: String) = Api.get<LicenseFile>("${r(o, n)}/license", false)
 
     private fun List<Repo>.track() = onEach { if (it.isPrivate) Net.markPrivate(it.fullName) }
@@ -296,8 +297,10 @@ object GitHub {
             if (draft) put("draft", true)
         }).also { RepoWrite.changed(o, n, RepoWrite.ISSUES) }
 
-    suspend fun branches(o: String, n: String, page: Int, force: Boolean) = Api.get<List<Branch>>("${r(o, n)}/branches?per_page=100&page=$page", force)
-    suspend fun tags(o: String, n: String, page: Int, force: Boolean) = Api.get<List<Tag>>("${r(o, n)}/tags?per_page=100&page=$page", force)
+    suspend fun branches(o: String, n: String, page: Int, force: Boolean, headers: Map<String, String> = emptyMap()) =
+        Api.get<List<Branch>>("${r(o, n)}/branches?per_page=100&page=$page", force, headers = headers)
+    suspend fun tags(o: String, n: String, page: Int, force: Boolean, headers: Map<String, String> = emptyMap()) =
+        Api.get<List<Tag>>("${r(o, n)}/tags?per_page=100&page=$page", force, headers = headers)
     suspend fun languages(o: String, n: String) = Api.get<Map<String, Long>>("${r(o, n)}/languages")
     suspend fun contributors(o: String, n: String, page: Int, force: Boolean) = Api.get<List<User>>("${r(o, n)}/contributors?per_page=$PER&page=$page", force)
     suspend fun stargazers(o: String, n: String, page: Int, force: Boolean) =
@@ -645,6 +648,28 @@ object GitHub {
         RepoWrite.changed(o, n, RepoWrite.ISSUES)
     }
 
+    suspend fun issueTypeOptions(o: String, n: String): List<IssueType> = IssueTypes.options(o, n)
+
+    suspend fun savedReplies(after: String? = null): SavedReplyPage = SavedReplies.savedReplies(after)
+
+    suspend fun issueHierarchy(o: String, n: String, number: Int, force: Boolean = false): IssueHierarchy =
+        IssueHierarchy.load(o, n, number, force)
+
+    /** PR 合并后会关闭的 Issue；公开 GraphQL 只读字段，不提供通用关联写操作。 */
+    suspend fun closingIssues(o: String, n: String, num: Int, force: Boolean = false): List<IssueRef> =
+        IssueHierarchy.closingIssues(o, n, num, force)
+
+    suspend fun addSubIssue(issueNodeId: String, subIssueNodeId: String, replaceParent: Boolean = false) =
+        IssueHierarchy.addSubIssue(issueNodeId, subIssueNodeId, replaceParent)
+
+    suspend fun removeSubIssue(issueNodeId: String, subIssueNodeId: String) =
+        IssueHierarchy.removeSubIssue(issueNodeId, subIssueNodeId)
+
+    suspend fun issueType(o: String, n: String, number: Int): IssueType? = IssueTypes.current(o, n, number)
+
+    /** null 表示清除类型；GraphQL 需要 Issue 与 Issue Type 的 Node ID。 */
+    suspend fun setIssueType(issueNodeId: String, issueTypeId: String?): IssueType? = IssueTypes.set(issueNodeId, issueTypeId)
+
     suspend fun resolveThread(threadId: String, resolve: Boolean) {
         val m = if (resolve) "resolveReviewThread" else "unresolveReviewThread"
         mutate(m, "mutation(${'$'}id: ID!) { $m(input: { threadId: ${'$'}id }) { thread { isResolved } } }", mapOf("id" to threadId))
@@ -838,9 +863,15 @@ object GitHub {
     suspend fun run(o: String, n: String, id: Long, force: Boolean) = Api.get<Run>("${r(o, n)}/actions/runs/$id", force)
     suspend fun jobs(o: String, n: String, runId: Long, force: Boolean) = Api.get<Jobs>("${r(o, n)}/actions/runs/$runId/jobs?per_page=100", force).jobs
     suspend fun artifacts(o: String, n: String, runId: Long, force: Boolean) = Api.get<Artifacts>("${r(o, n)}/actions/runs/$runId/artifacts", force).artifacts
-    suspend fun rerun(o: String, n: String, runId: Long, failedOnly: Boolean) =
-        Api.exec("POST", "${r(o, n)}/actions/runs/$runId/" + if (failedOnly) "rerun-failed-jobs" else "rerun")
+    suspend fun rerun(o: String, n: String, runId: Long, failedOnly: Boolean, enableDebugLogging: Boolean = false) =
+        WorkflowRerun.request(runId, failedOnly, enableDebugLogging).let {
+            Api.exec("POST", "${r(o, n)}${it.path}", it.body)
+        }
     suspend fun cancelRun(o: String, n: String, runId: Long) = Api.exec("POST", "${r(o, n)}/actions/runs/$runId/cancel")
+    suspend fun pendingDeploymentRequests(workflowRunNodeId: String): List<DeploymentReview> =
+        DeploymentReviews.pendingDeploymentRequests(workflowRunNodeId)
+    suspend fun reviewDeployments(input: DeploymentReviewInput, approve: Boolean) =
+        DeploymentReviews.reviewDeployments(input, approve)
     suspend fun job(o: String, n: String, jobId: Long, force: Boolean = false) = Api.get<Job>("${r(o, n)}/actions/jobs/$jobId", force)
     suspend fun jobLog(o: String, n: String, jobId: Long) = Api.text("${r(o, n)}/actions/jobs/$jobId/logs", force = true)
     suspend fun workflows(o: String, n: String, force: Boolean) = Api.get<Workflows>("${r(o, n)}/actions/workflows?per_page=100", force).workflows
@@ -857,6 +888,94 @@ object GitHub {
     suspend fun environments(o: String, n: String) = Api.get<Environments>("${r(o, n)}/environments?per_page=100").environments.map { it.name }
     suspend fun setWorkflowEnabled(o: String, n: String, workflowId: Long, on: Boolean) =
         Api.exec("PUT", "${r(o, n)}/actions/workflows/$workflowId/" + if (on) "enable" else "disable")
+
+    private suspend inline fun <reified T> actionGet(o: String, n: String, request: ActionRequest, force: Boolean = false): T =
+        Api.get("${r(o, n)}${request.path}", force)
+
+    private suspend fun actionWrite(o: String, n: String, request: ActionRequest) {
+        Api.exec(request.method, "${r(o, n)}${request.path}", request.body)
+        RepoWrite.changed(o, n, RepoWrite.ACTIONS)
+    }
+
+    private suspend inline fun <reified R, E> actionPages(
+        o: String,
+        n: String,
+        pageSize: Int,
+        force: Boolean,
+        crossinline request: (Int) -> ActionRequest,
+        crossinline total: (R) -> Int,
+        crossinline items: (R) -> List<E>,
+    ): List<E> {
+        val result = mutableListOf<E>()
+        var page = 1
+        do {
+            val response: R = actionGet(o, n, request(page), force)
+            val batch = items(response)
+            result += batch
+            val more = batch.size == pageSize && result.size < total(response)
+            page++
+        } while (more)
+        return result
+    }
+
+    suspend fun actionPermissions(o: String, n: String, force: Boolean = false) = actionGet<ActionPermissions>(o, n, ActionRequest("GET", "/actions/permissions"), force)
+    suspend fun updateActionPermissions(o: String, n: String, enabled: Boolean, allowedActions: String, shaPinningRequired: Boolean) =
+        actionWrite(o, n, ActionsRequests.permissions(enabled, allowedActions, shaPinningRequired))
+    suspend fun actionAccess(o: String, n: String, force: Boolean = false) = actionGet<ActionAccess>(o, n, ActionRequest("GET", "/actions/permissions/access"), force)
+    suspend fun updateActionAccess(o: String, n: String, level: String) = actionWrite(o, n, ActionsRequests.access(level))
+    suspend fun actionArtifactRetention(o: String, n: String, force: Boolean = false) = actionGet<ActionArtifactRetention>(o, n, ActionRequest("GET", "/actions/permissions/artifact-and-log-retention"), force)
+    suspend fun updateActionArtifactRetention(o: String, n: String, days: Int) = actionWrite(o, n, ActionsRequests.artifactRetention(days))
+    suspend fun actionForkApproval(o: String, n: String, force: Boolean = false) = actionGet<ActionForkApproval>(o, n, ActionRequest("GET", "/actions/permissions/fork-pr-contributor-approval"), force)
+    suspend fun updateActionForkApproval(o: String, n: String, policy: String) = actionWrite(o, n, ActionsRequests.forkApproval(policy))
+    suspend fun actionPrivateForks(o: String, n: String, force: Boolean = false) = actionGet<ActionPrivateForks>(o, n, ActionRequest("GET", "/actions/permissions/fork-pr-workflows-private-repos"), force)
+    suspend fun updateActionPrivateForks(o: String, n: String, value: ActionPrivateForks) =
+        actionWrite(o, n, ActionsRequests.privateForks(value.run, value.writeTokens, value.secrets, value.approval))
+    suspend fun actionSelectedActions(o: String, n: String, force: Boolean = false) = actionGet<ActionSelectedActions>(o, n, ActionRequest("GET", "/actions/permissions/selected-actions"), force)
+    suspend fun updateActionSelectedActions(o: String, n: String, githubOwned: Boolean, verified: Boolean, patterns: List<String>) =
+        actionWrite(o, n, ActionsRequests.selected(githubOwned, verified, patterns))
+    suspend fun actionWorkflowPermissions(o: String, n: String, force: Boolean = false) = actionGet<ActionWorkflowPermissions>(o, n, ActionRequest("GET", "/actions/permissions/workflow"), force)
+    suspend fun updateActionWorkflowPermissions(o: String, n: String, default: String, canApprove: Boolean) =
+        actionWrite(o, n, ActionsRequests.workflow(default, canApprove))
+
+    suspend fun actionSecrets(o: String, n: String, force: Boolean = false) = actionPages<ActionSecretList, ActionSecret>(o, n, 100, force, ActionsRequests::secrets, { it.totalCount }, { it.secrets })
+    suspend fun actionOrganizationSecrets(o: String, n: String, force: Boolean = false) = actionPages<ActionSecretList, ActionSecret>(o, n, 100, force, ActionsRequests::organizationSecrets, { it.totalCount }, { it.secrets })
+    suspend fun actionSecretPublicKey(o: String, n: String) = actionGet<ActionPublicKey>(o, n, ActionsRequests.publicKey(), force = true)
+    suspend fun putActionSecret(o: String, n: String, name: String, encrypted: String, keyId: String) =
+        actionWrite(o, n, ActionsRequests.putSecret(name, encrypted, keyId))
+    suspend fun deleteActionSecret(o: String, n: String, name: String) = actionWrite(o, n, ActionsRequests.secret(name))
+
+    suspend fun actionVariables(o: String, n: String, force: Boolean = false) = actionPages<ActionVariableList, ActionVariable>(o, n, 30, force, ActionsRequests::variables, { it.totalCount }, { it.variables })
+    suspend fun createActionVariable(o: String, n: String, name: String, value: String): ActionVariable {
+        val created = Api.sendWrite<ActionVariable>("POST", "${r(o, n)}${ActionsRequests.createVariable(name, value).path}", ActionsRequests.createVariable(name, value).body)
+        RepoWrite.changed(o, n, RepoWrite.ACTIONS)
+        return created ?: ActionVariable(name, value)
+    }
+    suspend fun updateActionVariable(o: String, n: String, originalName: String, name: String?, value: String?) =
+        actionWrite(o, n, ActionsRequests.patchVariable(originalName, name, value))
+    suspend fun deleteActionVariable(o: String, n: String, name: String) = actionWrite(o, n, ActionsRequests.variable(name))
+
+    suspend fun actionRunners(o: String, n: String, nameFilter: String? = null, force: Boolean = false) =
+        actionPages<ActionRunnerList, ActionRunner>(o, n, 100, force, { ActionsRequests.runners(it, nameFilter) }, { it.totalCount }, { it.runners })
+    suspend fun deleteActionRunner(o: String, n: String, id: Long) = actionWrite(o, n, ActionsRequests.deleteRunner(id))
+    suspend fun actionRunnerRegistrationToken(o: String, n: String) =
+        Api.send<ActionRunnerToken>("POST", "${r(o, n)}${ActionsRequests.runnerRegistrationToken().path}")
+    suspend fun actionRunnerDownloads(o: String, n: String, force: Boolean = false) =
+        actionGet<List<ActionRunnerDownload>>(o, n, ActionsRequests.runnerDownloads(), force)
+
+    suspend fun actionCacheUsage(o: String, n: String, force: Boolean = false) = actionGet<ActionCacheUsage>(o, n, ActionsRequests.cacheUsage(), force)
+    suspend fun actionCaches(o: String, n: String, key: String? = null, ref: String? = null, force: Boolean = false) =
+        actionPages<ActionCacheList, ActionCache>(o, n, 100, force, { ActionsRequests.caches(it, key, ref) }, { it.totalCount }, { it.caches })
+    suspend fun deleteActionCache(o: String, n: String, id: Long) = actionWrite(o, n, ActionsRequests.deleteCache(id))
+    suspend fun deleteActionCaches(o: String, n: String, key: String, ref: String?): ActionCacheList? {
+        val request = ActionsRequests.deleteCaches(key, ref)
+        val result = Api.sendWrite<ActionCacheList>(request.method, "${r(o, n)}${request.path}")
+        RepoWrite.changed(o, n, RepoWrite.ACTIONS)
+        return result
+    }
+    suspend fun actionCacheRetentionLimit(o: String, n: String, force: Boolean = false) = actionGet<ActionCacheRetentionLimit>(o, n, ActionRequest("GET", "/actions/cache/retention-limit"), force)
+    suspend fun updateActionCacheRetentionLimit(o: String, n: String, days: Int) = actionWrite(o, n, ActionsRequests.cacheRetention(days))
+    suspend fun actionCacheStorageLimit(o: String, n: String, force: Boolean = false) = actionGet<ActionCacheStorageLimit>(o, n, ActionRequest("GET", "/actions/cache/storage-limit"), force)
+    suspend fun updateActionCacheStorageLimit(o: String, n: String, gb: Int) = actionWrite(o, n, ActionsRequests.cacheStorage(gb))
 
     // ---------------- 洞察 Insights（官方 App 不提供） ----------------
     suspend fun views(o: String, n: String, force: Boolean) = Api.get<Traffic>("${r(o, n)}/traffic/views", force)
@@ -899,7 +1018,8 @@ object GitHub {
     suspend fun removeCollaborator(o: String, n: String, login: String) = Api.exec("DELETE", "${r(o, n)}/collaborators/$login")
     suspend fun pendingInvites(o: String, n: String, force: Boolean) = Api.get<List<Invitation>>("${r(o, n)}/invitations", force)
     suspend fun cancelInvite(o: String, n: String, id: Long) = Api.exec("DELETE", "${r(o, n)}/invitations/$id")
-    suspend fun updateRepo(o: String, n: String, patch: JsonObject) = Api.send<Repo>("PATCH", r(o, n), patch)
+    suspend fun updateRepo(o: String, n: String, patch: JsonObject, headers: Map<String, String> = emptyMap()) =
+        Api.send<Repo>("PATCH", r(o, n), patch, headers = headers)
     suspend fun setTopics(o: String, n: String, topics: List<String>) =
         Api.exec("PUT", "${r(o, n)}/topics", JsonObject(mapOf("names" to JsonArray(topics.map { JsonPrimitive(it) }))))
     suspend fun deleteRepo(o: String, n: String) = Api.exec("DELETE", r(o, n))
@@ -910,6 +1030,7 @@ object GitHub {
     suspend fun createRepo(
         org: String?, name: String, desc: String, private: Boolean, autoInit: Boolean,
         gitignore: String? = null, license: String? = null,
+        headers: Map<String, String> = emptyMap(),
     ) =
         Api.send<Repo>("POST", if (org == null) "/user/repos" else "/orgs/$org/repos", buildJsonObject {
             put("name", name)
@@ -918,7 +1039,7 @@ object GitHub {
             put("auto_init", autoInit)
             gitignore?.takeIf { it.isNotBlank() }?.let { put("gitignore_template", it) }
             license?.takeIf { it.isNotBlank() }?.let { put("license_template", it) }
-        }).also { RepoWrite.reposChanged() }
+        }, headers = headers).also { RepoWrite.reposChanged() }
 
     /** 新建仓库可选的 .gitignore 模板名 */
     suspend fun gitignoreTemplates(force: Boolean = false): List<String> = Api.get("/gitignore/templates", force)

@@ -164,8 +164,10 @@ fun MarkdownToolbar(
     value: TextFieldValue,
     onValueChange: (TextFieldValue) -> Unit,
     modifier: Modifier = Modifier,
+    showSavedReplies: Boolean = true,
 ) {
     val g = Gh.c
+    var savedRepliesOpen by remember { mutableStateOf(false) }
     Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         ToolBtn(tr("标题"), { onValueChange(linePrefix(value, "### ")) }) { Oc(R.drawable.oc_heading, g.fgMuted, 18.dp) }
         ToolBtn(tr("加粗"), { onValueChange(wrap(value, "**")) }) { Oc(R.drawable.oc_bold, g.fgMuted, 18.dp) }
@@ -178,6 +180,13 @@ fun MarkdownToolbar(
         ToolBtn(tr("有序列表"), { onValueChange(linePrefix(value, "1. ")) }) { Oc(R.drawable.oc_list_ordered, g.fgMuted, 18.dp) }
         ToolBtn(tr("任务列表"), { onValueChange(linePrefix(value, "- [ ] ")) }) { Oc(R.drawable.oc_checklist, g.fgMuted, 18.dp) }
         ToolBtn(tr("提及用户"), { onValueChange(insert(value, "@")) }) { Oc(R.drawable.oc_mention, g.fgMuted, 18.dp) }
+        if (showSavedReplies) ToolBtn(tr("保存的回复"), { savedRepliesOpen = true }) { Oc(R.drawable.oc_note, g.fgMuted, 18.dp) }
+    }
+    if (savedRepliesOpen) {
+        SavedRepliesPicker(onDismiss = { savedRepliesOpen = false }) { reply ->
+            onValueChange(insertSavedReply(value, reply.body))
+            savedRepliesOpen = false
+        }
     }
 }
 

@@ -2,6 +2,7 @@ package com.mobilegh.data
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class CommitPushesTest {
@@ -47,6 +48,17 @@ class CommitPushesTest {
         assertEquals("v1.0", p.ref)
         assertEquals(true, p.isTag)
         assertNull(p.baseSha)
+    }
+
+    @Test fun pushKeysStayUniqueWhenBranchesAndTagsShareACommit() {
+        val commit = c("209c9250f7436c9d8e5b801d4af6a7144bbb3a6e", "mona", "2026-11-14T12:00:00Z")
+        val main = splitPushes("refs/heads/main", listOf(commit)).single()
+        val feature = splitPushes("refs/heads/feature", listOf(commit)).single()
+        val tag = splitPushes("refs/tags/main", listOf(commit)).single()
+
+        assertNotEquals(main.stableKey(), feature.stableKey())
+        assertNotEquals(main.stableKey(), tag.stableKey())
+        assertEquals(3, listOf(main, feature, tag).map { it.stableKey() }.distinct().size)
     }
 
     @Test fun emptyAndUnknownTimesStayUsable() {

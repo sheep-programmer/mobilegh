@@ -50,14 +50,20 @@ class ScrollTopAndPillTest {
     }
 
     @Test fun scrollTopButtonAppearsAfterScrollingAndReturnsToTop() {
-        compose.setContent { LongPage() }
-        compose.onNodeWithContentDescription("回到顶部").assertDoesNotExist()
-        compose.onNodeWithTag("list").performScrollToIndex(60)
-        compose.waitForIdle()
-        compose.onNodeWithContentDescription("回到顶部").assertIsDisplayed().performClick()
-        compose.waitForIdle()
-        compose.onNodeWithText("row 0").assertIsDisplayed()
-        compose.onNodeWithContentDescription("回到顶部").assertDoesNotExist()
+        val previous = com.mobilegh.data.Session.scrollToTopButton
+        com.mobilegh.data.Session.chooseScrollToTopButton(true)
+        try {
+            compose.setContent { LongPage() }
+            compose.onNodeWithContentDescription("回到顶部").assertDoesNotExist()
+            compose.onNodeWithTag("list").performScrollToIndex(60)
+            compose.waitForIdle()
+            compose.onNodeWithContentDescription("回到顶部").assertIsDisplayed().performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText("row 0").assertIsDisplayed()
+            compose.onNodeWithContentDescription("回到顶部").assertDoesNotExist()
+        } finally {
+            compose.runOnUiThread { com.mobilegh.data.Session.chooseScrollToTopButton(previous) }
+        }
     }
 
     @Test fun downloadPillCanBeDraggedButStaysOnScreen() {

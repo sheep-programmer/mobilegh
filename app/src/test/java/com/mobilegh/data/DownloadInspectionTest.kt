@@ -1,10 +1,14 @@
 package com.mobilegh.data
 
+import com.mobilegh.MainDispatcherRule
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
 
 class DownloadInspectionTest {
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
     @Test
     fun identifiesDownloadableUrlsCorrectly() {
         // User attachments

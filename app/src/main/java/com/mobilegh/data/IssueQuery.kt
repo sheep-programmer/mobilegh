@@ -52,7 +52,7 @@ enum class Involvement(private val labelZh: String, private val qualifierZh: Str
     val qualifier: String get() = tr(qualifierZh)
 }
 
-enum class FilterKind(private val labelZh: String) { Author("作者"), Assignee("指派人"), Label("标签"), Milestone("里程碑"), Review("评审"), Draft("草稿"), Text("搜索");
+enum class FilterKind(private val labelZh: String) { Author("作者"), Assignee("指派人"), Label("标签"), Milestone("里程碑"), IssueType("类型"), Review("评审"), Draft("草稿"), Text("搜索");
     val label: String get() = tr(labelZh) }
 
 /** 一个可单独移除的已生效筛选条件 */
@@ -72,6 +72,7 @@ data class IssueQuery(
     val assignee: String? = null,
     val labels: List<String> = emptyList(),
     val milestone: String? = null,
+    val issueType: String? = null,
     val review: ReviewFilter? = null,
     val draft: Boolean? = null,
     val text: String = "",
@@ -94,6 +95,7 @@ data class IssueQuery(
         assignee?.let { add("assignee:${login(it)}") }
         labels.forEach { add("label:${quoted(it)}") }
         milestone?.let { add("milestone:${quoted(it)}") }
+        if (!pulls) issueType?.let { add("type:${quoted(it)}") }
         if (pulls) {
             review?.let { add(it.qualifier) }
             draft?.let { add("draft:$it") }
@@ -108,6 +110,7 @@ data class IssueQuery(
         assignee?.let { add(ActiveFilter(FilterKind.Assignee, it, trf("指派人：{0}", it))) }
         labels.forEach { add(ActiveFilter(FilterKind.Label, it, trf("标签：{0}", it))) }
         milestone?.let { add(ActiveFilter(FilterKind.Milestone, it, trf("里程碑：{0}", it))) }
+        if (!pulls) issueType?.trim()?.takeIf { it.isNotEmpty() }?.let { add(ActiveFilter(FilterKind.IssueType, it, trf("类型：{0}", it))) }
         if (pulls) {
             review?.let { add(ActiveFilter(FilterKind.Review, it.name, trf("评审：{0}", it.label))) }
             draft?.let { add(ActiveFilter(FilterKind.Draft, it.toString(), if (it) tr("仅草稿") else tr("排除草稿"))) }
@@ -120,6 +123,7 @@ data class IssueQuery(
         FilterKind.Assignee -> copy(assignee = null)
         FilterKind.Label -> copy(labels = labels - f.value)
         FilterKind.Milestone -> copy(milestone = null)
+        FilterKind.IssueType -> copy(issueType = null)
         FilterKind.Review -> copy(review = null)
         FilterKind.Draft -> copy(draft = null)
         FilterKind.Text -> copy(text = "")
@@ -135,6 +139,7 @@ data class IssueQuery(
         assignee = assignee?.let(::login)?.takeIf { it.isNotEmpty() },
         labels = labels.map { it.trim() }.filter { it.isNotEmpty() }.distinct().take(MAX_LABELS),
         milestone = milestone?.trim()?.takeIf { it.isNotEmpty() },
+        issueType = issueType?.trim()?.takeIf { !pulls && it.isNotEmpty() },
         review = if (pulls) review else null,
         draft = if (pulls) draft else null,
         text = text.trim().take(MAX_TEXT),

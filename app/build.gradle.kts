@@ -42,8 +42,8 @@ android {
         applicationId = "com.mobilegh"
         minSdk = 26
         targetSdk = 36
-        versionCode = 52
-        versionName = "0.40.3"
+        versionCode = 53
+        versionName = "0.40.4"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GITHUB_CLIENT_ID", "\"$clientId\"")
         buildConfigField("String", "GITHUB_CLIENT_SETTINGS_URL", "\"$clientSettingsUrl\"")
@@ -120,9 +120,11 @@ kotlin {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.work:work-testing:2.11.0")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
@@ -147,5 +149,13 @@ dependencies {
     implementation(libs.zxing.core)
     implementation(libs.jsoup)
     implementation(libs.androidsvg)
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.jgit)
+    implementation(libs.lazysodium.android) {
+        exclude(group = "net.java.dev.jna", module = "jna")
+    }
+    implementation(libs.jna.android) {
+        artifact { type = "aar" }
+    }
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

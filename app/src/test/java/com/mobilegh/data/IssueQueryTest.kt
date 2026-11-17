@@ -73,6 +73,26 @@ class IssueQueryTest {
         assertEquals(IssueQuery.MAX_TEXT, q.text.length)
     }
 
+    @Test fun issueTypeUsesSearchAndCanBeRemovedOrCleared() {
+        val q = base.copy(issueType = " Bug \"critical\" ")
+        assertTrue(q.needsSearch)
+        assertEquals("repo:mona/repo is:issue state:open type:\"Bug critical\"", q.searchQuery())
+        val filter = q.activeFilters().single { it.kind == FilterKind.IssueType }
+        assertEquals("Bug \"critical\"", filter.value)
+        assertNull(q.without(filter).issueType)
+        assertNull(q.cleared().issueType)
+        assertNotEquals(base.key(), q.key())
+        assertTrue(q.summary().contains("类型："))
+    }
+
+    @Test fun pullRequestsStripIssueTypeDuringNormalizationAndSearch() {
+        val q = base.copy(pulls = true, issueType = "Bug")
+        assertEquals("repo:mona/repo is:pr state:open", q.searchQuery())
+        assertNull(q.normalized().issueType)
+        assertFalse(q.activeFilters().any { it.kind == FilterKind.IssueType })
+        assertNull(base.copy(issueType = " ").normalized().issueType)
+    }
+
     @Test fun keysDifferForDifferentQueriesAndSortMapsToApiParameters() {
         assertNotEquals(base.key(), base.copy(sort = IssueSort.Oldest).key())
         assertEquals(base.key(), base.copy().key())

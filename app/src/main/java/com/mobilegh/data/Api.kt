@@ -148,9 +148,12 @@ object Api {
         val rb = Request.Builder().url(url(path))
         headers.forEach { (k, v) -> rb.header(k, v) }
         // Bind this operation to its initiating account, before OkHttp queues the request.
+        // A long-running import supplies its captured account explicitly; never overwrite it.
         val callToken = Session.token
         val requestHost = rb.build().url.host
-        if (callToken != null && (requestHost in AUTH_HOSTS || requestHost == Net.apiHost)) {
+        if (callToken != null && rb.build().header("Authorization") == null &&
+            (requestHost in AUTH_HOSTS || requestHost == Net.apiHost)
+        ) {
             rb.header("Authorization", "Bearer $callToken")
         }
         accept?.let { rb.header("Accept", it) }
@@ -349,8 +352,8 @@ object Api {
         }
     }
 
-    suspend fun graphql(query: String, vars: Map<String, Any?> = emptyMap()): JsonObject {
-        val root = graphqlRoot(query, vars)
+    suspend fun graphql(query: String, vars: Map<String, Any?> = emptyMap(), force: Boolean = false): JsonObject {
+        val root = graphqlRoot(query, vars, force)
         val data = root["data"]
         val errors = root["errors"] as? JsonArray
         if ((data == null || data is JsonNull) && errors != null) {
@@ -361,7 +364,7 @@ object Api {
     }
 
     /** 完整的 GraphQL 响应（data 与 errors），供需要识别错误类型（如 INSUFFICIENT_SCOPES）的调用方使用 */
-    suspend fun graphqlRoot(query: String, vars: Map<String, Any?> = emptyMap()): JsonObject {
+    suspend fun graphqlRoot(query: String, vars: Map<String, Any?> = emptyMap(), force: Boolean = false): JsonObject {
         val body = buildJsonObject {
             put("query", JsonPrimitive(query))
             put("variables", JsonObject(vars.mapValues { (_, v) ->
@@ -374,7 +377,7 @@ object Api {
                 }
             }))
         }
-        val r = ensureOk(call("POST", "/graphql", body))
+        val r = ensureOk(call("POST", "/graphql", body, force = force))
         return plain.parseToJsonElement(r.body).jsonObject
     }
 

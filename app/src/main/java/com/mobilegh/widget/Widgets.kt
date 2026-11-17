@@ -3,6 +3,7 @@ package com.mobilegh.widget
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.net.Uri
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -62,9 +63,6 @@ import com.mobilegh.ui.components.levelOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 
@@ -79,30 +77,35 @@ object WidgetIntents {
             .setAction(ACTION)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             .putExtra(EXTRA_TAB, tab.name)
-            .apply { if (url != null) putExtra(EXTRA_URL, url) }
+            .apply { if (url != null) setData(Uri.parse(url)).putExtra(EXTRA_URL, url) }
 }
 
 /** 应用内数据变化、切换账号或退出登录时刷新桌面小组件。 */
 object Widgets {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Volatile private var appContext: Context? = null
+    private val refresh = WidgetRefresh(scope, { kind ->
+        appContext?.let { app ->
+            if (kind == null || kind == WidgetStore.Kind.Contributions) ContributionWidget().updateAll(app)
+            if (kind == null || kind == WidgetStore.Kind.Inbox) InboxWidget().updateAll(app)
+            if (kind == null || kind == WidgetStore.Kind.PullRequests) PullRequestWidget().updateAll(app)
+            if (kind == null || kind == WidgetStore.Kind.Shortcuts) ShortcutWidget().updateAll(app)
+        }
+    }, { AppLog.warn("widget", tr("小组件刷新失败"), it) })
 
-    /** 正在运行的小组件会话据此重新读取数据（会话存活期间 updateAll 只会触发重组）。 */
-    internal val version = MutableStateFlow(0)
+    /** 正在运行的小组件会话据此重新读取本类数据。 */
+    private val versions = WidgetVersions()
+    internal fun version(kind: WidgetStore.Kind) = versions.flow(kind)
 
     fun update(ctx: Context, kind: WidgetStore.Kind? = null) {
-        val app = ctx.applicationContext
-        version.update { it + 1 }
-        scope.launch {
-            runCatching {
-                if (kind != WidgetStore.Kind.Inbox) ContributionWidget().updateAll(app)
-                if (kind != WidgetStore.Kind.Contributions) InboxWidget().updateAll(app)
-            }.onFailure { AppLog.warn("widget", tr("小组件刷新失败"), it) }
-        }
+        appContext = ctx.applicationContext
+        versions.update(kind)
+        refresh.request(kind)
     }
 }
 
 @Composable
-private fun widgetColor(@ColorRes resource: Int): ColorProvider {
+internal fun widgetColor(@ColorRes resource: Int): ColorProvider {
     val context = LocalContext.current
     val configuration = Configuration(context.resources.configuration)
     return remember(context, configuration, resource) {
@@ -117,21 +120,21 @@ private fun widgetColor(@ColorRes resource: Int): ColorProvider {
     }
 }
 
-private val Fg: ColorProvider
+internal val Fg: ColorProvider
     @Composable get() = widgetColor(R.color.widget_fg)
-private val Muted: ColorProvider
+internal val Muted: ColorProvider
     @Composable get() = widgetColor(R.color.widget_fg_muted)
-private val Accent: ColorProvider
+internal val Accent: ColorProvider
     @Composable get() = widgetColor(R.color.widget_accent)
 private val Heat = listOf(R.color.widget_heat_0, R.color.widget_heat_1, R.color.widget_heat_2, R.color.widget_heat_3, R.color.widget_heat_4)
 
-private sealed interface Load<out T> {
+internal sealed interface Load<out T> {
     data object SignedOut : Load<Nothing>
     data class Ready<T>(val value: T) : Load<T>
     data object Failed : Load<Nothing>
 }
 
-private suspend fun <T> load(tag: String, block: suspend () -> T?): Load<T> = try {
+internal suspend fun <T> load(tag: String, block: suspend () -> T?): Load<T> = try {
     block()?.let { Load.Ready(it) } ?: Load.SignedOut
 } catch (e: kotlinx.coroutines.CancellationException) {
     throw e
@@ -142,14 +145,19 @@ private suspend fun <T> load(tag: String, block: suspend () -> T?): Load<T> = tr
 
 /** 首次显示用 provideGlance 中加载好的数据；之后每次刷新请求都重新读取（缓存足够新时不发请求）。 */
 @Composable
-private fun <T> rememberLoad(initial: Load<T>, startVersion: Int, loader: suspend () -> Load<T>): Load<T> {
-    val v by Widgets.version.collectAsState()
+internal fun <T> rememberLoad(
+    initial: Load<T>,
+    startVersion: Int,
+    kind: WidgetStore.Kind,
+    loader: suspend () -> Load<T>,
+): Load<T> {
+    val v by Widgets.version(kind).collectAsState()
     val state by produceState(initial, v) { if (v != startVersion) value = loader() }
     return state
 }
 
 @Composable
-private fun WidgetFrame(onClick: Action, content: @Composable () -> Unit) {
+internal fun WidgetFrame(onClick: Action, content: @Composable () -> Unit) {
     Box(
         GlanceModifier.fillMaxSize().appWidgetBackground().background(ImageProvider(R.drawable.widget_background))
             .clickable(onClick).padding(12.dp),
@@ -157,7 +165,7 @@ private fun WidgetFrame(onClick: Action, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Header(icon: Int, title: String, trailing: String?, trailingColor: ColorProvider = Muted) {
+internal fun Header(icon: Int, title: String, trailing: String?, trailingColor: ColorProvider = Muted) {
     Row(GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Image(ImageProvider(icon), null, GlanceModifier.size(16.dp), colorFilter = ColorFilter.tint(Fg))
         Spacer(GlanceModifier.width(8.dp))
@@ -167,7 +175,7 @@ private fun Header(icon: Int, title: String, trailing: String?, trailingColor: C
 }
 
 @Composable
-private fun Message(text: String) {
+internal fun Message(text: String) {
     Box(GlanceModifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Text(text, style = TextStyle(color = Muted, fontSize = 13.sp), maxLines = 2)
     }
@@ -179,10 +187,10 @@ class ContributionWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Single
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val v0 = Widgets.version.value
+        val v0 = Widgets.version(WidgetStore.Kind.Contributions).value
         val first = load(tr("贡献图")) { WidgetStore.loadContributions() }
         provideContent {
-            val state = rememberLoad(first, v0) { load(tr("贡献图")) { WidgetStore.loadContributions() } }
+            val state = rememberLoad(first, v0, WidgetStore.Kind.Contributions) { load(tr("贡献图")) { WidgetStore.loadContributions() } }
             val masks = remember(state) { (state as? Load.Ready)?.value?.let(::heatMasks) }
             ContributionContent(context, state, masks)
         }
@@ -257,10 +265,10 @@ class InboxWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val v0 = Widgets.version.value
+        val v0 = Widgets.version(WidgetStore.Kind.Inbox).value
         val first = load(tr("收件箱")) { WidgetStore.loadInbox() }
         provideContent {
-            InboxContent(context, rememberLoad(first, v0) { load(tr("收件箱")) { WidgetStore.loadInbox() } })
+            InboxContent(context, rememberLoad(first, v0, WidgetStore.Kind.Inbox) { load(tr("收件箱")) { WidgetStore.loadInbox() } })
         }
     }
 }

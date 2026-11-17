@@ -25,6 +25,7 @@ import com.mobilegh.R
 import com.mobilegh.data.Branch
 import com.mobilegh.data.CommitPush
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.stableKey
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 import com.mobilegh.nav.LocalNav
@@ -89,7 +90,7 @@ fun PushesScreen(owner: String, name: String) {
                 Text(tr("还没有提交记录"), Modifier.padding(top = 8.dp), color = g.fgMuted, fontSize = 13.sp)
             }
             else -> ScrollbarLazyColumn(Modifier.padding(pad).fillMaxWidth(), state = state) {
-                items(list.size, key = { i -> list[i].headSha }) { i ->
+                items(list.size, key = { i -> list[i].stableKey() }) { i ->
                     PushRow(owner, name, list[i])
                 }
                 item {

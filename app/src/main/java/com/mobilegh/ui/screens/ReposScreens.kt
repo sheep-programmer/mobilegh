@@ -161,6 +161,7 @@ fun ReposTab() {
         if (filter == 3 && safeOrg != null) add("org" to safeOrg)
     }
     Page(tr("仓库"), back = false, contentWindowInsets = WindowInsets(0), actions = {
+        OcButton(R.drawable.oc_repo_push, { nav.push(Screen.ImportRepo) }, description = tr("导入仓库"))
         OcButton(R.drawable.oc_plus, { nav.push(Screen.CreateRepo) })
         OcButton(R.drawable.oc_shield_lock, { nav.push(Screen.OrgDiagnostics) })
     }) { pad ->
@@ -431,6 +432,12 @@ fun CreateRepoScreen() {
                     if (connectApps) ctx.openBrowser("https://github.com/${r.owner.login}/${r.name}/settings/installations")
                 }
             }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                tr("导入已有仓库"),
+                Modifier.fillMaxWidth().clickable { nav.push(Screen.ImportRepo) }.padding(horizontal = 16.dp, vertical = 12.dp),
+                color = Gh.c.fg, fontSize = 15.sp,
+            )
         }
     }
     when (picking) {

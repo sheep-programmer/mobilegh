@@ -61,8 +61,14 @@ sealed interface Screen {
     @Serializable data class IssueDetail(val owner: String, val name: String, val number: Int, val isPull: Boolean, val commentId: Long? = null) : Screen
     @Serializable data class PullFiles(val owner: String, val name: String, val number: Int) : Screen
     @Serializable data class PullChecks(val owner: String, val name: String, val number: Int, val sha: String) : Screen
-    @Serializable data class NewIssue(val owner: String, val name: String) : Screen
+    @Serializable data class NewIssue(val owner: String, val name: String, val parentNodeId: String? = null, val parentNumber: Int? = null, val shareId: String? = null) : Screen
+    @Serializable data class ShareIssue(val shareId: String) : Screen
     @Serializable data class Actions(val owner: String, val name: String) : Screen
+    @Serializable data class ActionsSettings(
+        val owner: String,
+        val name: String,
+        val section: ActionsSettingsSection = ActionsSettingsSection.General,
+    ) : Screen
     @Serializable data class RunDetail(val owner: String, val name: String, val runId: Long) : Screen
     @Serializable data class JobLog(val owner: String, val name: String, val jobId: Long, val title: String, val runId: Long = 0, val stepNumber: Int = 0) : Screen
     /** [tag] 来自 `/releases/tag/…`、`/releases/download/…` 链接：显示并展开这个版本；`latest` 表示最新版本；为空时只列出 */
@@ -111,6 +117,7 @@ sealed interface Screen {
     @Serializable data object Authenticator : Screen
     @Serializable data object OrgDiagnostics : Screen
     @Serializable data object CreateRepo : Screen
+    @Serializable data object ImportRepo : Screen
     @Serializable data object Login : Screen
     @Serializable data object Reauthorize : Screen
     @Serializable data class MyIssues(val pulls: Boolean, val preset: IssueQuery? = null) : Screen
@@ -129,6 +136,7 @@ sealed interface Screen {
     @Serializable data object CuratedLists : Screen
 }
 
+@Serializable enum class ActionsSettingsSection { General, Secrets, Variables, Runners, Caches }
 @Serializable enum class UserKind { Followers, Following, Stargazers, Watchers, Contributors, Members }
 @Serializable enum class RepoKind { User, Starred, Org, Forks }
 
@@ -289,6 +297,7 @@ internal fun repoHomeOf(screen: Screen): Screen.Repo? = when (screen) {
     is Screen.PullChecks -> Screen.Repo(screen.owner, screen.name)
     is Screen.NewIssue -> Screen.Repo(screen.owner, screen.name)
     is Screen.Actions -> Screen.Repo(screen.owner, screen.name)
+    is Screen.ActionsSettings -> Screen.Repo(screen.owner, screen.name)
     is Screen.RunDetail -> Screen.Repo(screen.owner, screen.name)
     is Screen.JobLog -> Screen.Repo(screen.owner, screen.name)
     is Screen.Releases -> Screen.Repo(screen.owner, screen.name)

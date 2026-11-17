@@ -1683,6 +1683,15 @@ Fine-grained Token（无 scope 列表）	Fine-grained token (no scope list)
 手动：源码/图片 {0} · 下载 {1}	Manual: source/images {0} · downloads {1}
 已关闭，全部直连 GitHub	Off, everything connects directly to GitHub
 自动（推荐）	Automatic (recommended)
+文件 {0} · 下载 {1}	Files {0} · Downloads {1}
+文件与图片	Files and images
+源码原文、raw 文件与 README 图片	Source text, raw files and README images
+下载与克隆	Downloads and clone
+Release、源码压缩包、文件下载与 git clone	Releases, source archives, file downloads and git clone
+自动当前：{0}	Automatic: {0}
+手动当前：{0}	Manual: {0}
+已关闭，仅直连 GitHub	Off, direct GitHub only
+加速仅用于公开内容，Token 不会发送给加速节点；私有仓库始终直连。文件与下载分别设置：自动可按测速选择，手动只使用指定节点并以直连兜底，关闭则仅直连。下方列表用于查看测速和支持范围。	Acceleration only serves public content. Your token is never sent to acceleration nodes, and private repositories always connect directly. Files and downloads are configured separately: Automatic uses speed-test results, Manual uses only the chosen node with direct fallback, and Off uses direct connections only. The list below shows speed-test results and supported content types.
 官方地址	Official address
 CDN · 图片/文件（分支内容可能有缓存）	CDN · images/files (branch content may be cached)
 自定义代理 · 文件/下载/克隆	Custom proxy · files/downloads/clone
@@ -1694,9 +1703,9 @@ CDN · 图片/文件（分支内容可能有缓存）	CDN · images/files (branc
 新建 Issue	New issue
 更换模板	Change template
 模板：{0}	Template: {0}
-你没有该仓库的写入权限：GitHub 会静默忽略标签、指派人和里程碑，只创建标题和正文。	You have no write permission for this repository: GitHub silently ignores labels, assignees and milestones and only creates the title and body.
-标签、指派人和里程碑会在创建时一并设置。	Labels, assignees and milestones are set when the issue is created.
-只有对仓库有写入权限时，标签、指派人和里程碑才会生效；否则 GitHub 会静默忽略。	Labels, assignees and milestones only take effect with write permission on the repository; otherwise GitHub silently ignores them.
+你没有该仓库的写入权限：只创建标题和正文，不会设置标签、指派人、里程碑或类型。	You have no write permission for this repository: only the title and body will be created; labels, assignees, milestone and type will not be set.
+标签、指派人、里程碑和类型会在创建时一并设置。	Labels, assignees, milestone and type will be set when the issue is created.
+只有对仓库有写入权限时，标签、指派人、里程碑和类型才会生效。	Labels, assignees, milestone and type only take effect with write permission on the repository.
 无里程碑	No milestone
 替换当前内容？	Replace the current content?
 替换	Replace
@@ -1921,7 +1930,14 @@ PR 信息尚未加载完成，请稍后重试	The PR information has not finishe
 说明	Description
 大小	Size
 {0}（{1} 字节）	{0} ({1} bytes)
+Issue 已创建，但类型未设置：{0}	Issue created, but its type was not set: {0}
+按类型筛选	Filter by type
+缺少 Issue 节点 ID	Missing Issue node ID
+无类型	No type
+这个仓库还没有 Issue 类型	This repository does not have any issue types yet
+类型：{0}	Type: {0}
 类型	Type
+选择 Issue 类型	Select issue type
 下载次数	Downloads
 {0} 次	{0} times
 上传者	Uploaded by
@@ -2366,6 +2382,92 @@ GitHub 处理贡献者列表超时，请稍后重试	GitHub timed out building t
 删除搜索 {0}	Delete saved search {0}
 移出首页收藏 {0}	Remove {0} from Home pins
 名称不能超过 {0} 个字符	The name can be at most {0} characters
+Actions 设置	Actions settings
+通用权限	General
+Actions 权限	Actions permissions
+编辑 Actions	Edit Actions
+启用 Actions	Enable Actions
+要求 SHA 固定	Require SHA pinning
+产物和日志保留	Artifact and log retention
+编辑保留	Edit retention
+保留 {0} 天（上限 {1} 天）	Retain for {0} days (maximum {1} days)
+请输入正整数天数	Enter a positive whole number of days
+不能超过 {0} 天	Cannot exceed {0} days
+保留天数	Retention days
+Fork PR 审批	Fork PR approval
+编辑 Fork 审批	Edit fork approval
+私有仓库 Workflow 访问	Private repository workflow access
+编辑访问	Edit access
+私有 Fork Workflows	Private fork workflows
+编辑私有 Fork	Edit private fork
+允许 Fork Pull Request 运行 Workflow	Allow workflows on fork pull requests
+禁止 Fork Pull Request 运行 Workflow	Disallow workflows on fork pull requests
+向 Fork Workflow 发送写入令牌	Send write tokens to fork workflows
+向 Fork Workflow 发送 Secrets 和 Variables	Send secrets and variables to fork workflows
+要求审批 Fork PR Workflows	Require approval for fork PR workflows
+允许的 Actions	Allowed actions
+编辑允许范围	Edit allowed actions
+GitHub 创建：{0}；Verified：{1}	GitHub-owned: {0}; verified: {1}
+允许	Allow
+禁止	Disallow
+允许 GitHub 创建的 Actions	Allow GitHub-owned actions
+允许 Verified 创建者的 Actions	Allow actions from verified creators
+Actions 模式（每行一个）	Action patterns (one per line)
+Workflow 权限	Workflow permissions
+编辑 Workflow	Edit workflow
+读取	Read
+读取和写入	Read and write
+允许 Workflow 审批 Pull Request	Allow workflows to approve pull requests
+账号已切换，请重新打开编辑器	The account changed; reopen the editor
+仓库 Secrets	Repository secrets
+组织 Secrets	Organization secrets
+新建 Secret	New secret
+覆盖 Secret	Overwrite secret
+覆盖 Secret {0}	Overwrite secret {0}
+删除 Secret？	Delete secret?
+删除 Secret {0}	Delete secret {0}
+Secret 名称	Secret name
+Secret 值	Secret value
+Secret 值只会写入，无法再次读取	Secret values are write-only and cannot be read again
+暂无 Secrets	No secrets
+暂无组织 Secrets	No organization secrets
+新建 Variable	New variable
+编辑 Variable	Edit variable
+编辑 Variable {0}	Edit variable {0}
+删除 Variable？	Delete variable?
+删除 Variable {0}	Delete variable {0}
+复制 Variable {0}	Copy variable {0}
+Variable 名称	Variable name
+Variable 值	Variable value
+暂无 Variables	No variables
+确定删除 {0}？此操作无法撤销。	Delete {0}? This cannot be undone.
+Runners	Runners
+Runner 名称	Runner name
+暂无 Runners	No runners
+注册 Runner	Register runner
+下载 Runner	Download runner
+复制注册令牌	Copy registration token
+过期时间：{0}	Expires at: {0}
+关闭后令牌将被丢弃	The token will be discarded when this dialog closes
+复制 Runner 下载地址 {0}	Copy runner download URL for {0}
+删除 Runner？	Delete runner?
+删除 Runner {0}	Delete runner {0}
+Caches	Caches
+暂无 Caches	No caches
+活跃缓存：{0} · {1}	Active caches: {0} · {1}
+Cache key	Cache key
+Git ref	Git ref
+按 key 删除	Delete by key
+删除 Cache？	Delete cache?
+删除 Cache {0}	Delete cache {0}
+创建：{0}	Created: {0}
+最后访问：{0}	Last accessed: {0}
+缓存保留	Cache retention
+编辑缓存保留	Edit cache retention
+缓存大小	Cache size
+编辑缓存大小	Edit cache size
+请输入正整数	Enter a positive integer
+删除 Cache 返回无效响应	The delete-cache response was invalid
 个人简介不能超过 {0} 个字符	The bio can be at most {0} characters
 最近 90 天没有动态	No activity in the last 90 days
 在 Issues / Pull Requests 列表设置好筛选后，也可以从右上角菜单选择「保存到首页…」。	After setting filters in an Issues / Pull Requests list, choose "Save to Home…" from the top-right menu.
@@ -2636,6 +2738,29 @@ GitHub 没有提供该作者在这个仓库的提交总数	GitHub does not provi
 提交非常多，只读到了最近的一部分；更早的周显示为缺失。	There are too many commits; only the most recent part was read, and earlier weeks are shown as missing.
 相关	Related
 暂无相关议题	No related issues yet
+层级	Hierarchy
+关闭关联	Closing issues
+重新运行？	Rerun workflow?
+重跑失败任务？	Rerun failed jobs?
+启用调试日志	Enable debug logging
+重跑会使用当前工作流和提交，调试日志仅对这次重跑启用。	The rerun uses the current workflow and commit. Debug logging applies only to this rerun.
+父 Issue	Parent issue
+子 Issue	Sub-issue
+添加子 Issue	Add sub-issue
+新建子 Issue	Create sub-issue
+暂无子 Issue	No sub-issues yet
+移除子 Issue	Remove sub-issue
+设置父 Issue	Set parent issue
+更换父 Issue	Change parent issue
+移除父 Issue	Remove parent issue
+已添加子 Issue	Sub-issue added
+已移除子 Issue	Sub-issue removed
+已更新父 Issue	Parent issue updated
+已移除父 Issue	Parent issue removed
+已完成 {0} / {1} · {2}%	{0} of {1} completed · {2}%
+将作为父 Issue #{0} 的子 Issue 创建	Will be created as a sub-issue of parent issue #{0}
+Issue 已创建，但未关联父 Issue：{0}	Issue created, but it was not linked to the parent issue: {0}
+Issue 不能添加为自身的子 Issue	An issue cannot be added as its own sub-issue
 添加相关议题	Add related issue
 移除相关议题	Remove related issue
 搜索中…	Searching…
@@ -2662,6 +2787,25 @@ GitHub 没有提供该作者在这个仓库的提交总数	GitHub does not provi
 依赖漏洞（Dependabot）	Dependency vulnerabilities (Dependabot)
 代码扫描（Code scanning）	Code scanning
 密钥泄露（Secret scanning）	Leaked secrets (Secret scanning)
+部署审批	Deployment review
+当前没有待审批环境	No environments are awaiting approval
+未列出审批人	No reviewers listed
+审批人：{0}	Reviewers: {0}
+当前账号不能审批此环境	Your account cannot review this environment
+缺少 WorkflowRun Node ID，无法提交部署审批	The WorkflowRun node ID is missing, so this deployment cannot be reviewed
+当前账号没有这些环境的审批权限，只能查看待审批请求	Your account cannot approve these environments. You can only view the pending requests.
+审批留言（可选）	Review comment (optional)
+批准部署	Approve deployment
+拒绝部署	Reject deployment
+批准所选环境的部署？	Approve deployment to the selected environments?
+拒绝所选环境的部署？	Reject deployment to the selected environments?
+留言：{0}	Comment: {0}
+批准部署 Run #	Approve deployment run #
+拒绝部署 Run #	Reject deployment run #
+已批准部署	Deployment approved
+已拒绝部署	Deployment rejected
+部署审批需要 WorkflowRun Node ID	Deployment review requires a WorkflowRun node ID
+请至少选择一个环境	Select at least one environment
 代码扫描告警	Code scanning alert
 疑似泄露的密钥	Possible leaked secret
 没有开放的依赖漏洞	No open dependency vulnerabilities
@@ -3013,6 +3157,25 @@ Java 崩溃	Java crash
 无响应（ANR）	ANR (Not Responding)
 内存不足	Low memory
 资源占用过高	Excessive resource usage
+后台通知	Background notifications
+接收 GitHub 通知	Receive GitHub notifications
+应用不在前台时，至少每 15 分钟检查一次未读通知；仅在本机启用	Checks unread notifications at least every 15 minutes while the app is in the background; enabled on this device only
+通知权限	Notification permission
+未允许	Not allowed
+仅在工作时间提醒	Only notify during working hours
+按本机时区控制提醒；应用在前台时始终不提醒	Uses your device time zone; never notifies while the app is in the foreground
+自定义星期	Custom weekdays
+每天	Every day
+跨夜时段归属于开始当天；结束时点不再提醒	Overnight hours belong to the starting day; notifications stop at the end time
+开始时间	Start time
+结束时间	End time
+{0} 时	{0} hr
+{0} 分	{0} min
+后台通知检查失败	Background notification check failed
+GitHub 收件箱	GitHub inbox
+Issue、PR 等未读通知更新时提醒	Alerts for unread Issue, PR, and other notification updates
+GitHub 通知	GitHub notification
+有新的未读通知	You have new unread notifications
 用户结束	User requested
 用户停止	User stopped
 信号终止	Signaled
@@ -3036,3 +3199,63 @@ Issue 已提交，请到列表查看	Issue submitted; check the list
 卡顿	Stalls
 导出崩溃历史	Export crash history
 暂无历史崩溃记录	No crash history yet
+保存的回复	Saved replies
+搜索保存的回复	Search saved replies
+搜索标题或正文	Search title or body
+无标题回复	Untitled reply
+还没有保存的回复，可在 GitHub 设置中创建	You have no saved replies. Create them in GitHub settings.
+没有匹配的保存回复	No matching saved replies
+管理保存的回复	Manage saved replies
+分享并新建 Issue	Share and create issue
+选择仓库	Choose repository
+分享内容无法用于创建 Issue	Shared content cannot be used to create an issue
+无法读取分享内容	Unable to read shared content
+每次最多分享 10 个附件	You can share up to 10 attachments at a time
+附件总大小不能超过 50 MB	Total attachment size cannot exceed 50 MB
+无法读取附件大小	Unable to read attachment size
+无法创建分享缓存目录	Unable to create the share cache directory
+只支持 PNG、JPEG 或 GIF 图片	Only PNG, JPEG, or GIF images are supported
+分享图片上传失败：{0}	Failed to upload shared image: {0}
+分享图片已插入	Shared image inserted
+分享日志	Share logs
+日志文件导出失败	Failed to export the log file
+日志导出失败：	Log export failed:
+请先登录 GitHub 网页会话后重试	Sign in to the GitHub web session and try again
+Issues	Issues
+Pull Requests	Pull Requests
+Gists	Gists
+没有分配给你的开放 Pull Request	No open pull requests are assigned to you
+添加快捷键	Add shortcuts
+此链接属于 {0}，请切换或登录对应企业账号	This link belongs to {0}. Switch to or sign in with the corresponding enterprise account.
+
+## 仓库导入
+导入仓库	Import repository
+导入已有仓库	Import an existing repository
+源 Git URL	Source Git URL
+私有源仓库	Private source repository
+源用户名	Source username
+源密码或访问令牌	Source password or access token
+目标所有者	Destination owner
+目标仓库名称	Destination repository name
+开始导入	Start import
+继续导入	Continue import
+导入任务	Import tasks
+没有导入任务	No import tasks
+仅迁移 Git 提交历史、分支和标签；不迁移 Issues、Pull Requests、Releases、Wiki、LFS 对象、仓库设置或 Submodule 内容。	Only Git commit history, branches and tags are migrated; issues, pull requests, releases, wiki, LFS objects, repository settings and submodule contents are not.
+HTTP 连接不安全	Insecure HTTP connection
+HTTP 会以明文传输 Git 内容和凭据。确定继续吗？	HTTP transmits Git content and credentials in plain text. Continue?
+需要重新输入源仓库凭据	Enter the source repository credentials again
+请先输入源仓库密码或令牌	Enter the source password or token first
+取消导入	Cancel import
+删除任务	Delete task
+删除导入任务？	Delete this import task?
+创建目标仓库	Creating destination repository
+目标仓库创建状态未知	Destination creation status unknown
+正在克隆源仓库	Cloning source repository
+正在推送到目标仓库	Pushing to destination repository
+正在更新默认分支	Updating default branch
+已中断	Interrupted
+仓库导入	Repository import
+仓库导入结果	Repository import results
+正在导入仓库	Importing repository
+导入完成	Import completed

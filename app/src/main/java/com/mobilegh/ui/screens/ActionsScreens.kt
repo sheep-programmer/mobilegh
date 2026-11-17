@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -67,6 +68,7 @@ import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.ButtonRowAdaptive
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.HDivider
+import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.LoadBox
 import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.MenuAction
@@ -132,6 +134,7 @@ fun ActionsScreen(owner: String, name: String) {
     val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
     // 手动触发、重跑、取消都需要写权限；没有时不给入口，免得点了才报 403
     val canRun = repo.data?.let { it.permissions?.push == true && !it.archived } == true
+    val canConfigure = repo.data?.let { it.permissions?.admin == true && !it.archived } == true
     var sel by rememberSaveable { mutableIntStateOf(0) }
     val list = wfs.data.orEmpty()
     val wfId = if (sel == 0) null else list.getOrNull(sel - 1)?.id
@@ -147,6 +150,11 @@ fun ActionsScreen(owner: String, name: String) {
     Page(
         "Actions", subtitle = "$owner/$name",
         actions = {
+            if (canConfigure) OcButton(
+                R.drawable.oc_gear,
+                { nav.push(Screen.ActionsSettings(owner, name)) },
+                description = tr("Actions 设置"),
+            )
             if (canRun) OcButton(R.drawable.oc_play, { if (selected != null) run(selected) else choose = true }, description = tr("运行工作流"))
             MoreMenu(buildList {
                 selected?.let { w ->
@@ -243,18 +251,62 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
     val jobs = rememberLoader("jobs") { GitHub.jobs(owner, name, runId, it) }
     val arts = rememberLoader("arts") { runCatching { GitHub.artifacts(owner, name, runId, it) }.getOrDefault(emptyList()) }
     val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
+    // 审批是独立 GraphQL 能力，schema 或权限错误不能阻断 REST 运行详情
+    val deployments = rememberLoader("deployment-reviews") {
+        run.data?.nodeId?.takeIf { it.isNotBlank() }?.let { GitHub.pendingDeploymentRequests(it) }
+    }
     val canRun = repo.data?.let { it.permissions?.push == true && !it.archived } == true
     val r = run.data
     val running = r != null && r.status != "completed"
+    LaunchedEffect(r?.nodeId) {
+        if (!r?.nodeId.isNullOrBlank()) deployments.load(true)
+    }
     LaunchedEffect(running) {
         while (running) {
             delay(6000)
             run.load(true)
             jobs.load(true)
+            if (!r.nodeId.isNullOrBlank()) deployments.refreshSilently()
         }
     }
-    fun reload() { run.load(true); jobs.load(true) }
+    fun reload() {
+        run.load(true)
+        jobs.load(true)
+        if (!r?.nodeId.isNullOrBlank()) deployments.load(true)
+    }
+    var reviewingDeployment by remember { mutableStateOf(false) }
     var askCancel by remember { mutableStateOf(false) }
+    var rerunFailedOnly by remember { mutableStateOf<Boolean?>(null) }
+    var rerunDebug by remember { mutableStateOf(false) }
+    rerunFailedOnly?.let { failedOnly ->
+        GhDialog(
+            if (failedOnly) tr("重跑失败任务？") else tr("重新运行？"),
+            { rerunFailedOnly = null },
+            confirm = if (failedOnly) tr("重跑失败任务") else tr("重新运行"),
+            onConfirm = {
+                val debug = rerunDebug
+                rerunFailedOnly = null
+                entry.act({ ctx.toast(it) }) {
+                    AppLog.info("actions", (if (failedOnly) tr("重跑失败任务 Run #") else tr("重新运行 Run #")) + runId + " · debug=$debug")
+                    GitHub.rerun(owner, name, runId, failedOnly, debug)
+                    ctx.toast(if (failedOnly) tr("已重跑失败任务") else tr("已重新运行"))
+                    delay(2000)
+                    reload()
+                }
+            },
+        ) {
+            Column {
+                Text(tr("重跑会使用当前工作流和提交，调试日志仅对这次重跑启用。"), color = g.fg)
+                Row(
+                    Modifier.fillMaxWidth().clickable { rerunDebug = !rerunDebug }.padding(top = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(rerunDebug, { rerunDebug = it })
+                    Text(tr("启用调试日志"), color = g.fg)
+                }
+            }
+        }
+    }
     if (askCancel) GhDialog(tr("取消运行？"), { askCancel = false }, confirm = tr("取消运行"), danger = true, onConfirm = {
         askCancel = false
         entry.act({ ctx.toast(it) }) { AppLog.info("actions", tr("取消 Run #") + runId); GitHub.cancelRun(owner, name, runId); ctx.toast(tr("已请求取消")); reload() }
@@ -297,10 +349,12 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                         if (canRun) Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (rr.status == "completed") {
                                 GhButton(tr("重新运行"), icon = R.drawable.oc_sync) {
-                                    entry.act({ ctx.toast(it) }) { AppLog.info("actions", tr("重新运行 Run #") + runId); GitHub.rerun(owner, name, runId, false); ctx.toast(tr("已重新运行")); delay(2000); reload() }
+                                    rerunDebug = false
+                                    rerunFailedOnly = false
                                 }
                                 if (rr.conclusion == "failure") GhButton(tr("重跑失败任务")) {
-                                    entry.act({ ctx.toast(it) }) { AppLog.info("actions", tr("重跑失败任务 Run #") + runId); GitHub.rerun(owner, name, runId, true); ctx.toast(tr("已重跑失败任务")); delay(2000); reload() }
+                                    rerunDebug = false
+                                    rerunFailedOnly = true
                                 }
                             } else {
                                 GhButton(tr("取消运行"), danger = true, icon = R.drawable.oc_stop) { askCancel = true }
@@ -308,6 +362,35 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                         }
                     }
                     HDivider()
+                }
+                val pendingReviews = deployments.data
+                val deploymentDisplay = deploymentReviewDisplay(rr.status, rr.nodeId, pendingReviews, deployments.error)
+                if (deploymentDisplay == DeploymentReviewDisplay.Loading || deploymentDisplay == DeploymentReviewDisplay.Content) {
+                    item(key = "deployment-reviews") {
+                        if (deploymentDisplay == DeploymentReviewDisplay.Loading) {
+                            Loading(Modifier.fillMaxWidth().height(80.dp))
+                        } else {
+                            DeploymentReviewCard(rr.status, rr.nodeId, pendingReviews.orEmpty(), reviewingDeployment) { input, approve ->
+                                reviewingDeployment = true
+                                entry.act({ ctx.toast(it) }) {
+                                    try {
+                                        AppLog.info("actions", (if (approve) tr("批准部署 Run #") else tr("拒绝部署 Run #")) + runId + " · environments=${input.environmentIds.size}")
+                                        GitHub.reviewDeployments(input, approve)
+                                        deployments.accept(pendingReviews.orEmpty().filterNot { it.environmentId in input.environmentIds })
+                                        ctx.toast(if (approve) tr("已批准部署") else tr("已拒绝部署"))
+                                        reload()
+                                    } finally {
+                                        reviewingDeployment = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                deployments.error?.let { message ->
+                    item(key = "deployment-reviews-error") {
+                        InlineError(message, Modifier.padding(horizontal = 16.dp), retry = { deployments.load(true) })
+                    }
                 }
                 val js = jobs.data
                 if (js == null) item { com.mobilegh.ui.components.Loading(Modifier.fillMaxWidth().height(120.dp)) }

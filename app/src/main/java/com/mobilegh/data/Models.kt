@@ -505,6 +505,7 @@ data class Notification(
 @Serializable
 data class Run(
     val id: Long = 0,
+    @SerialName("node_id") val nodeId: String? = null,
     val name: String? = null,
     val displayTitle: String? = null,
     val headBranch: String? = null,

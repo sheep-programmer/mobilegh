@@ -43,6 +43,11 @@ class NetNodesTest {
         assertTrue(nodes.any { it.id == "jsd-cf" })
     }
 
+    @Test fun customNodeIdsAdvanceUntilTheyAreUnique() {
+        assertEquals("c1000", nextCustomNodeId(emptySet(), 1000))
+        assertEquals("c1002", nextCustomNodeId(setOf("c1000", "c1001"), 1000))
+    }
+
     @Test fun downloadChainIsCappedAndAlwaysEndsWithDirect() {
         val url = "https://github.com/o/r/releases/download/v1/a.apk"
         val proxies = nodes.filter { it.type == NodeType.Prefix }

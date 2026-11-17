@@ -30,13 +30,48 @@ data class SettingsBackupPayload(
 @Serializable
 data class NetworkBackup(val mode: String = ProxyMode.System.name, val host: String = "127.0.0.1", val port: Int = 7890)
 
-/** [mode] 与 [Net.mode] 相同（0 自动、1 手动、2 关闭）；[manualId] 为手动选择的节点 id，可能是内置或自定义节点 */
+/** 文件使用 [mode]/[manualId]；下载使用独立字段。旧备份缺省时会继承原全局选择。 */
 @Serializable
-data class AccelerationBackup(val mode: Int = 0, val manualId: String = "")
+data class AccelerationBackup(
+    val mode: Int = 0,
+    val manualId: String = "",
+    val downloadMode: Int = mode,
+    val downloadManualId: String = manualId,
+)
 
 /** [id] 只用于把手动选择的自定义节点对应到导入后的新节点，导入时节点 id 会重新生成 */
 @Serializable
 data class CustomNodeBackup(val id: String = "", val name: String, val base: String)
+
+/** 解析后的节点与最终模式；手动缺失时固定直连，只有旧 jsDelivr 下载迁移回自动。 */
+internal data class ImportedNodeSelection(val id: String?, val mode: Int)
+
+internal fun resolveImportedNodeSelection(
+    requestedMode: Int,
+    requestedId: String,
+    mappedCustomId: String?,
+    localNodes: List<CdnNode>,
+    builtins: List<CdnNode>,
+    download: Boolean,
+    legacyDownloadFallback: Boolean = false,
+): ImportedNodeSelection {
+    fun compatible(node: CdnNode) = !download || node.type != NodeType.JsDelivr
+    val mapped = mappedCustomId?.let { id -> localNodes.firstOrNull { it.id == id && compatible(it) } }
+    val builtin = builtins.firstOrNull { it.id == requestedId && compatible(it) }
+    val node = mapped ?: builtin
+    if (node != null) return ImportedNodeSelection(node.id, requestedMode)
+    if (requestedMode == 1) {
+        if (legacyDownloadFallback) return ImportedNodeSelection(Net.DEFAULT_DL, 0)
+        return ImportedNodeSelection(Net.DIRECT.id, 1)
+    }
+    return ImportedNodeSelection(null, requestedMode)
+}
+
+internal fun isLegacyJsDelivrDownloadBackup(
+    backup: AccelerationBackup,
+    builtins: List<CdnNode>,
+): Boolean = backup.downloadMode == 1 && backup.downloadManualId == backup.manualId &&
+    builtins.any { it.id == backup.manualId && it.type == NodeType.JsDelivr }
 
 /** 纯 JSON 编解码与校验，不依赖 Android，便于单元测试。 */
 object SettingsBackupCodec {
@@ -50,7 +85,7 @@ object SettingsBackupCodec {
 
     private val ROOT_KEYS = setOf("format", "version", "network", "apiProxy", "acceleration", "customNodes", "appLockEnabled")
     private val NETWORK_KEYS = setOf("mode", "host", "port")
-    private val ACCELERATION_KEYS = setOf("mode", "manualId")
+    private val ACCELERATION_KEYS = setOf("mode", "manualId", "downloadMode", "downloadManualId")
     private val NODE_KEYS = setOf("id", "name", "base")
 
     private val pretty = Json { prettyPrint = true; encodeDefaults = true }
@@ -89,7 +124,9 @@ object SettingsBackupCodec {
         NetworkProxy(mode, p.network.host, p.network.port).validated()
         Net.apiProxyError(p.apiProxy)?.let { throw IllegalArgumentException(it) }
         require(p.acceleration.mode in 0..2) { trf("加速模式无效：{0}", p.acceleration.mode) }
+        require(p.acceleration.downloadMode in 0..2) { trf("加速模式无效：{0}", p.acceleration.downloadMode) }
         require(p.acceleration.manualId.length <= MAX_NODE_ID) { tr("手动选择的节点标识过长") }
+        require(p.acceleration.downloadManualId.length <= MAX_NODE_ID) { tr("手动选择的节点标识过长") }
         require(p.customNodes.size <= MAX_CUSTOM_NODES) { trf("自定义节点最多 {0} 个", MAX_CUSTOM_NODES) }
         p.customNodes.forEach { node ->
             require(node.name.length <= MAX_NODE_NAME) { tr("自定义节点名称过长") }
@@ -120,7 +157,12 @@ object SettingsBackup {
             version = SettingsBackupCodec.VERSION,
             network = NetworkBackup(cfg.mode.name, cfg.host, cfg.port),
             apiProxy = Net.apiProxy.trim(),
-            acceleration = AccelerationBackup(Net.mode, Net.manualId),
+            acceleration = AccelerationBackup(
+                mode = Net.rawMode,
+                manualId = Net.manualRawId,
+                downloadMode = Net.downloadMode,
+                downloadManualId = Net.manualDownloadId,
+            ),
             customNodes = Net.custom.map { CustomNodeBackup(it.id, it.name, it.base) },
             appLockEnabled = AppLock.enabled,
         )
@@ -140,10 +182,27 @@ object SettingsBackup {
             if (Net.custom.none { it.base == base }) Net.addCustom(node.name, node.base)
             Net.custom.firstOrNull { it.base == base }?.let { newIdByBackupId[node.id] = it.id }
         }
-        val manualId = newIdByBackupId[p.acceleration.manualId]
-            ?: p.acceleration.manualId.takeIf { id -> Net.builtins.any { it.id == id } }
-        if (manualId != null) Net.setManual(manualId)
-        // 手动模式但找不到对应节点时退回自动，避免指向一个不存在的节点
-        Net.changeMode(if (p.acceleration.mode == 1 && manualId == null) 0 else p.acceleration.mode)
+        val raw = resolveImportedNodeSelection(
+            p.acceleration.mode,
+            p.acceleration.manualId,
+            newIdByBackupId[p.acceleration.manualId],
+            Net.nodes,
+            Net.builtins,
+            download = false,
+        )
+        val legacyDownload = isLegacyJsDelivrDownloadBackup(p.acceleration, Net.builtins)
+        val download = resolveImportedNodeSelection(
+            p.acceleration.downloadMode,
+            p.acceleration.downloadManualId,
+            newIdByBackupId[p.acceleration.downloadManualId],
+            Net.nodes,
+            Net.builtins,
+            download = true,
+            legacyDownloadFallback = legacyDownload,
+        )
+        raw.id?.let(Net::setRawManual)
+        download.id?.let(Net::setDownloadManual)
+        Net.changeRawMode(raw.mode)
+        Net.changeDownloadMode(download.mode)
     }
 }

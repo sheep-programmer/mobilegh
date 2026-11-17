@@ -18,7 +18,12 @@ class SettingsBackupTest {
         version = SettingsBackupCodec.VERSION,
         network = NetworkBackup(mode = "Http", host = "192.168.1.20", port = 8888),
         apiProxy = "https://gh-api.example.workers.dev",
-        acceleration = AccelerationBackup(mode = 1, manualId = "c1700000000001"),
+        acceleration = AccelerationBackup(
+            mode = 1,
+            manualId = "jsd-mirror",
+            downloadMode = 1,
+            downloadManualId = "c1700000000001",
+        ),
         customNodes = listOf(CustomNodeBackup(id = "c1700000000001", name = "我的节点", base = "https://proxy.example.com/")),
         appLockEnabled = true,
     )
@@ -70,7 +75,58 @@ class SettingsBackupTest {
         rejection("""{"format":"mobilegh-settings","version":1,"network":{"mode":"Pac"}}""")
         rejection("""{"format":"mobilegh-settings","version":1,"network":{"mode":"Http","port":70000}}""")
         rejection("""{"format":"mobilegh-settings","version":1,"acceleration":{"mode":7}}""")
+        rejection("""{"format":"mobilegh-settings","version":1,"acceleration":{"downloadMode":7}}""")
         rejection("""{"format":"mobilegh-settings","version":1,"customNodes":[{"name":"a","base":"http://proxy.example.com/"}]}""")
+    }
+
+    @Test fun unresolvedManualImportFallsBackToManualDirect() {
+        val resolved = resolveImportedNodeSelection(
+            requestedMode = 1,
+            requestedId = "removed-node",
+            mappedCustomId = null,
+            localNodes = Net.builtins,
+            builtins = Net.builtins,
+            download = true,
+        )
+
+        assertEquals(Net.DIRECT.id, resolved.id)
+        assertEquals(1, resolved.mode)
+    }
+
+    @Test fun unmappedBackupCustomIdDoesNotSelectAnUnrelatedLocalNode() {
+        val local = Net.builtins + CdnNode("c-local", "Local A", NodeType.Prefix, "https://a.example/")
+
+        val resolved = resolveImportedNodeSelection(1, "c-local", null, local, Net.builtins, download = true)
+
+        assertEquals(Net.DIRECT.id, resolved.id)
+        assertEquals(1, resolved.mode)
+    }
+
+    @Test fun mappedBackupCustomIdResolvesToTheImportedNode() {
+        val local = Net.builtins + CdnNode("c-new", "Imported B", NodeType.Prefix, "https://b.example/")
+
+        val resolved = resolveImportedNodeSelection(1, "c-backup", "c-new", local, Net.builtins, download = true)
+
+        assertEquals("c-new", resolved.id)
+        assertEquals(1, resolved.mode)
+    }
+
+    @Test fun legacyJsDelivrBackupResetsTheHiddenDownloadSelection() {
+        val backup = AccelerationBackup(mode = 1, manualId = "jsd-mirror")
+        val legacy = isLegacyJsDelivrDownloadBackup(backup, Net.builtins)
+        val resolved = resolveImportedNodeSelection(
+            1,
+            backup.downloadManualId,
+            null,
+            Net.builtins,
+            Net.builtins,
+            download = true,
+            legacyDownloadFallback = legacy,
+        )
+
+        assertTrue(legacy)
+        assertEquals(Net.DEFAULT_DL, resolved.id)
+        assertEquals(0, resolved.mode)
     }
 
     private fun rejection(text: String): String {

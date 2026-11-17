@@ -1,7 +1,9 @@
 package com.mobilegh.nav
 
+import com.mobilegh.MainDispatcherRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Rule
 import org.junit.Test
 import com.mobilegh.data.ProjectOwnerKind
 import com.mobilegh.nav.Navigator
@@ -12,6 +14,10 @@ class RepoHomeTest {
         assertEquals(Screen.Repo("octo", "hello"), repoHomeOf(Screen.IssueDetail("octo", "hello", 7, false)))
         assertEquals(Screen.Repo("octo", "hello"), repoHomeOf(Screen.CommitDetail("octo", "hello", "abc")))
         assertEquals(Screen.Repo("octo", "hello"), repoHomeOf(Screen.RunDetail("octo", "hello", 1L)))
+        assertEquals(
+            Screen.Repo("octo", "hello"),
+            repoHomeOf(Screen.ActionsSettings("octo", "hello", ActionsSettingsSection.General)),
+        )
         assertEquals(Screen.Repo("octo", "hello"), repoHomeOf(Screen.JobLog("octo", "hello", 2L, "build")))
         assertEquals(Screen.Repo("octo", "hello"), repoHomeOf(Screen.Files("octo", "hello", "src", "main")))
         assertEquals(Screen.Repo("octo", "hello"), repoHomeOf(Screen.FileView("octo", "hello", "src/A.kt", "main")))
@@ -27,6 +33,9 @@ class RepoHomeTest {
 }
 
 class LinkStackTest {
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
     private fun stack(nav: Navigator) = nav.stack.map { it.screen }
 
     @Test fun aReleaseOpenedFromALinkSitsAboveItsRepositoryHome() {

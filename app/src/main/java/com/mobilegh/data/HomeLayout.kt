@@ -218,6 +218,10 @@ object HomePrefs {
         return s.block(login).also { revision++ }
     }
 
+    private fun syncShortcuts() {
+        Session.login?.let { WidgetStore.saveShortcuts(it, layout()) }
+    }
+
     fun toggleFavorite(owner: String, name: String): Boolean = change { toggleFavorite(it, owner, name) } ?: false
     fun setFavorites(favorites: List<FavoriteRepo>) = change { setFavorites(it, favorites) }
     fun syncWithPinned(pinned: List<PinnedRepo>, merge: Boolean = true): HomeLayout? = change { syncWithPinned(it, pinned, merge) }
@@ -225,10 +229,10 @@ object HomePrefs {
     fun moveFavorite(index: Int, delta: Int) = change { moveFavorite(it, index, delta) }
     fun removeFavorite(repo: FavoriteRepo) = change { removeFavorite(it, repo) }
     fun restoreFavorite(index: Int, repo: FavoriteRepo) = change { restoreFavorite(it, index, repo) }
-    fun moveShortcut(index: Int, delta: Int) = change { moveShortcut(it, index, delta) }
-    fun setShortcutVisible(id: String, visible: Boolean) = change { setShortcutVisible(it, id, visible) }
-    fun setShortcuts(slots: List<ShortcutSlot>) = change { setShortcuts(it, slots) }
-    fun resetShortcuts() = change { resetShortcuts(it) }
-    fun addSearch(name: String, icon: String, query: IssueQuery) = change { addSearch(it, name, icon, query) }
-    fun removeSearch(id: String) = change { removeSearch(it, id) }
+    fun moveShortcut(index: Int, delta: Int) = change { moveShortcut(it, index, delta) }.also { syncShortcuts() }
+    fun setShortcutVisible(id: String, visible: Boolean) = change { setShortcutVisible(it, id, visible) }.also { syncShortcuts() }
+    fun setShortcuts(slots: List<ShortcutSlot>) = change { setShortcuts(it, slots) }.also { syncShortcuts() }
+    fun resetShortcuts() = change { resetShortcuts(it) }.also { syncShortcuts() }
+    fun addSearch(name: String, icon: String, query: IssueQuery) = change { addSearch(it, name, icon, query) }.also { syncShortcuts() }
+    fun removeSearch(id: String) = change { removeSearch(it, id) }.also { syncShortcuts() }
 }

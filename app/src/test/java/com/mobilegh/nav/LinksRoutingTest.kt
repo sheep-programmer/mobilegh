@@ -76,4 +76,136 @@ class LinksRoutingTest {
         assertNull(Links.route("https://github.com/user-attachments/assets/12345"))
         assertNull(Links.route("https://github.com/octocat/Hello-World/files/34540973/test.zip"))
     }
+
+    @Test fun enterpriseRepoIssueAndPullLinksReuseNativeRoutes() {
+        val enterprise = "https://corp.ghe.com/octocat/Hello-World"
+        val apiHost = "api.corp.ghe.com"
+        assertEquals(Screen.Repo("octocat", "Hello-World"), Links.route(enterprise, apiHost))
+        assertEquals(Screen.IssueDetail("octocat", "Hello-World", 42, false), Links.route("$enterprise/issues/42", apiHost))
+        assertEquals(Screen.IssueDetail("octocat", "Hello-World", 7, true), Links.route("$enterprise/pull/7", apiHost))
+        assertEquals(Screen.PullFiles("octocat", "Hello-World", 7), Links.route("$enterprise/pull/7/files", apiHost))
+    }
+
+    @Test fun enterpriseApiFormUrlsReuseNativeApiRoutes() {
+        val api = "https://api.corp.ghe.com"
+        assertEquals(Screen.Repo("octocat", "Hello-World"), Links.route("$api/repos/octocat/Hello-World", "api.corp.ghe.com"))
+        assertEquals(
+            Screen.IssueDetail("octocat", "Hello-World", 42, false),
+            Links.route("$api/repos/octocat/Hello-World/issues/42", "api.corp.ghe.com"),
+        )
+        assertEquals(
+            Screen.IssueDetail("octocat", "Hello-World", 42, false),
+            Links.route("$api/repos/octocat/Hello-World/issues/42", "corp.ghe.com"),
+        )
+        assertEquals(Screen.Profile("octocat"), Links.route("$api/users/octocat", "api.corp.ghe.com"))
+    }
+
+    @Test fun enterpriseApiHostMatchesAnAccountConfiguredWithTheWebHost() {
+        val url = "https://api.corp.ghe.com/repos/octocat/Hello-World"
+        org.junit.Assert.assertTrue(Links.enterpriseHostAllowed(url, "corp.ghe.com"))
+        org.junit.Assert.assertFalse(Links.enterpriseHostAllowed(url, "api.other.ghe.com"))
+        org.junit.Assert.assertFalse(Links.enterpriseHostAllowed(url, "api.github.com"))
+    }
+
+    @Test fun enterpriseWebHostStillUsesWebRoutesWhenTheAccountUsesTheWebHost() {
+        // 账号的 API Host 被配置成 Web Host 时，Web 链接不能被当成 API 路径
+        assertEquals(Screen.IssueDetail("octocat", "Hello-World", 42, false), Links.route("https://corp.ghe.com/octocat/Hello-World/issues/42", "corp.ghe.com"))
+    }
+
+    @Test fun enterpriseHostMatchingIgnoresCaseAndAcceptsTheApiPrefix() {
+        val url = "HTTPS://CORP.GHE.COM:443/octocat/Hello-World"
+        assertEquals("corp.ghe.com", Links.enterpriseHost(url))
+        org.junit.Assert.assertTrue(Links.enterpriseHostAllowed(url, "CORP.GHE.COM"))
+        org.junit.Assert.assertTrue(Links.enterpriseHostAllowed(url, "api.corp.ghe.com"))
+        org.junit.Assert.assertFalse(Links.enterpriseHostAllowed(url, "api.other.ghe.com"))
+        org.junit.Assert.assertFalse(Links.enterpriseHostAllowed(url, "api.github.com"))
+    }
+
+    @Test fun enterpriseRecognitionRejectsLookalikesInsecureSchemesAndPorts() {
+        listOf(
+            "https://ghe.com/octocat/Hello-World",
+            "https://ghe.com.evil.test/octocat/Hello-World",
+            "https://evilghe.com/octocat/Hello-World",
+            "https://corp.ghe.com.evil.test/octocat/Hello-World",
+            "http://corp.ghe.com/octocat/Hello-World",
+            "https://corp.ghe.com:8443/octocat/Hello-World",
+            "https://corp.ghe.com@evil.test/octocat/Hello-World",
+        ).forEach {
+            assertNull(it, Links.enterpriseHost(it))
+            assertNull(it, Links.route(it, "api.corp.ghe.com"))
+        }
+    }
+
+    @Test fun enterpriseRoutingRequiresTheActiveAccountHost() {
+        val url = "https://corp.ghe.com/octocat/Hello-World/issues/42"
+        assertNull(Links.route(url))
+        assertNull(Links.route(url, "api.github.com"))
+        assertNull(Links.route(url, "api.other.ghe.com"))
+        assertNull(Links.fromInput(url, "api.other.ghe.com"))
+        assertEquals(
+            Screen.IssueDetail("octocat", "Hello-World", 42, false),
+            Links.fromInput(url, "api.corp.ghe.com"),
+        )
+    }
+
+    @Test fun enterpriseViewIntentsKeepTheUrlForTheAccountGuard() {
+        val url = "https://corp.ghe.com/octocat/Hello-World/issues/42"
+        assertEquals(url, IncomingLinks.enterpriseUrl("android.intent.action.VIEW", url))
+        assertNull(IncomingLinks.enterpriseUrl("android.intent.action.SEND", url))
+        assertNull(IncomingLinks.enterpriseUrl("android.intent.action.VIEW", repo))
+        assertNull(IncomingLinks.enterpriseUrl("android.intent.action.VIEW", "https://ghe.com.evil.test/octocat/Hello-World"))
+    }
+
+    @Test fun configuredEnterpriseViewIntentUsesTheActiveAccountHost() {
+        val url = "https://git.example.corp/octo/repo/issues/7"
+        assertEquals(
+            Screen.IssueDetail("octo", "repo", 7, false),
+            IncomingLinks.view(url, "api.git.example.corp")?.target,
+        )
+        assertNull(IncomingLinks.view(url, "api.other.example.corp"))
+    }
+
+    @Test fun publicGithubAndGistRoutesDoNotDependOnTheEnterpriseHost() {
+        assertEquals(Screen.Repo("octocat", "Hello-World"), Links.route(repo, "api.corp.ghe.com"))
+        assertEquals(Screen.GistDetail("abcd"), Links.route("https://gist.github.com/octocat/abcd", "api.corp.ghe.com"))
+    }
+
+    @Test fun configuredNonGheEnterpriseHostsAcceptWebApiAndBareInputs() {
+        val expected = Screen.IssueDetail("octo", "repo", 7, false)
+        listOf("git.example.corp", "api.git.example.corp", "GIT.EXAMPLE.CORP", "https://git.example.corp:443").forEach { active ->
+            assertEquals(active, expected, Links.fromInput("git.example.corp/octo/repo/issues/7", active))
+            assertEquals(active, expected, Links.route("HTTPS://GIT.EXAMPLE.CORP:443/octo/repo/issues/7", active))
+            assertEquals(active, expected, Links.route("https://api.git.example.corp/repos/octo/repo/issues/7", active))
+        }
+    }
+
+    @Test fun publicApiRoutesRemainIndependentOfAnUnrelatedEnterpriseAccount() {
+        val active = "api.git.example.corp"
+        assertEquals(Screen.IssueDetail("o", "r", 1, false), Links.route("https://api.github.com/repos/o/r/issues/1", active))
+        assertEquals(Screen.IssueDetail("o", "r", 2, true), Links.route("https://api.github.com/repos/o/r/pulls/2", active))
+        assertEquals(Screen.Releases("o", "r", releaseId = 3), Links.route("https://api.github.com/repos/o/r/releases/3", active))
+        assertEquals(Screen.Profile("o"), Links.route("https://api.github.com/users/o", active))
+        assertEquals(Screen.IssueDetail("o", "r", 1, false), Links.fromInput("api.github.com/repos/o/r/issues/1", active))
+        assertEquals(Screen.Repo("o", "r"), Links.fromInput("github.com/o/r", active))
+    }
+
+    @Test fun enterpriseTrustRejectsUnconfiguredMalformedAndConfusingHosts() {
+        val active = "git.example.corp"
+        listOf(
+            "https://other.example.corp/octo/repo/issues/7",
+            "https://evilgit.example.corp/octo/repo/issues/7",
+            "http://git.example.corp/octo/repo/issues/7",
+            "https://user@git.example.corp/octo/repo/issues/7",
+            "https://git.example.corp:8443/octo/repo/issues/7",
+            "https://git.example.corp.evil.test/octo/repo/issues/7",
+            "https:///octo/repo/issues/7",
+            "https://api.api.git.example.corp/repos/octo/repo/issues/7",
+        ).forEach { url ->
+            assertNull(url, Links.route(url, active))
+            assertNull(url, Links.fromInput(url.removePrefix("https://"), active))
+        }
+        assertNull(Links.route("https://git.example.corp/octo/repo/issues/7", "https://user@git.example.corp"))
+        assertNull(Links.route("https://git.example.corp/octo/repo/issues/7", "http://git.example.corp"))
+        assertNull(Links.route("https://git.example.corp/octo/repo/issues/7", "git.example.corp:8443"))
+    }
 }

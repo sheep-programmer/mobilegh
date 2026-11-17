@@ -131,9 +131,8 @@ class PullRequestIntegrationUiTest {
         row.performClick()
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("Hello-World", substring = true))
         compose.onNodeWithText("Hello-World", substring = true).assertIsDisplayed()
-        val remove = compose.onNodeWithText("移除").performScrollTo().assertIsDisplayed()
-        val repoBounds = compose.onNodeWithText("Hello-World", substring = true).getUnclippedBoundsInRoot()
-        assertTrue("移除操作不能挤压仓库卡片", remove.getUnclippedBoundsInRoot().top >= repoBounds.bottom)
+        compose.onNodeWithContentDescription("更多操作").performClick()
+        compose.onNodeWithText("移除").assertIsDisplayed()
         compose.onNodeWithText("移除分类不会取消 Star。").assertIsDisplayed()
     }
 

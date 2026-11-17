@@ -2,5 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
         <activity android:name="com.mobilegh.testing.OutsideAppActivity" android:exported="true" android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <provider
+            android:name="com.mobilegh.nav.ShareImportProvider"
+            android:authorities="com.mobilegh.test.share-import"
+            android:exported="true"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

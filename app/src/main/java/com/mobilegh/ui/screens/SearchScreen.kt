@@ -271,7 +271,11 @@ private fun SearchBar(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { onSubmit() }),
         )
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(4.dp))
+        IconButton(onClick = onSubmit) {
+            Oc(R.drawable.oc_search, Gh.c.accent, 20.dp, contentDescription = tr("搜索"))
+        }
+        Spacer(Modifier.width(4.dp))
         FilterEntry(count, onOpenFilters)
     }
 }
@@ -452,7 +456,7 @@ private fun CodeResults(query: String, state: LazyListState) {
         },
     ) { hit ->
         Column(Modifier.fillMaxWidth().clickable {
-            val target = Links.route(hit.htmlUrl) ?: Screen.FileView(hit.repository.owner.login, hit.repository.name, hit.path, hit.repository.defaultBranch)
+            val target = Screen.FileView(hit.repository.owner.login, hit.repository.name, hit.path, hit.repository.defaultBranch)
             nav.pushLink(target)
         }.padding(16.dp)) {
             // 命中的词加底色，限定符（repo:/language:）不参与高亮
@@ -591,7 +595,7 @@ private fun FilterGroup(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun FilterField(label: String, value: String, onChange: (String) -> Unit, placeholder: String) {
     OutlinedTextField(
-        value, onChange, Modifier.fillMaxWidth(),
+        value, onChange, Modifier.fillMaxWidth().semantics { contentDescription = label },
         label = { Text(label) }, placeholder = { Text(placeholder) }, singleLine = true,
     )
 }
@@ -609,7 +613,8 @@ private fun PickerRow(label: String, value: String, options: List<String>, onSel
             label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             singleLine = true,
-            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth()
+                .semantics { contentDescription = "$label：$value" },
         )
         ExposedDropdownMenu(
             expanded = expanded,

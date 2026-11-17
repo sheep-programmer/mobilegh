@@ -83,7 +83,7 @@ fun CodeSearchResults(query: String, highlight: String = query) {
         }
     }) { hit ->
         Column(Modifier.fillMaxWidth().clickable {
-            val target = Links.route(hit.htmlUrl) ?: Screen.FileView(hit.repository.owner.login, hit.repository.name, hit.path, hit.repository.defaultBranch)
+            val target = Screen.FileView(hit.repository.owner.login, hit.repository.name, hit.path, hit.repository.defaultBranch)
             nav.pushLink(target)
         }.padding(16.dp)) {
             Text(hit.repository.fullName.ifBlank { "${hit.repository.owner.login}/${hit.repository.name}" }, color = Gh.c.fgMuted, fontSize = 12.sp)

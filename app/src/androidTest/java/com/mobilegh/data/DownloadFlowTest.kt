@@ -25,19 +25,22 @@ class DownloadFlowTest {
 
     @Test fun pauseKeepsProgressAndResumeCompletesWithFullContent() {
         runBlocking {
-        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        Downloads.tasks.filter { it.url == url }.forEach { Downloads.forget(ctx, it) }
-        Downloads.start(url, "flow-test.bin", isPrivate = false)
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val ctx = instrumentation.targetContext
+        instrumentation.runOnMainSync {
+            Downloads.tasks.filter { it.url == url }.forEach { Downloads.forget(ctx, it) }
+            Downloads.start(url, "flow-test.bin", isPrivate = false)
+        }
 
         withTimeout(60_000) { while ((task()?.downloaded ?: 0L) < 2_000_000L) { assertNotEquals(DownloadState.Failed, task()?.state); delay(100) } }
-        Downloads.togglePause(task()!!)
+        instrumentation.runOnMainSync { Downloads.togglePause(task()!!) }
         withTimeout(20_000) { while (task()?.state != DownloadState.Waiting) delay(100) }
         assertTrue(task()!!.paused)
         val pausedAt = task()!!.downloaded
         delay(2_000)
         assertEquals("暂停期间进度不应增长", pausedAt, task()!!.downloaded)
 
-        Downloads.togglePause(task()!!)
+        instrumentation.runOnMainSync { Downloads.togglePause(task()!!) }
         withTimeout(180_000) {
             while (task()?.state != DownloadState.Complete) { assertNotEquals(DownloadState.Failed, task()?.state); delay(200) }
         }

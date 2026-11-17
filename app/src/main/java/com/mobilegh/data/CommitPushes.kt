@@ -21,6 +21,9 @@ data class CommitPush(
     val at: String,
 )
 
+/** 同一个提交可能同时属于多个分支或同名标签，列表 key 必须包含引用身份。 */
+fun CommitPush.stableKey(): String = "${if (isTag) "tag" else "branch"}:$ref:$headSha"
+
 /** 同一次推送里的提交间隔通常只有几秒到几分钟；超过这个间隔就算另一次推送 */
 internal const val MERGE_WINDOW_SECONDS = 30 * 60L
 

@@ -20,6 +20,26 @@ data class InboxSnapshot(val login: String = "", val unread: Int = 0, val more: 
 @Serializable
 private data class InboxSource(val login: String, val items: List<Notification>, val more: Boolean, val at: Long)
 
+@Serializable
+data class PullRequestWidgetItem(val repo: String, val number: Int, val title: String, val updatedAt: String, val url: String)
+
+@Serializable
+data class PullRequestSnapshot(val login: String, val generation: Int, val items: List<PullRequestWidgetItem> = emptyList(), val at: Long = 0) {
+    fun visibleTo(login: String, generation: Int): PullRequestSnapshot? = takeIf {
+        it.login.equals(login, true) && (generation == 0 || it.generation == generation)
+    }
+}
+
+@Serializable
+data class ShortcutWidgetItem(val id: String, val label: String, val url: String, val labelKey: String? = null)
+
+@Serializable
+data class ShortcutSnapshot(val login: String, val generation: Int, val items: List<ShortcutWidgetItem> = emptyList(), val at: Long = 0) {
+    fun visibleTo(login: String, generation: Int): ShortcutSnapshot? = takeIf {
+        it.login.equals(login, true) && (generation == 0 || it.generation == generation)
+    }
+}
+
 /**
  * 小组件数据的缓存与读取。应用内拉到新数据时写入并通知小组件刷新；
  * 小组件自己刷新时，缓存足够新就直接使用，避免重复请求。
@@ -27,10 +47,12 @@ private data class InboxSource(val login: String, val items: List<Notification>,
 object WidgetStore {
     const val WEEKS = 20
     const val INBOX_ITEMS = 3
+    const val PULL_REQUEST_ITEMS = 5
+    const val SHORTCUT_ITEMS = 8
     private const val INBOX_PAGE = 50
     private const val FRESH_MS = 15 * 60 * 1000L
 
-    enum class Kind { Contributions, Inbox }
+    enum class Kind { Contributions, Inbox, PullRequests, Shortcuts }
 
     private var prefs: SharedPreferences? = null
     var hideInboxDetails by mutableStateOf(false)
@@ -102,6 +124,86 @@ object WidgetStore {
         ?.let { runCatching { Api.plain.decodeFromString(InboxSnapshot.serializer(), it) }.getOrNull() }
         ?.takeIf { it.login.equals(login, true) }
 
+    fun pullRequestsOf(
+        login: String,
+        pulls: List<Issue>,
+        generation: Int,
+        webBase: String = Net.loginBase,
+        now: Long = System.currentTimeMillis(),
+    ): PullRequestSnapshot {
+        val items = pulls.filter { it.state == "open" }
+            .sortedByDescending { it.updatedAt.orEmpty() }
+            .mapNotNull { pull ->
+                val repo = pull.repositoryUrl?.substringAfter("/repos/", "")?.takeIf { it.count { c -> c == '/' } == 1 } ?: return@mapNotNull null
+                PullRequestWidgetItem(
+                    repo,
+                    pull.number,
+                    pull.title,
+                    pull.updatedAt.orEmpty(),
+                    pull.htmlUrl.ifBlank { Net.loginEndpoint("/$repo/pull/${pull.number}", webBase.trimEnd('/')) },
+                )
+            }.take(PULL_REQUEST_ITEMS)
+        return PullRequestSnapshot(login, generation, items, now)
+    }
+
+    fun shortcutsOf(login: String, layout: HomeLayout, generation: Int, now: Long = System.currentTimeMillis()): ShortcutSnapshot {
+        val labels = mapOf(
+            "activity" to "动态", "issues" to "Issues", "pulls" to "Pull Requests", "favorites" to "收藏夹",
+            "saved" to "稍后阅读", "repos" to "仓库", "orgs" to "组织", "stars" to "已 Star",
+            "lists" to "Star 列表", "gists" to "Gists", "recent" to "最近浏览", "projects" to "项目",
+            "drafts" to "草稿", "invitations" to "待处理邀请",
+        )
+        val items = layout.visibleSlots().mapNotNull { slot ->
+            val search = layout.search(slot.id)
+            val labelKey = if (search == null) labels[slot.id] else null
+            if (search == null && labelKey == null) return@mapNotNull null
+            val path = slot.id.removePrefix("search:").let { if (slot.id.startsWith("search:")) "search/$it" else it }
+            ShortcutWidgetItem(slot.id, search?.name.orEmpty(), "mobilegh://shortcut/$path", labelKey)
+        }.take(SHORTCUT_ITEMS)
+        return ShortcutSnapshot(login, generation, items, now)
+    }
+
+    fun cachedPullRequests(login: String, generation: Int): PullRequestSnapshot? = read("pull_requests")
+        ?.let { runCatching { Api.plain.decodeFromString(PullRequestSnapshot.serializer(), it) }.getOrNull() }
+        ?.visibleTo(login, generation)
+
+    fun cachedShortcuts(login: String, generation: Int): ShortcutSnapshot? = read("shortcuts")
+        ?.let { runCatching { Api.plain.decodeFromString(ShortcutSnapshot.serializer(), it) }.getOrNull() }
+        ?.visibleTo(login, generation)
+
+    suspend fun loadPullRequests(): PullRequestSnapshot? {
+        val login = Session.login ?: return null
+        if (Session.token == null) return null
+        val generation = Session.generation
+        val cached = cachedPullRequests(login, generation)
+        if (cached != null && System.currentTimeMillis() - cached.at < FRESH_MS) return cached
+        return try {
+            val result = GitHub.searchIssues("is:pr is:open assignee:$login archived:false", 1, sort = "updated", order = "desc", force = true)
+            if (Session.generation != generation || !login.equals(Session.login, true)) return null
+            pullRequestsOf(login, result.items, generation).also {
+                write("pull_requests", Api.plain.encodeToString(PullRequestSnapshot.serializer(), it))
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            cached ?: throw e
+        }
+    }
+
+    fun loadShortcuts(): ShortcutSnapshot? {
+        val login = Session.login ?: return null
+        if (Session.token == null) return null
+        return shortcutsOf(login, HomePrefs.layout(), Session.generation).also {
+            if (write("shortcuts", Api.plain.encodeToString(ShortcutSnapshot.serializer(), it))) listener?.invoke(Kind.Shortcuts)
+        }
+    }
+
+    fun saveShortcuts(login: String, layout: HomeLayout) {
+        if (!login.equals(Session.login, true)) return
+        val snap = shortcutsOf(login, layout, Session.generation)
+        if (write("shortcuts", Api.plain.encodeToString(ShortcutSnapshot.serializer(), snap))) listener?.invoke(Kind.Shortcuts)
+    }
+
     /** 未登录返回 null；请求失败时退回到同一账号的旧缓存，没有缓存则抛出异常。 */
     suspend fun loadContributions(): ContribSnapshot? {
         val login = Session.login ?: return null
@@ -148,7 +250,8 @@ object WidgetStore {
     private fun write(key: String, value: String): Boolean {
         val p = prefs ?: return false
         val old = p.getString(key, null)
+        if (old != null && old.substringBefore(",\"at\":") == value.substringBefore(",\"at\":")) return false
         p.edit().putString(key, value).apply()
-        return old == null || old.substringBefore(",\"at\":") != value.substringBefore(",\"at\":")
+        return true
     }
 }

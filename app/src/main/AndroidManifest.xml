@@ -50,8 +50,10 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.MobileGH">
+        <!-- 仅仓库导入在用户明确确认后接受 HTTP；API、登录等携带 Token 的地址仍强制 HTTPS。 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -71,8 +73,10 @@
             <!-- 在系统设置中"默认打开链接"启用后，可以直接用本应用打开 github.com 链接 -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
+                <data android:mimeType="image/*" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -81,6 +85,7 @@
                 <data android:scheme="https" android:host="github.com" />
                 <data android:scheme="https" android:host="www.github.com" />
                 <data android:scheme="https" android:host="gist.github.com" />
+                <data android:scheme="https" android:host="*.ghe.com" />
             </intent-filter>
         </activity>
 
@@ -88,6 +93,8 @@
         <service android:name=".service.MobileApprovalService" android:exported="false" />
         <!-- 下载进行时保持前台，退到后台也能继续 -->
         <service android:name=".service.DownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <!-- 仓库导入（克隆+推送）进行中保持前台，退到后台也能继续 -->
+        <service android:name=".service.ImportService" android:exported="false" android:foregroundServiceType="dataSync" />
         <receiver android:name=".service.MobileApprovalRestartReceiver" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
@@ -106,6 +113,28 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_contrib_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.PullRequestWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_pull_request_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/pull_request_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.ShortcutWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_shortcut_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/shortcut_widget_info" />
         </receiver>
         <receiver
             android:name=".widget.InboxWidgetReceiver"

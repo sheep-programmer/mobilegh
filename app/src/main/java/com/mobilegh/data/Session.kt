@@ -29,6 +29,7 @@ data class OAuthCredentials(val token: String, val refreshToken: String, val exp
 /** 登录态与偏好设置。Token 使用 Android Keystore(AES-GCM) 加密后存储。 */
 object Session {
     private lateinit var prefs: SharedPreferences
+    private lateinit var appContext: Context
 
     @Volatile
     var token: String? = null
@@ -94,6 +95,7 @@ object Session {
     var generation by mutableIntStateOf(0)
 
     fun init(ctx: Context) {
+        appContext = ctx.applicationContext
         prefs = ctx.getSharedPreferences("session", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("native_browser_migration", false) && prefs.contains("accounts")) {
             // Retire stale embedded-login cookies and password sessionStorage from earlier versions.
@@ -141,6 +143,7 @@ object Session {
         Api.clearCache()
         activate(acc)
         generation++
+        com.mobilegh.service.NotificationPollingWorker.sync(appContext)
     }
 
     fun switchTo(login: String) {
@@ -164,6 +167,8 @@ object Session {
         prefs.edit().putString("current", next?.login).apply()
         next?.let { activate(it) }
         generation++
+        // 先使在途请求失效，再取消或按下一账号重建周期任务。
+        com.mobilegh.service.NotificationPollingWorker.sync(appContext)
     }
 
     /** Called on the main dispatcher; refreshing credentials must not reset the navigation stack. */

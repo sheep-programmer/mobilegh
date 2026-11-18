@@ -16,6 +16,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.printToString
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextReplacement
@@ -175,7 +176,11 @@ class ActionRunnersCachesUiTest {
             compose.waitUntil(timeoutMillis = 10_000) {
                 server.requestBodies.any { it.startsWith("POST /repos/octo/hello/actions/runners/registration-token ") }
             }
-            waitForText("registration-token-1", timeoutMillis = 10_000)
+            try {
+                waitForText("registration-token-1", timeoutMillis = 10_000)
+            } catch (error: androidx.compose.ui.test.ComposeTimeoutException) {
+                throw AssertionError(compose.onNode(isDialog(), useUnmergedTree = true).printToString(), error)
+            }
             compose.onNodeWithText("registration-token-1", useUnmergedTree = true).assertIsDisplayed()
             compose.onNodeWithText("2026-01-02T03:04:05Z", substring = true, useUnmergedTree = true).assertIsDisplayed()
             compose.onNodeWithContentDescription("复制注册令牌").performClick()
@@ -685,7 +690,7 @@ class ActionRunnersCachesUiTest {
         try {
             compose.waitUntil(timeoutMillis = 5_000) {
                 compose.onAllNodes(hasText("cache-101"))
-                    .fetchSemanticsNodes().isNotEmpty()
+                    .fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty()
             }
             compose.onAllNodes(hasText("cache-101")).onFirst().performScrollTo().assertIsDisplayed()
             assertTrue(server.requests.any { it.endsWith("/actions/caches?per_page=100&page=2") })

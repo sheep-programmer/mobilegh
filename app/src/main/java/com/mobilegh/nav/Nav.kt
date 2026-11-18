@@ -70,7 +70,7 @@ sealed interface Screen {
         val section: ActionsSettingsSection = ActionsSettingsSection.General,
     ) : Screen
     @Serializable data class RunDetail(val owner: String, val name: String, val runId: Long) : Screen
-    @Serializable data class JobLog(val owner: String, val name: String, val jobId: Long, val title: String, val runId: Long = 0, val stepNumber: Int = 0) : Screen
+    @Serializable data class JobLog(val owner: String, val name: String, val jobId: Long, val title: String, val runId: Long = 0, val stepNumber: Int = 0, val focusFailure: Boolean = false) : Screen
     /** [tag] 来自 `/releases/tag/…`、`/releases/download/…` 链接：显示并展开这个版本；`latest` 表示最新版本；为空时只列出 */
     @Serializable data class Releases(val owner: String, val name: String, val tag: String? = null, val releaseId: Long? = null) : Screen
     /** 仓库最近的推送记录：谁推送到了哪个分支 */

@@ -11,12 +11,14 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.data.ProjectColor
+import com.mobilegh.data.AccentStyle
 import com.mobilegh.data.Session
 
 /** GitHub Primer 设计令牌 */
@@ -203,11 +205,12 @@ private object NoIndication : androidx.compose.foundation.IndicationNodeFactory 
 @Composable
 fun MobileGhTheme(content: @Composable () -> Unit) {
     val dark = isDarkMode()
-    val g = if (dark) DarkGh else LightGh
+    val g = withAccent(if (dark) DarkGh else LightGh, Session.accentStyle)
+    val onAccent = if (dark && Session.accentStyle != AccentStyle.Default) g.canvas else Color.White
     val base = if (dark) darkColorScheme() else lightColorScheme()
     val scheme = base.copy(
         primary = g.accent,
-        onPrimary = Color.White,
+        onPrimary = onAccent,
         primaryContainer = g.accentSubtle,
         onPrimaryContainer = g.accent,
         secondary = g.fgMuted,
@@ -231,7 +234,7 @@ fun MobileGhTheme(content: @Composable () -> Unit) {
         // Chip、Radio、进度条、对话框等组件里，surfaceTint 会给有阴影的面板染上紫色。
         // Primer 的界面是扁平的，所以 surfaceTint 置为透明。
         tertiary = g.accent,
-        onTertiary = Color.White,
+        onTertiary = onAccent,
         tertiaryContainer = g.accentSubtle,
         onTertiaryContainer = g.accent,
         error = g.danger,
@@ -260,6 +263,17 @@ fun MobileGhTheme(content: @Composable () -> Unit) {
             }
         }
     }
+}
+
+internal fun withAccent(colors: GhColors, style: AccentStyle): GhColors {
+    val accent = when (style) {
+        AccentStyle.Default -> return colors
+        AccentStyle.Slate -> if (colors.dark) Color(0xFF9FB7CE) else Color(0xFF425E7C)
+        AccentStyle.Teal -> if (colors.dark) Color(0xFF88C5B9) else Color(0xFF28685E)
+        AccentStyle.Violet -> if (colors.dark) Color(0xFFC1ADD9) else Color(0xFF67527F)
+        AccentStyle.Rose -> if (colors.dark) Color(0xFFD0A8B5) else Color(0xFF815368)
+    }
+    return colors.copy(accent = accent, accentSubtle = accent.copy(alpha = if (colors.dark) 0.20f else 0.13f).compositeOver(colors.canvas))
 }
 
 val CodeStyle = TextStyle(fontFamily = Mono, fontSize = 12.5.sp, lineHeight = 19.sp)

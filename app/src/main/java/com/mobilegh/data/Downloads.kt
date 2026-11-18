@@ -184,6 +184,8 @@ data class DownloadTask(
     val paused: Boolean = false,
     /** 是否是 MobileGH 应用自身的更新安装包 */
     val isAppUpdate: Boolean = false,
+    val expectedSha256: String? = null,
+    val actionsArchive: Boolean = false,
 ) {
     val active get() = state in setOf(DownloadState.Preparing, DownloadState.Queued, DownloadState.Running, DownloadState.Waiting)
     /** 还在应用内排队、尚未交给 DownloadManager 的任务（没有 managerId） */
@@ -205,6 +207,7 @@ data class FileInfo(
     val isPrivate: Boolean,
     val details: List<Pair<String, String>>,
     val mimeType: String? = null,
+    val digest: String? = null,
 )
 
 /** 应用内下载：断点续传引擎（[ResumableTransfer]）负责传输，这里负责任务状态、排队、换节点、历史和文件操作；Token 不会保存。 */
@@ -217,6 +220,7 @@ object Downloads {
     private var lastServiceCount = -1
     /** 每个任务正在运行的传输协程，按任务 key 索引 */
     private val transfers = HashMap<String, Job>()
+    private val verifying = HashSet<String>()
     /** 用户点了暂停、正在取消的任务：取消后保留已下载的部分，状态改为已暂停 */
     private val pausing = HashSet<String>()
     private val privateHttp by lazy { OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector()).followRedirects(false).followSslRedirects(false).build() }
@@ -328,8 +332,11 @@ object Downloads {
         mimeType: String? = null,
         isAppUpdate: Boolean = false,
         openDialog: Boolean = false,
+        digest: String? = null,
+        actionsArchive: Boolean = false,
     ) {
-        tasks.firstOrNull { it.url == rawUrl && it.active }?.let {
+        val checksum = trustedSha256(digest)
+        tasks.firstOrNull { it.url == rawUrl && it.active && it.expectedSha256 == checksum && it.actionsArchive == actionsArchive }?.let {
             if (openDialog) {
                 selectedKey = it.key
                 showHistory = false
@@ -348,6 +355,8 @@ object Downloads {
             // 统一先记为排队，由 pump() 按名额决定是否立即开始
             state = DownloadState.Queued,
             isAppUpdate = isAppUpdate,
+            expectedSha256 = checksum,
+            actionsArchive = actionsArchive,
         )
         tasks.add(0, task)
         // 超出保留数量的较早记录移出列表，并计数，让界面能说明移掉了多少条
@@ -627,7 +636,40 @@ object Downloads {
             throw e
         }
         when (result) {
-            TransferResult.Complete -> finishTransfer(key, partial)
+            TransferResult.Complete -> {
+                val expected = started.expectedSha256
+                if (expected != null) {
+                    val current = tasks.firstOrNull { it.key == key && it.state == DownloadState.Running } ?: return
+                    verifying.add(key)
+                    update(current.copy(message = tr("正在验证 SHA-256…")))
+                    val valid = try {
+                        withContext(Dispatchers.IO) { verifyDownload(partial, expected) }
+                    } catch (error: CancellationException) {
+                        onInterrupted(key)
+                        throw error
+                    } catch (error: java.io.IOException) {
+                        AppLog.warn("download", started.filename, error)
+                        false
+                    } finally {
+                        verifying.remove(key)
+                    }
+                    if (!valid) {
+                        partial.delete()
+                        SegmentedTransfer.cleanup(partial)
+                        transfers.remove(key)
+                        val latest = tasks.firstOrNull { it.key == key && it.state == DownloadState.Running } ?: return
+                        val message = tr("SHA-256 校验不匹配，未保存文件")
+                        AppLog.warn("download", "${latest.filename}: $message")
+                        if (!rotate(latest, message)) {
+                            update(latest.copy(state = DownloadState.Failed, downloaded = 0, message = message))
+                            DownloadService.notifyFinished(context, latest.filename, message)
+                            save(); pump()
+                        }
+                        return
+                    }
+                }
+                finishTransfer(key, partial)
+            }
             is TransferResult.Failed -> failTransfer(key, result)
         }
     }
@@ -821,7 +863,7 @@ object Downloads {
 
     /** 监控一轮：卡住或太慢的传输换节点（或提示），并补足排队 */
     private fun tick() {
-        tasks.filter { it.state == DownloadState.Running }.forEach { task ->
+        tasks.filter { it.state == DownloadState.Running && it.key !in verifying }.forEach { task ->
             val pace = samplePace(task.key, task)
             val stalled = stalledReason(task.key, task)
             val slow = if (stalled == null) slowReason(task, pace) else null
@@ -939,7 +981,8 @@ object Downloads {
         if (task.active) return
         if (task.state == DownloadState.Complete) {
             tasks.removeAll { it.key == task.key }
-            start(task.url, task.filename, task.isPrivate, task.mimeType, isAppUpdate = task.isAppUpdate, openDialog = true)
+            start(task.url, task.filename, task.isPrivate, task.mimeType, isAppUpdate = task.isAppUpdate, openDialog = true,
+                digest = task.expectedSha256?.let { "sha256:$it" }, actionsArchive = task.actionsArchive)
             return
         }
         tasks.firstOrNull { it.key == task.key }?.let { current ->
@@ -984,6 +1027,10 @@ object Downloads {
      * 用户开启后回到应用再次点击即可。
      */
     fun installApk(ctx: Context, task: DownloadTask) {
+        if (canInstallApk(ctx)) open(ctx, task.copy(mimeType = "application/vnd.android.package-archive"))
+    }
+
+    internal fun canInstallApk(ctx: Context): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val pm = ctx.packageManager
             if (!pm.canRequestPackageInstalls()) {
@@ -995,10 +1042,48 @@ object Downloads {
                     )
                 }.onFailure { ctx.toast(tr("请先在系统设置中允许本应用安装应用")) }
                 ctx.toast(tr("请开启「允许安装未知应用」，然后回来再次点击更新"))
-                return
+                return false
             }
         }
-        open(ctx, task)
+        return true
+    }
+
+    private suspend fun <Result> withArtifactFile(task: DownloadTask, work: suspend (File) -> Result): Result = withContext(Dispatchers.IO) {
+        require(task.actionsArchive && task.state == DownloadState.Complete)
+        val uri = readableUri(context, task) ?: throw java.io.IOException("Missing artifact")
+        val local = task.filePath?.let(::File)?.takeIf { task.contentUri == null && it.isFile }
+        val temporary = if (local == null) File.createTempFile("artifact-", ".zip", context.cacheDir) else null
+        try {
+            if (temporary != null) {
+                val input = context.contentResolver.openInputStream(uri) ?: throw java.io.IOException("Unreadable artifact")
+                input.use { ArtifactApks.copyBounded(it, temporary, ArtifactApks.MAX_ARCHIVE_BYTES) }
+            }
+            val archive = local ?: checkNotNull(temporary)
+            if (archive.length() > ArtifactApks.MAX_ARCHIVE_BYTES) throw java.io.IOException("Artifact exceeds size limit")
+            task.expectedSha256?.let { expected ->
+                if (!verifyDownload(archive, expected)) throw java.io.IOException("Artifact checksum mismatch")
+            }
+            work(archive)
+        } finally {
+            temporary?.delete()
+        }
+    }
+
+    internal suspend fun artifactApks(task: DownloadTask): List<ArtifactApks.Entry> = withArtifactFile(task, ArtifactApks::list)
+
+    internal suspend fun prepareArtifactApk(task: DownloadTask, entry: ArtifactApks.Entry): DownloadTask = withArtifactFile(task) { archive ->
+        val dir = File(context.cacheDir, "artifact-apks").apply { mkdirs() }
+        dir.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > TimeUnit.DAYS.toMillis(1) }
+            ?.forEach { it.delete() }
+        val output = File.createTempFile("install-", ".apk", dir)
+        try {
+            ArtifactApks.extract(archive, entry, output)
+            if (context.packageManager.getPackageArchiveInfo(output.path, 0) == null) throw java.io.IOException("Invalid APK")
+            task.copy(filename = entry.name, filePath = output.path, contentUri = null, mimeType = "application/vnd.android.package-archive")
+        } catch (error: Exception) {
+            output.delete()
+            throw error
+        }
     }
 
     private fun readableUri(ctx: Context, task: DownloadTask): Uri? {

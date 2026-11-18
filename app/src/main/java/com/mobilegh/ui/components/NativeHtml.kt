@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
@@ -51,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -62,8 +64,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.semantics.Role
+import com.mobilegh.data.ImageFetch
 import com.mobilegh.data.VideoRoute
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -115,10 +116,16 @@ fun HtmlView(
     anchorRequest: HtmlAnchorRequest? = null,
     /** 原生渲染时内容按自身高度排列，参数保留给 WebView 路径使用 */
     fullHeight: Boolean = false,
+    linkedImagesOpenLink: Boolean = false,
+    allowTranslation: Boolean = true,
 ) {
     // 解析结果有缓存：长列表里的评论通常已在后台预先解析好，滑入屏幕时不再在主线程上解析
     val parsed = remember(html, baseUrl) { HtmlParser.parseCached(html, baseUrl) }
-    NativeHtml(parsed.blocks, modifier, onAnchor, anchorRequest, baseUrl)
+    CompositionLocalProvider(LocalLinkedImagesOpenLink provides linkedImagesOpenLink) {
+        DocumentTranslationContent(parsed, allowTranslation) { header, translate ->
+            NativeHtml(parsed.blocks, modifier, onAnchor, anchorRequest, baseUrl, header, translate)
+        }
+    }
 }
 
 /**
@@ -205,6 +212,7 @@ internal fun percentDecode(s: String): String {
 
 private val LocalHtmlScroll = staticCompositionLocalOf<HtmlScroll?> { null }
 private val LocalBaseUrl = staticCompositionLocalOf<String?> { null }
+private val LocalLinkedImagesOpenLink = staticCompositionLocalOf { false }
 
 @Composable
 internal fun NativeHtml(
@@ -213,6 +221,8 @@ internal fun NativeHtml(
     onAnchor: ((Int) -> Unit)?,
     anchorRequest: HtmlAnchorRequest?,
     baseUrl: String? = null,
+    header: (@Composable () -> Unit)? = null,
+    translate: @Composable (HtmlBlock, @Composable (HtmlBlock) -> Unit) -> Unit,
 ) {
     val density = LocalDensity.current.density
     val scroll = remember(density) { HtmlScroll(density) }
@@ -229,7 +239,8 @@ internal fun NativeHtml(
                     },
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                blocks.forEach { RenderBlock(it, muted = false) }
+                header?.invoke()
+                blocks.forEach { block -> translate(block) { RenderBlock(it, muted = false) } }
             }
         }
     }
@@ -540,16 +551,16 @@ private fun BlockImage(block: HtmlBlock.Image) {
     val h = block.height
     val ratio = if (w != null && h != null && w > 0 && h > 0) w.toFloat() / h else null
     val alt = block.alt
-    val nav = LocalNav.current
-    val ctx = rememberCtx()
-    // 图片外面套了链接（如徽章、点击跳转的横幅）：点击放大查看（可在查看器内点按外链，或长按直接跳转）
     val link = block.link
+    val openLink = htmlLinkOpener()
+    val openOnTap = imageLinkOnTap(link, LocalLinkedImagesOpenLink.current, badge = false)
+    val preview = { ImageViewer.open(block.viewSrc ?: src, alt, link) }
     // 按 HTML 的 width 属性显示（如 logo 写了 width="104"），没写才铺满；超过可用宽度时自动收窄
     val widthMod = if (w != null && w > 0) Modifier.width(w.dp) else Modifier.fillMaxWidth()
     val base = widthMod.clip(RoundedCornerShape(6.dp))
         .combinedClickable(
-            onClick = { ImageViewer.open(block.viewSrc ?: src, alt, link) },
-            onLongClick = if (link != null) { { openHtmlLink(ctx, nav, link, alt) } } else null,
+            onClick = { if (openOnTap != null) openLink(openOnTap, alt) else preview() },
+            onLongClick = if (link == null) null else if (openOnTap != null) preview else ({ openLink(link, alt) }),
         )
     val loaded = bmp
     val shape = RoundedCornerShape(8.dp)
@@ -640,11 +651,10 @@ private fun ImageRowBlock(block: HtmlBlock.ImageRow) {
 @Composable
 private fun RowImage(img: Inline.Image, maxWidth: Dp = Dp.Unspecified) {
     val g = Gh.c
-    val nav = LocalNav.current
-    val ctx = rememberCtx()
     var retry by remember(img.src) { mutableIntStateOf(0) }
     var bmp by remember(img.src) { mutableStateOf(Images.cached(img.src, 1024)) }
     var failed by remember(img.src) { mutableStateOf(false) }
+    var missing by remember(img.src) { mutableStateOf(false) }
     LaunchedEffect(img.src, retry) {
         if (bmp == null || retry > 0) {
             failed = false
@@ -652,22 +662,20 @@ private fun RowImage(img: Inline.Image, maxWidth: Dp = Dp.Unspecified) {
             if (loaded != null) {
                 bmp = loaded
             } else {
+                missing = ImageFetch.isMissing(img.src)
                 failed = true
             }
         }
     }
     val link = img.link
     val isBadge = HtmlParser.isInlineImage(img)
+    val openLink = htmlLinkOpener()
+    val openOnTap = imageLinkOnTap(link, LocalLinkedImagesOpenLink.current, isBadge)
+    val preview = { ImageViewer.open(img.viewSrc ?: img.src, img.alt, link) }
     val click = Modifier.clip(RoundedCornerShape(3.dp))
         .combinedClickable(
-            onClick = {
-                if (isBadge && link != null) openHtmlLink(ctx, nav, link, img.alt)
-                else ImageViewer.open(img.viewSrc ?: img.src, img.alt, link)
-            },
-            onLongClick = {
-                if (isBadge) ImageViewer.open(img.viewSrc ?: img.src, img.alt, link)
-                else if (link != null) openHtmlLink(ctx, nav, link, img.alt)
-            },
+            onClick = { if (openOnTap != null) openLink(openOnTap, img.alt) else preview() },
+            onLongClick = if (link == null) null else if (openOnTap != null) preview else ({ openLink(link, img.alt) }),
         )
     val loaded = bmp
     if (loaded == null) {
@@ -686,7 +694,7 @@ private fun RowImage(img: Inline.Image, maxWidth: Dp = Dp.Unspecified) {
                     .clip(shape)
                     .background(g.canvasSubtle)
                     .border(1.dp, g.borderMuted, shape)
-                    .clickable {
+                    .clickable(enabled = !missing, onClickLabel = tr("重试加载")) {
                         failed = false
                         retry++
                     }
@@ -697,9 +705,9 @@ private fun RowImage(img: Inline.Image, maxWidth: Dp = Dp.Unspecified) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Oc(R.drawable.oc_sync, g.accent, 12.dp)
+                    if (!missing) Oc(R.drawable.oc_sync, g.accent, 12.dp)
                     Text(
-                        img.alt.ifBlank { tr("重试") },
+                        if (missing) tr("图片已失效") else img.alt.ifBlank { tr("重试") },
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium,
                         color = g.fgMuted,
@@ -761,10 +769,6 @@ private suspend fun extractVideoFrame(src: String): ImageBitmap? = withContext(D
     }
 }
 
-/**
- * 视频占位：显示首帧封面，中间一个播放键、右下角「放大播放」。
- * 只有点播放键或「放大播放」才会全屏播放；点画面其它地方没有反应，避免滑动时误触。
- */
 @Composable
 private fun VideoTile(src: String) {
     val g = Gh.c
@@ -778,64 +782,33 @@ private fun VideoTile(src: String) {
         }
     }
     val shape = RoundedCornerShape(6.dp)
-    Box(
+    InlineVideo(src,
         Modifier.fillMaxWidth().height(180.dp).clip(shape).background(Color.Black).border(1.dp, g.borderMuted, shape),
-        contentAlignment = Alignment.Center,
     ) {
-        frame?.let { Image(it, null, Modifier.matchParentSize(), contentScale = ContentScale.Crop) }
+        frame?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
         if (frame == null) {
-            Text(tr("视频"), Modifier.align(Alignment.TopStart).padding(10.dp), color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
-        }
-        Box(
-            Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.55f))
-                .clickable(role = Role.Button) { VideoViewer.open(src) },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("▶", Modifier.padding(start = 3.dp), color = Color.White, fontSize = 22.sp)
-        }
-        Row(
-            Modifier.align(Alignment.BottomEnd).padding(8.dp).clip(RoundedCornerShape(50))
-                .background(Color.Black.copy(alpha = 0.55f))
-                .clickable(role = Role.Button) { VideoViewer.open(src) }
-                .padding(horizontal = 10.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Oc(R.drawable.oc_screen_full, Color.White, 12.dp)
-            Spacer(Modifier.width(4.dp))
-            Text(tr("放大播放"), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(tr("视频"), Modifier.padding(10.dp), color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
         }
     }
 }
 
-/**
- * YouTube 视频：显示封面，中间一个播放键，点播放键（或封面）在应用内全屏播放。
- * 以前它被当成普通图片：点击只会弹出链接菜单，看起来像一张打不开的图。
- */
 @Composable
 private fun YouTubeTile(block: HtmlBlock.YouTube) {
     val g = Gh.c
     val shape = RoundedCornerShape(8.dp)
-    val play = { YouTubeViewer.open(block.id, block.title) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Box(
-            Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(shape).background(Color.Black)
-                .border(1.dp, g.borderMuted, shape)
-                .clickable(role = Role.Button, onClick = play),
-            contentAlignment = Alignment.Center,
+        InlineYouTube(
+            block.id, block.title,
+            Modifier.fillMaxWidth().heightIn(min = 200.dp).aspectRatio(16f / 9f)
+                .clip(shape).background(Color.Black).border(1.dp, g.borderMuted, shape),
         ) {
             NetImage(
                 block.thumb ?: HtmlParser.youtubeThumb(block.id),
-                Modifier.matchParentSize(),
+                Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
                 placeholder = false,
                 targetDim = 1024,
             )
-            Box(
-                Modifier.size(64.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.6f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("▶", Modifier.padding(start = 4.dp), color = Color.White, fontSize = 26.sp)
-            }
         }
         Text(
             block.title.ifBlank { "YouTube" },
@@ -864,7 +837,10 @@ private class BuiltText(
     val links: List<LinkSpan> = emptyList(),
 )
 
-internal data class LinkSpan(val url: String, val start: Int, val end: Int, val label: String)
+internal data class LinkSpan(val url: String, val start: Int, val end: Int, val label: String, val image: Inline.Image? = null)
+
+internal fun imageLinkOnTap(link: String?, linkedImagesOpenLink: Boolean, badge: Boolean): String? =
+    link?.takeIf { it.isNotBlank() && (linkedImagesOpenLink || badge) }
 
 private fun buildInlineText(inlines: List<Inline>, accent: Color, codeBg: Color): BuiltText {
     val content = HashMap<String, InlineTextContent>()
@@ -896,7 +872,7 @@ private fun buildInlineText(inlines: List<Inline>, accent: Color, codeBg: Color)
                     if (link != null) pop()
                     if (link != null) {
                         val label = item.text
-                        open = if (open?.url == link && open?.end == start) {
+                        open = if (open?.image == null && open?.url == link && open?.end == start) {
                             open!!.copy(end = length, label = open!!.label + label)
                         } else {
                             open?.let { links.add(it) }
@@ -921,7 +897,10 @@ private fun buildInlineText(inlines: List<Inline>, accent: Color, codeBg: Color)
                     if (link != null) pop()
                     if (link != null) {
                         open?.let { links.add(it) }
-                        open = LinkSpan(link, start, length, item.alt)
+                        open = LinkSpan(link, start, length, item.alt, item)
+                    } else {
+                        open?.let { links.add(it) }
+                        open = null
                     }
                 }
                 Inline.Break -> append("\n")
@@ -947,9 +926,8 @@ private fun HtmlText(
     textAlign: TextAlign? = null,
 ) {
     val g = Gh.c
-    val nav = LocalNav.current
-    val ctx = rememberCtx()
-    val scroll = LocalHtmlScroll.current
+    val linkedImagesOpenLink = LocalLinkedImagesOpenLink.current
+    val onLink by rememberUpdatedState(htmlLinkOpener())
     val blockAlign = LocalBlockAlign.current
     val built = remember(inlines, g.dark) {
         buildInlineText(inlines, g.accent, if (g.dark) Color(0x33656C76) else Color(0x1F818B98))
@@ -959,28 +937,6 @@ private fun HtmlText(
     // 长按链接时把整段链接选中：选区由这里控制，交给外层 SelectionContainer
     var forced by remember(text) { mutableStateOf<IntRange?>(null) }
     val longPressMs = LocalViewConfiguration.current.longPressTimeoutMillis
-    val baseUrl = LocalBaseUrl.current
-    val onLink: (String, String?) -> Unit = { url, label ->
-        val cleanUrl = url.trim()
-        if (cleanUrl.startsWith("#")) {
-            val jumped = scroll?.jumpTo(cleanUrl.removePrefix("#")) == true
-            if (!jumped) {
-                openHtmlLink(ctx, nav, cleanUrl, label)
-            }
-        } else if ("#" in cleanUrl) {
-            val before = cleanUrl.substringBefore('#').trim().removeSuffix("/")
-            val after = cleanUrl.substringAfter('#').trim()
-            val currentBase = baseUrl?.trim()?.removeSuffix("/").orEmpty()
-            val isCurrentDoc = before.isEmpty() || before == currentBase ||
-                (currentBase.endsWith("/README.md", ignoreCase = true) && before.endsWith("/README.md", ignoreCase = true))
-            val jumped = if (isCurrentDoc) scroll?.jumpTo(after) == true else false
-            if (!jumped) {
-                openHtmlLink(ctx, nav, cleanUrl, label)
-            }
-        } else {
-            openHtmlLink(ctx, nav, cleanUrl, label)
-        }
-    }
     val highlight = if (g.dark) Color(0x4D388BFD) else Color(0x4D0969DA)
     // 菜单关掉后撤掉高亮
     if (LinkMenu.url == null && forced != null) forced = null
@@ -994,7 +950,7 @@ private fun HtmlText(
             }
             drawContent()
         }
-    val clickable = if (built.links.isEmpty()) body else body.pointerInput(text, nav, ctx, scroll) {
+    val clickable = if (built.links.isEmpty()) body else body.pointerInput(text, linkedImagesOpenLink) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 val layout = layoutRef.get() ?: return@awaitEachGesture
@@ -1067,10 +1023,14 @@ private fun HtmlText(
                 if (timedOut) {
                     // 按住不动且位移严格在 touchSlop 阈值内超过 500ms：触发长按选择与弹窗
                     val span = linkSpan ?: built.links.firstOrNull { it.url == link }
-                    forced = span?.let { it.start until it.end }
-                    if (link.startsWith("https://") || link.startsWith("http://")) {
+                    val image = span?.image
+                    if (linkedImagesOpenLink && image != null) {
+                        ImageViewer.open(image.viewSrc ?: image.src, image.alt, image.link)
+                    } else if (link.startsWith("https://") || link.startsWith("http://")) {
+                        forced = span?.let { it.start until it.end }
                         LinkMenu.show(link, span?.label)
                     } else if (link.startsWith("#") || "#" in link) {
+                        forced = span?.let { it.start until it.end }
                         val target = if (link.startsWith("#")) link.removePrefix("#") else link.substringAfter("#")
                         LinkMenu.show(link, span?.label?.takeIf { it.isNotBlank() } ?: percentDecode(target))
                     }
@@ -1100,11 +1060,28 @@ private fun HtmlText(
 }
 
 /** 打开 HTML 里的链接：应用内页面、浏览器，或系统应用（邮件、拨号）。 */
+@Composable
+private fun htmlLinkOpener(): (String, String?) -> Unit {
+    val ctx = rememberCtx()
+    val nav = LocalNav.current
+    val scroll = LocalHtmlScroll.current
+    val baseUrl = LocalBaseUrl.current
+    return { url, label ->
+        val cleanUrl = url.trim()
+        val currentBase = baseUrl?.trim()?.removeSuffix("/").orEmpty()
+        val before = cleanUrl.substringBefore('#').trim().removeSuffix("/")
+        val localAnchor = '#' in cleanUrl && (before.isEmpty() || before == currentBase)
+        if (!localAnchor || scroll?.jumpTo(cleanUrl.substringAfter('#').trim()) != true) {
+            openHtmlLink(ctx, nav, cleanUrl, label)
+        }
+    }
+}
+
 internal fun openHtmlLink(ctx: Context, nav: Navigator, url: String, label: String? = null) {
     val clean = url.trim()
     val ext = runCatching { java.net.URI(clean).path.trimEnd('/').substringAfterLast('.').lowercase() }.getOrNull()
     if (ext in setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico")) {
-        ImageViewer.open(clean, label.orEmpty())
+        ImageViewer.open(HtmlParser.rawImageUrl(clean), label.orEmpty())
         return
     }
     if (com.mobilegh.data.Downloads.isDownloadableUrl(clean)) {

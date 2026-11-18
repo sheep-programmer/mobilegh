@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,6 +27,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -236,6 +238,7 @@ fun FileDiffHeader(
     onOpen: () -> Unit,
     viewed: Boolean? = null,
     onViewed: (Boolean) -> Unit = {},
+    viewedEnabled: Boolean = true,
     comments: Int = 0,
     menu: List<MenuAction>? = null,
 ) {
@@ -282,7 +285,7 @@ fun FileDiffHeader(
                     Modifier.clip(RoundedCornerShape(6.dp))
                         .border(1.dp, if (viewed) g.accent.copy(alpha = 0.6f) else g.border, RoundedCornerShape(6.dp))
                         .background(if (viewed) g.accentSubtle else g.canvas, RoundedCornerShape(6.dp))
-                        .clickable { onViewed(!viewed) }
+                        .toggleable(value = viewed, enabled = viewedEnabled, role = Role.Checkbox, onValueChange = onViewed)
                         .padding(horizontal = 8.dp, vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

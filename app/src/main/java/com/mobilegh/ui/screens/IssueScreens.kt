@@ -289,6 +289,9 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
     val issueType = rememberLoader("issue-type") { if (isPull) null else GitHub.issueType(owner, name, number) }
     // 父子层级单独失败时不影响 Issue 正文、评论或类型编辑
     val hierarchy = rememberLoader("hierarchy") { f -> if (isPull) null else GitHub.issueHierarchy(owner, name, number, f) }
+    LaunchedEffect(hierarchy) {
+        if (!isPull && hierarchy.data != null) hierarchy.refreshSilently()
+    }
     // PR 的关闭关联只读；空列表不展示卡片，失败不影响正文
     val closing = rememberLoader("closing-issues") { f -> if (isPull) GitHub.closingIssues(owner, name, number, f) else null }
     var relatedPicker by remember { mutableStateOf(false) }

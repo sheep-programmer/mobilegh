@@ -84,7 +84,7 @@ class ActionSecretsVariablesUiTest {
         Api.cacheDir = File(compose.activity.cacheDir, "actions-secrets-variables-ui-${System.nanoTime()}").apply { mkdirs() }
         return LoopbackApi { method, path, body ->
             if (path == "/repos/octo/hello") {
-                200 to """{"id":1,"name":"hello","full_name":"octo/hello","private":false,"archived":false,"permissions":{"admin":true,"push":true,"pull":true}}"""
+                200 to """{"id":1,"name":"hello","full_name":"octo/hello","owner":{"type":"Organization"},"private":false,"archived":false,"permissions":{"admin":true,"push":true,"pull":true}}"""
             } else {
                 handler(method, path, body)
             }
@@ -360,13 +360,13 @@ class ActionSecretsVariablesUiTest {
         }
     }
 
-    @Test fun variableCreateAcceptsAnEmptySuccessfulResponseWithoutInvitingAnotherPost() {
+    @Test fun variableCreateAcceptsAnEmptyJsonObjectWithoutInvitingAnotherPost() {
         val posts = AtomicInteger(0)
         val server = api { method, path, _ ->
             when {
                 method == "POST" && path.endsWith("/actions/variables") -> {
                     posts.incrementAndGet()
-                    201 to ""
+                    201 to "{}"
                 }
                 else -> variableResponse(path)
             }

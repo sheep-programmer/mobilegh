@@ -1,5 +1,6 @@
 package com.mobilegh.data
 
+import com.mobilegh.i18n.tr
 import kotlinx.serialization.json.JsonObject
 
 internal typealias SavedReplyGraphQL = suspend (String, Map<String, Any?>) -> JsonObject
@@ -20,9 +21,14 @@ data class SavedReplyPage(
 object SavedReplies {
     suspend fun savedReplies(
         after: String? = null,
-        graphql: SavedReplyGraphQL = { q, v -> Api.graphql(q, v) },
+        graphql: SavedReplyGraphQL = { query, variables -> Api.graphqlRoot(query, variables) },
     ): SavedReplyPage {
-        val connection = graphql(QUERY, mapOf("after" to after)).obj("viewer").obj("savedReplies")
+        val response = graphql(QUERY, mapOf("after" to after))
+        response.arr("errors")?.firstOrNull()?.let { error ->
+            val message = error.str("message")
+            throw ApiException(400, DeviceAuth.insufficientScopes(message) ?: message ?: tr("GraphQL 错误"))
+        }
+        val connection = response.obj("data").obj("viewer").obj("savedReplies")
             ?: return SavedReplyPage(emptyList())
         val items = connection.arr("nodes").orEmpty().mapNotNull { node ->
             val reply = node as? JsonObject ?: return@mapNotNull null

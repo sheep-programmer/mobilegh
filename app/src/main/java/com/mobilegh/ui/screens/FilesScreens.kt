@@ -442,7 +442,8 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?, line
                         Column(Modifier.fillMaxSize().verticalScrollWithBar(scrollState).padding(top = 12.dp)) {
                             HtmlView(
                                 b.html,
-                                baseUrl = "https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/${path.substringBeforeLast('/', "").let { if (it.isEmpty()) "" else "$it/" }}",
+                                baseUrl = "https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/${path.split('/').joinToString("/") { android.net.Uri.encode(it) }}",
+                                linkedImagesOpenLink = path.substringAfterLast('/').substringBefore('.').equals("README", ignoreCase = true),
                                 onAnchor = { y ->
                                     scope.launch { scrollState.animateScrollTo(with(density) { (y + 12).dp.roundToPx() }) }
                                 },

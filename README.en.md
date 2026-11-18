@@ -58,7 +58,7 @@ All screenshots are generated with a fictional test account (`mona`, `octocat`, 
 
 ### Browsing and reading
 
-- **Repositories**: rendered README (including relative-path images) with **pinch-to-zoom full-screen reading mode**; tap an image to zoom even if wrapped in a link; repository topics with interactive chip editing
+- **Repositories**: native README rendering (including relative-path images), pinch-to-zoom and heading navigation; tap ordinary images to zoom, or tap linked images to open their targets and long-press to zoom. The Fork list remembers your sort order; repository topics use editable chips.
 - **Code reading**: file-name / path finder in a repository, in-repository and global code search, line-by-line blame, jump to a line or commit; **copying code skips line numbers** automatically
 - **Diffs**: commits, branch / tag / SHA comparison and PR file changes all offer "Unified / Split" views; split is old-left / new-right with changed lines aligned side by side. Files are collapsed by default, and a notice appears when GitHub's compare API hits its 300-file limit
 - **Contributors & Heatmap breakdown**: cumulative commits, time ranges, whole-week trends, lines added / deleted, share, active weeks; **double-tap any day on the heatmap to view daily and weekly breakdowns with pie chart / list views**
@@ -71,7 +71,7 @@ All screenshots are generated with a fictional test account (`mona`, `octocat`, 
 - Lists, threads, comments, closing, merging, reviews and file-change diffs; filters for state, author, assignee, label, milestone, review state and drafts, plus sorting and search; "My issues / PRs" are grouped by created / assigned / mentioned / review requested
 - **Edit history**: inspect full edit history of issue bodies and comments, and delete specific revisions on demand
 - New issues read the repository's templates (including issue forms and config.yml) and can set labels, assignees and a milestone; open issues can be assigned to Copilot
-- PR review: inline comments (resolved / outdated), comment on a tapped line, code suggestions, per-file "viewed" progress, check summary, requesting reviews, draft ↔ ready conversion, a merge message and branch deletion on merge
+- PR review: inline comments (resolved / outdated), comment on a tapped line, code suggestions, per-file viewed status synced with GitHub, local reading-position restore, check summary, requesting reviews, draft ↔ ready conversion, a merge message and branch deletion on merge
 - Native Discussions: categories, answered filter, create and reply, upvote, mark answers, edit and delete
 - Markdown editor: formatting toolbar with edit / preview (GitHub's official GFM rendering); drafts are encrypted and auto-saved per account and target, and kept when submission fails
 
@@ -80,19 +80,21 @@ All screenshots are generated with a fictional test account (`mona`, `octocat`, 
 - Edit files online and commit to the current or a new branch (optionally opening a PR); create / delete files and branches; create, edit and delete releases with generated notes
 - **Upload files / folders**: pick local files or a folder (the hierarchy is kept) and upload them as **one** commit through the full git flow; files travel over git's own transport (packfile), so they are not limited by the 40 MiB REST write limit and can reach GitHub's 100 MiB hard limit; hidden directories such as `.github` are kept, paths that differ only by case are different files, and an account switch in the middle of an upload stops it immediately
 - **Git LFS**: files over 100 MiB go through LFS automatically: upload addresses are requested and the content is uploaded to LFS storage, then a pointer file is committed and the exact path is merged into `.gitattributes`. The GitHub token is only ever sent to github.com, never to the storage server; LFS's own limit is enforced at 2 GiB. A free GitHub account gets 1 GiB of LFS storage and 1 GiB of bandwidth per month
-- Actions: run list, job / step details and terminal logs (error / warning filter, timestamps, word wrap, copy), manual trigger / re-run / cancel, with a form generated from the `workflow_dispatch` inputs
+- Actions: run list, job / step details, jump to first failure, log search and error navigation, full `.log` export, manual trigger / re-run / cancel, with a form generated from the `workflow_dispatch` inputs
 
 ### Home, notifications and search
 
 - Home: a slim profile bar, a four-column shortcut grid (show / hide and reorder them, or save an Issue / PR search as a shortcut), pinned repositories and lists, the contribution heatmap with achievements, and activity (filterable by commits / PRs / issues / releases / star-fork)
 - Notifications: unread badge, swipe left to mark done (undo within 5 seconds), swipe right for read / unread, grouping by repository, filtering by reason, unsubscribe or ignore a single thread, long-press to select and process in bulk
 - **Stars and lists**: the same GraphQL query as the official app searches all your Stars on the server, sorted by Star time or update time, ascending or descending; GitHub Lists are read, created, edited and deleted natively, and long-pressing Star on a repository adds it to several lists; per-account local lists are also available
-- The search box takes GitHub addresses (including HTTPS / SSH clone addresses and `owner/repo`) and opens the native page; clipboard quick-open and open-from-share; search history and recently viewed repositories are kept per account on the device
+- The search box opens GitHub addresses (including HTTPS / SSH clone addresses and `owner/repo`) in native pages. Issue / PR search offers on-device qualifier suggestions such as `is:`, `repo:`, and `label:`; requests only start after submitting. Search history and recently viewed repositories are kept per account on the device.
 - Home screen widgets: contribution graph and notification inbox
 
 ### Settings, network and diagnostics
 
 - **Settings organized by category**: the home page has only the account and seven categories (Appearance and language, Security and privacy, Two-factor and number approval, Network and acceleration, Token and API quota, Storage and diagnostics, About and updates); each opens its own sub-page
+- **Appearance and reading**: optional floating navigation, muted accent colors, and a startup tab. Content stays centered on wider windows. Visible paragraphs are translated on-device with [Google Translate](https://cloud.google.com/translate) through ML Kit and cached locally with encryption; the first use downloads the model, not the document text.
+- **Downloads**: filter Release assets by platform and verify files before saving when GitHub provides SHA-256. Actions ZIPs can hand a selected APK to the system installer after confirmation. An offline banner leaves loaded content in place and clears after recovery.
 - **Language**: Simplified Chinese / English / Follow system; takes effect immediately, Simplified Chinese by default
 - **Network and acceleration**: speed-tests and picks usable acceleration nodes automatically (public content only: README images, raw source, release downloads, clone addresses; the token is never sent to acceleration nodes and private repositories always connect directly); HTTP / SOCKS5 proxy and a self-hosted API reverse proxy (advanced)
 - In-app downloads: releases, source, files and Actions artifacts show progress with cancel, retry and a download history; online update picks the APK matching your device ABI from this repository's latest release

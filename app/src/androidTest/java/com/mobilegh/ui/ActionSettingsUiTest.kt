@@ -31,9 +31,9 @@ import com.mobilegh.ui.theme.MobileGhTheme
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -196,8 +196,8 @@ class ActionSettingsUiTest {
             compose.onNodeWithText("Actions 设置").assertIsDisplayed()
             compose.onNodeWithText("通用权限").assertIsDisplayed()
             compose.onNodeWithText("90", substring = true).assertIsDisplayed()
-            compose.onNodeWithText("fork policy unavailable", substring = true).assertIsDisplayed()
-            compose.onNodeWithText("读取", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("fork policy unavailable", substring = true).performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("读取", substring = true).performScrollTo().assertIsDisplayed()
         } finally {
             compose.runOnUiThread { nav.dispose() }
         }
@@ -211,7 +211,8 @@ class ActionSettingsUiTest {
         }
         val nav = showSettings()
         try {
-            compose.onNodeWithText("加载中…").assertIsDisplayed()
+            compose.onNodeWithText("Actions 设置").assertIsDisplayed()
+            compose.onNodeWithText("编辑 Actions").assertDoesNotExist()
             release.countDown()
             compose.waitUntil(timeoutMillis = 5_000) {
                 (nav.top.bag["actions-retention"] as? Loader<*>)?.data != null
@@ -223,14 +224,9 @@ class ActionSettingsUiTest {
         }
     }
 
-    @Test fun publicOnlyPatternsWaitForKnownRepositoryVisibility() {
-        val releaseRepo = CountDownLatch(1)
-        val repoRequests = AtomicInteger()
-        api { _, path, _ ->
-            if (path == "/repos/octo/hello" && repoRequests.incrementAndGet() > 1) {
-                releaseRepo.await(5, TimeUnit.SECONDS)
-            }
-            generalResponse(path, isPrivate = true)
+    @Test fun privateSelectedActionsDoNotSendPublicOnlyPatterns() {
+        val server = api { method, path, _ ->
+            if (method == "PUT") 204 to "" else generalResponse(path, isPrivate = true)
         }
         val nav = showSettings()
         try {
@@ -238,9 +234,44 @@ class ActionSettingsUiTest {
             compose.onNodeWithText("octo/*").assertIsNotDisplayed()
             compose.onNodeWithText("编辑允许范围").performScrollTo().performClick()
             assertTrue(compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().isEmpty())
+            compose.onNodeWithText("保存").performClick()
+            compose.waitUntil(5_000) { server.requestBodies.any { it.startsWith("PUT ") } }
+            assertFalse(server.requestBodies.first { it.startsWith("PUT ") }.contains("patterns_allowed"))
         } finally {
-            releaseRepo.countDown()
-            awaitLoader(nav, "repo")
+            compose.runOnUiThread { nav.dispose() }
+        }
+    }
+
+    @Test fun privatePersonalRepositorySkipsInapplicableCallsAndRetainsScrollAcrossSections() {
+        val server = api { _, path, _ ->
+            when {
+                path.endsWith("/actions/permissions") -> 200 to """{"enabled":true,"allowed_actions":"all"}"""
+                path.endsWith("/actions/permissions/selected-actions") -> 409 to """{"message":"Conflict"}"""
+                path.endsWith("/actions/permissions/fork-pr-contributor-approval") || path.contains("organization-secrets") ->
+                    422 to """{"message":"Validation Failed"}"""
+                path.contains("/actions/secrets?") -> 200 to """{"total_count":0,"secrets":[]}"""
+                else -> generalResponse(path, isPrivate = true)
+            }
+        }
+        val nav = showSettings()
+        try {
+            val entry = nav.top
+            awaitLoader(nav, "actions-workflow")
+            awaitLoader(nav, "actions-private-forks")
+            compose.onNodeWithText("编辑 Workflow").performScrollTo()
+            val position = compose.onNodeWithText("编辑 Workflow").fetchSemanticsNode().boundsInRoot
+            compose.onNodeWithText("通用权限").performClick()
+            compose.onNodeWithText("Secrets").performClick()
+            awaitText("暂无 Secrets")
+            compose.onNodeWithText("组织 Secrets").assertDoesNotExist()
+            compose.onNodeWithText("Secrets").performClick()
+            compose.onNodeWithText("通用权限").performClick()
+            assertEquals(entry, nav.top)
+            assertEquals(position, compose.onNodeWithText("编辑 Workflow").fetchSemanticsNode().boundsInRoot)
+            assertTrue(server.requests.none {
+                it.contains("/selected-actions") || it.contains("fork-pr-contributor-approval") || it.contains("organization-secrets")
+            })
+        } finally {
             compose.runOnUiThread { nav.dispose() }
         }
     }
@@ -251,7 +282,7 @@ class ActionSettingsUiTest {
         }
         val nav = showSettings()
         try {
-            awaitLoader(nav, "repo")
+            awaitLoader(nav, "actions-settings-repo")
             awaitLoader(nav, "actions-selected")
             compose.onNodeWithText("octo/*").assertIsDisplayed()
             assertTrue(server.requests.none { it.contains("/actions/permissions/access") })
@@ -285,11 +316,12 @@ class ActionSettingsUiTest {
             awaitLoader(nav, "actions-access")
             awaitLoader(nav, "actions-private-forks")
             awaitLoader(nav, "actions-selected")
-            compose.onNodeWithText("organization").assertIsDisplayed()
+            compose.onNodeWithText("none").performScrollTo().assertIsDisplayed()
             compose.onNodeWithText("octo/*").assertIsNotDisplayed()
 
             compose.onNodeWithText("编辑访问").performScrollTo().performClick()
-            compose.onAllNodesWithText("organization").onLast().performClick()
+            compose.onAllNodesWithText("none").onLast().performClick()
+            compose.onNodeWithText("organization").assertDoesNotExist()
             compose.onNodeWithText("user").performClick()
             compose.onNodeWithText("保存").performClick()
             compose.waitUntil(timeoutMillis = 5_000) {
@@ -427,7 +459,7 @@ class ActionSettingsUiTest {
             isPrivate = isPrivate,
         )
         path.endsWith("/actions/permissions") -> 200 to """{"enabled":true,"allowed_actions":"selected","sha_pinning_required":true}"""
-        path.endsWith("/actions/permissions/access") -> 200 to """{"access_level":"organization"}"""
+        path.endsWith("/actions/permissions/access") -> 200 to """{"access_level":"none"}"""
         path.endsWith("/actions/permissions/artifact-and-log-retention") -> 200 to """{"days":90,"maximum_allowed_days":400}"""
         path.endsWith("/actions/permissions/fork-pr-contributor-approval") && failingForkApproval -> 500 to """{"message":"fork policy unavailable"}"""
         path.endsWith("/actions/permissions/fork-pr-contributor-approval") -> 200 to """{"approval_policy":"first_time_contributors"}"""

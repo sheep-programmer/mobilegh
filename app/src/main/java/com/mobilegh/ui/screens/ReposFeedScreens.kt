@@ -6,15 +6,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.mobilegh.R
+import com.mobilegh.data.ForkSort
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.Session
+import com.mobilegh.nav.PagerPage
 import com.mobilegh.nav.RepoKind
 import com.mobilegh.nav.rememberPager
+import com.mobilegh.nav.retain
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.Page
@@ -43,20 +48,38 @@ internal fun RepoFeedScreen(kind: RepoKind, login: String, name: String) {
     }
 }
 
-/** Fork 列表：GitHub 按最新创建排序，没有自己的排序菜单 */
 @Composable
 internal fun ForkListScreen(login: String, name: String) {
-    val state = rememberLazyListState()
-    val pager = rememberPager("rl:forks:$login:$name") { page, force -> GitHub.forks(login, name, page, force) }
+    val sort = Session.forkSort
+    val labels = listOf(tr("最新创建"), tr("最早创建"), tr("Star 数"), tr("订阅人数"), tr("名称"))
+    val pagerKey = "rl:forks:$login:$name:${sort.name}"
+    val pager = if (sort == ForkSort.Name) {
+        val cursors = retain("$pagerKey:cursors") { mutableMapOf<Int, String>() }
+        rememberPager(pagerKey, fetchPage = { page, force ->
+            val cursor = if (page == 1) null else cursors[page]
+                ?: return@rememberPager PagerPage(emptyList(), hasMore = false)
+            val result = GitHub.forksByName(login, name, cursor, force)
+            PagerPage(result.repos, hasMore = result.nextCursor != null) {
+                if (page == 1) cursors.clear()
+                result.nextCursor?.let { cursors[page + 1] = it }
+            }
+        })
+    } else {
+        rememberPager(pagerKey) { page, force -> GitHub.forks(login, name, sort, page, force) }
+    }
     Page("Fork", subtitle = repoPageSubtitle(login, name)) { pad ->
         Column(Modifier.padding(pad)) {
-            PagedList(
-                pager,
-                state = state,
-                itemKey = { it.id },
-                empty = tr("还没有人 Fork 这个仓库"),
-                emptyIcon = R.drawable.oc_repo,
-            ) { RepoItem(it, extra = relTime(it.createdAt).takeIf { t -> t.isNotEmpty() }?.let { t -> trf("创建于 {0}", t) }) }
+            Row(Modifier.padding(12.dp)) { Dropdown(labels[sort.ordinal], labels, { Session.chooseForkSort(ForkSort.entries[it]) }) }
+            HDivider()
+            key(sort) {
+                PagedList(
+                    pager,
+                    state = rememberLazyListState(),
+                    itemKey = { it.fullName },
+                    empty = tr("还没有人 Fork 这个仓库"),
+                    emptyIcon = R.drawable.oc_repo,
+                ) { repo -> RepoItem(repo, extra = relTime(repo.createdAt).takeIf(String::isNotEmpty)?.let { trf("创建于 {0}", it) }) }
+            }
         }
     }
 }

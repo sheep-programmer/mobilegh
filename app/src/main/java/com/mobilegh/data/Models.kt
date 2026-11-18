@@ -559,7 +559,7 @@ data class Environments(val totalCount: Int = 0, val environments: List<Environm
 data class Workflows(val totalCount: Int = 0, val workflows: List<Workflow> = emptyList())
 
 @Serializable
-data class Artifact(val id: Long = 0, val name: String = "", val sizeInBytes: Long = 0, val expired: Boolean = false, val createdAt: String? = null)
+data class Artifact(val id: Long = 0, val name: String = "", val sizeInBytes: Long = 0, val expired: Boolean = false, val createdAt: String? = null, val digest: String? = null)
 
 @Serializable
 data class Artifacts(val totalCount: Int = 0, val artifacts: List<Artifact> = emptyList())

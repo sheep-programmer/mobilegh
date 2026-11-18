@@ -2,7 +2,7 @@ package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,15 +30,13 @@ import com.mobilegh.data.ActionPrivateForks
 import com.mobilegh.data.ActionSelectedActions
 import com.mobilegh.data.ActionWorkflowPermissions
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.Repo
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 import com.mobilegh.nav.ActionsSettingsSection
 import com.mobilegh.nav.Loader
-import com.mobilegh.nav.LocalNav
-import com.mobilegh.nav.Screen
 import com.mobilegh.nav.friendly
 import com.mobilegh.nav.rememberLoader
-import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
@@ -46,7 +45,7 @@ import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.SwitchRow
-import com.mobilegh.ui.components.TextLink
+import com.mobilegh.ui.components.SectionActionChip
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -57,36 +56,36 @@ fun ActionsSettingsScreen(
     name: String,
     initialSection: ActionsSettingsSection = ActionsSettingsSection.General,
 ) {
-    val nav = LocalNav.current
     var section by rememberSaveable(owner, name) { mutableStateOf(initialSection) }
+    val sectionState = rememberSaveableStateHolder()
     val repo = rememberLoader("actions-settings-repo") { GitHub.repo(owner, name, it) }
-    val canConfigure = repo.data?.let { it.permissions?.admin == true && !it.archived } == true
+    val repository = repo.data
     val sections = ActionsSettingsSection.entries
     Page(tr("Actions 设置"), subtitle = "$owner/$name") { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
             when {
                 repo.error != null && repo.data == null -> InlineError(repo.error!!) { repo.load(true) }
-                repo.data == null -> Text(tr("加载中…"), Modifier.padding(16.dp), color = Gh.c.fgMuted)
-                !canConfigure -> Text(
+                repository == null -> Loading()
+                repository.permissions?.admin != true || repository.archived -> Text(
                     tr("需要仓库管理员权限，且仓库不能处于归档状态。"),
                     Modifier.padding(16.dp),
                     color = Gh.c.fgMuted,
                 )
                 else -> {
-                    Chips(
+                    Dropdown(
+                        label = section.title(),
                         options = sections.map { it.title() },
-                        selected = sections.indexOf(section).coerceAtLeast(0),
-                        onSelect = { index ->
-                            section = sections[index]
-                            nav.replace(Screen.ActionsSettings(owner, name, section))
-                        },
+                        onSelect = { section = sections[it] },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     )
-                    when (section) {
-                        ActionsSettingsSection.General -> GeneralSettings(owner, name)
-                        ActionsSettingsSection.Secrets -> SecretsSettings(owner, name)
-                        ActionsSettingsSection.Variables -> VariablesSettings(owner, name)
-                        ActionsSettingsSection.Runners -> RunnersSettings(owner, name)
-                        ActionsSettingsSection.Caches -> CachesSettings(owner, name)
+                    sectionState.SaveableStateProvider(section.name) {
+                        when (section) {
+                            ActionsSettingsSection.General -> GeneralSettings(owner, name, repository)
+                            ActionsSettingsSection.Secrets -> SecretsSettings(owner, name, repository.owner.type == "Organization")
+                            ActionsSettingsSection.Variables -> VariablesSettings(owner, name)
+                            ActionsSettingsSection.Runners -> RunnersSettings(owner, name)
+                            ActionsSettingsSection.Caches -> CachesSettings(owner, name)
+                        }
                     }
                 }
             }
@@ -95,29 +94,24 @@ fun ActionsSettingsScreen(
 }
 
 @Composable
-private fun GeneralSettings(owner: String, name: String) {
-    val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
+private fun GeneralSettings(owner: String, name: String, repo: Repo) {
     val permissions = rememberLoader("actions-permissions") { GitHub.actionPermissions(owner, name, it) }
     val retention = rememberLoader("actions-retention") { GitHub.actionArtifactRetention(owner, name, it) }
-    val forkApproval = rememberLoader("actions-fork-approval") { GitHub.actionForkApproval(owner, name, it) }
-    val selected = rememberLoader("actions-selected") { GitHub.actionSelectedActions(owner, name, it) }
     val workflow = rememberLoader("actions-workflow") { GitHub.actionWorkflowPermissions(owner, name, it) }
-    val loaders = listOf(permissions, retention, forkApproval, selected, workflow)
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        if (loaders.all { it.loading && it.data == null }) {
-            Text(tr("加载中…"), Modifier.padding(16.dp), color = Gh.c.fgMuted)
-        }
-        if (repo.error != null && repo.data == null) {
-            InlineError(repo.error!!) { repo.load(true) }
-        }
         PermissionsSetting(owner, name, permissions)
-        RetentionSetting(owner, name, retention)
-        ForkApprovalSetting(owner, name, forkApproval)
-        if (repo.data?.isPrivate == true) {
-            PrivateAccessSetting(owner, name)
-            PrivateForksSetting(owner, name)
+        if (permissions.data?.let { it.enabled && it.allowedActions == "selected" } == true) {
+            val selected = rememberLoader("actions-selected") { GitHub.actionSelectedActions(owner, name, it) }
+            SelectedActionsSetting(owner, name, selected, repo.isPrivate)
         }
-        SelectedActionsSetting(owner, name, selected, repo.data?.isPrivate)
+        RetentionSetting(owner, name, retention)
+        if (repo.isPrivate) {
+            PrivateAccessSetting(owner, name, repo.owner.type == "Organization")
+            PrivateForksSetting(owner, name)
+        } else {
+            val forkApproval = rememberLoader("actions-fork-approval") { GitHub.actionForkApproval(owner, name, it) }
+            ForkApprovalSetting(owner, name, forkApproval)
+        }
         WorkflowSetting(owner, name, workflow)
     }
 }
@@ -213,7 +207,7 @@ private fun ForkApprovalSetting(owner: String, name: String, loader: Loader<Acti
 }
 
 @Composable
-private fun PrivateAccessSetting(owner: String, name: String) {
+private fun PrivateAccessSetting(owner: String, name: String, organization: Boolean) {
     val loader = rememberLoader("actions-access") { GitHub.actionAccess(owner, name, it) }
     var editing by remember { mutableStateOf(false) }
     ActionSettingItem(tr("私有仓库 Workflow 访问"), loader, tr("编辑访问"), { editing = true }) {
@@ -221,7 +215,7 @@ private fun PrivateAccessSetting(owner: String, name: String) {
     }
     loader.data?.let { original ->
         if (editing) {
-            val levels = listOf("none", "user", "organization")
+            val levels = listOf("none", if (organization) "organization" else "user")
             var level by remember(original) { mutableStateOf(original.accessLevel) }
             ActionEditorDialog(
                 title = tr("私有仓库 Workflow 访问"),
@@ -275,12 +269,12 @@ private fun SelectedActionsSetting(
     owner: String,
     name: String,
     loader: Loader<ActionSelectedActions>,
-    isPrivate: Boolean?,
+    isPrivate: Boolean,
 ) {
     var editing by remember { mutableStateOf(false) }
     ActionSettingItem(tr("允许的 Actions"), loader, tr("编辑允许范围"), { editing = true }) {
         Column {
-            if (isPrivate == false) {
+            if (!isPrivate && it.patternsAllowed.isNotEmpty()) {
                 Text(it.patternsAllowed.joinToString("\n"), color = Gh.c.fgMuted)
             }
             Text(trf("GitHub 创建：{0}；Verified：{1}", tr(if (it.githubOwnedAllowed) "允许" else "禁止"), tr(if (it.verifiedAllowed) "允许" else "禁止")), color = Gh.c.fgMuted, fontSize = 12.sp)
@@ -295,15 +289,15 @@ private fun SelectedActionsSetting(
                 title = tr("允许的 Actions"),
                 onDismiss = { editing = false },
                 onSave = {
-                    val values = if (isPrivate != false) original.patternsAllowed else patterns.lines().map { it.trim() }.filter { it.isNotEmpty() }
+                    val values = if (isPrivate) null else patterns.lines().map { it.trim() }.filter { it.isNotEmpty() }
                     GitHub.updateActionSelectedActions(owner, name, githubOwned, verified, values)
-                    original.copy(githubOwnedAllowed = githubOwned, verifiedAllowed = verified, patternsAllowed = values)
+                    original.copy(githubOwnedAllowed = githubOwned, verifiedAllowed = verified, patternsAllowed = values.orEmpty())
                 },
                 onSaved = loader::accept,
             ) { saving ->
                 SwitchRow(tr("允许 GitHub 创建的 Actions"), checked = githubOwned, enabled = !saving) { githubOwned = it }
                 SwitchRow(tr("允许 Verified 创建者的 Actions"), checked = verified, enabled = !saving) { verified = it }
-                if (isPrivate == false) {
+                if (!isPrivate) {
                     GhField(patterns, { patterns = it }, tr("Actions 模式（每行一个）"), singleLine = false, minLines = 3, enabled = !saving)
                 }
             }
@@ -398,10 +392,14 @@ private fun <T> ActionSettingItem(
     content: @Composable (T) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, Modifier.weight(1f), fontSize = 14.sp)
+        FlowRow(
+            Modifier.fillMaxWidth().padding(bottom = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(title, Modifier.align(Alignment.CenterVertically), fontSize = 14.sp)
             if (editLabel != null && onEdit != null && loader.data != null) {
-                TextLink(editLabel, onClick = onEdit)
+                SectionActionChip(editLabel, Modifier.align(Alignment.CenterVertically), onClick = onEdit)
             }
         }
         val data = loader.data

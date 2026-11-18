@@ -32,6 +32,8 @@ class Loader<T>(private val scope: CoroutineScope, private val block: suspend (f
     private val generation = Session.generation
     var data by mutableStateOf<T?>(null)
     var error by mutableStateOf<String?>(null)
+    var httpErrorCode by mutableStateOf<Int?>(null)
+        private set
     var loading by mutableStateOf(false)
     var refreshing by mutableStateOf(false)
     private var job: Job? = null
@@ -44,6 +46,7 @@ class Loader<T>(private val scope: CoroutineScope, private val block: suspend (f
         loading = true
         refreshing = force
         error = null
+        httpErrorCode = null
         // Enter try/finally even when the owner cancels before the first dispatch.
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
@@ -55,7 +58,10 @@ class Loader<T>(private val scope: CoroutineScope, private val block: suspend (f
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                if (id == operation && Session.generation == generation) error = e.friendly()
+                if (id == operation && Session.generation == generation) {
+                    httpErrorCode = (e as? ApiException)?.code
+                    error = e.friendly()
+                }
             } finally {
                 if (id == operation) { loading = false; refreshing = false }
             }
@@ -67,6 +73,7 @@ class Loader<T>(private val scope: CoroutineScope, private val block: suspend (f
         job?.cancel()
         data = value
         error = null
+        httpErrorCode = null
         loading = false
         refreshing = false
     }

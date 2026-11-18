@@ -303,8 +303,7 @@ internal fun WebHtmlView(
                     // 手指在正文上拖动会让它内部滚动，顶部就被裁掉；这里把内部滚动位置钉在 0。
                     setOnScrollChangeListener { _, _, y, _, _ -> if (y != 0) scrollTo(0, 0) }
                     settings.javaScriptEnabled = true
-                    // README 里的视频多为静音自动播放；默认要求用户手势时，页面里的播放按钮点了也不生效
-                    settings.mediaPlaybackRequiresUserGesture = false
+                    settings.mediaPlaybackRequiresUserGesture = true
                     settings.allowFileAccess = false
                     settings.allowContentAccess = false
                     settings.textZoom = textZoom
@@ -350,7 +349,7 @@ internal fun WebHtmlView(
                         @JavascriptInterface
                         fun img(src: String, alt: String) = post { if (webRef[0] === this@apply) ImageViewer.open(src, alt) }
 
-                        /** 点击视频：交给原生全屏播放器（倍速、拖动、保存），WebView 自带的播放器做不到 */
+                        /** 从单独的放大键打开原生播放器 */
                         @JavascriptInterface
                         fun video(src: String) = post {
                             // 网页已经释放（滚出屏幕）时忽略，避免给已销毁的页面打开播放器
@@ -851,7 +850,7 @@ private fun wrapHtmlDocument(body: String, dark: Boolean, extraTags: String): St
 <!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <style>${if (dark) DARK_VARS else LIGHT_VARS}$MARKDOWN_CSS</style>$extraTags</head>
-<body><div id="c" class="markdown-body">$body</div>
+<body><div id="c" class="markdown-body" data-expand-label="${escapeHtml(tr("放大播放"))}">$body</div>
 <script>
 (function(){
   var c=document.getElementById('c');
@@ -929,17 +928,7 @@ private fun wrapHtmlDocument(body: String, dark: Boolean, extraTags: String): St
   setTimeout(r,1500); setTimeout(r,4000);
   var IMG=/\.(png|jpe?g|gif|webp|svg|avif|bmp)([?#]|$)/i;
   document.addEventListener('click',function(e){
-    var vid=e.target.closest('video');
-    if(vid){
-      // 视频只有点中中间的播放键才全屏播放；点画面其它地方不反应，避免误触
-      e.preventDefault();e.stopPropagation();
-      var box=(vid.parentNode&&vid.parentNode.classList&&vid.parentNode.classList.contains('vid-wrap'))?vid.parentNode:vid;
-      var br=box.getBoundingClientRect();
-      if(Math.hypot(e.clientX-(br.left+br.width/2),e.clientY-(br.top+br.height/2))<=32){
-        var vs=vid.currentSrc||vid.src||((vid.querySelector('source')||{}).src)||'';if(vs){try{Bridge.video(vs);}catch(x){}}
-      }
-      return;
-    }
+    if(e.target.closest('video')) return;
     var img=e.target.closest('img');
     if(img&&!img.closest('.tl-head')){
       var la=img.closest('a'), lh=la?(la.getAttribute('href')||''):'';
@@ -952,7 +941,6 @@ private fun wrapHtmlDocument(body: String, dark: Boolean, extraTags: String): St
     }
     var a=e.target.closest('a'); if(!a) return;
     var h=a.getAttribute('href')||'';
-    if(/\.(mp4|webm|mov|m4v|ogv)([?#]|$)/i.test(h)){e.preventDefault();e.stopPropagation();try{Bridge.video(a.href);}catch(x){}return;}
     if(h.charAt(0)==='#'){
       e.preventDefault();
       var id=decodeURIComponent(h.substring(1));
@@ -960,12 +948,19 @@ private fun wrapHtmlDocument(body: String, dark: Boolean, extraTags: String): St
       if(t){Bridge.a(Math.round(t.getBoundingClientRect().top+window.scrollY));}
     }
   },true);
-  // 视频：去掉原生控件（点击会被影子 DOM 吃掉），外层包一层自绘播放图标；点击由上面的监听交给原生播放器
   document.querySelectorAll('video').forEach(function(v){
-    if(v.parentNode&&v.parentNode.classList&&v.parentNode.classList.contains('vid-wrap')) return;
-    v.removeAttribute('controls'); v.setAttribute('playsinline',''); v.setAttribute('preload','metadata');
+    v.controls=true; if(v.controlsList)v.controlsList.add('nofullscreen');
+    v.setAttribute('playsinline',''); v.setAttribute('preload','metadata');
     var w=document.createElement('span'); w.className='vid-wrap';
     v.parentNode.insertBefore(w,v); w.appendChild(v);
+    var expand=document.createElement('button'); expand.type='button'; expand.textContent='⛶';
+    expand.setAttribute('aria-label',c.getAttribute('data-expand-label'));
+    expand.addEventListener('click',function(e){
+      e.preventDefault(); e.stopPropagation();
+      var src=v.currentSrc||v.src||((v.querySelector('source')||{}).src)||'';
+      if(src){v.pause(); try{Bridge.video(src);}catch(x){}}
+    });
+    w.appendChild(expand);
   });
   document.querySelectorAll('img').forEach(function(i){i.addEventListener('load',r);});
 })();
@@ -1000,10 +995,8 @@ h3{font-size:1.2em;}h4{font-size:1em;}h5{font-size:.9em;}h6{font-size:.85em;colo
 img{max-width:100%;box-sizing:border-box;background:transparent;}
 /* 视频按容器宽度缩放；否则会按原始分辨率渲染，右侧被裁掉 */
 video{max-width:100%;height:auto;box-sizing:border-box;background:#000;display:block;}
-/* 视频外面套一层，用自绘的播放图标代替原生控件：原生控件在影子 DOM 里，点击到不了页面脚本 */
 .vid-wrap{position:relative;display:block;max-width:100%;line-height:0;}
-.vid-wrap::after{content:'';position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;border-radius:50%;background:rgba(0,0,0,.55);pointer-events:none;}
-.vid-wrap::before{content:'';position:absolute;left:50%;top:50%;margin:-14px 0 0 -9px;border-left:24px solid #fff;border-top:14px solid transparent;border-bottom:14px solid transparent;z-index:1;pointer-events:none;}
+.vid-wrap>button{position:absolute;top:6px;right:6px;width:36px;height:36px;border:0;border-radius:50%;background:rgba(0,0,0,.66);color:#fff;cursor:pointer;}
 iframe{max-width:100%;}
 a img{display:inline-block;}
 p img[align=right]{margin-left:8px;}

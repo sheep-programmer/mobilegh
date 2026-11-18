@@ -50,7 +50,9 @@ import com.mobilegh.ui.components.copy
 import com.mobilegh.ui.theme.Gh
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private data class RunnerCacheAccount(val login: String?, val generation: Int)
 
@@ -160,15 +162,17 @@ private fun RunnerRegistrationDialog(owner: String, name: String, onDismiss: () 
     var token by remember { mutableStateOf<ActionRunnerToken?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(owner, name) {
-        try {
-            account.requireCurrent()
-            val result = GitHub.actionRunnerRegistrationToken(owner, name)
-            account.requireCurrent()
-            token = result
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            error = e.friendly()
+        withContext(Dispatchers.Main.immediate) {
+            try {
+                account.requireCurrent()
+                val result = GitHub.actionRunnerRegistrationToken(owner, name)
+                account.requireCurrent()
+                token = result
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                error = e.friendly()
+            }
         }
     }
     GhDialog(title = tr("注册 Runner"), onDismiss = onDismiss) {
@@ -211,6 +215,7 @@ private fun RunnerDownloadsDialog(owner: String, name: String, onDismiss: () -> 
     GhDialog(title = tr("下载 Runner"), onDismiss = onDismiss) {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             when {
+                downloads?.isEmpty() == true -> Text(tr("暂无 Runner 下载项"), color = Gh.c.fgMuted)
                 downloads != null -> downloads!!.forEach { download ->
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(download.filename, fontWeight = FontWeight.Medium)
@@ -278,8 +283,16 @@ internal fun CachesSettings(owner: String, name: String) {
             items.forEach { cache -> CacheRow(cache) { deleting = cache } }
         }
 
-        CacheRetentionSetting(owner, name, retention)
-        CacheStorageSetting(owner, name, storage)
+        if (retention.httpErrorCode == 402 || storage.httpErrorCode == 402) {
+            SectionTitle(tr("缓存限制"))
+            Text(
+                tr("GitHub 要求仓库所有者配置有效的付款方式后才能编辑缓存限制。缓存列表和删除不受影响。"),
+                Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                color = Gh.c.fgMuted,
+            )
+        }
+        if (retention.httpErrorCode != 402) CacheRetentionSetting(owner, name, retention)
+        if (storage.httpErrorCode != 402) CacheStorageSetting(owner, name, storage)
     }
 
     val refreshCaches = {

@@ -421,6 +421,11 @@ private fun AppearanceSettings() {
     Column(Modifier.padding(horizontal = 16.dp)) {
         Segmented(listOf(tr("跟随系统"), tr("浅色"), tr("深色")), Session.themeMode, Modifier.fillMaxWidth()) { Session.setTheme(it) }
     }
+    SectionTitle(tr("强调色"))
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        val styles = com.mobilegh.data.AccentStyle.entries
+        Dropdown(tr(Session.accentStyle.label), styles.map { tr(it.label) }, { Session.chooseAccentStyle(styles[it]) })
+    }
     SectionTitle(tr("界面语言"))
     Column(Modifier.padding(horizontal = 16.dp)) {
         // 语言名用各自的文字显示，不随界面语言翻译
@@ -435,8 +440,15 @@ private fun AppearanceSettings() {
             Modifier.padding(top = 8.dp), fontSize = 12.sp, lineHeight = 18.sp, color = g.fgMuted,
         )
     }
+    SectionTitle(tr("启动页"))
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        val tabs = com.mobilegh.data.startupTabs
+        Dropdown(Session.startupTab.title, tabs.map { it.title }, { Session.chooseStartupTab(tabs[it]) })
+    }
     SectionTitle(tr("阅读"))
     MenuGroup {
+        SwitchRow(tr("悬浮底栏"), tr("首页底部使用圆角导航栏"), Session.floatingNavigation, onChange = Session::chooseFloatingNavigation)
+        SwitchRow(tr("正文翻译"), tr("在设备上翻译正文为界面语言，首次需要下载语言模型"), Session.translateDocuments, onChange = Session::chooseDocumentTranslation)
         SwitchRow(tr("代码自动换行"), tr("查看源码和日志时自动折行"), Session.codeWrap) { Session.toggleWrap() }
         SwitchRow(tr("回到顶部按钮"), tr("列表向下翻过第一屏后，在右下角显示按钮"), Session.scrollToTopButton) { Session.chooseScrollToTopButton(it) }
     }

@@ -444,7 +444,7 @@ fun <T> PagedList(
                 // 列表为空时，加载、错误与空状态都在剩余可见区域居中
                 val fill = if (shown.isEmpty()) Modifier.fillMaxWidth().heightIn(min = remainingHeight(state, footerKey)) else Modifier.fillMaxWidth()
                 when {
-                    pager.error != null && pager.items.isEmpty() -> ErrorState(pager.error!!, fill) { pager.retry() }
+                    pager.error != null && pager.items.isEmpty() -> ErrorState(pager.error!!, fill, retry = pager::retry)
                     pager.error != null -> Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
                         TextLink(tr("加载失败，点击重试")) { pager.retry() }
                     }

@@ -48,7 +48,9 @@ class NavVm(private val state: SavedStateHandle) : ViewModel() {
             current.dispose()
             current = Navigator()
             // 首次创建（包括进程被系统回收后的重建）时恢复上次的导航栈与 Tab；账号切换不恢复
-            if (gen == -1) current.restore(NavRestore.decode(state.get<String>(NavRestore.KEY), Session.login))
+            val saved = state.get<String>(NavRestore.KEY)
+            if (gen == -1 && !saved.isNullOrBlank()) current.restore(NavRestore.decode(saved, Session.login))
+            else current.tab = Session.startupTab
             gen = generation
         }
         return current

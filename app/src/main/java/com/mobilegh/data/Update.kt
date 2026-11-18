@@ -23,6 +23,7 @@ import com.mobilegh.i18n.trf
 object Update {
     private const val OWNER = "sheep-programmer"
     private const val REPO = "mobilegh"
+    internal const val REPOSITORY_URL = "https://github.com/$OWNER/$REPO"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     /** 界面相关的清理（删除下载记录）需要在主线程执行 */
     private val mainScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -40,6 +41,9 @@ object Update {
         val assetName: String,
         val url: String,
         val size: Long,
+        val digest: String? = null,
+        val notesHtml: String? = null,
+        val releaseUrl: String = REPOSITORY_URL,
     )
 
     /** 当前设备最匹配的 ABI 关键字，与 Release 资源命名保持一致 */
@@ -72,7 +76,9 @@ object Update {
                 ?: apk.firstOrNull { it.name.contains("universal", ignoreCase = true) }
                 ?: apk.firstOrNull()
                 ?: return null.also { available = null }
-            val info = Info(version, rel.tagName, rel.body, asset.name, asset.browserDownloadUrl, asset.size)
+            val info = Info(version, rel.tagName, rel.body, asset.name, asset.browserDownloadUrl, asset.size, asset.digest,
+                notesHtml = rel.bodyHtml, releaseUrl = rel.htmlUrl.ifBlank { REPOSITORY_URL },
+            )
             available = info.takeIf { isNewer(it.version, BuildConfig.VERSION_NAME) }
             AppLog.info("update", trf("检查更新：远端 {0} / 当前 {1} / 架构 {2}", version, BuildConfig.VERSION_NAME, abi))
             available
@@ -122,6 +128,7 @@ object Update {
             isPrivate = false,
             mimeType = "application/vnd.android.package-archive",
             isAppUpdate = true,
+            digest = info.digest,
         )
     }
 

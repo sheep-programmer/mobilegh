@@ -57,12 +57,14 @@ import com.mobilegh.data.GitHub
 import com.mobilegh.data.PinnedRepo
 import com.mobilegh.data.ProjectOwnerKind
 import com.mobilegh.data.Session
+import com.mobilegh.data.StargazerPage
 import com.mobilegh.data.User
 import com.mobilegh.data.UserStatus
 import com.mobilegh.data.UserStatusApi
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Loader
+import com.mobilegh.nav.PagerPage
 import com.mobilegh.nav.RepoKind
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.Tab
@@ -76,6 +78,7 @@ import com.mobilegh.ui.components.BarChart
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.Dropdown
+import com.mobilegh.ui.components.EmptyState
 import com.mobilegh.ui.components.ErrorState
 import com.mobilegh.ui.components.EventCat
 import com.mobilegh.ui.components.EventItem
@@ -732,20 +735,47 @@ fun UsersScreen(kind: UserKind, a: String, b: String) {
         UserKind.Contributors -> tr("贡献者")
         UserKind.Members -> tr("成员")
     }
-    val pager = rememberPager("users:$kind:$a:$b") { p, f ->
+    val key = "users:$kind:$a:$b"
+    val restricted = retain("$key:restricted") { mutableStateOf<Int?>(null) }
+    val nextCursor = retain("$key:cursor") { mutableStateOf<String?>(null) }
+    val pager = rememberPager(key, fetchPage = { page, force ->
         when (kind) {
-            UserKind.Followers -> GitHub.followers(a, p, f)
-            UserKind.Following -> GitHub.following(a, p, f)
-            UserKind.Stargazers -> GitHub.stargazers(a, b, p, f)
-            UserKind.Watchers -> GitHub.watchers(a, b, p, f)
-            UserKind.Contributors -> GitHub.contributors(a, b, p, f)
-            UserKind.Members -> GitHub.orgMembers(a, p, f)
+            UserKind.Stargazers -> when (val result = GitHub.stargazers(a, b, page, force)) {
+                is StargazerPage.Visible -> PagerPage(result.users)
+                is StargazerPage.Restricted -> PagerPage(emptyList(), hasMore = false) { restricted.value = result.count }
+            }
+            UserKind.Watchers -> {
+                val after = if (page == 1) null else checkNotNull(nextCursor.value)
+                val result = GitHub.watchers(a, b, after, force)
+                PagerPage(result.users, hasMore = result.nextCursor != null) { nextCursor.value = result.nextCursor }
+            }
+            UserKind.Followers -> PagerPage(GitHub.followers(a, page, force))
+            UserKind.Following -> PagerPage(GitHub.following(a, page, force))
+            UserKind.Contributors -> PagerPage(GitHub.contributors(a, b, page, force))
+            UserKind.Members -> PagerPage(GitHub.orgMembers(a, page, force))
         }
-    }
+    })
     val state = rememberLazyListState()
     Page(title, subtitle = if (b.isNotEmpty()) "$a/$b" else a) { pad ->
-        PagedList(pager, Modifier.padding(pad), state = state, itemKey = { it.id }) { u ->
-            UserItem(u, subtitle = u.contributions?.let { trf("{0} 次提交", it) })
+        val restriction = restricted.value
+        if (restriction != null) {
+            val count = trf("{0} Star", fmtCount(restriction))
+            EmptyState(
+                "$count\n\n${tr("GitHub 仅向仓库管理员和协作者开放此名单。")}",
+                R.drawable.oc_lock,
+                Modifier.fillMaxSize().padding(pad),
+            )
+        } else {
+            val empty = when (kind) {
+                UserKind.Watchers -> tr("暂无仓库关注者")
+                UserKind.Stargazers -> tr("暂无 Star 用户")
+                else -> tr("暂无内容")
+            }
+            PagedList(pager, Modifier.padding(pad), state = state, empty = empty, itemKey = { user ->
+                if (kind == UserKind.Watchers) user.login else user.id
+            }) { user ->
+                UserItem(user, subtitle = user.contributions?.let { trf("{0} 次提交", it) })
+            }
         }
     }
 }
@@ -842,7 +872,7 @@ private fun ProfileReadmeCard(login: String, html: String) {
                         },
                         modifier = Modifier.fillMaxWidth().padding(14.dp),
                     ) {
-                        HtmlView(html, baseUrl = "https://github.com/$login/$login/blob/main/")
+                        HtmlView(html, baseUrl = "https://github.com/$login/$login/blob/main/README.md", linkedImagesOpenLink = true)
                     }
                     if (readmeScale > 1.05f) {
                         ReadmeZoomResetPill(

@@ -170,8 +170,10 @@ internal object HtmlParser {
         if (trimmed.isEmpty() || trimmed.startsWith("#") || trimmed.startsWith("data:")) return trimmed
         if (trimmed.contains("://")) return trimmed
         val baseUri = runCatching { URI(baseUrl) }.getOrNull()
-        val queryPart = if (trimmed.contains('?')) "?" + trimmed.substringAfter('?') else ""
-        val pathPart = trimmed.substringBefore('?')
+        val beforeAnchor = trimmed.substringBefore('#')
+        val queryPart = if ('?' in beforeAnchor) "?" + beforeAnchor.substringAfter('?') else ""
+        val anchorPart = if ('#' in trimmed) "#" + trimmed.substringAfter('#').replace(" ", "%20") else ""
+        val pathPart = beforeAnchor.substringBefore('?')
         val encodedPath = pathPart.split('/').joinToString("/") { seg ->
             runCatching {
                 val decoded = java.net.URLDecoder.decode(seg, "UTF-8")
@@ -180,7 +182,7 @@ internal object HtmlParser {
                     .replace("%2F", "/")
             }.getOrDefault(seg)
         }
-        val encodedRel = encodedPath + queryPart
+        val encodedRel = encodedPath + queryPart + anchorPart
         val resolved = runCatching { baseUri?.resolve(encodedRel)?.toString() }.getOrNull()
         if (resolved != null) return resolved
 

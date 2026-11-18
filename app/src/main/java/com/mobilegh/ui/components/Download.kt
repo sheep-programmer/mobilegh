@@ -140,6 +140,9 @@ fun DownloadHost() {
             },
             confirmButton = {
                 when {
+                    done && selected.actionsArchive -> TextButton({ ApkArchiveDialogState.task = selected }) {
+                        Text(tr("查找 APK"), color = g.accent, fontWeight = FontWeight.SemiBold)
+                    }
                     done -> TextButton({
                         if (selected.filename.endsWith(".apk", true)) Downloads.installApk(ctx, selected) else Downloads.open(ctx, selected)
                     }) {
@@ -213,6 +216,11 @@ fun DownloadHost() {
                                                 actions = buildList {
                                                     // 文件已不在时没有可打开的文件，只保留「重新下载」和移除记录
                                                     if (task.state == DownloadState.Complete && !missing) {
+                                                        if (task.actionsArchive) add(MenuAction(tr("查找 APK"), icon = R.drawable.oc_package) {
+                                                            Downloads.showHistory = false
+                                                            Downloads.selectedKey = task.key
+                                                            ApkArchiveDialogState.task = task
+                                                        })
                                                         add(MenuAction(tr("打开文件"), icon = R.drawable.oc_file) { Downloads.open(ctx, task) })
                                                         add(MenuAction(tr("打开所在文件夹"), icon = R.drawable.oc_file_directory) { Downloads.revealFolder(ctx, task) })
                                                         add(MenuAction(tr("删除本地文件"), danger = true, icon = R.drawable.oc_trash) { pendingDelete = task })
@@ -439,8 +447,9 @@ typealias FileInfo = com.mobilegh.data.FileInfo
 fun FileInfoDialog(info: FileInfo, onDismiss: () -> Unit) {
     val g = Gh.c
     val ctx = rememberCtx()
-    val done = Downloads.tasks.firstOrNull { it.url == info.url && it.state == DownloadState.Complete && Downloads.fileExists(it) }
-    val running = Downloads.tasks.firstOrNull { it.url == info.url && it.active }
+    val checksum = com.mobilegh.data.trustedSha256(info.digest)
+    val done = Downloads.tasks.firstOrNull { it.url == info.url && it.expectedSha256 == checksum && it.state == DownloadState.Complete && Downloads.fileExists(it) }
+    val running = Downloads.tasks.firstOrNull { it.url == info.url && it.expectedSha256 == checksum && it.active }
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = g.canvas,
@@ -483,7 +492,7 @@ fun FileInfoDialog(info: FileInfo, onDismiss: () -> Unit) {
             when {
                 running != null -> TextButton({ onDismiss(); Downloads.selectedKey = running.key }) { Text(tr("查看进度"), color = g.accent, fontWeight = FontWeight.SemiBold) }
                 done != null -> Row {
-                    TextButton({ onDismiss(); Downloads.start(info.url, info.name, info.isPrivate, info.mimeType) }) { Text(tr("重新下载"), color = g.fgMuted) }
+                    TextButton({ onDismiss(); Downloads.start(info.url, info.name, info.isPrivate, info.mimeType, digest = info.digest) }) { Text(tr("重新下载"), color = g.fgMuted) }
                     TextButton({
                         onDismiss()
                         if (done.filename.endsWith(".apk", true)) Downloads.installApk(ctx, done) else Downloads.open(ctx, done)
@@ -497,7 +506,7 @@ fun FileInfoDialog(info: FileInfo, onDismiss: () -> Unit) {
                         Text(label, color = g.accent, fontWeight = FontWeight.SemiBold)
                     }
                 }
-                else -> TextButton({ onDismiss(); Downloads.start(info.url, info.name, info.isPrivate, info.mimeType) }) {
+                else -> TextButton({ onDismiss(); Downloads.start(info.url, info.name, info.isPrivate, info.mimeType, digest = info.digest) }) {
                     Text(tr("下载"), color = g.accent, fontWeight = FontWeight.SemiBold)
                 }
             }

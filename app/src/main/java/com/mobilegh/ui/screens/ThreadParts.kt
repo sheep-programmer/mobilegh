@@ -44,6 +44,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
@@ -211,6 +212,7 @@ fun ReactionBar(initial: Reactions?, modifier: Modifier = Modifier, onToggle: su
 }
 
 /** 时间线上的一条评论（或 Issue 正文）：头部 + 正文 + 表情栏，右上角 ⋯ 菜单 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TimelineCard(
     user: User?,
@@ -230,20 +232,30 @@ fun TimelineCard(
     val shape = RoundedCornerShape(8.dp)
     Column(modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().border(1.dp, borderColor, shape)) {
         Row(
-            Modifier.fillMaxWidth().background(g.canvasSubtle, RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-                .padding(start = 12.dp, top = 2.dp, bottom = 2.dp),
+            Modifier.fillMaxWidth().background(g.canvasSubtle, RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Avatar(user?.avatarUrl, 24.dp, Modifier.clickable { user?.let { nav.push(Screen.Profile(it.login)) } })
-            Spacer(Modifier.width(8.dp))
-            Text(user?.login ?: "ghost", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = g.fg, maxLines = 1)
-            Spacer(Modifier.width(6.dp))
-            Text(relTime(time), fontSize = 12.sp, color = g.fgMuted, maxLines = 1)
-            if (badge != null) {
-                Spacer(Modifier.width(6.dp))
-                Pill(badge, badgeColor)
+            // 作者名很长时，徽章换到下一行完整显示，而不是被挤成竖排
+            FlowRow(
+                Modifier.weight(1f).padding(start = 12.dp, top = 2.dp, bottom = 2.dp),
+                verticalArrangement = Arrangement.Center,
+                itemVerticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Avatar(user?.avatarUrl, 24.dp, Modifier.clickable { user?.let { nav.push(Screen.Profile(it.login)) } })
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        user?.login ?: "ghost", fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                // 时间与徽章各自成项：放不下就整体换行，不会被压窄
+                Text(
+                    relTime(time), Modifier.padding(start = 6.dp),
+                    fontSize = 12.sp, color = g.fgMuted, maxLines = 1,
+                )
+                if (badge != null) Pill(badge, badgeColor, Modifier.padding(start = 6.dp))
             }
-            Spacer(Modifier.weight(1f))
             if (menu.isNotEmpty()) MoreMenu(menu)
         }
         if (html.isNullOrBlank()) {

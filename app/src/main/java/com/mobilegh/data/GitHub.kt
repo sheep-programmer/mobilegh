@@ -21,6 +21,17 @@ import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trc
 import com.mobilegh.i18n.trf
 
+internal enum class ForkSort(val restQuery: String?) {
+    Newest("newest"), Oldest("oldest"), Stars("stargazers"), Watchers("watchers"), Name(null),
+}
+
+internal sealed interface StargazerPage {
+    data class Visible(val users: List<User>) : StargazerPage
+    data class Restricted(val count: Int) : StargazerPage
+}
+
+internal data class WatcherPage(val users: List<User>, val nextCursor: String?)
+
 /** GitHub REST / GraphQL 接口封装 */
 object GitHub {
     const val PER = 30
@@ -114,7 +125,39 @@ object GitHub {
         (if (login == null) "/user/starred" else "/users/$login/starred") +
             "?sort=$sort&direction=$direction&per_page=$STARRED_PER&page=$page"
 
-    suspend fun forks(o: String, n: String, page: Int, force: Boolean) = Api.get<List<Repo>>("${r(o, n)}/forks?sort=newest&per_page=$PER&page=$page", force)
+    internal suspend fun forks(o: String, n: String, sort: ForkSort, page: Int, force: Boolean) =
+        Api.get<List<Repo>>("${r(o, n)}/forks?sort=${requireNotNull(sort.restQuery)}&per_page=$PER&page=$page", force)
+
+    internal data class NamedForkPage(val repos: List<Repo>, val nextCursor: String?)
+
+    internal suspend fun forksByName(owner: String, name: String, cursor: String?, force: Boolean): NamedForkPage {
+        val data = Api.graphql(
+            """
+            query(${'$'}owner: String!, ${'$'}name: String!, ${'$'}cursor: String) {
+              repository(owner: ${'$'}owner, name: ${'$'}name) {
+                forks(first: $PER, after: ${'$'}cursor, orderBy: {field: NAME, direction: ASC}) {
+                  nodes {
+                    id: databaseId name fullName: nameWithOwner owner { login avatarUrl }
+                    private: isPrivate htmlUrl: url description fork: isFork languageInfo: primaryLanguage { name }
+                    stargazersCount: stargazerCount forksCount: forkCount createdAt pushedAt updatedAt
+                  }
+                  pageInfo { hasNextPage endCursor }
+                }
+              }
+            }
+            """.trimIndent(),
+            mapOf("owner" to owner, "name" to name, "cursor" to cursor),
+            force,
+        )
+        val connection = data.obj("repository").obj("forks") ?: throw ApiException(404, tr("仓库不存在或无权访问"))
+        val pageInfo = connection.obj("pageInfo")
+        val repos = connection.arr("nodes")?.objects().orEmpty().map { node ->
+            Api.plain.decodeFromJsonElement<Repo>(node).copy(language = node.obj("languageInfo").str("name"))
+        }
+        return NamedForkPage(repos, pageInfo?.str("endCursor")?.takeIf {
+            pageInfo["hasNextPage"]?.jsonPrimitive?.booleanOrNull == true
+        })
+    }
 
     // ---------------- 组织 ----------------
     suspend fun myOrgs(force: Boolean): List<Org> = orgAccess(force).orgs
@@ -303,16 +346,54 @@ object GitHub {
         Api.get<List<Tag>>("${r(o, n)}/tags?per_page=100&page=$page", force, headers = headers)
     suspend fun languages(o: String, n: String) = Api.get<Map<String, Long>>("${r(o, n)}/languages")
     suspend fun contributors(o: String, n: String, page: Int, force: Boolean) = Api.get<List<User>>("${r(o, n)}/contributors?per_page=$PER&page=$page", force)
-    suspend fun stargazers(o: String, n: String, page: Int, force: Boolean) =
-        ownerOnlyList("Star") { Api.get<List<User>>("${r(o, n)}/stargazers?per_page=$PER&page=$page", force) }
-    suspend fun watchers(o: String, n: String, page: Int, force: Boolean) =
-        ownerOnlyList("Watch") { Api.get<List<User>>("${r(o, n)}/subscribers?per_page=$PER&page=$page", force) }
+    internal suspend fun stargazers(owner: String, name: String, page: Int, force: Boolean): StargazerPage {
+        val users = try {
+            Api.get<List<User>>("${r(owner, name)}/stargazers?per_page=$PER&page=$page", force)
+        } catch (error: ApiException) {
+            if (error.code != 404 || page != 1) throw error
+            return StargazerPage.Restricted(repo(owner, name, force = true).stargazersCount)
+        }
+        if (page == 1 && users.isEmpty()) {
+            val count = repo(owner, name, force = true).stargazersCount
+            if (count > 0) return StargazerPage.Restricted(count)
+        }
+        return StargazerPage.Visible(users)
+    }
 
-    /** GitHub 现在只向仓库所有者返回 Star / Watch 用户列表，其他人一律 404；换成说明真实原因的提示 */
-    private suspend fun <T> ownerOnlyList(kind: String, block: suspend () -> T): T = try {
-        block()
-    } catch (e: ApiException) {
-        if (e.code == 404) throw ApiException(404, trf("GitHub 只向仓库所有者公开 {0} 用户列表", kind)) else throw e
+    internal suspend fun watchers(owner: String, name: String, after: String?, force: Boolean): WatcherPage {
+        val root = Api.graphqlRoot(
+            """
+            query MobileGHRepoWatchers(${'$'}owner: String!, ${'$'}name: String!, ${'$'}first: Int!, ${'$'}after: String) {
+              repository(owner: ${'$'}owner, name: ${'$'}name) {
+                watchers(first: ${'$'}first, after: ${'$'}after) {
+                  nodes { login name avatarUrl }
+                  pageInfo { hasNextPage endCursor }
+                }
+              }
+            }
+            """.trimIndent(),
+            mapOf("owner" to owner, "name" to name, "first" to PER, "after" to after),
+            force = force,
+        )
+        root.arr("errors")?.firstOrNull()?.let { error ->
+            val message = error.str("message")
+            throw ApiException(400, DeviceAuth.insufficientScopes(message) ?: message ?: tr("GraphQL 错误"))
+        }
+        val connection = root.obj("data")?.obj("repository")?.obj("watchers")
+        val nodes = connection.arr("nodes") ?: throw ApiException(500, tr("GitHub 返回的关注者列表不完整"))
+        val pageInfo = connection.obj("pageInfo")
+        val cursor = when (pageInfo.str("hasNextPage")) {
+            "false" -> null
+            "true" -> pageInfo.str("endCursor")?.takeIf { it.isNotBlank() && it != after }
+                ?: throw ApiException(500, tr("GitHub 返回的关注者分页信息无效"))
+            else -> throw ApiException(500, tr("GitHub 返回的关注者分页信息无效"))
+        }
+        val users = nodes.filterNot { it is JsonNull }.map { node ->
+            val login = node.str("login")?.takeIf(String::isNotBlank)
+                ?: throw ApiException(500, tr("GitHub 返回的关注者列表不完整"))
+            User(login = login, name = node.str("name"), avatarUrl = node.str("avatarUrl").orEmpty())
+        }
+        return WatcherPage(users, cursor)
     }
 
     suspend fun isStarred(o: String, n: String) = Api.exists("/user/starred/$o/$n")
@@ -471,7 +552,7 @@ object GitHub {
 
     suspend fun removeRelatedIssue(o: String, n: String, num: Int, issueId: Long) =
         Api.exec("DELETE", "${r(o, n)}/issues/$num/relates_to/$issueId", headers = RELATED_API)
-    suspend fun pullFiles(o: String, n: String, num: Int, page: Int) = Api.get<List<CommitFile>>("${r(o, n)}/pulls/$num/files?per_page=50&page=$page")
+    suspend fun pullFiles(o: String, n: String, num: Int, page: Int, force: Boolean = false) = Api.get<List<CommitFile>>("${r(o, n)}/pulls/$num/files?per_page=50&page=$page", force)
     suspend fun pullCommits(o: String, n: String, num: Int) = Api.get<List<Commit>>("${r(o, n)}/pulls/$num/commits?per_page=100")
     suspend fun pullReviews(o: String, n: String, num: Int, force: Boolean) = Api.get<List<Review>>("${r(o, n)}/pulls/$num/reviews?per_page=100", force, Api.FULL)
     suspend fun addComment(o: String, n: String, num: Int, body: String) =
@@ -823,7 +904,7 @@ object GitHub {
         if (e.code == 404) null else throw e
     }
 
-    suspend fun release(o: String, n: String, id: Long, force: Boolean = true) = Api.get<Release>("${r(o, n)}/releases/$id", force)
+    suspend fun release(o: String, n: String, id: Long, force: Boolean = true) = Api.get<Release>("${r(o, n)}/releases/$id", force, Api.FULL)
 
     /** 按标签名取指定版本（不受列表分页影响）；标签不存在或无权查看时返回 null */
     suspend fun releaseByTag(o: String, n: String, tag: String, force: Boolean = false): Release? = try {
@@ -931,7 +1012,7 @@ object GitHub {
     suspend fun updateActionPrivateForks(o: String, n: String, value: ActionPrivateForks) =
         actionWrite(o, n, ActionsRequests.privateForks(value.run, value.writeTokens, value.secrets, value.approval))
     suspend fun actionSelectedActions(o: String, n: String, force: Boolean = false) = actionGet<ActionSelectedActions>(o, n, ActionRequest("GET", "/actions/permissions/selected-actions"), force)
-    suspend fun updateActionSelectedActions(o: String, n: String, githubOwned: Boolean, verified: Boolean, patterns: List<String>) =
+    suspend fun updateActionSelectedActions(o: String, n: String, githubOwned: Boolean, verified: Boolean, patterns: List<String>?) =
         actionWrite(o, n, ActionsRequests.selected(githubOwned, verified, patterns))
     suspend fun actionWorkflowPermissions(o: String, n: String, force: Boolean = false) = actionGet<ActionWorkflowPermissions>(o, n, ActionRequest("GET", "/actions/permissions/workflow"), force)
     suspend fun updateActionWorkflowPermissions(o: String, n: String, default: String, canApprove: Boolean) =
@@ -946,9 +1027,8 @@ object GitHub {
 
     suspend fun actionVariables(o: String, n: String, force: Boolean = false) = actionPages<ActionVariableList, ActionVariable>(o, n, 30, force, ActionsRequests::variables, { it.totalCount }, { it.variables })
     suspend fun createActionVariable(o: String, n: String, name: String, value: String): ActionVariable {
-        val created = Api.sendWrite<ActionVariable>("POST", "${r(o, n)}${ActionsRequests.createVariable(name, value).path}", ActionsRequests.createVariable(name, value).body)
-        RepoWrite.changed(o, n, RepoWrite.ACTIONS)
-        return created ?: ActionVariable(name, value)
+        actionWrite(o, n, ActionsRequests.createVariable(name, value))
+        return ActionVariable(name, value)
     }
     suspend fun updateActionVariable(o: String, n: String, originalName: String, name: String?, value: String?) =
         actionWrite(o, n, ActionsRequests.patchVariable(originalName, name, value))

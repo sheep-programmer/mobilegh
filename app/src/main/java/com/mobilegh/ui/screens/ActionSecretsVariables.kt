@@ -62,11 +62,8 @@ private data class SecretEditorTarget(val original: ActionSecret?)
 private data class VariableEditorTarget(val original: ActionVariable?)
 
 @Composable
-internal fun SecretsSettings(owner: String, name: String) {
+internal fun SecretsSettings(owner: String, name: String, organizationOwned: Boolean) {
     val repository = rememberLoader("actions-secrets") { GitHub.actionSecrets(owner, name, it) }
-    val organization = rememberLoader("actions-organization-secrets") {
-        GitHub.actionOrganizationSecrets(owner, name, it)
-    }
     var editor by remember { mutableStateOf<SecretEditorTarget?>(null) }
     var deleting by remember { mutableStateOf<ActionSecret?>(null) }
 
@@ -87,12 +84,15 @@ internal fun SecretsSettings(owner: String, name: String) {
             }
         }
 
-        SectionTitle(tr("组织 Secrets"))
-        SettingsList(
-            loader = organization,
-            emptyText = tr("暂无组织 Secrets"),
-        ) { secrets ->
-            secrets.forEach { secret -> SecretRow(secret = secret) }
+        if (organizationOwned) {
+            val organization = rememberLoader("actions-organization-secrets") { GitHub.actionOrganizationSecrets(owner, name, it) }
+            SectionTitle(tr("组织 Secrets"))
+            SettingsList(
+                loader = organization,
+                emptyText = tr("暂无组织 Secrets"),
+            ) { secrets ->
+                secrets.forEach { secret -> SecretRow(secret = secret) }
+            }
         }
     }
 

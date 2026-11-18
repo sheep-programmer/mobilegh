@@ -20,6 +20,8 @@ workManager = "2.11.0"
 lazysodium = "5.2.0"
 jna = "5.17.0"
 jgit = "7.5.0.202512021534-r"
+mlkitTranslate = "17.0.3"
+mlkitLanguageId = "17.0.6"
 
 [libraries]
 androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
@@ -50,6 +52,8 @@ androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version
 lazysodium-android = { module = "com.goterl:lazysodium-android", version.ref = "lazysodium" }
 jna-android = { module = "net.java.dev.jna:jna", version.ref = "jna" }
 jgit = { module = "org.eclipse.jgit:org.eclipse.jgit", version.ref = "jgit" }
+mlkit-translate = { module = "com.google.mlkit:translate", version.ref = "mlkitTranslate" }
+mlkit-language-id = { module = "com.google.mlkit:language-id", version.ref = "mlkitLanguageId" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

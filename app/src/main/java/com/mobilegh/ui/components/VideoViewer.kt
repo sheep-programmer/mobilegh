@@ -1,8 +1,7 @@
 package com.mobilegh.ui.components
 
 import android.net.Uri
-import android.view.View
-import android.webkit.WebChromeClient
+import android.view.ViewGroup
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -18,9 +17,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -44,21 +46,23 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.mobilegh.R
 import com.mobilegh.data.VideoRoute
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/**
- * 点击 README / Issue 里的视频后打开的全屏播放器。
- * 用 ExoPlayer 直接按 Range 流式播放，支持拖动进度、倍速、保存到本机；不依赖网页里的 <video>。
- */
 object VideoViewer {
     var url by mutableStateOf<String?>(null)
         private set
@@ -74,12 +78,16 @@ object VideoViewer {
 @Composable
 fun VideoViewerHost() {
     val src = VideoViewer.url ?: return
+    VideoDialog(onClose = VideoViewer::close) { VideoViewerContent(src) }
+}
+
+@Composable
+private fun VideoDialog(onClose: () -> Unit, content: @Composable () -> Unit) {
     Dialog(
-        onDismissRequest = { VideoViewer.close() },
+        onDismissRequest = onClose,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
-        VideoViewerContent(src)
-    }
+        content = content,
+    )
 }
 
 private val SPEEDS = listOf(0.5f, 1f, 1.25f, 1.5f, 2f)
@@ -87,34 +95,76 @@ private val SPEEDS = listOf(0.5f, 1f, 1.25f, 1.5f, 2f)
 /** [onPlayer] 只给测试用：拿到播放器后可以读播放状态，正常使用不传。 */
 @Composable
 internal fun VideoViewerContent(src: String, onPlayer: (ExoPlayer) -> Unit = {}) {
-    val g = Gh.c
-    val ctx = LocalContext.current
-    val fileName = remember(src) { src.substringBefore('?').substringAfterLast('/').ifBlank { "video.mp4" } }
-    var speed by remember { mutableFloatStateOf(1f) }
-    // 播放器跟随对话框生命周期：关闭时释放，避免后台继续占用解码器和网络
-    val player = remember(src) { ExoPlayer.Builder(ctx).build() }
+    val player = rememberVideoPlayer(src)
     DisposableEffect(player) {
         onPlayer(player)
-        onDispose { player.release() }
+        onDispose { }
     }
-    // 先选线路（加速节点或原地址）再开始加载；选择出错时直接用原地址，不影响播放
+    FullVideo(src, player, VideoViewer::close)
+}
+
+@Composable
+private fun rememberVideoPlayer(src: String): ExoPlayer {
+    val context = LocalContext.current
+    val player = remember(src, context) {
+        ExoPlayer.Builder(context).setAudioAttributes(AudioAttributes.DEFAULT, true).build()
+    }
+    DisposableEffect(player) { onDispose { player.release() } }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { player.pause() }
     LaunchedEffect(player) {
-        val playable = runCatching { VideoRoute.pick(src) }.getOrDefault(src)
-        // ExoPlayer 只能在主线程访问；选线路时可能切到了后台线程，这里切回主线程再操作播放器
-        withContext(Dispatchers.Main) {
+        val playable = try {
+            VideoRoute.pick(src)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            src
+        }
+        withContext(Dispatchers.Main.immediate) {
             player.setMediaItem(MediaItem.fromUri(Uri.parse(playable)))
             player.prepare()
             player.playWhenReady = true
         }
     }
+    return player
+}
 
+@Composable
+private fun VideoSurface(player: ExoPlayer, modifier: Modifier = Modifier) {
+    var failed by remember(player) { mutableStateOf(player.playerError != null) }
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onPlayerErrorChanged(error: PlaybackException?) { failed = error != null }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
+    Box(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
+        AndroidView(
+            factory = { context -> PlayerView(context).apply { useController = true } },
+            update = { it.player = player },
+            onRelease = { it.player = null },
+            modifier = Modifier.matchParentSize(),
+        )
+        if (failed) GhButton(tr("重试"), icon = R.drawable.oc_sync) {
+            player.prepare()
+            player.play()
+        }
+    }
+}
+
+@Composable
+private fun FullVideo(src: String, player: ExoPlayer, onClose: () -> Unit) {
+    val g = Gh.c
+    val ctx = LocalContext.current
+    val fileName = remember(src) { src.substringBefore('?').substringAfterLast('/').ifBlank { "video.mp4" } }
+    var speed by remember(player) { mutableFloatStateOf(player.playbackParameters.speed) }
     Column(Modifier.fillMaxSize().background(Color.Black)) {
         // 全屏对话框不会自动避开系统栏：顶部让出状态栏，底部让出导航栏，否则关闭按钮会被时间和图标挡住
         Row(
             Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            OcButton(R.drawable.oc_x, { VideoViewer.close() }, Color.White, description = tr("关闭"))
+            OcButton(R.drawable.oc_x, onClose, Color.White, description = tr("关闭"))
             Text(
                 fileName, Modifier.weight(1f).padding(horizontal = 6.dp),
                 color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium,
@@ -122,11 +172,7 @@ internal fun VideoViewerContent(src: String, onPlayer: (ExoPlayer) -> Unit = {})
             )
             OcButton(R.drawable.oc_download, { ctx.downloadFile(src, fileName, isPrivate = false, mimeType = "video/mp4") }, Color.White, description = tr("保存到本机"))
         }
-        AndroidView(
-            factory = { c -> PlayerView(c).apply { this.player = player; useController = true } },
-            update = { it.player = player },
-            modifier = Modifier.fillMaxWidth().weight(1f),
-        )
+        VideoSurface(player, Modifier.fillMaxWidth().weight(1f))
         // 倍速：ExoPlayer 的默认控制条没有这个按钮，所以单独放一行
         Row(
             Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 10.dp),
@@ -159,32 +205,57 @@ internal fun VideoViewerContent(src: String, onPlayer: (ExoPlayer) -> Unit = {})
 /** 1x、1.25x 这类写法：整数不带小数点 */
 private fun speedLabel(s: Float): String = (if (s % 1f == 0f) s.toInt().toString() else s.toString()) + "x"
 
-/**
- * YouTube 视频的应用内播放器。YouTube 的视频地址不是直链，不能交给 ExoPlayer，
- * 这里用网页嵌入播放器（youtube-nocookie）全屏显示；有问题时可以用「在浏览器打开」。
- */
-object YouTubeViewer {
-    var id by mutableStateOf<String?>(null)
-        private set
-    var title by mutableStateOf("")
-        private set
-
-    fun open(id: String, title: String = "") {
-        this.id = id
-        this.title = title
+@Composable
+internal fun InlineVideo(src: String, modifier: Modifier, preview: @Composable () -> Unit) = key(src) {
+    var started by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
+    val player = if (started) rememberVideoPlayer(src) else null
+    InlineMediaFrame(modifier, started, expanded, { started = true }, {
+        started = true
+        expanded = true
+    }, preview) {
+        if (player != null) VideoSurface(player, Modifier.fillMaxSize())
     }
-
-    fun close() { id = null }
+    if (expanded && player != null) VideoDialog({ expanded = false }) {
+        FullVideo(src, player) { expanded = false }
+    }
 }
 
 @Composable
-fun YouTubeViewerHost() {
-    val id = YouTubeViewer.id ?: return
-    Dialog(
-        onDismissRequest = { YouTubeViewer.close() },
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
-        YouTubeViewerContent(id, YouTubeViewer.title)
+private fun InlineMediaFrame(
+    modifier: Modifier,
+    started: Boolean,
+    expanded: Boolean,
+    onPlay: () -> Unit,
+    onExpand: () -> Unit,
+    preview: @Composable () -> Unit,
+    surface: @Composable () -> Unit,
+) {
+    Box(modifier, contentAlignment = Alignment.Center) {
+        if (expanded) return@Box
+        if (started) {
+            surface()
+        } else {
+            Box(Modifier.matchParentSize()) { preview() }
+            Box(
+                Modifier.size(56.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.6f))
+                    .clickable(onClickLabel = tr("播放"), role = Role.Button, onClick = onPlay),
+                contentAlignment = Alignment.Center,
+            ) {
+                Oc(R.drawable.oc_play, Color.White, 24.dp, contentDescription = tr("播放"))
+            }
+        }
+        Row(
+            Modifier.align(if (started) Alignment.TopEnd else Alignment.BottomEnd).padding(6.dp)
+                .clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = 0.64f))
+                .clickable(role = Role.Button, onClick = onExpand)
+                .heightIn(min = 36.dp).padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Oc(R.drawable.oc_screen_full, Color.White, 14.dp)
+            Spacer(Modifier.width(4.dp))
+            Text(tr("放大播放"), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        }
     }
 }
 
@@ -197,9 +268,9 @@ private fun youTubeEmbedHtml(id: String): String =
         "<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}" +
         "#p{position:absolute;left:0;top:0;width:100%;height:100%}</style></head><body>" +
         "<div id=\"p\"></div>" +
-        "<script src=\"https://www.youtube.com/iframe_api\"></script>" +
-        "<script>function onYouTubeIframeAPIReady(){new YT.Player('p',{width:'100%',height:'100%',videoId:'$id'," +
-        "playerVars:{playsinline:1,rel:0},events:{onError:function(e){Bridge.failed(e.data)}}});}</script>" +
+        "<script>var player;function onYouTubeIframeAPIReady(){player=new YT.Player('p',{width:'100%',height:'100%',videoId:'$id'," +
+        "playerVars:{playsinline:1,fs:0,autoplay:1,rel:0},events:{onError:function(e){Bridge.failed(e.data)}}});}</script>" +
+        "<script src=\"https://www.youtube.com/iframe_api\" onerror=\"Bridge.failed(0)\"></script>" +
         "</body></html>"
 
 /** 播放器报错的回调：JavaScript 线程调用，由调用方切回主线程 */
@@ -209,69 +280,75 @@ private class YouTubeBridge(private val onFailed: (Int) -> Unit) {
 }
 
 @Composable
-private fun YouTubeViewerContent(id: String, title: String) {
+internal fun InlineYouTube(id: String, title: String, modifier: Modifier, preview: @Composable () -> Unit) = key(id) {
+    var started by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
     val failed = remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().background(Color.Black)) {
-        Row(
-            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OcButton(R.drawable.oc_x, { YouTubeViewer.close() }, Color.White, description = tr("关闭"))
-            Text(
-                title.ifBlank { "YouTube" }, Modifier.weight(1f).padding(horizontal = 6.dp),
-                color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            OcButton(R.drawable.oc_link_external, { ExternalLinkDialog.show("https://youtu.be/$id", title) }, Color.White, description = tr("在浏览器打开"))
+    val context = LocalContext.current
+    val web = if (started) remember(context) {
+        WebView(context).apply {
+            setBackgroundColor(android.graphics.Color.BLACK)
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.mediaPlaybackRequiresUserGesture = false
+            webViewClient = WebViewClient()
+            addJavascriptInterface(YouTubeBridge { post { failed.value = true } }, "Bridge")
+            loadDataWithBaseURL("https://www.youtube.com/", youTubeEmbedHtml(id), "text/html", "utf-8", null)
         }
-        Box(Modifier.fillMaxWidth().weight(1f)) {
+    } else null
+    if (web != null) {
+        DisposableEffect(web) {
+            onDispose {
+                (web.parent as? ViewGroup)?.removeView(web)
+                web.stopLoading()
+                web.destroy()
+            }
+        }
+        LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+            web.evaluateJavascript("if(window.player && player.pauseVideo)player.pauseVideo()", null)
+        }
+    }
+    val surface: @Composable () -> Unit = {
+        if (web != null) YouTubeSurface(web, id, title, failed.value)
+    }
+    InlineMediaFrame(modifier, started, expanded, { started = true }, {
+        started = true
+        expanded = true
+    }, preview, surface)
+    if (expanded && web != null) VideoDialog({ expanded = false }) {
+        Column(Modifier.fillMaxSize().background(Color.Black).navigationBarsPadding()) {
+            Row(
+                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OcButton(R.drawable.oc_x, { expanded = false }, Color.White, description = tr("关闭"))
+                Text(
+                    title.ifBlank { "YouTube" }, Modifier.weight(1f).padding(horizontal = 6.dp),
+                    color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                OcButton(R.drawable.oc_link_external, { ExternalLinkDialog.show("https://youtu.be/$id", title) }, Color.White, description = tr("在浏览器打开"))
+            }
+            Box(Modifier.fillMaxWidth().weight(1f)) { surface() }
+        }
+    }
+}
+
+@Composable
+private fun YouTubeSurface(web: WebView, id: String, title: String, failed: Boolean) {
+    Box(Modifier.fillMaxSize()) {
         AndroidView(
-            factory = { c ->
-                val frame = FrameLayout(c)
-                val web = WebView(c).apply {
-                    setBackgroundColor(android.graphics.Color.BLACK)
-                    settings.javaScriptEnabled = true
-                    settings.domStorageEnabled = true
-                    webViewClient = WebViewClient()
-                }
-                web.addJavascriptInterface(YouTubeBridge { web.post { failed.value = true } }, "Bridge")
-                frame.addView(web, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-                // 全屏按钮：播放器请求全屏时，把它的视图盖在网页之上；退出时收起
-                web.webChromeClient = object : WebChromeClient() {
-                    private var custom: View? = null
-                    private var callback: WebChromeClient.CustomViewCallback? = null
-
-                    override fun onShowCustomView(view: View, cb: WebChromeClient.CustomViewCallback) {
-                        if (custom != null) { cb.onCustomViewHidden(); return }
-                        custom = view
-                        callback = cb
-                        frame.addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-                        web.visibility = View.GONE
-                    }
-
-                    override fun onHideCustomView() {
-                        custom?.let { frame.removeView(it) }
-                        custom = null
-                        callback?.onCustomViewHidden()
-                        callback = null
-                        web.visibility = View.VISIBLE
-                    }
-                }
-                web.loadDataWithBaseURL("https://www.youtube.com/", youTubeEmbedHtml(id), "text/html", "utf-8", null)
-                frame
-            },
-            // 先从容器里摘下网页再销毁，不在仍附着于视图树时销毁
-            onRelease = { frame ->
-                (frame.getChildAt(0) as? WebView)?.let { web ->
-                    frame.removeAllViews()
-                    web.stopLoading()
-                    web.destroy()
+            factory = { FrameLayout(it) },
+            update = { frame ->
+                if (web.parent !== frame) {
+                    (web.parent as? ViewGroup)?.removeView(web)
+                    frame.addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                 }
             },
+            onRelease = { it.removeAllViews() },
             modifier = Modifier.fillMaxSize(),
         )
-        if (failed.value) YouTubeUnavailable(id, title)
-        }
+        if (failed) YouTubeUnavailable(id, title)
     }
 }
 

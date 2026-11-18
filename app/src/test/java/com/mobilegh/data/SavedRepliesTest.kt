@@ -11,13 +11,14 @@ import org.junit.Test
 
 class SavedRepliesTest {
     private fun json(text: String) = Json.parseToJsonElement(text) as JsonObject
+    private fun data(text: String) = json("""{"data":$text}""")
 
     @Test fun readsViewerRepliesAndPageCursor() = runBlocking {
         val page = SavedReplies.savedReplies("cursor-1") { query, variables ->
             assertTrue(query.contains("viewer"))
             assertTrue(query.contains("savedReplies(first: 30, after: \$after)"))
             assertEquals("cursor-1", variables["after"])
-            json("""
+            data("""
                 {"viewer":{"savedReplies":{"nodes":[
                   {"id":"SR_one","title":"Thanks","body":"Thank you!"},
                   {"id":"SR_two","title":"Needs info","body":"Please add reproduction steps."}
@@ -34,7 +35,7 @@ class SavedRepliesTest {
     @Test fun firstPageUsesANullCursor() = runBlocking {
         val page = SavedReplies.savedReplies { _, variables ->
             assertNull(variables["after"])
-            json("""{"viewer":{"savedReplies":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}""")
+            data("""{"viewer":{"savedReplies":{"nodes":[],"pageInfo":{"hasNextPage":false,"endCursor":null}}}}""")
         }
         assertTrue(page.items.isEmpty())
         assertFalse(page.hasNextPage)
@@ -47,11 +48,27 @@ class SavedRepliesTest {
             """{"viewer":{"savedReplies":null}}""",
             """{"viewer":{"savedReplies":{"nodes":null}}}""",
         )) {
-            val page = SavedReplies.savedReplies { _, _ -> json(response) }
+            val page = SavedReplies.savedReplies { _, _ -> data(response) }
             assertTrue(page.items.isEmpty())
             assertFalse(page.hasNextPage)
             assertNull(page.endCursor)
         }
         Unit
+    }
+
+    @Test fun missingScopeWithPartialDataDoesNotLookLikeAnEmptyList() = runBlocking {
+        val result = runCatching {
+            SavedReplies.savedReplies { _, _ ->
+                json("""
+                    {"data":{"viewer":{"savedReplies":null}},"errors":[{
+                      "type":"INSUFFICIENT_SCOPES",
+                      "message":"Your token has not been granted the required scopes to execute this query. The 'savedReplies' field requires one of the following scopes: ['read:user']."
+                    }]}
+                """)
+            }
+        }
+        val error = result.exceptionOrNull() as ApiException
+        assertTrue(error.message.contains("read:user"))
+        assertTrue(error.message.contains("保存的回复"))
     }
 }

@@ -21,17 +21,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,6 +54,9 @@ import com.mobilegh.data.CheckRun
 import com.mobilegh.data.CommitFile
 import com.mobilegh.data.CommitStatus
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.FileReviewState
+import com.mobilegh.data.ReviewPosition
+import com.mobilegh.data.ReviewProgressApi
 import com.mobilegh.data.ReviewComment
 import com.mobilegh.data.Suggestion
 import com.mobilegh.data.Session
@@ -82,6 +89,7 @@ import com.mobilegh.ui.components.MarkdownEditor
 import com.mobilegh.ui.components.MarkdownPreview
 import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.Oc
+import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.ExternalLinkDialog
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.Pill
@@ -141,6 +149,8 @@ private class FileThreads(
 ) {
     val comments: Int get() = level.sumOf { it.size } + byLine.values.sumOf { l -> l.sumOf { it.size } } + outdated.sumOf { it.size }
 }
+
+private data class PullFileSnapshot(val head: String, val base: String, val files: List<ParsedFile>)
 
 private fun lineKeys(d: DiffLine): List<String> = when (d.kind) {
     '+' -> listOfNotNull(d.newNo?.let { "R:$it" })
@@ -498,16 +508,23 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
     val nav = LocalNav.current
     val entry = LocalEntry.current
     val ctx = rememberCtx()
-    val files = rememberLoader("files") {
+    val files = rememberLoader("files") { force ->
+        val revision = GitHub.pull(owner, name, number, force = true)
         val all = ArrayList<CommitFile>()
         var page = 1
         while (page <= 20) {
-            val l = GitHub.pullFiles(owner, name, number, page)
+            val l = GitHub.pullFiles(owner, name, number, page, force)
             all.addAll(l)
             if (l.size < 50) break
             page++
         }
-        withContext(Dispatchers.Default) { all.map { ParsedFile(it, it.patch?.let(::parsePatch).orEmpty()) } }
+        val latest = GitHub.pull(owner, name, number, force = true)
+        if (latest.head.sha != revision.head.sha || latest.base.sha != revision.base.sha) {
+            throw ApiException(409, tr("PR 已更新，请刷新文件变更"))
+        }
+        PullFileSnapshot(revision.head.sha, revision.base.sha, withContext(Dispatchers.Default) {
+            all.map { ParsedFile(it, it.patch?.let(::parsePatch).orEmpty()) }
+        })
     }
     val pr = rememberLoader("pr") { GitHub.pull(owner, name, number, it) }
     val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
@@ -519,17 +536,90 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
     }
     // 当前用户的待提交审查（读取失败时不显示提示行）
     val pending = rememberLoader("pending-review") { GitHub.pendingReview(owner, name, number) }
+    val review = rememberLoader("review-progress") { ReviewProgressApi.read(owner, name, number, entry.generation) }
     val collapsed = retain("collapsed") { mutableStateMapOf<String, Boolean>() }
     val expandedThreads = retain("thread-expanded") { mutableStateMapOf<Long, Boolean>() }
     var target by remember { mutableStateOf<CommentTarget?>(null) }
     var applying by remember { mutableStateOf<Pair<ReviewThread, String>?>(null) }
     var deleting by remember { mutableStateOf<ReviewComment?>(null) }
     var discardingPending by remember { mutableStateOf(false) }
-    val headSha = pr.data?.head?.sha
-    val viewed = remember(Session.viewedRevision, Session.login) { Session.viewedFiles(owner, name, number) }
+    val headSha = files.data?.head
+    val cloud = review.data?.takeIf { snapshot -> files.data?.let { snapshot.matches(it.head, it.base) } == true }
+    val local = remember(Session.viewedRevision, Session.login) { Session.viewedFiles(owner, name, number) }
+    val viewed = remember(cloud, files.data, local) { cloud?.viewedFiles(files.data?.files.orEmpty().map(ParsedFile::file)) ?: local }
     val threads = remember(comments.data) { groupReviewThreads(comments.data.orEmpty()) }
+    val listState = rememberLazyListState()
+    var restored by rememberSaveable { mutableStateOf(false) }
+    var updating by remember { mutableStateOf(false) }
+
+    fun refreshReview() {
+        files.load(true)
+        pr.load(true)
+        review.load(true)
+    }
+
+    LaunchedEffect(cloud, viewed) {
+        if (cloud != null && Session.generation == entry.generation) Session.setViewedFiles(owner, name, number, viewed)
+    }
+
+    val displayedFiles = files.data?.files
+    val filesByPath = remember(displayedFiles) { displayedFiles.orEmpty().associateBy { it.file.filename } }
+    LaunchedEffect(displayedFiles, comments.loading) {
+        if (restored || displayedFiles == null || comments.loading) return@LaunchedEffect
+        val position = Session.reviewPosition(owner, name, number)
+        val index = displayedFiles.indexOfFirst { it.file.filename == position?.path }
+        if (position != null && index >= 0) {
+            val parsed = displayedFiles[index]
+            val row = position.rowFor(parsed.file, Session.diffSplit)
+            val rows = if (row == null) 0 else if (Session.diffSplit) splitRows(parsed.lines).size else parsed.lines.size
+            if (row != null && row in 0 until rows) {
+                collapsed[position.path] = false
+                val level = if (anchorThreads(threads, parsed).level.isNotEmpty()) 1 else 0
+                listState.requestScrollToItem(index + 2 + level + row, position.offset.coerceAtLeast(0))
+            } else listState.requestScrollToItem(index + 1, if (position.row == null) position.offset.coerceAtLeast(0) else 0)
+        }
+        restored = true
+    }
+    LaunchedEffect(restored, filesByPath) {
+        if (!restored) return@LaunchedEffect
+        snapshotFlow {
+            if (listState.isScrollInProgress) return@snapshotFlow null
+            val key = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == listState.firstVisibleItemIndex }?.key as? String
+                ?: return@snapshotFlow null
+            val direct = listOf("h:", "e:", "fl:", "ot:").firstNotNullOfOrNull { prefix ->
+                key.takeIf { it.startsWith(prefix) }?.removePrefix(prefix)?.takeIf { it in filesByPath }
+            }
+            val path = direct ?: key.substringBeforeLast(':')
+            val file = filesByPath[path]?.file ?: return@snapshotFlow null
+            val row = if (direct == null) key.substringAfterLast(':').toIntOrNull() else null
+            val offset = if (row != null || key == "h:$path") listState.firstVisibleItemScrollOffset else 0
+            ReviewPosition(path, file.sha, row, offset, Session.diffSplit)
+        }.collect { position ->
+            if (position != null && Session.generation == entry.generation) Session.setReviewPosition(owner, name, number, position)
+        }
+    }
 
     fun setViewed(file: CommitFile, on: Boolean) {
+        if (updating || review.loading || files.loading || Session.generation != entry.generation) return
+        if (cloud != null && file.filename in cloud.states) {
+            updating = true
+            entry.act(onError = { error ->
+                updating = false
+                ctx.toast(error)
+                refreshReview()
+            }, onDone = { updating = false }) {
+                val latest = GitHub.pull(owner, name, number, force = true)
+                if (!cloud.matches(latest.head.sha, latest.base.sha)) throw ApiException(409, tr("PR 已更新，请刷新文件变更"))
+                ReviewProgressApi.setViewed(cloud, file.filename, on, entry.generation)
+                review.accept(cloud.copy(states = cloud.states + (file.filename to if (on) FileReviewState.VIEWED else FileReviewState.UNVIEWED)))
+                if (on) collapsed[file.filename] = true
+            }
+            return
+        }
+        if (review.data != null || review.error == null) {
+            ctx.toast(tr("PR 已更新，请刷新文件变更"))
+            return
+        }
         val map = LinkedHashMap(Session.viewedFiles(owner, name, number))
         if (on) {
             map[file.filename] = file.sha.orEmpty()
@@ -542,13 +632,16 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
 
     fun reloadComments() = comments.load(true)
 
-    Page(tr("文件变更"), subtitle = "$owner/$name #$number") { pad ->
-        LoadBox(files, Modifier.padding(pad).fillMaxSize()) { list ->
+    Page(tr("文件变更"), subtitle = "$owner/$name #$number", actions = {
+        OcButton(R.drawable.oc_sync, { if (!updating) refreshReview() }, description = tr("刷新文件与已阅进度"))
+    }) { pad ->
+        LoadBox(files, Modifier.padding(pad).fillMaxSize()) { snapshot ->
+            val list = snapshot.files
             // 文件内容变了（sha 不同）就不再算已查看
             val current = list.mapNotNull { pf -> pf.file.sha?.let { pf.file.filename to it } }.toMap()
-            val stale = current.any { (path, sha) -> viewed[path] != null && viewed[path] != sha }
+            val stale = cloud?.states?.containsValue(FileReviewState.DISMISSED) ?: current.any { (path, sha) -> viewed[path] != null && viewed[path] != sha }
             val count = current.count { (path, sha) -> viewed[path] == sha }
-            ScrollbarLazyColumn(Modifier.fillMaxSize()) {
+            ScrollbarLazyColumn(Modifier.fillMaxSize(), state = listState) {
                 item {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -579,6 +672,14 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
                             Text(tr("点按代码行可发表行内评论"), fontSize = 12.sp, color = g.fgMuted)
                         }
                         if (stale) Text(tr("部分文件在查看后又有改动，已重新计为未查看"), fontSize = 12.sp, color = g.attention)
+                        when {
+                            review.loading || updating -> Text(tr("正在同步已阅进度…"), fontSize = 12.sp, color = g.fgMuted)
+                            review.error != null -> InlineError(
+                                if (cloud == null) tr("无法同步已阅进度，暂仅记录在本机") else tr("无法刷新 GitHub 已阅进度"),
+                                retry = ::refreshReview,
+                            )
+                            cloud == null -> InlineError(tr("PR 已更新，请刷新文件变更"), retry = ::refreshReview)
+                        }
                         if (comments.error != null) {
                             Spacer(Modifier.height(4.dp))
                             InlineError(trf("行内评论加载失败：{0}", comments.error)) { reloadComments() }
@@ -594,6 +695,7 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
                     pullFileDiff(
                         owner, name, pf, collapsed, viewed, ::setViewed,
                         anchorThreads(threads, pf), expandedThreads,
+                        viewedEnabled = !updating && !review.loading && !files.loading && (cloud?.states?.containsKey(pf.file.filename) == true || (review.error != null && review.data == null)),
                         onLineClick = { d ->
                             target = if (d.kind == '-') CommentTarget(pf.file.filename, d.oldNo, "LEFT", d.text)
                             else CommentTarget(pf.file.filename, d.newNo, "RIGHT", d.text)
@@ -698,6 +800,7 @@ private fun LazyListScope.pullFileDiff(
     onApply: (ReviewThread, String) -> Unit,
     onToggleThread: (ReviewThread) -> Unit,
     onResolve: ((ReviewThread, Boolean) -> Unit)?,
+    viewedEnabled: Boolean,
 ) {
     val f = pf.file
     val path = f.filename
@@ -722,6 +825,7 @@ private fun LazyListScope.pullFileDiff(
             f, isCollapsed, { collapsed[path] = !isCollapsed }, onOpen,
             viewed = isViewed,
             onViewed = { onViewed(f, it) },
+            viewedEnabled = viewedEnabled,
             comments = threads.comments,
             menu = buildList {
                 if (f.status != "removed") add(MenuAction(tr("查看文件")) { onOpen() })

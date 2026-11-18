@@ -261,7 +261,7 @@ fun MarkdownPreview(text: String, contextRepo: String?, modifier: Modifier = Mod
             Text(tr("渲染中…"), color = g.fgMuted, fontSize = 13.sp)
         }
     } else {
-        HtmlView(h, modifier.padding(vertical = 4.dp))
+        HtmlView(h, modifier.padding(vertical = 4.dp), allowTranslation = false)
     }
 }
 

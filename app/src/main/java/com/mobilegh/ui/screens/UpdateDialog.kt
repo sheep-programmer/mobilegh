@@ -1,19 +1,24 @@
 package com.mobilegh.ui.screens
 
-import com.mobilegh.ui.components.dialogFrame
-import com.mobilegh.ui.components.ModalDialogProperties
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -23,14 +28,19 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.BuildConfig
 import com.mobilegh.data.Update
+import com.mobilegh.ui.components.GhButton
+import com.mobilegh.ui.components.HDivider
+import com.mobilegh.ui.components.ReleaseNotes
+import com.mobilegh.ui.components.dialogFrame
 import com.mobilegh.ui.components.fmtSize
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.components.toast
+import com.mobilegh.ui.components.verticalScrollWithBar
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.launch
 import com.mobilegh.i18n.tr
@@ -46,69 +56,63 @@ fun UpdatePromptHost() {
     UpdateDialog(onDismiss = { show = false }, onSkip = { Update.skip(info); show = false })
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UpdateDialog(onDismiss: () -> Unit, onSkip: (() -> Unit)? = null) {
     val g = Gh.c
     val ctx = rememberCtx()
     val scope = rememberCoroutineScope()
-    AlertDialog(
+    val info = Update.available
+    BasicAlertDialog(
         onDismissRequest = onDismiss,
-        // 自动弹出的更新提示要明确选择（下载 / 稍后 / 跳过）：点框外不关闭；手动打开的更新页保持原样
-        properties = if (onSkip != null) ModalDialogProperties else androidx.compose.ui.window.DialogProperties(),
-        modifier = Modifier.dialogFrame(),
-        containerColor = g.canvas,
-        shape = RoundedCornerShape(16.dp),
-        tonalElevation = 0.dp,
-        title = { Text(tr("在线更新"), color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold) },
-        text = {
-            Column {
-                Text(trf("当前版本 v{0} · 设备架构 {1}", BuildConfig.VERSION_NAME, Update.abi), fontSize = 13.sp, color = g.fgMuted)
-                Spacer(Modifier.height(12.dp))
-                val info = Update.available
-                when {
-                    Update.checking -> {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+        properties = DialogProperties(dismissOnClickOutside = onSkip == null),
+        modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().dialogFrame().background(g.canvas),
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Text(tr("在线更新"), color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+            key(info?.tag) {
+                val scroll = rememberScrollState()
+                Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScrollWithBar(scroll).padding(vertical = 10.dp)) {
+                    Text(trf("当前版本 v{0} · 设备架构 {1}", BuildConfig.VERSION_NAME, Update.abi), fontSize = 13.sp, color = g.fgMuted)
+                    Spacer(Modifier.height(8.dp))
+                    when {
+                        Update.checking -> Row(verticalAlignment = Alignment.CenterVertically) {
                             CircularProgressIndicator(Modifier.size(18.dp), color = g.accent, strokeWidth = 2.dp)
                             Spacer(Modifier.width(10.dp))
                             Text(tr("正在读取最新 Release…"), color = g.fg, fontSize = 14.sp)
                         }
-                    }
-                    info != null -> {
-                        Text(trf("发现新版本 v{0}", info.version), color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                        Spacer(Modifier.height(6.dp))
-                        Text(info.assetName + " · " + fmtSize(info.size), fontSize = 12.sp, color = g.fgMuted)
-                        info.notes?.takeIf { it.isNotBlank() }?.let {
-                            Spacer(Modifier.height(10.dp))
-                            Text(it.take(600), fontSize = 12.sp, lineHeight = 18.sp, color = g.fgMuted, maxLines = 8, overflow = TextOverflow.Ellipsis)
+                        info != null -> {
+                            Text(trf("发现新版本 v{0}", info.version), color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                            Spacer(Modifier.height(4.dp))
+                            Text(info.assetName + " · " + fmtSize(info.size), fontSize = 12.sp, color = g.fgMuted)
+                            Spacer(Modifier.height(12.dp))
+                            Text(tr("发布说明"), color = g.fg, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            if (info.notes.isNullOrBlank() && info.notesHtml.isNullOrBlank()) {
+                                Text(tr("此版本未提供发布说明"), Modifier.padding(top = 6.dp), color = g.fgMuted, fontSize = 13.sp)
+                            } else ReleaseNotes(info.notes, info.notesHtml, info.releaseUrl, Modifier.padding(top = 6.dp, end = 8.dp))
                         }
-                    }
-                    else -> {
-                        Text(Update.error ?: tr("已是最新版本"), color = if (Update.error != null) g.danger else g.fg, fontSize = 14.sp)
+                        else -> Text(Update.error ?: tr("已是最新版本"), color = if (Update.error != null) g.danger else g.fg, fontSize = 14.sp)
                     }
                 }
             }
-        },
-        confirmButton = {
-            val info = Update.available
-            if (info != null) {
-                TextButton({
-                    onDismiss()
-                    Update.download(info)
-                    ctx.toast(tr("正在下载，完成后在下载记录中安装"))
-                }) { Text(tr("下载更新"), color = g.accent, fontWeight = FontWeight.SemiBold) }
-            } else {
-                TextButton({ scope.launch { Update.check() } }, enabled = !Update.checking) {
-                    Text(tr("重新检查"), color = if (Update.checking) g.fgMuted else g.accent, fontWeight = FontWeight.SemiBold)
+            HDivider()
+            FlowRow(
+                Modifier.fillMaxWidth().padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
+            ) {
+                if (onSkip != null && info != null) GhButton(tr("跳过此版本"), onClick = onSkip)
+                GhButton(if (onSkip != null) tr("稍后") else tr("关闭"), onClick = onDismiss)
+                if (info != null && !Update.checking) {
+                    GhButton(tr("下载更新"), primary = true) {
+                        onDismiss()
+                        Update.download(info)
+                        ctx.toast(tr("正在下载，完成后在下载记录中安装"))
+                    }
+                } else {
+                    GhButton(tr("重新检查"), enabled = !Update.checking) { scope.launch { Update.check() } }
                 }
             }
-        },
-        dismissButton = {
-            Row {
-                // 自动弹出时可以跳过这个版本：之后不再自动提示，设置里仍能手动更新
-                if (onSkip != null && Update.available != null) TextButton(onSkip) { Text(tr("跳过此版本"), color = g.fgMuted) }
-                TextButton(onDismiss) { Text(if (onSkip != null) tr("稍后") else tr("关闭"), color = g.fgMuted) }
-            }
-        },
-    )
+        }
+    }
     LaunchedEffect(Unit) { if (Update.available == null && !Update.checking) Update.check() }
 }

@@ -25,10 +25,10 @@ object ActionsRequests {
         put("send_secrets_and_variables", secrets)
         put("require_approval_for_fork_pr_workflows", approval)
     })
-    fun selected(githubOwned: Boolean, verified: Boolean, patterns: List<String>) = ActionRequest("PUT", "/actions/permissions/selected-actions", buildJsonObject {
+    fun selected(githubOwned: Boolean, verified: Boolean, patterns: List<String>?) = ActionRequest("PUT", "/actions/permissions/selected-actions", buildJsonObject {
         put("github_owned_allowed", githubOwned)
         put("verified_allowed", verified)
-        putJsonArray("patterns_allowed") { patterns.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } }
+        if (patterns != null) putJsonArray("patterns_allowed") { patterns.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } }
     })
     fun workflow(default: String, canApprove: Boolean) = ActionRequest("PUT", "/actions/permissions/workflow", buildJsonObject {
         put("default_workflow_permissions", default)

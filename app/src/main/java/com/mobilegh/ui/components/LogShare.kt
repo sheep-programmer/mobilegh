@@ -15,7 +15,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /** 日志内容只写入 EXTRA_STREAM 指向的 .log 文件，不再塞进有长度限制的 EXTRA_TEXT。 */
-fun Context.shareLog(scope: CoroutineScope, kind: String, content: () -> String) {
+fun Context.shareLog(scope: CoroutineScope, kind: String, content: suspend () -> String) {
     scope.launch {
         try {
             val file = withContext(Dispatchers.IO) {

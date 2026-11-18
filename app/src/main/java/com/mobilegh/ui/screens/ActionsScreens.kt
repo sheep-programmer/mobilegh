@@ -50,6 +50,9 @@ import com.mobilegh.data.Job
 import com.mobilegh.data.Step
 import com.mobilegh.data.Run
 import com.mobilegh.data.Session
+import com.mobilegh.data.firstFailedJob
+import com.mobilegh.data.logStepTarget
+import com.mobilegh.data.nextLogTarget
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
@@ -81,7 +84,8 @@ import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.RegisterScrollTop
 import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.copy
-import com.mobilegh.ui.components.downloadFile
+import com.mobilegh.ui.components.CompactSearchField
+import com.mobilegh.ui.components.shareLog
 import com.mobilegh.ui.components.fmtDuration
 import com.mobilegh.ui.components.fmtSize
 import com.mobilegh.ui.components.openBrowser
@@ -322,6 +326,7 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
     ) { pad ->
         LoadBox(run, Modifier.padding(pad).fillMaxSize()) { rr ->
             val expandedJobs = remember { mutableStateMapOf<Long, Boolean>() }
+            val failed = remember(jobs.data) { firstFailedJob(jobs.data.orEmpty()) }
             ScrollbarLazyColumn(Modifier.fillMaxSize()) {
                 item {
                     val (icon, color) = runVisual(rr.status, rr.conclusion)
@@ -390,6 +395,18 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                 deployments.error?.let { message ->
                     item(key = "deployment-reviews-error") {
                         InlineError(message, Modifier.padding(horizontal = 16.dp), retry = { deployments.load(true) })
+                    }
+                }
+                failed?.let { (failedJob, failedStep) ->
+                    item(key = "first-failure") {
+                        Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                            Column(Modifier.fillMaxWidth().clickable {
+                                nav.push(Screen.JobLog(owner, name, failedJob.id, failedJob.name, runId, failedStep?.number ?: 0, focusFailure = true))
+                            }.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(tr("定位首个失败"), color = g.danger, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Text(listOfNotNull(failedJob.name, failedStep?.name).joinToString(" · "), color = g.fg, fontSize = 13.sp)
+                            }
+                        }
                     }
                 }
                 val js = jobs.data
@@ -485,11 +502,14 @@ fun RunDetailScreen(owner: String, name: String, runId: Long) {
                                 Text(fmtSize(art.sizeInBytes) + if (art.expired) tr(" · 已过期") else "", fontSize = 12.sp, color = g.fgMuted)
                             }
                             if (!art.expired) OcButton(R.drawable.oc_download, {
-                                ctx.downloadFile(
+                                com.mobilegh.data.Downloads.start(
                                     "https://api.github.com/repos/$owner/$name/actions/artifacts/${art.id}/zip",
                                     "${art.name}.zip",
                                     isPrivate = true,
                                     mimeType = "application/zip",
+                                    digest = art.digest,
+                                    actionsArchive = true,
+                                    openDialog = true,
                                 )
                             })
                         }
@@ -513,11 +533,12 @@ internal fun statusZh(s: String?, c: String?) = when {
     else -> c ?: s ?: ""
 }
 
-private val TS = Regex("""^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d+Z ?""")
+private val TS = Regex("""^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z ?""")
 private val ANSI = Regex("""\u001B\[[0-9;]*[A-Za-z]""")
 
 /** kind：0 普通 1 错误 2 警告 3 分组标题 4 命令 5 通知；group 为所属分组编号（-1 不在分组内），header 表示分组标题行 */
 private data class LogLine(val ts: String, val text: String, val kind: Int, val group: Int = -1, val header: Boolean = false)
+private data class JobLogContent(val lines: List<LogLine>, val raw: String?)
 
 /** 终端配色跟随应用主题（即系统的明暗设置）：暗色是深色终端，亮色是浅色终端 */
 private class TerminalPalette(
@@ -534,7 +555,7 @@ private fun terminalPalette(dark: Boolean) = if (dark) TerminalPalette(
 )
 
 @Composable
-fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId: Long = 0, stepNumber: Int = 0) {
+fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId: Long = 0, stepNumber: Int = 0, focusFailure: Boolean = false) {
     val g = Gh.c
     val t = terminalPalette(g.dark)
     val ctx = rememberCtx()
@@ -546,15 +567,16 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId:
         val currentJob = job.data ?: runCatching { GitHub.job(owner, name, jobId, force) }.getOrNull()
         if (currentJob != null && currentJob.status != "completed") {
             // 正在运行或排队，GitHub REST 日志接口此时不可用
-            return@rememberLoader emptyList<LogLine>()
+            return@rememberLoader JobLogContent(emptyList(), null)
         }
         val raw = GitHub.jobLog(owner, name, jobId)
-        val text = if (raw.length > 3_000_000) raw.takeLast(3_000_000) else raw
+        val truncated = raw.length > 3_000_000
+        val text = if (truncated) raw.takeLast(3_000_000).substringAfter('\n', "") else raw
         // 分组（##[group] … ##[endgroup]）的行记下所属分组，界面据此默认折叠
         val out = ArrayList<LogLine>()
         var group = -1
         var groups = 0
-        for (l0 in text.split('\n')) {
+        for (l0 in text.lineSequence()) {
             val l = ANSI.replace(l0.trimEnd('\r'), "")
             val ts = TS.find(l)?.value ?: ""
             val body = l.substring(ts.length)
@@ -571,7 +593,7 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId:
                 else -> out += LogLine(ts, body, 0, group)
             }
         }
-        out
+        JobLogContent(out, raw.takeUnless { truncated })
     }
 
     val j = job.data
@@ -590,7 +612,7 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId:
 
     // 任务完成后自动拉取终端日志
     LaunchedEffect(j?.status) {
-        if (j?.status == "completed" && (log.data == null || log.data?.isEmpty() == true)) {
+        if (j?.status == "completed" && (log.data == null || log.data?.lines?.isEmpty() == true)) {
             log.load(true)
         }
     }
@@ -600,10 +622,53 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId:
     val state = rememberLazyListState()
     // 分组默认折叠：点击分组标题展开或收起；只看错误时平铺显示所有错误和警告
     var expanded by remember(jobId) { mutableStateOf(emptySet<Int>()) }
-    val lines = log.data.orEmpty()
-    val groupIds = lines.filter { it.header }.map { it.group }
-    val shown = if (onlyErrors) lines.filter { it.kind == 1 || it.kind == 2 }
-        else lines.filter { it.group < 0 || it.header || it.group in expanded }
+    val lines = log.data?.lines.orEmpty()
+    val groupIds = remember(lines) { lines.filter { it.header }.map { it.group }.toSet() }
+    val errors = remember(lines) { lines.indices.filter { lines[it].kind == 1 } }
+    val shown = remember(lines, onlyErrors, expanded) {
+        lines.indices.filter { index ->
+            val line = lines[index]
+            if (onlyErrors) line.kind == 1 || line.kind == 2 else line.group < 0 || line.header || line.group in expanded
+        }
+    }
+    var searching by rememberSaveable { mutableStateOf(false) }
+    var keyword by rememberSaveable { mutableStateOf("") }
+    var jump by remember { mutableStateOf<Int?>(null) }
+    var selectedLine by rememberSaveable { mutableIntStateOf(-1) }
+    var initialJumpDone by rememberSaveable { mutableStateOf(false) }
+    val matches = remember(lines, keyword) {
+        val needle = keyword.trim()
+        if (needle.isEmpty()) emptyList() else lines.indices.filter { lines[it].text.contains(needle, ignoreCase = true) }
+    }
+    fun goTo(index: Int) {
+        val line = lines.getOrNull(index) ?: return
+        if (onlyErrors && line.kind != 1 && line.kind != 2) onlyErrors = false
+        if (line.group >= 0) expanded = expanded + line.group
+        selectedLine = index
+        jump = index
+    }
+    fun navigate(targets: List<Int>, forward: Boolean) {
+        val selectedVisible = state.layoutInfo.visibleItemsInfo.any { it.key == selectedLine }
+        val visible = shown.getOrNull(state.firstVisibleItemIndex) ?: 0
+        val start = jump ?: if (selectedVisible) selectedLine else visible - if (forward) 1 else 0
+        nextLogTarget(targets, start, forward)?.let(::goTo)
+    }
+    LaunchedEffect(jump, shown) {
+        val target = jump ?: return@LaunchedEffect
+        val index = shown.binarySearch(target)
+        if (index >= 0) {
+            state.scrollToItem(index)
+            jump = null
+        }
+    }
+    LaunchedEffect(lines, j, stepNumber, focusFailure) {
+        if (initialJumpDone || lines.isEmpty() || (stepNumber > 0 && j == null)) return@LaunchedEffect
+        val step = j?.steps?.firstOrNull { it.number == stepNumber }
+        val target = step?.let { logStepTarget(lines.map(LogLine::ts), it, errors, focusFailure) }
+            ?: errors.firstOrNull().takeIf { focusFailure }
+        target?.let(::goTo)
+        initialJumpDone = true
+    }
     // 已经滚到最下面时不显示「跳到最下面」，只有向上翻过之后才需要它
     val atBottom by remember(state) {
         androidx.compose.runtime.derivedStateOf {
@@ -621,7 +686,7 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId:
             else -> tr("作业日志")
         },
         actions = {
-            if (!isRunning && log.data != null && log.data!!.isNotEmpty()) {
+            if (!isRunning && lines.isNotEmpty()) {
                 OcButton(
                     R.drawable.oc_wrap_text,
                     { Session.toggleWrap() },
@@ -629,19 +694,24 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId:
                     description = if (Session.codeWrap) tr("自动换行（已开启）") else tr("自动换行（已关闭）"),
                 )
                 OcButton(if (onlyErrors) R.drawable.oc_filter_remove else R.drawable.oc_filter, { onlyErrors = !onlyErrors }, if (onlyErrors) g.danger else g.fg)
+                OcButton(R.drawable.oc_search, { searching = !searching; if (!searching) keyword = "" }, if (searching) g.accent else g.fg, description = tr("搜索日志"))
             }
             MoreMenu(buildList {
-                if (!isRunning && log.data != null && log.data!!.isNotEmpty()) {
+                if (!isRunning && lines.isNotEmpty()) {
                     add(MenuAction(if (showTs) tr("隐藏时间戳") else tr("显示时间戳")) { showTs = !showTs })
                     add(MenuAction(
                         if (Session.codeWrap) tr("自动换行（已开启）") else tr("自动换行（已关闭）"),
                         icon = R.drawable.oc_wrap_text,
                     ) { Session.toggleWrap() })
-                    add(MenuAction(tr("复制全部日志"), icon = R.drawable.oc_copy) { log.data?.let { l -> ctx.copy(l.joinToString("\n") { it.text }) } })
+                    add(MenuAction(tr("复制全部日志"), icon = R.drawable.oc_copy) { ctx.copy(lines.joinToString("\n") { it.text }) })
+                    add(MenuAction(tr("导出作业日志"), icon = R.drawable.oc_download) {
+                        val raw = log.data?.raw
+                        ctx.shareLog(scope, "actions-$jobId") { raw ?: GitHub.jobLog(owner, name, jobId) }
+                    })
                     if (groupIds.isNotEmpty()) {
                         val allOpen = expanded.size >= groupIds.size
                         add(MenuAction(if (allOpen) tr("折叠全部分组") else tr("展开全部分组"), icon = R.drawable.oc_chevron_down) {
-                            expanded = if (allOpen) emptySet() else groupIds.toSet()
+                            expanded = if (allOpen) emptySet() else groupIds
                         })
                     }
                 }
@@ -718,18 +788,36 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId:
                     )
                 }
                 // 5. 任务已完成，日志加载中
-                log.loading && (log.data == null || log.data?.isEmpty() == true) -> {
+                log.loading && lines.isEmpty() -> {
                     Loading(Modifier.fillMaxSize())
                 }
                 // 6. 任务已完成，正常显示日志
                 else -> {
+                    if (log.data?.raw == null && lines.isNotEmpty()) {
+                        Text(tr("仅显示日志末尾，完整内容可从菜单导出"), Modifier.padding(horizontal = 12.dp, vertical = 4.dp), color = g.fgMuted, fontSize = 12.sp)
+                    }
+                    if (searching) {
+                        CompactSearchField(keyword, { keyword = it }, tr("搜索日志"), Modifier.padding(horizontal = 12.dp), onSearch = { navigate(matches, true) })
+                    }
+                    val targets = if (searching) matches else errors
+                    if (targets.isNotEmpty()) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            val position = targets.binarySearch(selectedLine)
+                            Text(if (position >= 0) "${position + 1}/${targets.size}" else trf("{0} 处", targets.size), Modifier.weight(1f), fontSize = 12.sp, color = g.fgMuted)
+                            OcButton(R.drawable.oc_arrow_up, { navigate(targets, false) }, description = if (searching) tr("上一处匹配") else tr("上一处错误"))
+                            OcButton(R.drawable.oc_arrow_down, { navigate(targets, true) }, description = if (searching) tr("下一处匹配") else tr("下一处错误"))
+                        }
+                    } else if (searching && keyword.isNotBlank()) {
+                        Text(tr("没有匹配的日志"), Modifier.padding(horizontal = 12.dp, vertical = 4.dp), color = g.fgMuted, fontSize = 12.sp)
+                    }
                     val hs = rememberScrollState()
                     Box(Modifier.fillMaxSize().lazyScrollbar(state).then(if (Session.codeWrap) Modifier else Modifier.horizontalScroll(hs))) {
                         SelectionContainer {
                             RegisterScrollTop(state)
                             LazyColumn(if (Session.codeWrap) Modifier.fillMaxSize() else Modifier.width(2400.dp).fillMaxSize(), state = state) {
                                 if (shown.isEmpty()) item { Text(if (onlyErrors) tr("没有错误或警告") else tr("日志为空"), Modifier.padding(16.dp), color = g.fgMuted) }
-                                itemsIndexed(shown) { _, l ->
+                                itemsIndexed(shown, key = { _, index -> index }) { _, index ->
+                                    val l = lines[index]
                                     val color = when (l.kind) {
                                         1 -> t.error
                                         2 -> t.warning
@@ -748,7 +836,7 @@ fun JobLogScreen(owner: String, name: String, jobId: Long, title: String, runId:
                                             withStyle(SpanStyle(color = color, fontWeight = if (l.kind == 3) FontWeight.SemiBold else null)) { append(label) }
                                         },
                                         Modifier.fillMaxWidth()
-                                            .background(if (l.kind == 1) t.error.copy(alpha = 0.12f) else if (l.kind == 2) t.warning.copy(alpha = 0.12f) else Color.Transparent)
+                                            .background(if (index == selectedLine) g.accent.copy(alpha = 0.2f) else if (l.kind == 1) t.error.copy(alpha = 0.12f) else if (l.kind == 2) t.warning.copy(alpha = 0.12f) else Color.Transparent)
                                             .then(if (foldable) Modifier.clickable { expanded = if (open) expanded - l.group else expanded + l.group } else Modifier)
                                             .padding(horizontal = 10.dp, vertical = 1.dp),
                                         style = CodeStyle, softWrap = Session.codeWrap,

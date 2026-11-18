@@ -112,6 +112,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.focus.onFocusChanged
+import com.mobilegh.data.Session
+import com.mobilegh.data.searchCompletion
+import com.mobilegh.ui.components.Card
 
 /**
  * 独立的搜索大页面：类型切换、关键词、组合筛选、结果都在同一页。
@@ -244,6 +248,15 @@ private fun SearchBar(
 ) {
     // 从示例、历史或别的页面带关键词进来时，光标要停在末尾，方便直接接着输入
     var field by remember { mutableStateOf(TextFieldValue(input, TextRange(input.length))) }
+    var focused by remember { mutableStateOf(false) }
+    val historyRevision = History.revision
+    val login = Session.login
+    val history = remember(historyRevision, login) { History.data() }
+    val completion = remember(field, focused, type, history, login) {
+        if (focused && field.selection.collapsed && field.composition == null) {
+            searchCompletion(field.text, field.selection.start, type, history, login)
+        } else null
+    }
     LaunchedEffect(input) {
         if (field.text != input) field = TextFieldValue(input, TextRange(input.length))
     }
@@ -257,7 +270,7 @@ private fun SearchBar(
                 field = it
                 onInput(it.text)
             },
-            modifier = Modifier.weight(1f).semantics { contentDescription = trf("搜索 {0}", SearchType.labels[type]) },
+            modifier = Modifier.weight(1f).onFocusChanged { focused = it.isFocused }.semantics { contentDescription = trf("搜索 {0}", SearchType.labels[type]) },
             placeholder = { Text(placeholder(type), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             leadingIcon = { Oc(R.drawable.oc_search, MaterialTheme.colorScheme.onSurfaceVariant, 20.dp) },
             trailingIcon = {
@@ -277,6 +290,19 @@ private fun SearchBar(
         }
         Spacer(Modifier.width(4.dp))
         FilterEntry(count, onOpenFilters)
+    }
+    if (completion != null) {
+        Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 6.dp)) {
+            Column(Modifier.heightIn(max = 148.dp).verticalScroll(rememberScrollState())) {
+                completion.values.forEach { value ->
+                    DropdownMenuItem(text = { Text("${completion.qualifier}: $value", maxLines = 1, overflow = TextOverflow.Ellipsis) }, onClick = {
+                        val (text, cursor) = completion.apply(field.text, value)
+                        field = TextFieldValue(text, TextRange(cursor))
+                        onInput(text)
+                    })
+                }
+            }
+        }
     }
 }
 

@@ -494,7 +494,7 @@ fun RepoScreen(owner: String, name: String) {
                                     ) {
                                         ReadmeBody(
                                             html,
-                                            baseUrl = "https://github.com/$owner/$name/blob/${branch ?: r.defaultBranch}/",
+                                            baseUrl = "https://github.com/$owner/$name/blob/${branch ?: r.defaultBranch}/README.md",
                                             onAnchor = { y ->
                                                 scope.launch {
                                                     val targetPx = with(density) { (y + 44).dp.roundToPx().coerceAtLeast(0) }
@@ -854,7 +854,7 @@ private fun RepoHeader(r: Repo, onEdited: () -> Unit = {}) {
             StatCell(R.drawable.oc_repo_forked, trf("{0} 个 Fork", fmtCount(r.forksCount)), cell) {
                 nav.push(Screen.Repos(RepoKind.Forks, r.owner.login, r.name))
             }
-            StatCell(R.drawable.oc_eye, trf("{0} 人关注", fmtCount(r.subscribersCount ?: r.watchersCount)), cell) {
+            StatCell(R.drawable.oc_eye, r.subscribersCount?.let { trf("{0} 人关注", fmtCount(it)) } ?: tr("Watch 用户"), cell) {
                 nav.push(Screen.Users(UserKind.Watchers, r.owner.login, r.name))
             }
             // 许可证：打开仓库里的许可证文件；名称可能很长（如自定义许可证的全称），窄屏下折行显示
@@ -911,6 +911,7 @@ private fun ReadmeBody(
         onAnchor = onAnchor,
         anchorRequest = anchorRequest,
         fullHeight = true,
+        linkedImagesOpenLink = true,
     )
 }
 

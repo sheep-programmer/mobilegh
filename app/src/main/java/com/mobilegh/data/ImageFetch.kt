@@ -8,6 +8,7 @@ import okhttp3.Request
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
@@ -41,7 +42,7 @@ object ImageFetch {
     private const val RACE_WINDOW = 4
     private const val MAX_NODE_MEMO = 1024
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(RACE_WINDOW))
 
     @Volatile
     private var explicitDiskDir: File? = null
@@ -141,7 +142,8 @@ object ImageFetch {
     }
 
     /** 地址 → 失败时间；只保留最近一小段时间，网络恢复后自动重试 */
-    private val failed = LruCache<String, Long>(256)
+    private data class Failure(val at: Long, val missing: Boolean)
+    private val failed = LruCache<String, Failure>(256)
 
     /** 这张图上次是从哪个节点拿到的。字节缓存被淘汰后重下时直接命中正确的节点 */
     private val nodeMemo = object : LruCache<String, String>(MAX_NODE_MEMO) {}
@@ -150,7 +152,7 @@ object ImageFetch {
         private val latch = CountDownLatch(1)
         @Volatile var result: Result? = null
         fun await(): Result? {
-            runCatching { latch.await(25, TimeUnit.SECONDS) }
+            latch.await()
             return result
         }
         fun done() = latch.countDown()
@@ -193,7 +195,7 @@ object ImageFetch {
         val key = cacheKey(target)
         if (!force) {
             cached(target)?.let { return it }
-            if (recentlyFailed(key)) return null
+            if (recentFailure(key) != null) return null
         } else {
             failed.remove(key)
             cache.remove(key)
@@ -203,18 +205,21 @@ object ImageFetch {
         // 同一张图被 Compose 与 WebView 同时请求时共用一次下载
         if (shared) {
             val running = synchronized(inFlight) { inFlight.getOrPut(key) { own } }
-            if (running !== own) return running.await()
+            if (running !== own) return running.await().takeIf { key == cacheKey(target) }
         }
         try {
-            val r = fetchNetwork(target, force)
+            val network = fetchNetwork(target, force, key)
+            val r = network.result
+            if (key != cacheKey(target)) return null
             own.result = r
             if (r != null) {
                 failed.remove(key)
                 cache.put(key, r)
                 writeDiskCache(target, r)
             } else if (!background) {
-                failed.put(key, SystemClock.elapsedRealtime())
-                AppLog.warn("image", tr("图片加载失败：") + target.substringBefore('?').take(200))
+                failed.put(key, Failure(SystemClock.elapsedRealtime(), network.missing))
+                val status = if (network.missing) "missing" else "unavailable"
+                AppLog.warn("image", "[$status] " + tr("图片加载失败：") + target.substringBefore('?').take(200))
             }
             return r
         } finally {
@@ -223,50 +228,54 @@ object ImageFetch {
         }
     }
 
-    private fun recentlyFailed(key: String): Boolean {
-        val at = failed.get(key) ?: return false
-        if (SystemClock.elapsedRealtime() - at > FAIL_TTL_MS) {
+    private fun recentFailure(key: String): Failure? {
+        val failure = failed.get(key) ?: return null
+        if (SystemClock.elapsedRealtime() - failure.at > FAIL_TTL_MS) {
             failed.remove(key)
-            return false
+            return null
         }
-        return true
+        return failure
     }
+
+    internal fun isMissing(url: String): Boolean = recentFailure(cacheKey(url))?.missing == true
 
     /** 标记地址最近加载失败（测试或外部明确知道不可达时使用） */
     fun markFailed(url: String) {
         val key = cacheKey(normalize(url))
-        failed.put(key, SystemClock.elapsedRealtime())
+        failed.put(key, Failure(SystemClock.elapsedRealtime(), missing = false))
     }
 
-    private fun fetchNetwork(target: String, force: Boolean): Result? {
-        val key = cacheKey(target)
+    private fun fetchNetwork(target: String, force: Boolean, key: String): Outcome {
         val token = Session.token
         val preferred = nodeMemo.get(key)
         val candidates = prioritizeRaceCandidates(Net.imageCandidates(target), preferred)
-        val winner = race(target, candidates, force)
-        val r = winner?.second?.result ?: autoRetryFallback(target, force) ?: return null
-        val winningNode = winner?.first ?: Net.GITHUB_API_ID
-        if (key != cacheKey(target) || token != Session.token) return null
+        val outcomes = ConcurrentHashMap<String, Outcome>()
+        val winner = race(target, candidates, force, outcomes)
+            ?: retryOfficialCandidates(target, candidates, outcomes)
+        if (key != cacheKey(target) || token != Session.token) return Outcome(null, false)
+        if (winner == null) {
+            val official = candidates.filter { isOfficialCandidate(it.first) }
+            val missing = official.isNotEmpty() && official.all { outcomes[it.first]?.missing == true }
+            return Outcome(null, false, if (missing) 404 else null)
+        }
+        val (winningNode, outcome) = winner
         Net.markImageOk(target, winningNode)
         if (winningNode != Net.DIRECT.id) nodeMemo.put(key, winningNode)
-        return r
+        return outcome
     }
 
-    /**
-     * 自动内部回退重试：当常规竞速因网络抖动、公共镜像临时故障全部未命中时，
-     * 在直接向用户报错/显示裂图前，主动尝试官方 API 原始端点与直连，
-     * 彻底避免偶发网络波动导致用户必须手动点击重试。
-     */
-    private fun autoRetryFallback(target: String, force: Boolean): Result? {
-        val raw = Net.parseRaw(target)
-        if (raw != null) {
-            val apiUrl = Net.githubApiContentsUrl(raw)
-            val apiOutcome = execute(target, Net.GITHUB_API_ID, apiUrl, force = true)
-            if (apiOutcome.result != null) return apiOutcome.result
-        }
-        val directOutcome = execute(target, Net.DIRECT.id, target, force = true)
-        return directOutcome.result
-    }
+    private fun isOfficialCandidate(node: String): Boolean = node == Net.DIRECT.id || node == Net.GITHUB_API_ID
+
+    private fun retryOfficialCandidates(
+        target: String,
+        candidates: List<Pair<String, String>>,
+        outcomes: ConcurrentHashMap<String, Outcome>,
+    ): Pair<String, Outcome>? = race(
+        target,
+        candidates.filter { (node, _) -> isOfficialCandidate(node) && outcomes[node]?.missing != true },
+        force = true,
+        outcomes = outcomes,
+    )
 
     /**
      * 将直连 (DIRECT) 及官方 API (GITHUB_API) 纳入前排首轮竞速窗口中，
@@ -298,13 +307,14 @@ object ImageFetch {
     fun prefetch(url: String) {
         if (url.isBlank()) return
         val target = normalize(url)
-        if (cached(target) != null) return
         scope.launch {
             runCatching { fetch(target, background = true) }
         }
     }
 
-    private class Outcome(val result: Result?, val skipNode: Boolean)
+    private class Outcome(val result: Result?, val skipNode: Boolean, val code: Int? = null) {
+        val missing: Boolean get() = code == 404 || code == 410
+    }
 
     /**
      * 候选节点并发竞速，谁先返回有效图片就用谁；某个节点失败后立刻补上下一个，
@@ -317,36 +327,31 @@ object ImageFetch {
         target: String,
         candidates: List<Pair<String, String>>,
         force: Boolean,
+        outcomes: ConcurrentHashMap<String, Outcome>,
     ): Pair<String, Outcome>? {
         if (candidates.isEmpty()) return null
         if (candidates.size == 1) {
             val (node, url) = candidates[0]
             val outcome = execute(target, node, url, force)
+            outcomes[node] = outcome
             return if (outcome.result != null) node to outcome else null
         }
         val winner = java.util.concurrent.atomic.AtomicReference<Pair<String, Outcome>?>(null)
-        val next = java.util.concurrent.atomic.AtomicInteger(0)
-        val pending = java.util.concurrent.atomic.AtomicInteger(0)
+        var next = 0
+        val remaining = java.util.concurrent.atomic.AtomicInteger(candidates.size)
         val done = CountDownLatch(1)
-        val calls = java.util.Collections.synchronizedList(ArrayList<okhttp3.Call>())
-
-        fun finishIfExhausted() {
-            if (winner.get() == null && pending.get() == 0 && next.get() >= candidates.size) done.countDown()
-        }
+        val calls = ArrayList<okhttp3.Call>()
+        var stopped = false
 
         lateinit var settle: (String, Outcome, Boolean) -> Unit
         val launch = object : Runnable {
             override fun run() {
-                if (winner.get() != null) return
-                val index = next.getAndIncrement()
-                if (index >= candidates.size) {
-                    finishIfExhausted()
-                    return
+                val (node, url, call) = synchronized(calls) {
+                    if (stopped || winner.get() != null) return
+                    val (node, url) = candidates.getOrNull(next++) ?: return
+                    val call = newCall(url, force).also { calls.add(it) }
+                    Triple(node, url, call)
                 }
-                val (node, url) = candidates[index]
-                val call = newCall(url, force)
-                pending.incrementAndGet()
-                calls += call
                 call.enqueue(object : okhttp3.Callback {
                     override fun onFailure(call: okhttp3.Call, e: IOException) {
                         settle(node, Outcome(null, skipNode = true), call.isCanceled())
@@ -362,26 +367,32 @@ object ImageFetch {
         }
 
         settle = settle@{ node, outcome, canceled ->
-            pending.decrementAndGet()
+            if (canceled) return@settle
+            outcomes[node] = outcome
             if (outcome.result != null) {
                 if (winner.compareAndSet(null, node to outcome)) {
-                    synchronized(calls) { calls.toList() }.forEach { runCatching { it.cancel() } }
                     done.countDown()
                 }
                 return@settle
             }
-            if (!canceled && outcome.skipNode && node != Net.DIRECT.id) {
+            if (outcome.skipNode && node != Net.DIRECT.id) {
                 // 404/410 只说明这张图在这个地址不存在，不代表节点不可用
                 Net.markImageFail(target, node)
             }
             // 这个节点没成，立刻补上下一个候选
-            if (!canceled && winner.get() == null && next.get() < candidates.size) launch.run()
-            finishIfExhausted()
+            if (remaining.decrementAndGet() == 0) done.countDown() else launch.run()
         }
 
-        repeat(minOf(RACE_WINDOW, candidates.size)) { launch.run() }
-        runCatching { done.await(25, TimeUnit.SECONDS) }
-        return winner.get()
+        try {
+            repeat(minOf(RACE_WINDOW, candidates.size)) { launch.run() }
+            done.await(25, TimeUnit.SECONDS)
+            return winner.get()
+        } finally {
+            synchronized(calls) {
+                stopped = true
+                calls.forEach { it.cancel() }
+            }
+        }
     }
 
     /** 只有单个候选时走同步请求，省掉一次线程切换 */
@@ -407,7 +418,7 @@ object ImageFetch {
     }
 
     private fun parse(resp: okhttp3.Response, url: String): Outcome {
-        if (!resp.isSuccessful) return Outcome(null, resp.code != 404 && resp.code != 410)
+        if (!resp.isSuccessful) return Outcome(null, resp.code != 404 && resp.code != 410, resp.code)
         val type = resp.header("Content-Type")?.substringBefore(';')?.trim()?.lowercase()
         if (type != null && (type.startsWith("text/html") || type.startsWith("application/json"))) {
             return Outcome(null, true)

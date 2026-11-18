@@ -44,6 +44,7 @@ object DeviceAuth {
         "read:org" -> tr("组织与团队信息")
         "notifications" -> tr("通知已读与订阅")
         "user" -> tr("关注、列表与资料")
+        "read:user" -> tr("保存的回复")
         "gist" -> "Gist"
         "workflow" -> tr("手动触发工作流")
         "project" -> tr("Projects 看板读写")

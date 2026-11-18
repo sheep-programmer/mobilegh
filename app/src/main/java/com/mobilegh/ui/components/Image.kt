@@ -116,7 +116,7 @@ object Images {
     /** 把 SVG 画成位图；解析失败返回 null。文档没有声明尺寸时用 viewBox，再不行取 300×150（浏览器的默认值） */
     internal fun decodeSvg(bytes: ByteArray, maxDim: Int): ImageBitmap? = try {
         com.caverock.androidsvg.SVG.registerExternalFileResolver(SvgFileResolver)
-        val svg = com.caverock.androidsvg.SVG.getFromInputStream(java.io.ByteArrayInputStream(bytes))
+        val svg = parseSvg(bytes)
         var w = svg.documentWidth
         var h = svg.documentHeight
         if (w <= 0f || h <= 0f) {
@@ -180,7 +180,7 @@ object Images {
         }
 
         private fun renderEmbeddedSvg(bytes: ByteArray): Bitmap? = try {
-            val svg = com.caverock.androidsvg.SVG.getFromInputStream(java.io.ByteArrayInputStream(bytes))
+            val svg = parseSvg(bytes)
             var w = svg.documentWidth
             var h = svg.documentHeight
             if (w <= 0f || w.isNaN() || h <= 0f || h.isNaN()) {
@@ -205,6 +205,16 @@ object Images {
             bmp
         } catch (_: Throwable) {
             null
+        }
+    }
+
+    private fun parseSvg(bytes: ByteArray): com.caverock.androidsvg.SVG {
+        val normalized = SvgForeignText.normalize(bytes)
+        return try {
+            com.caverock.androidsvg.SVG.getFromInputStream(normalized.inputStream())
+        } catch (error: com.caverock.androidsvg.SVGParseException) {
+            if (normalized === bytes) throw error
+            com.caverock.androidsvg.SVG.getFromInputStream(bytes.inputStream())
         }
     }
 

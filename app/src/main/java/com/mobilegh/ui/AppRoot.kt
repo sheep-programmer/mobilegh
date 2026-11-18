@@ -15,13 +15,22 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.NavigationBar
@@ -43,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
@@ -65,6 +75,7 @@ import com.mobilegh.ui.components.AppLockScreen
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.DownloadHost
 import com.mobilegh.ui.components.ClipboardLinkHost
+import com.mobilegh.ui.components.ConnectivityBanner
 import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.screens.*
@@ -113,14 +124,19 @@ fun AppRoot(nav: Navigator) {
                 holder.SaveableStateProvider("app") {
                     Box(Modifier.fillMaxSize()) {
                         if (Session.token == null) {
-                            CompositionLocalProvider(LocalEntry provides nav.root) { LoginScreen() }
+                            CompositionLocalProvider(LocalEntry provides nav.root) {
+                                Column(Modifier.fillMaxSize()) {
+                                    Box(Modifier.weight(1f)) { LoginScreen() }
+                                    ConnectivityBanner(Modifier.navigationBarsPadding())
+                                }
+                            }
                         } else {
                             Main(nav)
                         }
                         Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.BottomEnd) { DownloadHost() }
+                        com.mobilegh.ui.components.ApkArchiveDialogHost()
                         com.mobilegh.ui.components.ImageViewerHost()
                         com.mobilegh.ui.components.VideoViewerHost()
-                        com.mobilegh.ui.components.YouTubeViewerHost()
                         com.mobilegh.ui.components.MobileApprovalHost()
                         com.mobilegh.ui.components.NotificationPermissionHost()                        // 启动检查发现新版本时自动弹出更新提示
                         if (Session.token != null) UpdatePromptHost()
@@ -206,11 +222,17 @@ private fun Main(nav: Navigator) {
     }
 
     // 剪贴板提示与链接菜单叠在最上层，任何页面（包括详情页自己的 Scaffold）都不会把它们挡住
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)), contentAlignment = Alignment.TopCenter) {
         Scaffold(
+            modifier = Modifier.widthIn(max = 900.dp).fillMaxSize(),
             containerColor = Gh.c.canvas,
             contentWindowInsets = WindowInsets(0),
-            bottomBar = { if (nav.stack.isEmpty()) RootNavigationBar(nav) },
+            bottomBar = {
+                Column {
+                    ConnectivityBanner(if (nav.stack.isEmpty()) Modifier else Modifier.navigationBarsPadding())
+                    if (nav.stack.isEmpty()) RootNavigationBar(nav)
+                }
+            },
         ) { pad ->
             AnimatedContent(
                 modifier = Modifier.padding(pad),
@@ -247,12 +269,19 @@ private fun Main(nav: Navigator) {
 }
 
 @Composable
-private fun RootNavigationBar(nav: Navigator) {
+internal fun RootNavigationBar(nav: Navigator, floating: Boolean = Session.floatingNavigation) {
     val g = Gh.c
     val bottomTabs = listOf(Tab.Home, Tab.Repos, Tab.Star, Tab.Explore)
-    Column {
-        HDivider()
-        NavigationBar(containerColor = g.header, tonalElevation = 0.dp) {
+    val shape = RoundedCornerShape(22.dp)
+    val frame = if (floating) Modifier.navigationBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp) else Modifier
+    Column(frame.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        if (!floating) HDivider()
+        NavigationBar(
+            modifier = if (floating) Modifier.widthIn(max = 520.dp).height(64.dp).clip(shape).border(1.dp, g.borderMuted, shape) else Modifier,
+            containerColor = g.header,
+            tonalElevation = 0.dp,
+            windowInsets = if (floating) WindowInsets(0) else androidx.compose.material3.NavigationBarDefaults.windowInsets,
+        ) {
             bottomTabs.forEach { t ->
                 val sel = nav.tab == t
                 val icon = when (t) {
@@ -333,7 +362,7 @@ private fun ScreenHost(s: Screen) {
         is Screen.Actions -> ActionsScreen(s.owner, s.name)
         is Screen.ActionsSettings -> ActionsSettingsScreen(s.owner, s.name, s.section)
         is Screen.RunDetail -> RunDetailScreen(s.owner, s.name, s.runId)
-        is Screen.JobLog -> JobLogScreen(s.owner, s.name, s.jobId, s.title, s.runId, s.stepNumber)
+        is Screen.JobLog -> JobLogScreen(s.owner, s.name, s.jobId, s.title, s.runId, s.stepNumber, s.focusFailure)
         is Screen.Releases -> ReleasesScreen(s.owner, s.name, s.tag, s.releaseId)
         is Screen.Pushes -> PushesScreen(s.owner, s.name)
         is Screen.Branches -> BranchesScreen(s.owner, s.name)

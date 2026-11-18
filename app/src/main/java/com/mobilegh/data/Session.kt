@@ -20,6 +20,13 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import com.mobilegh.i18n.tr
+import com.mobilegh.nav.Tab
+
+internal enum class AccentStyle(val label: String) {
+    Default("默认蓝"), Slate("雾蓝"), Teal("松石绿"), Violet("灰紫"), Rose("豆沙粉"),
+}
+
+internal val startupTabs = listOf(Tab.Home, Tab.Repos, Tab.Star, Tab.Explore, Tab.Notifications)
 
 @Serializable
 data class Account(val login: String, val avatarUrl: String = "", val tk: String = "", val refreshTk: String = "", val expiresAt: Long = 0, val clientId: String = "", val scopes: String = "")
@@ -88,6 +95,16 @@ object Session {
     /** 列表右下角的「回到顶部」按钮；默认关闭，在外观设置里打开 */
     var scrollToTopButton by mutableStateOf(false)
         private set
+    var floatingNavigation by mutableStateOf(false)
+        private set
+    var translateDocuments by mutableStateOf(false)
+        private set
+    internal var startupTab by mutableStateOf(Tab.Home)
+        private set
+    internal var accentStyle by mutableStateOf(AccentStyle.Default)
+        private set
+    internal var forkSort by mutableStateOf(ForkSort.Newest)
+        private set
     var rateRemaining by mutableStateOf<String?>(null)
     val accounts = mutableStateListOf<Account>()
 
@@ -109,6 +126,11 @@ object Session {
         themeMode = prefs.getInt("theme", 0)
         codeWrap = prefs.getBoolean("wrap", true)
         scrollToTopButton = prefs.getBoolean("scroll_to_top", false)
+        floatingNavigation = prefs.getBoolean("floating_navigation", false)
+        translateDocuments = prefs.getBoolean("translate_documents", false)
+        startupTab = startupTabs.firstOrNull { it.name == prefs.getString("startup_tab", null) } ?: Tab.Home
+        accentStyle = AccentStyle.entries.firstOrNull { it.name == prefs.getString("accent_style", null) } ?: AccentStyle.Default
+        forkSort = ForkSort.entries.firstOrNull { it.name == prefs.getString("fork_sort", null) } ?: ForkSort.Newest
         diffSplit = prefs.getBoolean("diff_split", true)
         accounts.clear()
         prefs.getString("accounts", null)?.let {
@@ -235,11 +257,23 @@ object Session {
 
     fun setViewedFiles(owner: String, name: String, number: Int, files: Map<String, String>) {
         if (login == null) return
+        if (viewedFiles(owner, name, number) == files) return
         val e = prefs.edit()
         if (files.isEmpty()) e.remove(viewedKey(owner, name, number))
         else e.putString(viewedKey(owner, name, number), Api.plain.encodeToString(MapSerializer(String.serializer(), String.serializer()), files))
         e.apply()
         viewedRevision++
+    }
+
+    internal fun reviewPosition(owner: String, name: String, number: Int): ReviewPosition? {
+        if (login == null) return null
+        val raw = prefs.getString("position_${viewedKey(owner, name, number)}", null) ?: return null
+        return runCatching { Api.plain.decodeFromString(ReviewPosition.serializer(), raw) }.getOrNull()
+    }
+
+    internal fun setReviewPosition(owner: String, name: String, number: Int, position: ReviewPosition) {
+        if (login == null) return
+        prefs.edit().putString("position_${viewedKey(owner, name, number)}", Api.plain.encodeToString(ReviewPosition.serializer(), position)).apply()
     }
 
     fun setTheme(mode: Int) {
@@ -260,6 +294,32 @@ object Session {
     fun chooseScrollToTopButton(on: Boolean) {
         scrollToTopButton = on
         prefs.edit().putBoolean("scroll_to_top", on).apply()
+    }
+
+    fun chooseFloatingNavigation(on: Boolean) {
+        floatingNavigation = on
+        prefs.edit().putBoolean("floating_navigation", on).apply()
+    }
+
+    fun chooseDocumentTranslation(on: Boolean) {
+        translateDocuments = on
+        prefs.edit().putBoolean("translate_documents", on).apply()
+    }
+
+    internal fun chooseStartupTab(tab: Tab) {
+        if (tab !in startupTabs) return
+        startupTab = tab
+        prefs.edit().putString("startup_tab", tab.name).apply()
+    }
+
+    internal fun chooseAccentStyle(style: AccentStyle) {
+        accentStyle = style
+        prefs.edit().putString("accent_style", style.name).apply()
+    }
+
+    internal fun chooseForkSort(sort: ForkSort) {
+        forkSort = sort
+        prefs.edit().putString("fork_sort", sort.name).apply()
     }
 
     private fun saveAccounts() {

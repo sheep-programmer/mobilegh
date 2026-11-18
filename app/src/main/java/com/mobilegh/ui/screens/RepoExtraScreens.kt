@@ -1,5 +1,10 @@
 package com.mobilegh.ui.screens
 
+import com.mobilegh.ui.components.ReleaseNotes
+
+import com.mobilegh.data.ReleasePlatform
+import com.mobilegh.data.matchesAsset
+
 import com.mobilegh.ui.components.MenuRow
 import com.mobilegh.ui.components.verticalScrollWithBar
 import com.mobilegh.ui.components.ScrollbarLazyColumn
@@ -149,6 +154,8 @@ fun ReleasesScreen(owner: String, name: String, tag: String? = null, releaseId: 
         }
     }
     val expanded = retain("expanded") { mutableStateMapOf<Long, Boolean>() }
+    var platformIndex by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) }
+    val platform = ReleasePlatform.entries[platformIndex]
     OnRepoChanged(owner, name) { pager.refresh(); latest.refresh(); target.refresh() }
     val canPush = repo.data?.let { it.permissions?.push == true && !it.archived } == true
     var deleting by remember { mutableStateOf<Release?>(null) }
@@ -169,11 +176,16 @@ fun ReleasesScreen(owner: String, name: String, tag: String? = null, releaseId: 
             // 指定版本已经放在顶部，列表里不再重复出现
             itemFilter = targetRelease?.let { t -> { r: Release -> r.id != t.id } },
             header = {
+                item {
+                    Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Dropdown(tr(platform.label), ReleasePlatform.entries.map { tr(it.label) }, { platformIndex = it }, active = platform != ReleasePlatform.All)
+                    }
+                }
                 if (tag != null || releaseId != null) item {
                     when {
                         targetRelease != null -> ReleaseCard(
                             owner, name, targetRelease, latest.data == targetRelease.id, expanded[targetRelease.id] != false,
-                            menu = menuFor(targetRelease),
+                            menu = menuFor(targetRelease), platform = platform,
                         ) { expanded[targetRelease.id] = !(expanded[targetRelease.id] ?: true) }
                         target.loading -> Loading(Modifier.fillMaxWidth().heightIn(min = 120.dp))
                         target.error != null -> Text(target.error!!, Modifier.padding(16.dp), color = Gh.c.danger, fontSize = 13.sp)
@@ -185,7 +197,7 @@ fun ReleasesScreen(owner: String, name: String, tag: String? = null, releaseId: 
             val isLatest = latest.data?.let { it == r.id } ?: (pager.items.firstOrNull() == r)
             ReleaseCard(
                 owner, name, r, isLatest, expanded[r.id] == true,
-                menu = menuFor(r),
+                menu = menuFor(r), platform = platform,
             ) { expanded[r.id] = !(expanded[r.id] ?: false) }
         }
     }
@@ -226,7 +238,7 @@ private fun DeleteReleaseDialog(owner: String, name: String, r: Release, onDismi
 }
 
 @Composable
-private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean, expanded: Boolean, menu: List<MenuAction>, onToggle: () -> Unit) {
+private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean, expanded: Boolean, menu: List<MenuAction>, platform: ReleasePlatform, onToggle: () -> Unit) {
     val priv = com.mobilegh.data.Net.isPrivateRepo("$owner/$name")
     val g = Gh.c
     var info by remember { mutableStateOf<FileInfo?>(null) }
@@ -256,23 +268,26 @@ private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean,
                 Spacer(Modifier.width(4.dp))
                 Text("${r.author?.login ?: ""} · ${fmtDate(r.publishedAt ?: r.createdAt)}", fontSize = 12.sp, color = g.fgMuted)
             }
-            val body = r.bodyHtml
-            if (!body.isNullOrBlank()) {
+            if (!r.body.isNullOrBlank() || !r.bodyHtml.isNullOrBlank()) {
                 if (expanded) {
-                    HtmlView(body, Modifier.padding(horizontal = 4.dp, vertical = 4.dp))
+                    ReleaseNotes(r.body, r.bodyHtml, r.htmlUrl.ifBlank { "https://github.com/$owner/$name" }, Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
                     Row(Modifier.padding(horizontal = 8.dp)) { TextLink(tr("收起"), onClick = onToggle) }
                 } else {
-                    Text(
-                        r.body.orEmpty().replace(Regex("[#*`>_]"), "").trim(), Modifier.padding(horizontal = 12.dp),
-                        fontSize = 13.sp, color = g.fgMuted, maxLines = 4, overflow = TextOverflow.Ellipsis,
-                    )
+                    r.body?.takeIf(String::isNotBlank)?.let { body ->
+                        Text(
+                            body.replace(Regex("[#*`>_]"), "").trim(), Modifier.padding(horizontal = 12.dp),
+                            fontSize = 13.sp, color = g.fgMuted, maxLines = 4, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     Row(Modifier.padding(horizontal = 8.dp)) { TextLink(tr("展开说明"), onClick = onToggle) }
                 }
             }
             run {
+                val visible = r.assets.filter { platform.matchesAsset(it.name) }
                 HDivider(Modifier.padding(vertical = 6.dp))
-                Text(trf("资源 ({0})", r.assets.size + 2), Modifier.padding(horizontal = 12.dp), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
-                r.assets.forEach { a ->
+                Text(trf("资源 ({0})", visible.size + if (platform == ReleasePlatform.All) 2 else 0), Modifier.padding(horizontal = 12.dp), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+                if (visible.isEmpty() && platform != ReleasePlatform.All) Text(tr("此版本没有该平台的附件"), Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 12.sp, color = g.fgMuted)
+                visible.forEach { a ->
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             info = FileInfo(
@@ -280,6 +295,7 @@ private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean,
                                 url = releaseAssetDownloadUrl(owner, name, a.id, a.browserDownloadUrl, priv),
                                 isPrivate = priv,
                                 mimeType = a.contentType,
+                                digest = a.digest,
                                 details = listOf(
                                     tr("说明") to (a.label ?: ""),
                                     tr("大小") to trf("{0}（{1} 字节）", fmtSize(a.size), "%,d".format(a.size)),
@@ -301,7 +317,7 @@ private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean,
                         Text(trf("{0} · {1} 次下载", fmtSize(a.size), fmtCount(a.downloadCount)), fontSize = 11.sp, color = g.fgMuted)
                     }
                 }
-                listOf("zip", "tar.gz").forEach { ext ->
+                if (platform == ReleasePlatform.All) listOf("zip", "tar.gz").forEach { ext ->
                     Row(
                         Modifier.fillMaxWidth().clickable {
                             info = FileInfo(

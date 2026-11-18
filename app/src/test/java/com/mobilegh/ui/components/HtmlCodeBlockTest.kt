@@ -47,7 +47,8 @@ class HtmlCodeBlockTest {
         val html = wrapHtml("<div class=\"highlight\"><pre>one line</pre></div>", dark = false)
         // 工具栏必须插在 pre 之前（不再绝对定位覆盖代码）
         assertTrue(html.contains("w.appendChild(t); w.appendChild(p);"))
-        assertFalse(html.contains("position:absolute;top:6px;right:6px"))
+        val toolbarStyle = html.substringAfter(".cb-tools{").substringBefore('}')
+        assertFalse(toolbarStyle.contains("position:absolute"))
     }
 
     @Test fun mermaidScriptIsOnlyLoadedWhenThePageHasMermaid() {

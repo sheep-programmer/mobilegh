@@ -195,7 +195,7 @@ GitHub 没有返回该提交的文件树，请稍后重试	GitHub did not return
 文件树	file tree
 提交	Submit
 GitHub 没有返回新的{0}，请先打开提交列表确认写入结果，再决定是否重试	GitHub did not return a new {0}, open the commit list to confirm the result before deciding whether to retry
-GitHub 只向仓库所有者公开 {0} 用户列表	GitHub only exposes the {0} user list to the repository owner
+GitHub 仅向仓库管理员和协作者开放此名单。	GitHub makes this list available only to repository admins and collaborators.
 审查会话状态读取失败：{0}	Failed to read the review session state: {0}
 操作失败（可能没有权限）	Operation failed (you may not have permission)
 Issue 模板读取失败：{0}	Failed to read the issue templates: {0}
@@ -1833,6 +1833,10 @@ CI 活动	CI activity
 关注中	Following
 Star 用户	Stargazers
 Watch 用户	Watchers
+暂无仓库关注者	No repository watchers yet
+GitHub 返回的关注者列表不完整	GitHub returned an incomplete watcher list
+GitHub 返回的关注者分页信息无效	GitHub returned invalid watcher pagination information
+暂无 Star 用户	No stargazers yet
 此仓库没有关联的项目	This repository has no linked projects
 暂无可见的项目	No visible projects
 {0} 个条目	{0} items
@@ -1960,6 +1964,7 @@ Issue 已创建，但类型未设置：{0}	Issue created, but its type was not s
 发布时将从目标分支创建新标签 {0}	Publishing creates a new tag {0} from the target branch
 目标分支	Target branch
 发布说明	Release notes
+此版本未提供发布说明	No release notes were provided for this version
 生成中…	Generating…
 自动生成说明	Generate notes automatically
 生成失败：{0}	Generation failed: {0}
@@ -2431,6 +2436,9 @@ Secret 值	Secret value
 Secret 值只会写入，无法再次读取	Secret values are write-only and cannot be read again
 暂无 Secrets	No secrets
 暂无组织 Secrets	No organization secrets
+缓存限制	Cache limits
+暂无 Runner 下载项	No runner downloads available
+GitHub 要求仓库所有者配置有效的付款方式后才能编辑缓存限制。缓存列表和删除不受影响。	GitHub requires the repository owner to add a valid payment method to edit cache limits. Listing and deleting caches are unaffected.
 新建 Variable	New variable
 编辑 Variable	Edit variable
 编辑 Variable {0}	Edit variable {0}
@@ -3149,6 +3157,8 @@ README / 项目速览（内容预览）	README / Overview (Preview)
 展开全部分组	Expand all groups
 折叠全部分组	Collapse all groups
 放大播放	Expand and play
+播放	Play
+图片已失效	Image unavailable at source
 系统冻结	Frozen by system
 应用状态变化	App state changed
 应用更新安装	App updated
@@ -3259,3 +3269,51 @@ HTTP 会以明文传输 Git 内容和凭据。确定继续吗？	HTTP transmits 
 仓库导入结果	Repository import results
 正在导入仓库	Importing repository
 导入完成	Import completed
+最新创建	Newest first
+最早创建	Oldest first
+Star 数	Most stars
+订阅人数	Most watchers
+悬浮底栏	Floating bottom bar
+首页底部使用圆角导航栏	Use a rounded navigation bar on the main tabs
+正文翻译	Translate content
+在设备上翻译正文为界面语言，首次需要下载语言模型	Translate content on this device into the app language. The first use downloads language models.
+正在准备翻译…	Preparing translation…
+翻译失败，正在显示原文	Translation failed. Showing the original.
+由 Google 自动翻译	Automatically translated by Google
+全部平台	All platforms
+此版本没有该平台的附件	No assets for this platform in this release
+正在验证 SHA-256…	Verifying SHA-256…
+SHA-256 校验不匹配，未保存文件	SHA-256 mismatch. The file was not saved.
+查找 APK	Find APKs
+从 Actions 产物安装 APK	Install APK from Actions artifact
+交给系统安装	Open system installer
+无法读取产物 ZIP，请重新下载后再试	Could not read the artifact ZIP. Download it again and retry.
+无法提取有效的 APK，请检查产物	Could not extract a valid APK. Check the artifact.
+此产物没有可安装的 APK	This artifact has no installable APKs
+仅安装你信任的项目生成的 APK。	Only install APKs built by projects you trust.
+网络已断开，已加载内容仍可查看	Offline. Previously loaded content is still available.
+网络已恢复	Back online
+强调色	Accent color
+默认蓝	Default blue
+雾蓝	Slate blue
+松石绿	Muted teal
+灰紫	Muted violet
+豆沙粉	Dusty rose
+启动页	Start page
+查看原文	Show original
+显示译文	Show translation
+定位首个失败	Jump to first failure
+搜索日志	Search log
+导出作业日志	Export job log
+仅显示日志末尾，完整内容可从菜单导出	Only the end of the log is shown. Export the full log from the menu.
+{0} 处	{0} results
+上一处匹配	Previous match
+下一处匹配	Next match
+上一处错误	Previous error
+下一处错误	Next error
+GitHub 已阅状态暂不可用	GitHub viewed status is unavailable
+PR 已更新，请刷新文件变更	This pull request has changed. Refresh the file changes.
+正在同步已阅进度…	Syncing viewed progress…
+无法同步已阅进度，暂仅记录在本机	Could not sync viewed progress. Changes are local only.
+无法刷新 GitHub 已阅进度	Could not refresh GitHub viewed progress
+刷新文件与已阅进度	Refresh files and viewed progress

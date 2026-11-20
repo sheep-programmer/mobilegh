@@ -96,6 +96,7 @@ import com.mobilegh.ui.components.LoadBox
 import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
+import com.mobilegh.ui.components.TranslationMoreMenu
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.Pill
@@ -167,7 +168,11 @@ fun ReleasesScreen(owner: String, name: String, tag: String? = null, releaseId: 
     val targetRelease = target.data
     Page(
         "Releases", subtitle = "$owner/$name", onSubtitleClick = { nav.toRepoHome(owner, name) },
-        actions = { if (canPush) OcButton(R.drawable.oc_plus, { nav.push(Screen.EditRelease(owner, name)) }) },
+        translationInMenu = true,
+        actions = {
+            if (canPush) OcButton(R.drawable.oc_plus, { nav.push(Screen.EditRelease(owner, name)) })
+            TranslationMoreMenu(emptyList())
+        },
     ) { pad ->
         PagedList(
             pager, Modifier.padding(pad), empty = tr("还没有发布版本"), divider = false, boxed = false,

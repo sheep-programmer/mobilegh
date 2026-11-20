@@ -91,6 +91,7 @@ import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.ExternalLinkDialog
+import com.mobilegh.ui.components.TranslationMoreMenu
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.TextLink
@@ -632,7 +633,8 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
 
     fun reloadComments() = comments.load(true)
 
-    Page(tr("文件变更"), subtitle = "$owner/$name #$number", actions = {
+    Page(tr("文件变更"), subtitle = "$owner/$name #$number", translationInMenu = true, actions = {
+        TranslationMoreMenu(emptyList())
         OcButton(R.drawable.oc_sync, { if (!updating) refreshReview() }, description = tr("刷新文件与已阅进度"))
     }) { pad ->
         LoadBox(files, Modifier.padding(pad).fillMaxSize()) { snapshot ->

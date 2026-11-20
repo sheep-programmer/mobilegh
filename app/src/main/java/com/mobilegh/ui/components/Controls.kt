@@ -867,6 +867,16 @@ fun MutableList<MenuAction>.addLinkActions(ctx: android.content.Context, url: St
     add(MenuAction(com.mobilegh.i18n.tr("在浏览器打开"), icon = R.drawable.oc_globe) { ctx.openBrowser(url) })
 }
 
+@Composable
+internal fun TranslationMoreMenu(actions: List<MenuAction>) {
+    val translation = if (com.mobilegh.data.Session.translateDocuments) LocalPageTranslation.current else null
+    val items = if (translation != null) {
+        val label = if (translation.showOriginal) tr("翻译") else tr("显示原文")
+        listOf(MenuAction(label, icon = R.drawable.oc_book) { translation.showOriginal = !translation.showOriginal }) + actions
+    } else actions
+    if (items.isNotEmpty()) MoreMenu(items)
+}
+
 /** 右上角"更多"菜单：每一个菜单选项都有独立的圆角卡片、图标与清晰的边界 */
 @Composable
 fun MoreMenu(actions: List<MenuAction>, tint: Color = Gh.c.fg) {

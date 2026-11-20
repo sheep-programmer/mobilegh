@@ -19,6 +19,7 @@ import com.mobilegh.ui.components.EmptyState
 import com.mobilegh.ui.components.HtmlView
 import com.mobilegh.ui.components.LoadBox
 import com.mobilegh.ui.components.OcButton
+import com.mobilegh.ui.components.TranslationMoreMenu
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.openBrowser
 import com.mobilegh.ui.components.rememberCtx
@@ -45,8 +46,10 @@ fun WikiScreen(owner: String, name: String, page: String?) {
     Page(
         title,
         subtitle = "$owner/$name · Wiki",
+        translationInMenu = !html.data.isNullOrBlank(),
         actions = {
             OcButton(R.drawable.oc_link_external, { ctx.openBrowser(Wiki.webUrl(owner, name, page)) })
+            TranslationMoreMenu(emptyList())
         },
     ) { pad ->
         val scrollState = rememberScrollState()

@@ -17,6 +17,10 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -36,6 +40,9 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -74,6 +81,7 @@ import com.mobilegh.nav.Tab
 import com.mobilegh.ui.components.AppLockScreen
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.DownloadHost
+import com.mobilegh.ui.components.DownloadOverlayLayout
 import com.mobilegh.ui.components.ClipboardLinkHost
 import com.mobilegh.ui.components.ConnectivityBanner
 import com.mobilegh.ui.components.HDivider
@@ -133,7 +141,11 @@ fun AppRoot(nav: Navigator) {
                         } else {
                             Main(nav)
                         }
-                        Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.BottomEnd) { DownloadHost() }
+                        BoxWithConstraints(Modifier.fillMaxSize()) {
+                            DownloadOverlayLayout(
+                                bottomBarVisible = Session.token != null && nav.stack.isEmpty() && maxWidth < 840.dp,
+                            ) { DownloadHost() }
+                        }
                         com.mobilegh.ui.components.ApkArchiveDialogHost()
                         com.mobilegh.ui.components.ImageViewerHost()
                         com.mobilegh.ui.components.VideoViewerHost()
@@ -223,48 +235,94 @@ private fun Main(nav: Navigator) {
 
     // 剪贴板提示与链接菜单叠在最上层，任何页面（包括详情页自己的 Scaffold）都不会把它们挡住
     Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)), contentAlignment = Alignment.TopCenter) {
-        Scaffold(
-            modifier = Modifier.widthIn(max = 900.dp).fillMaxSize(),
-            containerColor = Gh.c.canvas,
-            contentWindowInsets = WindowInsets(0),
-            bottomBar = {
-                Column {
-                    ConnectivityBanner(if (nav.stack.isEmpty()) Modifier else Modifier.navigationBarsPadding())
-                    if (nav.stack.isEmpty()) RootNavigationBar(nav)
-                }
-            },
-        ) { pad ->
-            AnimatedContent(
-                modifier = Modifier.padding(pad),
-                targetState = nav.stack.lastOrNull(),
-                contentKey = { it?.id ?: "root" },
-                transitionSpec = {
-                    if (nav.lastWasPush) {
-                        (slideInHorizontally(tween(220)) { it / 4 } + fadeIn(tween(220))) togetherWith fadeOut(tween(120))
-                    } else {
-                        fadeIn(tween(180)) togetherWith (slideOutHorizontally(tween(200)) { it / 4 } + fadeOut(tween(200)))
+        RootAdaptiveLayout(nav) { useRail ->
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = Gh.c.canvas,
+                contentWindowInsets = WindowInsets(0),
+                bottomBar = {
+                    Column {
+                        ConnectivityBanner(if (nav.stack.isEmpty()) Modifier else Modifier.navigationBarsPadding())
+                        if (!useRail && nav.stack.isEmpty()) RootNavigationBar(nav)
                     }
                 },
-                label = "nav",
-            ) { entry ->
-                if (entry == null) {
-                    RootTabs(nav, holder)
-                } else {
-                    CompositionLocalProvider(LocalEntry provides entry) {
-                        holder.SaveableStateProvider(entry.id) {
-                            Box(Modifier.fillMaxSize().background(Gh.c.canvas)) { ScreenHost(entry.screen) }
+            ) { pad ->
+                AnimatedContent(
+                    modifier = Modifier.padding(pad),
+                    targetState = nav.stack.lastOrNull(),
+                    contentKey = { it?.id ?: "root" },
+                    transitionSpec = {
+                        if (nav.lastWasPush) {
+                            (slideInHorizontally(tween(220)) { it / 4 } + fadeIn(tween(220))) togetherWith fadeOut(tween(120))
+                        } else {
+                            fadeIn(tween(180)) togetherWith (slideOutHorizontally(tween(200)) { it / 4 } + fadeOut(tween(200)))
+                        }
+                    },
+                    label = "nav",
+                ) { entry ->
+                    if (entry == null) {
+                        RootTabs(nav, holder)
+                    } else {
+                        CompositionLocalProvider(LocalEntry provides entry) {
+                            holder.SaveableStateProvider(entry.id) {
+                                Box(Modifier.fillMaxSize().background(Gh.c.canvas)) { ScreenHost(entry.screen) }
+                            }
                         }
                     }
                 }
             }
+            // 根页面底部有标签栏，提示要抬高到标签栏之上；详情页没有标签栏
+            ClipboardLinkHost(
+                nav,
+                Modifier.align(Alignment.BottomCenter)
+                    .padding(bottom = if (!useRail && nav.stack.isEmpty()) 80.dp else 0.dp)
+                    .navigationBarsPadding().imePadding(),
+            )
         }
-    // 根页面底部有标签栏，提示要抬高到标签栏之上；详情页没有标签栏
-    ClipboardLinkHost(
-        nav,
-        Modifier.align(Alignment.BottomCenter)
-            .padding(bottom = if (nav.stack.isEmpty()) 80.dp else 0.dp)
-            .navigationBarsPadding().imePadding(),
-    )
+    }
+}
+
+/** Use the actual available width so split-screen windows retain phone navigation. */
+@Composable
+internal fun RootAdaptiveLayout(nav: Navigator, content: @Composable BoxScope.(Boolean) -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val useRail = maxWidth >= 840.dp
+        Row(Modifier.fillMaxSize()) {
+            if (useRail) RootNavigationRail(nav)
+            Box(Modifier.weight(1f).fillMaxHeight()) { content(useRail) }
+        }
+    }
+}
+
+@Composable
+internal fun RootNavigationRail(nav: Navigator) {
+    val g = Gh.c
+    NavigationRail(
+        modifier = Modifier.fillMaxHeight(),
+        containerColor = g.header,
+        contentColor = g.fg,
+        windowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical),
+    ) {
+        listOf(Tab.Home, Tab.Repos, Tab.Star, Tab.Explore).forEach { tab ->
+            val selected = nav.tab == tab
+            val icon = when (tab) {
+                Tab.Home -> if (selected) R.drawable.oc_home_fill else R.drawable.oc_home
+                Tab.Repos -> R.drawable.oc_repo
+                Tab.Star -> if (selected) R.drawable.oc_star_fill else R.drawable.oc_star
+                else -> if (selected) R.drawable.oc_telescope_fill else R.drawable.oc_telescope
+            }
+            NavigationRailItem(
+                selected = selected,
+                onClick = { nav.popToRoot(); nav.select(tab) },
+                icon = { Oc(icon, if (selected) g.accent else g.fgMuted, 22.dp) },
+                label = { Text(tab.title, fontSize = 12.sp) },
+                colors = NavigationRailItemDefaults.colors(
+                    indicatorColor = g.accent.copy(alpha = 0.10f),
+                    selectedTextColor = g.accent,
+                    unselectedTextColor = g.fgMuted,
+                ),
+            )
+        }
     }
 }
 

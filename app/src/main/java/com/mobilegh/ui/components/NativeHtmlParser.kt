@@ -162,6 +162,25 @@ internal object HtmlParser {
     /** 相对地址按页面地址解析；页内锚点原样保留，交给渲染层跳转。 */
     private class Ctx(val baseUrl: String) {
         fun url(raw: String): String = safeResolve(baseUrl, raw)
+        fun imageUrl(raw: String): String {
+            val path = raw.trim()
+            val base = runCatching { URI(baseUrl) }.getOrNull()
+            // GitHub README /images/foo.png means the repository root, not github.com/images.
+            // Keep this image-only: /owner/repo/issues links are still website-relative.
+            if (path.startsWith("/") && !path.startsWith("//") && base?.host in setOf("github.com", "raw.githubusercontent.com")) {
+                val parts = base!!.rawPath.split('/').filter { it.isNotEmpty() }
+                val websitePath = path.removePrefix("/")
+                if (base.host == "github.com" && (websitePath.startsWith("user-attachments/") ||
+                        websitePath.startsWith("assets/") ||
+                        (parts.size >= 2 && websitePath.startsWith("${parts[0]}/${parts[1]}/")))) return url(raw)
+                val count = if (base.host == "github.com" && parts.getOrNull(2) in setOf("blob", "raw")) 4
+                    else if (base.host == "raw.githubusercontent.com") 3 else 0
+                if (count > 0 && parts.size >= count) {
+                    return safeResolve("${base.scheme}://${base.host}/${parts.take(count).joinToString("/")}/", path.removePrefix("/"))
+                }
+            }
+            return url(raw)
+        }
     }
 
     /** 安全解析相对 URL，对空格、特殊字符及非 ASCII/CJK 字符做分段编码，避免 URI.create 抛 IllegalArgumentException */
@@ -417,7 +436,7 @@ internal object HtmlParser {
             in SKIP -> Unit
             "br" -> out += Inline.Break
             "img" -> {
-                val src = ctx.url(el.attr("src").ifBlank { el.attr("data-canonical-src") })
+                val src = ctx.imageUrl(el.attr("src").ifBlank { el.attr("data-canonical-src") })
                 if (src.isNotBlank()) {
                     // camo 代理地址把原始地址编码进了路径；原始地址在 data-canonical-src 里，判断是不是徽章用它
                     val original = el.attr("data-canonical-src").ifBlank { src }

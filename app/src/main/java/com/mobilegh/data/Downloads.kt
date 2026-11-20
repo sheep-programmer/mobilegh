@@ -266,8 +266,37 @@ object Downloads {
     val tasks = mutableStateListOf<DownloadTask>()
     var selectedKey by mutableStateOf<String?>(null)
     var showHistory by mutableStateOf(false)
+    var minimized by mutableStateOf(false)
+        internal set
+    var overlayClosed by mutableStateOf(false)
+        internal set
+
+    fun openHistory() {
+        overlayClosed = false
+        selectedKey = null
+        showHistory = true
+    }
+
+    /** Dismissal keeps a reachable entry without stopping any transfers. */
+    fun minimize() {
+        overlayClosed = false
+        minimized = true
+        tasks.firstOrNull { it.key == selectedKey && !it.active }?.let { finishedKey = it.key }
+        selectedKey = null
+        showHistory = false
+    }
+
+    /** Hide download overlays only. Tasks and files remain in download history. */
+    fun closeOverlay() {
+        overlayClosed = true
+        minimized = false
+        selectedKey = null
+        showHistory = false
+        finishedKey = null
+    }
+
     var inspectedFile by mutableStateOf<FileInfo?>(null)
-    /** 完成或失败、而用户没有在看它的弹窗时记下它；直到用户点开或点 ✕ 才消失，不会自动收起 */
+    /** 完成或失败的提示保留到用户明确关闭；点开查看不清除。 */
     var finishedKey by mutableStateOf<String?>(null)
     val finishedTask get() = tasks.firstOrNull { it.key == finishedKey && !it.active }
     val activeCount get() = tasks.count { it.active }
@@ -335,6 +364,7 @@ object Downloads {
         digest: String? = null,
         actionsArchive: Boolean = false,
     ) {
+        overlayClosed = false
         val checksum = trustedSha256(digest)
         tasks.firstOrNull { it.url == rawUrl && it.active && it.expectedSha256 == checksum && it.actionsArchive == actionsArchive }?.let {
             if (openDialog) {
@@ -1241,6 +1271,7 @@ object Downloads {
                 // 完成或失败时用户不在看它的弹窗（例如点过「后台下载」）：留下提示，避免完成后找不到
                 if (old.state != task.state && task.state in setOf(DownloadState.Complete, DownloadState.Failed) && selectedKey != task.key) {
                     finishedKey = task.key
+                    overlayClosed = false
                 }
                 tasks[index] = task
             }

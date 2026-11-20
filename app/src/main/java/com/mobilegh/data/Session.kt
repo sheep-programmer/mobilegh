@@ -11,6 +11,9 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.serialization.Serializable
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
@@ -99,6 +102,8 @@ object Session {
         private set
     var translateDocuments by mutableStateOf(false)
         private set
+    private var translationRevision = 0
+    private var restoringTranslation = false
     internal var startupTab by mutableStateOf(Tab.Home)
         private set
     internal var accentStyle by mutableStateOf(AccentStyle.Default)
@@ -127,7 +132,7 @@ object Session {
         codeWrap = prefs.getBoolean("wrap", true)
         scrollToTopButton = prefs.getBoolean("scroll_to_top", false)
         floatingNavigation = prefs.getBoolean("floating_navigation", false)
-        translateDocuments = prefs.getBoolean("translate_documents", false)
+        translateDocuments = false
         startupTab = startupTabs.firstOrNull { it.name == prefs.getString("startup_tab", null) } ?: Tab.Home
         accentStyle = AccentStyle.entries.firstOrNull { it.name == prefs.getString("accent_style", null) } ?: AccentStyle.Default
         forkSort = ForkSort.entries.firstOrNull { it.name == prefs.getString("fork_sort", null) } ?: ForkSort.Newest
@@ -301,9 +306,37 @@ object Session {
         prefs.edit().putBoolean("floating_navigation", on).apply()
     }
 
-    fun chooseDocumentTranslation(on: Boolean) {
-        translateDocuments = on
-        prefs.edit().putBoolean("translate_documents", on).apply()
+    fun disableDocumentTranslation() {
+        translationRevision++
+        translateDocuments = false
+        prefs.edit().putBoolean("translate_documents", false).apply()
+    }
+
+    suspend fun enableDocumentTranslation() {
+        val revision = ++translationRevision
+        OfflineTranslation.prepare(download = true)
+        currentCoroutineContext().ensureActive()
+        if (revision == translationRevision) {
+            prefs.edit().putBoolean("translate_documents", true).apply()
+            translateDocuments = true
+        }
+    }
+
+    suspend fun restoreDocumentTranslation() {
+        if (restoringTranslation || !prefs.getBoolean("translate_documents", false)) return
+        restoringTranslation = true
+        val revision = translationRevision
+        try {
+            OfflineTranslation.prepare(download = false)
+            currentCoroutineContext().ensureActive()
+            if (revision == translationRevision) translateDocuments = true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (revision == translationRevision) disableDocumentTranslation()
+        } finally {
+            restoringTranslation = false
+        }
     }
 
     internal fun chooseStartupTab(tab: Tab) {

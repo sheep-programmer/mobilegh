@@ -1,6 +1,6 @@
 package com.mobilegh.ui.components
 
-import android.content.Context
+import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,57 +14,73 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onVisibilityChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.android.gms.tasks.Task
-import com.google.mlkit.nl.languageid.LanguageIdentification
-import com.google.mlkit.nl.translate.TranslateLanguage
-import com.google.mlkit.nl.translate.Translation
-import com.google.mlkit.nl.translate.TranslatorOptions
 import com.mobilegh.R
 import com.mobilegh.data.AppLog
-import com.mobilegh.data.Crypto
 import com.mobilegh.data.Net
+import com.mobilegh.data.OfflineTranslation
 import com.mobilegh.data.Session
 import com.mobilegh.i18n.I18n
 import com.mobilegh.i18n.tr
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import java.io.File
-import java.security.MessageDigest
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
+import java.util.Locale
 
 internal suspend fun translateDocumentBlocks(
     blocks: List<HtmlBlock>,
     translate: suspend (String) -> String,
 ): List<HtmlBlock> {
-    suspend fun inlines(parts: List<Inline>) = parts.map { part ->
-        if (part is Inline.Text && !part.style.code) part.copy(text = translateProse(part.text, translate)) else part
+    return mapDocumentInlines(blocks) { translateInlineRuns(it, translate) }
+}
+
+private suspend fun mapDocumentInlines(
+    blocks: List<HtmlBlock>,
+    inlines: suspend (List<Inline>) -> List<Inline>,
+): List<HtmlBlock> = blocks.map { block ->
+    when (block) {
+        is HtmlBlock.Heading -> block.copy(inlines = inlines(block.inlines))
+        is HtmlBlock.Paragraph -> block.copy(inlines = inlines(block.inlines))
+        is HtmlBlock.Quote -> block.copy(blocks = mapDocumentInlines(block.blocks, inlines))
+        is HtmlBlock.Aligned -> block.copy(blocks = mapDocumentInlines(block.blocks, inlines))
+        is HtmlBlock.ListBlock -> block.copy(items = block.items.map { mapDocumentInlines(it, inlines) })
+        is HtmlBlock.Details -> block.copy(summary = inlines(block.summary), blocks = mapDocumentInlines(block.blocks, inlines))
+        is HtmlBlock.Table -> block.copy(header = block.header.map { inlines(it) }, rows = block.rows.map { row -> row.map { inlines(it) } })
+        else -> block
     }
-    return blocks.map { block ->
-        when (block) {
-            is HtmlBlock.Heading -> block.copy(inlines = inlines(block.inlines))
-            is HtmlBlock.Paragraph -> block.copy(inlines = inlines(block.inlines))
-            is HtmlBlock.Quote -> block.copy(blocks = translateDocumentBlocks(block.blocks, translate))
-            is HtmlBlock.Aligned -> block.copy(blocks = translateDocumentBlocks(block.blocks, translate))
-            is HtmlBlock.ListBlock -> block.copy(items = block.items.map { translateDocumentBlocks(it, translate) })
-            is HtmlBlock.Details -> block.copy(summary = inlines(block.summary), blocks = translateDocumentBlocks(block.blocks, translate))
-            is HtmlBlock.Table -> block.copy(header = block.header.map { inlines(it) }, rows = block.rows.map { row -> row.map { inlines(it) } })
-            else -> block
-        }
+}
+
+internal fun translationLanguageSample(parts: Sequence<String>): String = buildString {
+    for (part in parts) {
+        val remaining = 1200 - length
+        if (remaining <= 1) break
+        val text = preservedTokens.replace(part.take(1200), " ").trim()
+        if (text.none(Char::isLetter)) continue
+        if (isNotEmpty()) append(' ')
+        append(text.take(1200 - length))
+    }
+}
+
+internal suspend fun resolveTranslationLanguage(
+    sample: String,
+    identify: suspend (String) -> String,
+    documentLanguage: suspend () -> String?,
+): String? {
+    if (sample.isBlank()) return null
+    return when (val tag = identify(sample)) {
+        "und" -> documentLanguage()
+        else -> tag
     }
 }
 
@@ -94,6 +110,120 @@ private fun documentText(blocks: List<HtmlBlock>): Sequence<String> = sequence {
     }
 }
 
+// Treat styles as boundaries within a run, rather than translating each styled fragment separately.
+private val translationMarker = Regex("""(?i)[\[［]\s*X\s*Q\s*([0-9]+)\s*X\s*[\]］]""")
+private val plainStyle = InlineStyle()
+
+private sealed interface TranslationMarker {
+    data class Open(val style: InlineStyle) : TranslationMarker
+    data object Close : TranslationMarker
+    data class Literal(val text: Inline.Text) : TranslationMarker
+}
+
+private suspend fun translateInlineRuns(parts: List<Inline>, translate: suspend (String) -> String): List<Inline> {
+    val output = mutableListOf<Inline>()
+    val run = mutableListOf<Inline.Text>()
+    suspend fun flush() {
+        if (run.isEmpty()) return
+        output += translateRun(run, translate)
+        run.clear()
+    }
+    for (part in parts) {
+        if (part is Inline.Text) run.add(part) else {
+            // Images and explicit newlines stay in their original position.
+            flush()
+            output.add(part)
+        }
+    }
+    flush()
+    return output
+}
+
+private suspend fun translateRun(parts: List<Inline.Text>, translate: suspend (String) -> String): List<Inline.Text> {
+    suspend fun fallback() = parts.map { part ->
+        if (part.style.code) part else part.copy(text = translateProse(part.text, translate))
+    }
+    if (parts.any { translationMarker.containsMatchIn(it.text) } ||
+        parts.sumOf { it.text.length.toLong() } > 12_000) return fallback()
+
+    val markers = mutableListOf<TranslationMarker>()
+    var hasProse = false
+    val input = buildString {
+        fun mark(marker: TranslationMarker) {
+            append("[XQ").append(markers.size).append("X]")
+            markers.add(marker)
+        }
+        for (part in parts) {
+            if (part.text.isEmpty()) continue
+            if (part.style.code) {
+                mark(TranslationMarker.Literal(part))
+                continue
+            }
+            if (part.style != plainStyle) mark(TranslationMarker.Open(part.style))
+            var offset = 0
+            fun prose(end: Int) {
+                val text = part.text.substring(offset, end)
+                hasProse = hasProse || text.any(Char::isLetter)
+                append(text)
+            }
+            for (token in preservedTokens.findAll(part.text)) {
+                prose(token.range.first)
+                mark(TranslationMarker.Literal(part.copy(text = token.value)))
+                offset = token.range.last + 1
+            }
+            prose(part.text.length)
+            if (part.style != plainStyle) mark(TranslationMarker.Close)
+        }
+    }
+    if (!hasProse) return parts
+    val request = input.trim()
+    if (request.length > 12_288) return fallback()
+    val translated = translate(request)
+    if (translated.isBlank() || translated == request) return parts
+
+    val output = mutableListOf<Inline.Text>()
+    fun add(text: String, style: InlineStyle) {
+        if (text.isEmpty()) return
+        val last = output.lastOrNull()
+        if (last != null && last.style == style && !style.code) {
+            output[output.lastIndex] = last.copy(text = last.text + text)
+        } else output.add(Inline.Text(text, style))
+    }
+
+    val seen = mutableSetOf<Int>()
+    var current: TranslationMarker.Open? = null
+    var expectedClose = -1
+    var offset = 0
+    val text = input.takeWhile(Char::isWhitespace) + translated.trim() + input.takeLastWhile(Char::isWhitespace)
+    for (match in translationMarker.findAll(text)) {
+        val id = match.groupValues[1].toIntOrNull() ?: return fallback()
+        val marker = markers.getOrNull(id) ?: return fallback()
+        if (!seen.add(id)) return fallback()
+        add(text.substring(offset, match.range.first), current?.style ?: plainStyle)
+        when (marker) {
+            is TranslationMarker.Open -> {
+                if (current != null) return fallback()
+                current = marker
+                expectedClose = (id + 1 until markers.size).first { markers[it] == TranslationMarker.Close }
+            }
+            TranslationMarker.Close -> {
+                if (id != expectedClose) return fallback()
+                current = null
+                expectedClose = -1
+            }
+            is TranslationMarker.Literal -> {
+                if (marker.text.style != (current?.style ?: plainStyle) && !marker.text.style.code) return fallback()
+                if (marker.text.style.code && current != null) return fallback()
+                add(marker.text.text, marker.text.style)
+            }
+        }
+        offset = match.range.last + 1
+    }
+    if (current != null || seen.size != markers.size) return fallback()
+    add(text.substring(offset), plainStyle)
+    return output
+}
+
 private suspend fun translateProse(text: String, translate: suspend (String) -> String): String = buildString {
     suspend fun appendProse(segment: String) {
         val content = segment.trim()
@@ -115,30 +245,17 @@ private suspend fun translateProse(text: String, translate: suspend (String) -> 
     appendProse(text.substring(offset))
 }
 
-private class ModelDownloadTimeout : Exception()
 private val translationJobs = Semaphore(2)
 
-private class DocumentTranslation(private val parsed: ParsedHtml, private val target: String, private val cache: TranslationParagraphCache) {
+internal class DocumentTranslation(private val parsed: ParsedHtml, private val target: String, private val cache: TranslationParagraphCache, private val scope: String) {
     private val languageLock = Mutex()
     private var detected = false
     private var source: String? = null
 
-    private suspend fun sourceLanguage(): String? = languageLock.withLock {
+    private suspend fun documentLanguage(): String? = languageLock.withLock {
         if (!detected) {
-            val sample = buildString {
-                for (part in documentText(parsed.blocks)) {
-                    if (length >= 1200) break
-                    val text = preservedTokens.replace(part.take(1200), " ").trim()
-                    if (text.none(Char::isLetter)) continue
-                    if (isNotEmpty()) append(' ')
-                    append(text.take(1200 - length))
-                }
-            }
-            if (sample.isNotBlank()) {
-                val identifier = LanguageIdentification.getClient()
-                val tag = try { identifier.identifyLanguage(sample).awaitResult() } finally { identifier.close() }
-                source = TranslateLanguage.fromLanguageTag(tag)
-            }
+            val sample = translationLanguageSample(documentText(parsed.blocks))
+            if (sample.isNotBlank()) source = OfflineTranslation.identify(sample).takeUnless { it == "und" }
             detected = true
         }
         source
@@ -146,86 +263,44 @@ private class DocumentTranslation(private val parsed: ParsedHtml, private val ta
 
     suspend fun translate(block: HtmlBlock): HtmlBlock = withContext(Dispatchers.Default) {
         translationJobs.withPermit {
-            val language = sourceLanguage() ?: return@withPermit block
-            if (language == target) return@withPermit block
-            val translator = lazy {
-                Translation.getClient(TranslatorOptions.Builder().setSourceLanguage(language).setTargetLanguage(target).build())
-            }
-            var modelReady = false
-            try {
-                translateDocumentBlocks(listOf(block)) { text ->
-                    val cacheKey = cache.key(language, target, text)
-                    cache.read(cacheKey) ?: run {
-                        if (!modelReady) {
-                            withTimeoutOrNull(45_000) {
-                                translator.value.downloadModelIfNeeded().awaitResult()
-                                true
-                            } ?: throw ModelDownloadTimeout()
-                            modelReady = true
-                        }
-                        translator.value.translate(text).awaitResult().also { result -> cache.write(cacheKey, result) }
-                    }
-                }.single()
-            } finally {
-                if (translator.isInitialized()) translator.value.close()
-            }
-        }
-    }
-}
-
-private class TranslationParagraphCache(context: Context, private val scope: String) {
-    private val directory = File(context.noBackupFilesDir, "translated-paragraphs")
-
-    fun key(source: String, target: String, text: String): String = MessageDigest.getInstance("SHA-256")
-        .digest("v1\u0000$scope\u0000$source\u0000$target\u0000$text".toByteArray())
-        .joinToString("") { "%02x".format(it) }
-
-    suspend fun read(key: String): String? = withContext(Dispatchers.IO) {
-        synchronized(diskLock) {
-            val file = File(directory, key)
-            if (!file.isFile || file.length() !in 1..MAX_ENTRY_BYTES) return@synchronized null
-            runCatching { Crypto.decrypt(file.readText()).also { file.setLastModified(System.currentTimeMillis()) } }.getOrNull()
-        }
-    }
-
-    suspend fun write(key: String, value: String) = withContext(Dispatchers.IO) {
-        if (value.isBlank() || value.length > MAX_ENTRY_BYTES / 4) return@withContext
-        synchronized(diskLock) {
-            runCatching {
-                directory.mkdirs()
-                val encrypted = Crypto.encrypt(value)
-                if (encrypted.length <= MAX_ENTRY_BYTES) File(directory, key).writeText(encrypted)
-                if (++writesSinceTrim >= 32) {
-                    writesSinceTrim = 0
-                    val files = directory.listFiles().orEmpty().sortedByDescending { it.lastModified() }
-                    var size = 0L
-                    files.forEachIndexed { index, file ->
-                        size += file.length()
-                        if (index >= 2048 || size > MAX_CACHE_BYTES) file.delete()
-                    }
+            mapDocumentInlines(listOf(block)) { parts ->
+                val sample = translationLanguageSample(parts.asSequence().filterIsInstance<Inline.Text>()
+                    .filterNot { it.style.code }.map { it.text })
+                val language = resolveTranslationLanguage(sample, OfflineTranslation::identify, ::documentLanguage)
+                if (language == null || language == target) return@mapDocumentInlines parts
+                translateInlineRuns(parts) { text ->
+                    val cacheKey = TranslationParagraphCache.Key(scope, language, target, text)
+                    cache.read(cacheKey) ?: OfflineTranslation.translate(language, target, text)
+                        .also { result -> cache.write(cacheKey, result) }
                 }
-            }
-        }
-    }
-
-    companion object {
-        private const val MAX_ENTRY_BYTES = 48L * 1024
-        private const val MAX_CACHE_BYTES = 8L * 1024 * 1024
-        private val diskLock = Any()
-        private var writesSinceTrim = 0
-    }
-}
-
-private suspend fun <Result> Task<Result>.awaitResult(): Result = suspendCancellableCoroutine { continuation ->
-    addOnCompleteListener { task ->
-        if (!continuation.isActive) return@addOnCompleteListener
-        when {
-            task.isCanceled -> continuation.cancel()
-            task.isSuccessful -> continuation.resume(task.result)
-            else -> continuation.resumeWithException(task.exception ?: IllegalStateException())
+            }.single()
         }
     }
 }
+
+/** No document text or translation is persisted. The UI session owns this cache. */
+internal class TranslationParagraphCache {
+    data class Key(val scope: String, val source: String, val target: String, val text: String)
+
+    private val entries = object : LruCache<Key, String>(8 * 1024 * 1024) {
+        override fun sizeOf(key: Key, value: String): Int =
+            128 + 2 * (key.scope.length + key.source.length + key.target.length + key.text.length + value.length)
+    }
+
+    fun read(key: Key): String? = entries.get(key)
+
+    fun write(key: Key, value: String) {
+        if (value.isNotBlank() && key.text.length <= 12_288 && value.length <= 12_288) {
+            entries.put(key, value)
+        }
+    }
+}
+
+internal val LocalTranslationCache = staticCompositionLocalOf<TranslationParagraphCache?> { null }
+internal class PageTranslation {
+    var showOriginal by mutableStateOf(false)
+}
+internal val LocalPageTranslation = staticCompositionLocalOf<PageTranslation?> { null }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -238,32 +313,40 @@ internal fun DocumentTranslationContent(
         content(null) { block, render -> render(block) }
         return
     }
-    val target = if (I18n.isEnglish) TranslateLanguage.ENGLISH else TranslateLanguage.CHINESE
+    val target = if (I18n.isEnglish) "en" else "zh"
     val accountScope = "${Net.apiHost}:${Session.login.orEmpty()}"
-    val context = rememberCtx().applicationContext
-    val engine = remember(parsed, target, accountScope) {
-        DocumentTranslation(parsed, target, TranslationParagraphCache(context, accountScope))
+    val cache = LocalTranslationCache.current ?: remember { TranslationParagraphCache() }
+    val page = LocalPageTranslation.current
+    val engine = remember(parsed, target, accountScope, cache) {
+        DocumentTranslation(parsed, target, cache, accountScope)
     }
     var failed by remember(engine) { mutableStateOf(false) }
+    var missingLanguage by remember(engine) { mutableStateOf<String?>(null) }
     var translated by remember(engine) { mutableStateOf(false) }
-    var showOriginal by remember(engine) { mutableStateOf(false) }
+    var inlineOriginal by remember(engine) { mutableStateOf(false) }
+    val showOriginal = page?.showOriginal ?: inlineOriginal
     var attempt by remember(engine) { mutableIntStateOf(0) }
     val header: (@Composable () -> Unit)? = when {
-        failed || translated -> {{
+        (failed && !showOriginal) || (translated && (!showOriginal || page == null)) -> {{
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 itemVerticalAlignment = Alignment.CenterVertically,
             ) {
                 if (translated) {
-                    SectionActionChip(tr(if (showOriginal) "显示译文" else "查看原文")) { showOriginal = !showOriginal }
+                    if (page == null) {
+                        SectionActionChip(tr(if (showOriginal) "显示译文" else "显示原文")) { inlineOriginal = !inlineOriginal }
+                    }
                     if (!showOriginal) Image(
                         painterResource(if (Gh.c.dark) R.drawable.google_translation_attribution_dark else R.drawable.google_translation_attribution),
                         contentDescription = tr("由 Google 自动翻译"),
                     )
                 }
-                if (failed) {
-                    Text(tr("翻译失败，正在显示原文"), color = Gh.c.fgMuted, fontSize = 12.sp)
+                if (failed && !showOriginal) {
+                    val message = missingLanguage?.let {
+                        com.mobilegh.i18n.trf("请在离线翻译设置下载{0}模型，当前显示原文", Locale.forLanguageTag(it).getDisplayLanguage())
+                    } ?: tr("翻译失败，正在显示原文")
+                    Text(message, color = Gh.c.fgMuted, fontSize = 12.sp)
                     SectionActionChip(tr("重试")) { failed = false; attempt++ }
                 }
             }
@@ -287,6 +370,7 @@ internal fun DocumentTranslationContent(
                     throw error
                 } catch (error: Exception) {
                     AppLog.warn("translation", error.javaClass.simpleName)
+                    missingLanguage = (error as? OfflineTranslation.ModelMissing)?.language
                     failed = true
                 }
             }

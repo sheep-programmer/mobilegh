@@ -9,6 +9,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,7 +44,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -67,10 +71,19 @@ fun Context.downloadFile(rawUrl: String, filename: String? = null, isPrivate: Bo
 
 /** 放在 AppRoot，弹窗不会因为进入/退出 Release 页而丢失。 */
 @Composable
+internal fun DownloadOverlayLayout(bottomBarVisible: Boolean, content: @Composable () -> Unit) {
+    Box(
+        Modifier.fillMaxSize().safeDrawingPadding().imePadding()
+            .padding(bottom = if (bottomBarVisible) 80.dp else 0.dp).testTag("download-safe-area"),
+    ) { content() }
+}
+
+@Composable
 fun DownloadHost() {
     val g = Gh.c
     val ctx = rememberCtx()
     val scope = rememberCoroutineScope()
+    val bodyHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.45f).coerceAtLeast(64.dp)
     var clearDialog by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<DownloadTask?>(null) }
     pendingDelete?.let { task ->
@@ -98,7 +111,7 @@ fun DownloadHost() {
             else -> tr("下载详情")
         }
         AlertDialog(
-            onDismissRequest = { Downloads.selectedKey = null },
+            onDismissRequest = Downloads::minimize,
             containerColor = g.canvas,
             shape = RoundedCornerShape(16.dp),
             tonalElevation = 0.dp,
@@ -121,10 +134,11 @@ fun DownloadHost() {
                             Oc(R.drawable.oc_file_directory, g.fgMuted, 20.dp)
                         }
                     }
+                    OcButton(R.drawable.oc_minimize, Downloads::minimize, description = tr("最小化"))
                 }
             },
             text = {
-                Column {
+                Column(Modifier.heightIn(max = bodyHeight).verticalScrollWithBar()) {
                     Text(selected.filename, color = g.fg, fontWeight = FontWeight.Medium, fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(18.dp))
                     DownloadProgress(selected)
@@ -154,7 +168,7 @@ fun DownloadHost() {
                         }
                         Text(label, color = g.accent, fontWeight = FontWeight.SemiBold)
                     }
-                    selected.active -> TextButton({ Downloads.selectedKey = null }) { Text(tr("后台下载"), color = g.accent, fontWeight = FontWeight.SemiBold) }
+                    selected.active -> Unit
                     // 文件已不在时也走这里：按同一个 URL 重新下载
                     else -> TextButton({ Downloads.retry(selected) }) {
                         // 失败的任务从断点继续；已取消或文件被删的按同一个 URL 重新下载
@@ -163,14 +177,17 @@ fun DownloadHost() {
                 }
             },
             dismissButton = {
-                TextButton({ if (selected.active) Downloads.cancel(selected) else Downloads.selectedKey = null }) {
-                    Text(if (selected.active) tr("取消下载") else tr("关闭"), color = if (selected.active) g.danger else g.fgMuted)
+                FlowRow {
+                    if (selected.active) TextButton({ Downloads.cancel(selected) }) {
+                        Text(tr("取消下载"), color = g.danger)
+                    }
+                    TextButton(Downloads::closeOverlay) { Text(tr("彻底关闭"), color = g.fgMuted) }
                 }
             },
         )
     } else if (Downloads.showHistory) {
         AlertDialog(
-            onDismissRequest = { Downloads.showHistory = false },
+            onDismissRequest = Downloads::minimize,
             containerColor = g.canvas,
             shape = RoundedCornerShape(16.dp),
             tonalElevation = 0.dp,
@@ -181,10 +198,11 @@ fun DownloadHost() {
                     if (Downloads.tasks.isNotEmpty()) {
                         TextButton({ clearDialog = true }) { Text(tr("清空"), color = g.danger) }
                     }
+                    OcButton(R.drawable.oc_minimize, Downloads::minimize, description = tr("最小化"))
                 }
             },
             text = {
-                Column {
+                Column(Modifier.heightIn(max = bodyHeight).verticalScrollWithBar()) {
                     SwitchRow(
                         title = tr("仅 Wi-Fi 下载"),
                         desc = tr("开启后新的下载不使用移动数据；已经在进行中的任务不受影响"),
@@ -254,7 +272,7 @@ fun DownloadHost() {
                     }
                 }
             },
-            confirmButton = { TextButton({ Downloads.showHistory = false }) { Text(tr("关闭"), color = g.fgMuted) } },
+            confirmButton = { TextButton(Downloads::closeOverlay) { Text(tr("彻底关闭"), color = g.fgMuted) } },
         )
         if (clearDialog) {
             AlertDialog(
@@ -275,7 +293,7 @@ fun DownloadHost() {
                     }) { Text(tr("同时删除文件"), color = g.danger, fontWeight = FontWeight.SemiBold) }
                 },
                 dismissButton = {
-                    Row {
+                    FlowRow {
                         TextButton({
                             clearDialog = false
                             scope.launch {
@@ -288,11 +306,11 @@ fun DownloadHost() {
                 },
             )
         }
-    } else if (Downloads.activeCount > 0) {
-        DownloadPill(Downloads.runningCount, Downloads.queuedCount) { Downloads.showHistory = true }
+    } else if (!Downloads.overlayClosed && Downloads.finishedTask == null && (Downloads.activeCount > 0 || Downloads.minimized)) {
+        DownloadPill(Downloads.runningCount, Downloads.queuedCount, onOpen = Downloads::openHistory)
     }
     // 下载在后台完成：底部提示一直保留，直到用户点开看一眼或点 ✕ 关掉
-    Downloads.finishedTask?.takeIf { selected == null && !Downloads.showHistory }?.let { FinishedNotice(it) }
+    Downloads.finishedTask?.takeIf { selected == null && !Downloads.showHistory && !Downloads.overlayClosed }?.let { FinishedNotice(it) }
 }
 
 @Composable
@@ -301,12 +319,11 @@ private fun FinishedNotice(task: DownloadTask) {
     val failed = task.state == DownloadState.Failed
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
         Row(
-            Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp).fillMaxWidth()
+            Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp).fillMaxWidth().testTag("download-completion-notice")
                 .clip(RoundedCornerShape(12.dp)).background(g.canvas)
                 .border(1.dp, g.border, RoundedCornerShape(12.dp))
                 .clickable {
-                    // 点开即由弹窗接管：关掉弹窗后不再重复提示
-                    Downloads.finishedKey = null
+                    // 查看详情后返回仍能找到，只有明确关闭才移除悬浮提示。
                     Downloads.selectedKey = task.key
                 }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
@@ -320,7 +337,7 @@ private fun FinishedNotice(task: DownloadTask) {
             }
             Text(tr("点按查看"), color = g.accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             IconButton(
-                { Downloads.finishedKey = null },
+                Downloads::closeOverlay,
                 modifier = Modifier.semantics { contentDescription = tr("关闭提示") },
             ) { Oc(R.drawable.oc_x, g.fgMuted, 16.dp) }
         }
@@ -334,33 +351,26 @@ private fun FinishedNotice(task: DownloadTask) {
 @Composable
 internal fun DownloadPill(running: Int, queued: Int, onOpen: () -> Unit) {
     val g = Gh.c
-    val density = LocalDensity.current
-    val edge = with(density) { 16.dp.toPx() }
-    val lift = with(density) { 104.dp.toPx() }
     var screen by remember { mutableStateOf(IntSize.Zero) }
     var pill by remember { mutableStateOf(IntSize.Zero) }
     // 相对默认位置（右下角）的拖动量，单位像素
     var drag by remember { mutableStateOf(Offset.Zero) }
-    Box(Modifier.fillMaxSize().onSizeChanged { screen = it }) {
+    fun bounded(offset: Offset): Offset = Offset(
+        offset.x.coerceIn(-(screen.width - pill.width).coerceAtLeast(0).toFloat(), 0f),
+        offset.y.coerceIn(-(screen.height - pill.height).coerceAtLeast(0).toFloat(), 0f),
+    )
+    Box(Modifier.fillMaxSize().padding(16.dp).onSizeChanged { screen = it }) {
         Row(
             Modifier.align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 104.dp)
-                .offset { IntOffset(drag.x.roundToInt(), drag.y.roundToInt()) }
+                .offset { bounded(drag).let { IntOffset(it.x.roundToInt(), it.y.roundToInt()) } }
                 .onSizeChanged { pill = it }
-                .pointerInput(Unit) {
+                .pointerInput(screen, pill) {
                     detectDragGestures { change, delta ->
                         change.consume()
-                        // 默认位置离右、下边缘各 edge / lift；向左、向上拖到屏幕边缘为止
-                        val minX = -(screen.width - edge - pill.width)
-                        val maxX = edge
-                        val minY = -(screen.height - lift - pill.height)
-                        val maxY = lift
-                        drag = Offset(
-                            (drag.x + delta.x).coerceIn(minX, maxX),
-                            (drag.y + delta.y).coerceIn(minY, maxY),
-                        )
+                        drag = bounded(drag + delta)
                     }
                 }
+                .testTag("download-minimized-pill")
                 .border(1.dp, g.border, RoundedCornerShape(20.dp))
                 .background(g.canvas, RoundedCornerShape(20.dp))
                 .clip(RoundedCornerShape(20.dp))
@@ -371,7 +381,8 @@ internal fun DownloadPill(running: Int, queued: Int, onOpen: () -> Unit) {
             Oc(R.drawable.oc_download, g.accent, 16.dp)
             Spacer(Modifier.width(6.dp))
             Text(
-                if (queued > 0) trf("下载中 {0} · 排队 {1}", running, queued) else trf("下载中 · {0}", running),
+                if (queued > 0) trf("下载中 {0} · 排队 {1}", running, queued)
+                else if (running > 0) trf("下载中 · {0}", running) else tr("下载记录"),
                 color = g.fg, fontSize = 12.sp,
             )
         }
@@ -400,7 +411,7 @@ private fun DownloadProgress(task: DownloadTask) {
         LinearProgressIndicator(progress = { progress ?: 0f }, modifier = Modifier.fillMaxWidth().height(6.dp), color = color, trackColor = g.neutralMuted)
     }
     Spacer(Modifier.height(10.dp))
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
             if (task.total > 0) fmtSize(task.downloaded) + " / " + fmtSize(task.total)
             else if (task.downloaded > 0) tr("已下载 ") + fmtSize(task.downloaded) else tr("等待文件大小…"),
@@ -447,6 +458,7 @@ typealias FileInfo = com.mobilegh.data.FileInfo
 fun FileInfoDialog(info: FileInfo, onDismiss: () -> Unit) {
     val g = Gh.c
     val ctx = rememberCtx()
+    val bodyHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.45f).coerceAtLeast(64.dp)
     val checksum = com.mobilegh.data.trustedSha256(info.digest)
     val done = Downloads.tasks.firstOrNull { it.url == info.url && it.expectedSha256 == checksum && it.state == DownloadState.Complete && Downloads.fileExists(it) }
     val running = Downloads.tasks.firstOrNull { it.url == info.url && it.expectedSha256 == checksum && it.active }
@@ -464,7 +476,7 @@ fun FileInfoDialog(info: FileInfo, onDismiss: () -> Unit) {
             }
         },
         text = {
-            Column(Modifier.heightIn(max = 420.dp).verticalScrollWithBar()) {
+            Column(Modifier.heightIn(max = bodyHeight).verticalScrollWithBar()) {
                 androidx.compose.foundation.text.selection.SelectionContainer {
                     Text(info.name, color = g.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, lineHeight = 21.sp)
                 }
@@ -478,7 +490,7 @@ fun FileInfoDialog(info: FileInfo, onDismiss: () -> Unit) {
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                FlowRow(verticalArrangement = Arrangement.Center) {
                     TextButton({ ctx.copy(info.name, tr("文件名已复制")) }) { Text(tr("复制文件名"), color = g.accent, fontSize = 13.sp) }
                     TextButton({ ctx.copy(info.url, tr("链接已复制")) }) { Text(tr("复制链接"), color = g.accent, fontSize = 13.sp) }
                 }
@@ -491,7 +503,7 @@ fun FileInfoDialog(info: FileInfo, onDismiss: () -> Unit) {
         confirmButton = {
             when {
                 running != null -> TextButton({ onDismiss(); Downloads.selectedKey = running.key }) { Text(tr("查看进度"), color = g.accent, fontWeight = FontWeight.SemiBold) }
-                done != null -> Row {
+                done != null -> FlowRow {
                     TextButton({ onDismiss(); Downloads.start(info.url, info.name, info.isPrivate, info.mimeType, digest = info.digest) }) { Text(tr("重新下载"), color = g.fgMuted) }
                     TextButton({
                         onDismiss()

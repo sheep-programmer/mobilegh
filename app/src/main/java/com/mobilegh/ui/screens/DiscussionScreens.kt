@@ -82,7 +82,7 @@ import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.LoadBox
 import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.MenuAction
-import com.mobilegh.ui.components.MoreMenu
+import com.mobilegh.ui.components.TranslationMoreMenu
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.openBrowser
 import com.mobilegh.ui.components.relTime
@@ -368,8 +368,8 @@ fun DiscussionDetailScreen(
         }) { Discussions.markAnswer(comment.id, on) }
     }
 
-    Page(trf("讨论 #{0}", number), subtitle = "$owner/$name", actions = {
-        MoreMenu(buildList {
+    Page(trf("讨论 #{0}", number), subtitle = "$owner/$name", translationInMenu = t != null, actions = {
+        TranslationMoreMenu(buildList {
             val d = t?.discussion
             if (d != null) {
                 val savedId = "discussion:$owner/$name#$number"

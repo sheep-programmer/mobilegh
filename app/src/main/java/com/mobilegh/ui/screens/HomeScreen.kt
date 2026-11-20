@@ -121,6 +121,7 @@ fun HomeScreen() {
             OcButton(R.drawable.oc_search, { nav.push(Screen.Search()) }, description = tr("搜索"))
             // 创建
             OcButton(R.drawable.oc_plus, { nav.push(Screen.CreateRepo) }, description = tr("新建仓库"))
+            HomeDownloadsButton()
             // 消息（带未读角标）
             Box(
                 modifier = Modifier
@@ -374,6 +375,16 @@ fun HomeScreen() {
             onDismiss = { showStatusSheet = false },
             onSaved = { userStatus.refresh(); me.refresh() },
         )
+    }
+}
+
+@Composable
+internal fun HomeDownloadsButton() {
+    val count = com.mobilegh.data.Downloads.activeCount
+    BadgedBox(badge = {
+        if (count > 0) Badge { Text(if (count > 99) "99+" else count.toString(), fontSize = 9.sp) }
+    }) {
+        OcButton(R.drawable.oc_download, com.mobilegh.data.Downloads::openHistory, description = tr("下载记录"))
     }
 }
 

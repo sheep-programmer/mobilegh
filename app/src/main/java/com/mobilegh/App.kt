@@ -23,10 +23,15 @@ class App : Application() {
         // 导航栈序列化器在后台线程先建好：它要构造 75 个页面类型的描述符，
         // 首次在主线程上做会卡住冷启动（卡顿看门狗实测抓到过 5 秒）
         Thread({ com.mobilegh.nav.ScreenCodec.warmUp() }, "screen-codec-warmup").apply { isDaemon = true }.start()
+        // Remove translations left by versions that cached document text on disk.
+        Thread({
+            runCatching { java.io.File(noBackupFilesDir, "translated-paragraphs").deleteRecursively() }
+        }, "translation-cache-cleanup").apply { isDaemon = true }.start()
         Api.cacheDir = cacheDir
         com.mobilegh.data.ImageFetch.init(cacheDir)
         com.mobilegh.data.AppNetwork.init(this)
         Net.init(this)
+        com.mobilegh.data.OfflineTranslation.init(this)
         Session.init(this)
         AppLock.init(this)
         WidgetStore.init(this)

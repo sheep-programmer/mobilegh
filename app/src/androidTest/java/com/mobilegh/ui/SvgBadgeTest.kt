@@ -3,15 +3,39 @@ package com.mobilegh.ui
 import android.graphics.Bitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.mobilegh.ui.components.Images
 import com.mobilegh.ui.components.SvgForeignText
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotSame
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SvgBadgeTest {
+    @Test fun atomGitFlexBadgeRendersVectorLogoAndLiveCount() {
+        val source = InstrumentationRegistry.getInstrumentation().context.assets.open("atomgit-star-badge.svg").use { it.readBytes() }
+        val normalized = SvgForeignText.normalize(source)
+        assertNotSame("XHTML badge must be converted into native SVG", source, normalized)
+        assertTrue(normalized.decodeToString().contains("278 Stars"))
+        assertTrue(!normalized.decodeToString().contains("foreignObject"))
+        val changedCount = source.decodeToString().replace(">278<", ">42<").encodeToByteArray()
+        assertTrue("Count must come from the image payload", SvgForeignText.normalize(changedCount).decodeToString().contains("42 Stars"))
+        val unsupported = source.decodeToString().replace("display: flex;", "display: grid;").encodeToByteArray()
+        assertSame("Unsupported layouts must stay untouched", unsupported, SvgForeignText.normalize(unsupported))
+        val bitmap = requireNotNull(Images.decode(source, 660)).asAndroidBitmap()
+        fun pixels(from: Int, to: Int, predicate: (Int) -> Boolean): Int =
+            (3 until 17).sumOf { y -> (from until to).count { x -> predicate(bitmap.getPixel(x * 3, y * 3)) } }
+        assertTrue("Gold logo must render", pixels(3, 63) {
+            android.graphics.Color.alpha(it) > 200 && android.graphics.Color.red(it) > 180 && android.graphics.Color.blue(it) < 80
+        } > 200)
+        assertTrue("Count and label must render", pixels(67, 129) {
+            android.graphics.Color.alpha(it) > 200 && android.graphics.Color.red(it) < 90 &&
+                android.graphics.Color.green(it) < 90 && android.graphics.Color.blue(it) < 90
+        } > 60)
+    }
+
     @Test fun badgeRendersHtmlLabelsAndKeepsVectorArtwork() {
         val source = """
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 53" width="250" height="55">

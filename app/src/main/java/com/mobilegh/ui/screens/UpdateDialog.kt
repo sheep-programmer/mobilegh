@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
@@ -63,10 +65,11 @@ fun UpdateDialog(onDismiss: () -> Unit, onSkip: (() -> Unit)? = null) {
     val ctx = rememberCtx()
     val scope = rememberCoroutineScope()
     val info = Update.available
+    val maxHeight = LocalConfiguration.current.screenHeightDp.dp * 0.85f
     BasicAlertDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(dismissOnClickOutside = onSkip == null),
-        modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().dialogFrame().background(g.canvas),
+        modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(max = maxHeight).dialogFrame().background(g.canvas),
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Text(tr("在线更新"), color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)

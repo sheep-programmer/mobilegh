@@ -30,6 +30,30 @@ class NativeHtmlParserTest {
         assertEquals("doc", link.text)
     }
 
+    @Test fun rootRelativeReadmeImagesKeepRepositoryAndRef() {
+        val image = HtmlParser.parse("<p><img src=\"/web/public/logo.png\"></p>",
+            "https://github.com/a/b/blob/develop/docs/README.md").blocks.single() as HtmlBlock.Image
+        assertEquals("https://github.com/a/b/blob/develop/web/public/logo.png", image.src)
+        val raw = HtmlParser.parse("<p><img src=\"/images/图.png\"></p>",
+            "https://raw.githubusercontent.com/a/b/main/docs/README.md").blocks.single() as HtmlBlock.Image
+        assertEquals("https://raw.githubusercontent.com/a/b/main/images/%E5%9B%BE.png", raw.src)
+    }
+
+    @Test fun websiteLinksAndExternalImagesKeepTheirHosts() {
+        for (path in listOf("/user-attachments/assets/image-id", "/a/b/raw/main/image.png", "/assets/image.png")) {
+            val attachment = parse("<p><img src=\"$path\"></p>").blocks.single() as HtmlBlock.Image
+            assertEquals("https://github.com$path", attachment.src)
+        }
+        val link = (parse("<p><a href=\"/a/b/issues/1\">Issue</a></p>").blocks.single() as HtmlBlock.Paragraph)
+            .inlines.filterIsInstance<Inline.Text>().single()
+        assertEquals("https://github.com/a/b/issues/1", link.style.link)
+        val external = parse("<p><img src=\"//cdn.example.com/logo.png\"></p>").blocks.single() as HtmlBlock.Image
+        assertEquals("https://cdn.example.com/logo.png", external.src)
+        val nonRepo = HtmlParser.parse("<p><img src=\"/logo.png\"></p>", "https://example.com/docs/README.md")
+            .blocks.single() as HtmlBlock.Image
+        assertEquals("https://example.com/logo.png", nonRepo.src)
+    }
+
     @Test fun relativeLinksWithCjkResolveAgainstPageBase() {
         val p = parse("<p><img src=\"docs/Screenshot/全键盘_下滑_light.jpg\" alt=\"pic\"></p>").blocks.single() as HtmlBlock.Image
         println("Resolved image src: ${p.src}")

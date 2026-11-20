@@ -194,3 +194,5 @@ Get it from the [Releases](../../releases) page. Use `arm64-v8a` by default (alm
 ```
 
 Release signing: copy `keystore.properties` and fill in your own key information; without it the build falls back to the debug signature.
+
+Offline translation uses an optional companion APK. Build it with `./gradlew :translation-plugin:assembleRelease` and attach `translation-plugin/build/outputs/apk/release/translation-plugin-release.apk` to the same GitHub Release as `mobilegh-offline-translation.apk`. Sign both APKs with the same certificate and include the asset's SHA-256 digest. Enabling translation prompts the user to install the component and then downloads and verifies the Chinese–English model. For self-built versions, install the same-signed component manually first.

@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "MobileGH"
-include(":app")
+include(":app", ":translation-plugin")

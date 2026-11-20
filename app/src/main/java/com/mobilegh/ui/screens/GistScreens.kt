@@ -77,7 +77,7 @@ import com.mobilegh.ui.components.LoadBox
 import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.MdText
 import com.mobilegh.ui.components.MenuAction
-import com.mobilegh.ui.components.MoreMenu
+import com.mobilegh.ui.components.TranslationMoreMenu
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
@@ -206,6 +206,7 @@ fun GistDetailScreen(id: String) {
 
     Page(
         d?.files?.keys?.firstOrNull() ?: "Gist", subtitle = d?.owner?.login,
+        translationInMenu = d != null,
         actions = {
             if (signedIn) {
                 OcButton(
@@ -224,7 +225,7 @@ fun GistDetailScreen(id: String) {
                     enabled = isStarred != null && !starBusy,
                 )
             }
-            MoreMenu(buildList {
+            TranslationMoreMenu(buildList {
                 if (d != null && signedIn) {
                     if (mine) {
                         add(MenuAction(tr("编辑")) { nav.push(Screen.GistEditor(id)) })

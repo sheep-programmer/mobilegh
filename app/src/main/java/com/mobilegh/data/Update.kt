@@ -71,7 +71,7 @@ object Update {
         return try {
             val rel = GitHub.latestRelease(OWNER, REPO, force) ?: return null.also { available = null }
             val version = rel.tagName.trimStart('v', 'V')
-            val apk = rel.assets.filter { it.name.endsWith(".apk", ignoreCase = true) }
+            val apk = rel.assets.filter { it.name.endsWith(".apk", ignoreCase = true) && it.name != OfflineTranslation.ASSET_NAME }
             val asset = apk.firstOrNull { it.name.contains(abi, ignoreCase = true) }
                 ?: apk.firstOrNull { it.name.contains("universal", ignoreCase = true) }
                 ?: apk.firstOrNull()

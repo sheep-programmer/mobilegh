@@ -12,6 +12,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -26,6 +27,8 @@ import com.mobilegh.nav.NavRestore
 import com.mobilegh.nav.Navigator
 import com.mobilegh.nav.IncomingLinks
 import com.mobilegh.ui.components.LinkDefaultPrompt
+import com.mobilegh.ui.components.LocalTranslationCache
+import com.mobilegh.ui.components.TranslationParagraphCache
 import com.mobilegh.nav.Tab
 import com.mobilegh.widget.WidgetIntents
 import com.mobilegh.widget.Widgets
@@ -42,11 +45,14 @@ class NavVm(private val state: SavedStateHandle) : ViewModel() {
         private set
     private var gen = -1
     private var current = Navigator()
+    internal var translationCache = TranslationParagraphCache()
+        private set
 
     fun navFor(generation: Int): Navigator {
         if (generation != gen) {
             current.dispose()
             current = Navigator()
+            translationCache = TranslationParagraphCache()
             // 首次创建（包括进程被系统回收后的重建）时恢复上次的导航栈与 Tab；账号切换不恢复
             val saved = state.get<String>(NavRestore.KEY)
             if (gen == -1 && !saved.isNullOrBlank()) current.restore(NavRestore.decode(saved, Session.login))
@@ -133,6 +139,7 @@ class MainActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         updateSecureFlags()
+        lifecycleScope.launch { Session.restoreDocumentTranslation() }
     }
 
     override fun onPause() {
@@ -168,7 +175,7 @@ class MainActivity : FragmentActivity() {
             LaunchedEffect(Session.generation) { Widgets.update(applicationContext) }
             LaunchedEffect(AppLock.enabled, AppLock.locked) { updateSecureFlags() }
             MobileGhTheme {
-                AppRoot(nav)
+                CompositionLocalProvider(LocalTranslationCache provides vm.translationCache) { AppRoot(nav) }
                 // 锁定时不弹出询问，解锁后再问
                 if (!AppLock.locked) LinkDefaultPrompt()
             }

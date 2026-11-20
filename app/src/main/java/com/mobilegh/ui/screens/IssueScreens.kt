@@ -109,6 +109,7 @@ import com.mobilegh.ui.components.LabelChip
 import com.mobilegh.ui.components.LoadBox
 import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MoreMenu
+import com.mobilegh.ui.components.TranslationMoreMenu
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.rememberCommentAttachments
 import com.mobilegh.ui.components.OcButton
@@ -384,8 +385,9 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
 
     Page(
         "#$number", subtitle = "$owner/$name",
+        translationInMenu = t != null,
         actions = {
-            MoreMenu(buildList {
+            TranslationMoreMenu(buildList {
                 if (t != null) {
                     val open = t.issue.state == "open"
                     val isLocked = t.issue.locked

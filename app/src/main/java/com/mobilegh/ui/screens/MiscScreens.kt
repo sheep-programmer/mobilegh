@@ -448,7 +448,7 @@ private fun AppearanceSettings() {
     SectionTitle(tr("阅读"))
     MenuGroup {
         SwitchRow(tr("悬浮底栏"), tr("首页底部使用圆角导航栏"), Session.floatingNavigation, onChange = Session::chooseFloatingNavigation)
-        SwitchRow(tr("正文翻译"), tr("在设备上翻译正文为界面语言，首次需要下载语言模型"), Session.translateDocuments, onChange = Session::chooseDocumentTranslation)
+        OfflineTranslationSettings()
         SwitchRow(tr("代码自动换行"), tr("查看源码和日志时自动折行"), Session.codeWrap) { Session.toggleWrap() }
         SwitchRow(tr("回到顶部按钮"), tr("列表向下翻过第一屏后，在右下角显示按钮"), Session.scrollToTopButton) { Session.chooseScrollToTopButton(it) }
     }

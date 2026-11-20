@@ -193,3 +193,5 @@ tools/readme_screenshots.sh               # 重新生成 README 截图（需要�
 ```
 
 发布签名：复制 `keystore.properties` 并填入自己的密钥信息即可；未配置时自动回退到 debug 签名。
+
+离线翻译是可选组件。构建发布包时另运行 `./gradlew :translation-plugin:assembleRelease`，把 `translation-plugin/build/outputs/apk/release/translation-plugin-release.apk` 以 `mobilegh-offline-translation.apk` 的名称加入同一 GitHub Release。组件须与主 APK 使用同一签名，Release 资产须提供 SHA-256 摘要。首次开启时，用户确认安装组件，再下载并验证中英互译模型。自编译版本可先手动安装同签名组件。

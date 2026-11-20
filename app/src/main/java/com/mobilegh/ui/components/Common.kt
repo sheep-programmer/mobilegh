@@ -225,12 +225,17 @@ fun Page(
     onSubtitleClick: (() -> Unit)? = null,
     /** 页面内的撤销提示（见 offerUndo）；传入后显示在底部，不占用内容区 */
     snackbar: androidx.compose.material3.SnackbarHostState? = null,
+    translationInMenu: Boolean = false,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val nav = LocalNav.current
     // 页面内的主列表登记到这里（见 RegisterScrollTop），右下角的「回到顶部」按钮据此显示和回滚
     val scrollTop = remember { ScrollTopTarget() }
-    CompositionLocalProvider(LocalScrollTopTarget provides scrollTop) {
+    val translation = remember { PageTranslation() }
+    CompositionLocalProvider(
+        LocalScrollTopTarget provides scrollTop,
+        LocalPageTranslation provides translation.takeIf { translationInMenu },
+    ) {
         Scaffold(
             containerColor = Gh.c.canvas,
             topBar = {
@@ -784,9 +789,19 @@ fun MenuRow(
     ) {
         MenuIcon(icon, iconBg ?: Gh.c.fgMuted)
         Spacer(Modifier.width(14.dp))
-        Text(title, Modifier.weight(1f), fontSize = 15.sp, color = Gh.c.fg)
-        if (count != null) Counter(count)
-        if (value != null) Text(value, color = Gh.c.fgMuted, fontSize = 14.sp, maxLines = 1)
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 15.sp, color = Gh.c.fg)
+            if (!value.isNullOrBlank()) Text(
+                value,
+                Modifier.padding(top = 3.dp),
+                color = Gh.c.fgMuted,
+                fontSize = 13.sp,
+            )
+        }
+        if (count != null) {
+            Spacer(Modifier.width(8.dp))
+            Counter(count)
+        }
         Spacer(Modifier.width(6.dp))
         Oc(R.drawable.oc_chevron_right, Gh.c.fgMuted, 14.dp)
     }

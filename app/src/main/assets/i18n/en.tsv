@@ -3301,6 +3301,7 @@ SHA-256 校验不匹配，未保存文件	SHA-256 mismatch. The file was not sav
 豆沙粉	Dusty rose
 启动页	Start page
 查看原文	Show original
+显示原文	Show original
 显示译文	Show translation
 定位首个失败	Jump to first failure
 搜索日志	Search log
@@ -3317,3 +3318,22 @@ PR 已更新，请刷新文件变更	This pull request has changed. Refresh the 
 无法同步已阅进度，暂仅记录在本机	Could not sync viewed progress. Changes are local only.
 无法刷新 GitHub 已阅进度	Could not refresh GitHub viewed progress
 刷新文件与已阅进度	Refresh files and viewed progress
+
+最小化	Minimize
+彻底关闭	Close download panel
+离线翻译	Offline translation
+默认关闭；开启后自动翻译正文，可在页面菜单切换原文和译文。首次需联网下载语言模型	Off by default. When enabled, content is translated automatically. Switch between the original and translation in the page menu. An internet connection is needed to download language models the first time.
+翻译	Translate
+下载并校验模型后开启。正文在设备上翻译，可从页面菜单切换原文和译文	Enable after downloading and verifying models. Content is translated on your device. Switch views from the page menu.
+下载离线翻译模型	Download offline translation models
+首次使用需安装独立翻译组件并联网下载中英互译模型。下载和校验通过后，离线翻译会自动开启。	First use requires installing the separate translation component and downloading the Chinese–English model. Offline translation turns on after verification.
+正在下载并校验中英互译模型…	Downloading and verifying the Chinese–English model…
+正在下载并校验翻译组件…	Downloading and verifying the translation component…
+正在下载并校验翻译模型…	Downloading and verifying the translation model…
+正在读取语言列表…	Loading languages…
+下载或校验失败，请检查网络和存储空间后重试	Download or verification failed. Check your connection and storage, then try again.
+翻译组件未安装，离线翻译仍关闭	The translation component was not installed. Offline translation is still off.
+当前版本尚未提供离线翻译组件	The current release does not include a downloadable offline translation component.
+下载其他翻译语言	Download other translation languages
+选择语言	Select language
+请在离线翻译设置下载{0}模型，当前显示原文	Download the {0} model in Offline translation settings. Showing the original.

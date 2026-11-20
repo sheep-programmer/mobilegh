@@ -117,7 +117,7 @@ import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MenuRow
 import com.mobilegh.ui.components.MenuGroup
 import com.mobilegh.ui.components.Card
-import com.mobilegh.ui.components.MoreMenu
+import com.mobilegh.ui.components.TranslationMoreMenu
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
@@ -216,6 +216,7 @@ fun RepoScreen(owner: String, name: String) {
 
     Page(
         name, subtitle = owner,
+        translationInMenu = !readme.data.isNullOrBlank(),
         floating = {
             ReadmeZoomResetPill(
                 scale = readmeScale,
@@ -228,7 +229,7 @@ fun RepoScreen(owner: String, name: String) {
         actions = {
             // Fork 是仓库页最常用的操作之一，直接放在标题栏，不用藏进三点菜单
             OcButton(R.drawable.oc_repo_forked, { showFork = true }, enabled = r != null, description = tr("Fork 此仓库"))
-            MoreMenu(buildList {
+            TranslationMoreMenu(buildList {
                 add(MenuAction(tr("克隆地址…")) { showClone = true })
                 // 和网页上 Code → Download ZIP 一样：把当前分支/标签的源码打包下来，不用 clone
                 if (r != null) add(MenuAction(tr("下载源码 zip")) {

@@ -100,6 +100,7 @@ import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MenuRow
 import com.mobilegh.ui.components.MenuGroup
 import com.mobilegh.ui.components.MoreMenu
+import com.mobilegh.ui.components.TranslationMoreMenu
 import com.mobilegh.ui.components.HtmlView
 import com.mobilegh.ui.components.HtmlParser
 import com.mobilegh.ui.components.OcButton
@@ -381,11 +382,12 @@ private fun ProfileContent(login: String, me: Boolean, isSelf: Boolean = me) {
 
     Page(
         if (me) tr("我的") else login,
+        translationInMenu = !profileReadme.data.isNullOrBlank(),
         back = !me || nav.stack.isNotEmpty(),
         contentWindowInsets = if (me && nav.stack.isEmpty()) WindowInsets(0) else null,
         actions = {
             if (me || isSelf) OcButton(R.drawable.oc_gear, { nav.push(Screen.Settings) }, description = tr("设置"))
-            MoreMenu(
+            TranslationMoreMenu(
                 listOfNotNull(
                     if (isSelf) MenuAction(tr("编辑资料")) { nav.push(Screen.EditProfile) } else null,
                     MenuAction(tr("复制链接")) { ctx.copy("https://github.com/$login") },

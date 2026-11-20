@@ -75,6 +75,7 @@ import com.mobilegh.ui.components.HtmlView
 import com.mobilegh.ui.components.LoadBox
 import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MoreMenu
+import com.mobilegh.ui.components.TranslationMoreMenu
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.ExternalLinkDialog
@@ -262,6 +263,7 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?, line
     val downloadReady = repo.data != null
     Page(
         fileName, subtitle = "${ref ?: tr("默认分支")} · $path",
+        translationInMenu = body.data is FileBody.Html && !mdSource,
         actions = {
             val b = body.data
             val editable = canPush && ((b is FileBody.Code && b.text.length <= RepoWrite.MAX_EDIT_BYTES) || b is FileBody.Html)
@@ -305,7 +307,7 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?, line
             if (editable) OcButton(R.drawable.oc_pencil, { nav.push(Screen.EditFile(owner, name, ref, path)) }, description = tr("编辑文件"))
 
             // 5. 更多操作
-            MoreMenu(buildList {
+            TranslationMoreMenu(buildList {
                 add(MenuAction(trf("打开仓库 {0}", "$owner/$name"), icon = R.drawable.oc_repo) { nav.push(Screen.Repo(owner, name)) })
                 if (b is FileBody.Code || b is FileBody.Html) {
                     add(MenuAction(tr("在文件内搜索"), icon = R.drawable.oc_search) {

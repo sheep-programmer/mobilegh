@@ -24,7 +24,7 @@ internal object SvgForeignText {
             if (parser.errors.isNotEmpty()) return bytes
             var changed = false
             for (element in document.getElementsByTag("foreignObject")) {
-                val replacement = textBox(element) ?: continue
+                val replacement = textBox(element) ?: flexBadge(element) ?: continue
                 element.replaceWith(replacement)
                 changed = true
             }
@@ -34,6 +34,86 @@ internal object SvgForeignText {
         } catch (_: Exception) {
             bytes
         }
+    }
+
+    /**
+     * Some badge generators put their vector logo and count in an XHTML flex row.
+     * AndroidSVG cannot draw foreignObject. Convert only this bounded, static structure;
+     * unsupported HTML/CSS stays untouched rather than executing HTML or fetching resources.
+     */
+    private fun flexBadge(element: Element): Element? {
+        if (element.tag().namespace() != svgNamespace || element.parents().any { it.tagName() == "switch" }) return null
+        if (element.attributes().any { it.key !in boxAttributes && it.key != "class" }) return null
+        val sheet = element.children().singleOrNull { it.tagName() == "style" } ?: return null
+        val box = element.children().singleOrNull { it.tagName() == "div" } ?: return null
+        if (element.childrenSize() != 2 || box.tag().namespace() != htmlNamespace) return null
+        val rules = mutableMapOf<String, Map<String, String>>()
+        val css = sheet.data().ifBlank { sheet.wholeText() }
+        val rulePattern = Regex("""\.([a-zA-Z][\w-]*)\s*\{([^{}]*)\}""")
+        if (rulePattern.replace(css, "").isNotBlank()) return null
+        for (match in rulePattern.findAll(css)) {
+            val declarations = mutableMapOf<String, String>()
+            for (entry in match.groupValues[2].split(';').filter { it.isNotBlank() }) {
+                val key = entry.substringBefore(':').trim()
+                val value = entry.substringAfter(':', "").trim()
+                if (key !in setOf("width", "height", "overflow", "font-family", "font-weight", "display", "color",
+                        "font-size", "line-height", "border", "background-color", "border-radius", "padding", "gap", "margin-left") ||
+                    value.isEmpty()) return null
+                declarations[key] = value
+            }
+            rules[match.groupValues[1]] = declarations
+        }
+        fun cssOf(node: Element): Map<String, String>? {
+            if (node.attributes().any { it.key !in setOf("class", "xmlns") }) return null
+            return node.classNames().fold(emptyMap()) { combined, name -> combined + (rules[name] ?: emptyMap()) }
+        }
+        val style = cssOf(box) ?: return null
+        if (style["display"] != "flex" || box.childrenSize() != 2) return null
+        val left = box.child(0)
+        val right = box.child(1)
+        val leftStyle = cssOf(left) ?: return null
+        val rightStyle = cssOf(right) ?: return null
+        if (left.tagName() != "div" || right.tagName() != "div" || rightStyle["display"] != "flex") return null
+        val logo = left.children().singleOrNull()?.takeIf { it.tagName() == "svg" && it.tag().namespace() == svgNamespace } ?: return null
+        if (logo.getAllElements().any { it.tagName() !in setOf("svg", "g", "path", "rect", "circle", "ellipse", "polygon", "polyline", "line", "defs", "clipPath", "title") ||
+                it.attributes().any { attr -> attr.key.startsWith("on", true) || attr.key.contains("href", true) || attr.value.contains("url(", true) } }) return null
+        if (right.children().isEmpty() || right.children().any { it.tagName() != "span" || it.childNodes().any { child -> child !is TextNode } || cssOf(it) == null }) return null
+        val label = right.children().joinToString(" ") { it.text() }.takeIf { it.isNotBlank() && it.length <= 128 } ?: return null
+        val parent = element.parents().firstOrNull { it.tagName() == "svg" } ?: return null
+        fun dimension(name: String): Float? = element.attr(name).let {
+            if (it == "100%") parent.attr(name).pixels() else it.pixels()
+        }?.takeIf { it in 1f..2048f }
+        val width = dimension("width") ?: return null
+        val height = dimension("height") ?: return null
+        val fontSize = style["font-size"]?.pixels()?.takeIf { it in 1f..128f } ?: return null
+        if (style["font-family"]?.lowercase() !in setOf("arial", "sans-serif") || style["font-weight"] !in setOf(null, "400", "normal")) return null
+        val lineHeight = style["line-height"]?.pixels() ?: return null
+        val logoWidth = logo.attr("width").pixels()?.takeIf { it > 0 } ?: return null
+        val logoHeight = logo.attr("height").pixels()?.takeIf { it > 0 && it <= height } ?: return null
+        if (leftStyle["height"]?.pixels() != logoHeight || rightStyle["height"]?.pixels() != lineHeight) return null
+        val border = style["border"]?.split(Regex("\\s+")) ?: return null
+        if (border.size != 3 || border[1] != "solid" || !colorValue.matches(border[2])) return null
+        val stroke = border[0].pixels()?.takeIf { it in 0f..4f } ?: return null
+        val padding = style["padding"]?.split(Regex("\\s+"))?.map { it.pixels() ?: return null } ?: return null
+        if (padding.size != 4 || padding.any { it !in 0f..32f }) return null
+        val gap = rightStyle["margin-left"]?.pixels()?.takeIf { it in 0f..32f } ?: return null
+        val background = style["background-color"]?.takeIf { colorValue.matches(it) } ?: return null
+        val color = (style["color"] ?: "black").takeIf { colorValue.matches(it) } ?: return null
+        val radius = style["border-radius"]?.pixels()?.takeIf { it in 0f..32f } ?: return null
+        val metrics = Paint().apply { typeface = Typeface.create("sans-serif", Typeface.NORMAL); textSize = fontSize }.fontMetrics
+        val x = stroke + padding[3]
+        val y = stroke + padding[0]
+        return Element("svg").attr("xmlns", svgNamespace)
+            .attr("x", element.attr("x").ifBlank { "0" }).attr("y", element.attr("y").ifBlank { "0" })
+            .attr("width", "$width").attr("height", "$height").attr("overflow", "hidden").apply {
+                appendElement("rect").attr("x", "${stroke / 2}").attr("y", "${stroke / 2}")
+                    .attr("width", "${width - stroke}").attr("height", "${height - stroke}")
+                    .attr("rx", "$radius").attr("fill", background).attr("stroke", border[2]).attr("stroke-width", "$stroke")
+                appendChild(logo.clone().attr("x", "$x").attr("y", "$y"))
+                appendElement("text").attr("x", "${x + logoWidth + gap}")
+                    .attr("y", "${y + (lineHeight - metrics.ascent - metrics.descent) / 2}")
+                    .attr("fill", color).attr("font-size", "$fontSize").attr("font-family", "sans-serif").text(label)
+            }
     }
 
     private fun textBox(element: Element): Element? {

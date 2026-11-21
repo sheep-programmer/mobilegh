@@ -54,6 +54,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -119,11 +120,23 @@ fun HtmlView(
     linkedImagesOpenLink: Boolean = false,
     allowTranslation: Boolean = true,
 ) {
-    // 解析结果有缓存：长列表里的评论通常已在后台预先解析好，滑入屏幕时不再在主线程上解析
-    val parsed = remember(html, baseUrl) { HtmlParser.parseCached(html, baseUrl) }
+    // 解析结果有缓存；首次遇到长正文时也放到 Default，避免 Jsoup 和块模型构建占用 UI 线程。
+    val parsed by produceState<ParsedHtml?>(null, html, baseUrl) {
+        value = withContext(Dispatchers.Default) { HtmlParser.parseCached(html, baseUrl) }
+    }
+    val parsedValue = parsed
+    if (parsedValue == null) {
+        Box(
+            modifier.fillMaxWidth().heightIn(min = 48.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(tr("正在准备正文…"), color = Gh.c.fgMuted, fontSize = 13.sp)
+        }
+        return
+    }
     CompositionLocalProvider(LocalLinkedImagesOpenLink provides linkedImagesOpenLink) {
-        DocumentTranslationContent(parsed, allowTranslation) { header, translate ->
-            NativeHtml(parsed.blocks, modifier, onAnchor, anchorRequest, baseUrl, header, translate)
+        DocumentTranslationContent(parsedValue, allowTranslation) { header, translate ->
+            NativeHtml(parsedValue.blocks, modifier, onAnchor, anchorRequest, baseUrl, header, translate)
         }
     }
 }

@@ -56,4 +56,16 @@ for LANGUAGE in zh en; do
     done
   done
 done
+
+# 平板截图使用实际 1200dp 可用宽度，触发左侧导航，而不是放大手机截图。
+A shell wm size 1800x1200
+A shell wm density 240
+for LANGUAGE in zh en; do
+  run_tests "$LANGUAGE" "$CLASS#tabletSettings"
+  pull "$LANGUAGE"
+  if [ ! -s "$OUT/$LANGUAGE/26-tablet-settings.png" ]; then
+    echo "未生成 ${LANGUAGE}/26-tablet-settings.png" >&2
+    exit 1
+  fi
+done
 echo "截图已写入 ${OUT}"

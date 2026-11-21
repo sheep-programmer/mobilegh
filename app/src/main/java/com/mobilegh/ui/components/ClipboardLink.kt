@@ -50,6 +50,8 @@ fun ClipboardLinkHost(nav: Navigator, modifier: Modifier = Modifier) {
         fun inspect(suggest: Boolean, attempt: Int = 0) {
             if (disposed) return
             if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+            // 未登录、或当前处于登录/重新授权/添加账号等认证界面时，绝不读取剪贴板，杜绝敏感操作泄露与系统隐私 Toast
+            if (com.mobilegh.data.Session.token == null || nav.top.screen is com.mobilegh.nav.Screen.Login || nav.top.screen is com.mobilegh.nav.Screen.Reauthorize) return
             if (suggest && !view.hasWindowFocus()) {
                 // 刚从后台回来时窗口焦点可能还没到，等一会儿再读；应用内弹窗拿走焦点则不算前台可读
                 if (attempt < CLIPBOARD_FOCUS_RETRIES) {
@@ -57,6 +59,7 @@ fun ClipboardLinkHost(nav: Navigator, modifier: Modifier = Modifier) {
                 }
                 return
             }
+            if (!runCatching { clipboard.hasPrimaryClip() }.getOrDefault(false)) return
             val clip = runCatching { clipboard.primaryClip }.getOrElse { return }
             val sensitive = clip?.description?.extras?.getBoolean("android.content.extra.IS_SENSITIVE", false) == true
             val texts = if (clip == null || sensitive) emptyList() else (0 until clip.itemCount.coerceAtMost(8)).mapNotNull { i ->

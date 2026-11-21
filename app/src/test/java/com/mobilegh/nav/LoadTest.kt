@@ -38,6 +38,32 @@ class LoadTest {
         assertNull(pager.error)
     }
 
+    @Test fun silentPagerRefreshKeepsExistingItemsWithoutExposingSpinner() = runBlocking {
+        val refreshStarted = CompletableDeferred<Unit>()
+        val releaseRefresh = CompletableDeferred<Unit>()
+        val pager = Pager(this, pageSize = 1) { _, force ->
+            if (!force) listOf("cached")
+            else {
+                refreshStarted.complete(Unit)
+                releaseRefresh.await()
+                listOf("fresh")
+            }
+        }
+        pager.loadMore()
+        withTimeout(5000) { while (pager.loading) yield() }
+
+        pager.refreshSilently()
+        refreshStarted.await()
+        assertEquals(listOf("cached"), pager.items)
+        assertFalse(pager.loading)
+        assertFalse(pager.refreshing)
+
+        releaseRefresh.complete(Unit)
+        withTimeout(5000) { while (pager.items.toList() != listOf("fresh")) yield() }
+        assertFalse(pager.loading)
+        assertFalse(pager.refreshing)
+    }
+
     @Test fun serverHasMoreOverridesShortDecodedPages() = runBlocking {
         val pager = Pager(this, pageSize = 100, hasMore = { page -> page == 1 }) { page, _ ->
             if (page == 1) listOf("only decoded repository") else emptyList()

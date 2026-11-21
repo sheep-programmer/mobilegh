@@ -3337,3 +3337,9 @@ PR 已更新，请刷新文件变更	This pull request has changed. Refresh the 
 下载其他翻译语言	Download other translation languages
 选择语言	Select language
 请在离线翻译设置下载{0}模型，当前显示原文	Download the {0} model in Offline translation settings. Showing the original.
+已下载的语言	Downloaded languages
+{0} · 内置	{0} · built in
+{0} · 已下载	{0} · downloaded
+更新翻译组件后，可在这里查看已下载的语言	Update the translation component to see downloaded languages here
+还没有下载语言模型	No language models downloaded yet
+英语已内置；其他语言之间会经英语中转翻译	English is built in; other languages are translated through English

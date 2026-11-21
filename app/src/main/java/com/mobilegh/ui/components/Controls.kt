@@ -32,6 +32,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.text.style.TextOverflow
@@ -165,12 +169,22 @@ fun Chips(options: List<String>, selected: Int, modifier: Modifier = Modifier, e
 
 /** 下拉选择按钮；active 时以强调色显示（表示已设置筛选） */
 @Composable
-fun Dropdown(label: String, options: List<String>, onSelect: (Int) -> Unit, modifier: Modifier = Modifier, active: Boolean = false, enabled: Boolean = true) {
+fun Dropdown(
+    label: String,
+    options: List<String>,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    active: Boolean = false,
+    enabled: Boolean = true,
+    optionLabels: List<String>? = null,
+    optionAliases: List<List<String>>? = null,
+    labelAliases: List<String>? = null,
+) {
     var open by remember { mutableStateOf(false) }
     LaunchedEffect(enabled) { if (!enabled) open = false }
     val g = Gh.c
     val scrollState = rememberScrollState()
-    DropdownButton(label, modifier, active, enabled = enabled, menu = {
+    DropdownButton(label, modifier, active, enabled = enabled, labelAliases = labelAliases, menu = {
         DropdownMenu(
             expanded = open,
             onDismissRequest = { open = false },
@@ -190,7 +204,9 @@ fun Dropdown(label: String, options: List<String>, onSelect: (Int) -> Unit, modi
                 verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
                 options.forEachIndexed { i, s ->
-                    val isSelected = s == label
+                    val optDisplay = optionLabels?.getOrNull(i) ?: s
+                    val optAliases = optionAliases?.getOrNull(i).orEmpty()
+                    val isSelected = s == label || optDisplay == label
                     val cardBg = if (isSelected) g.accent.copy(alpha = 0.12f) else g.canvasSubtle
                     val cardBorder = if (isSelected) g.accent.copy(alpha = 0.35f) else g.borderMuted
                     val textFg = if (isSelected) g.accent else g.fg
@@ -208,11 +224,16 @@ fun Dropdown(label: String, options: List<String>, onSelect: (Int) -> Unit, modi
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = s,
+                            text = optDisplay,
                             color = textFg,
                             fontSize = 14.sp,
                             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).semantics {
+                                val allTexts = mutableListOf(AnnotatedString(optDisplay))
+                                if (s != optDisplay) allTexts.add(AnnotatedString(s))
+                                optAliases.forEach { allTexts.add(AnnotatedString(it)) }
+                                set(SemanticsProperties.Text, allTexts)
+                            },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -672,6 +693,7 @@ fun DropdownButton(
     active: Boolean = false,
     menu: @Composable () -> Unit = {},
     enabled: Boolean = true,
+    labelAliases: List<String>? = null,
     onClick: () -> Unit,
 ) {
     val g = Gh.c
@@ -700,6 +722,11 @@ fun DropdownButton(
                     color = if (active) g.accent else g.fg,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.semantics {
+                        if (!labelAliases.isNullOrEmpty()) {
+                            set(SemanticsProperties.Text, listOf(AnnotatedString(label)) + labelAliases.map { AnnotatedString(it) })
+                        }
+                    },
                 )
                 Oc(
                     R.drawable.oc_chevron_down,
@@ -1038,22 +1065,24 @@ fun Segmented(
     }
 }
 
-/** 顶栏页签导航（对齐 GitHub 官方设计）：扁平下划线指示条，无卡片阴影，无黑底凹槽 */
+/** 顶栏页签导航（对齐 GitHub 官方设计）：扁平下划线指示条，无卡片阴影，无黑底凹槽，支持横向平滑滚动 */
 @Composable
 fun GhTopTabBar(
     tabs: List<String>,
     selected: Int,
     modifier: Modifier = Modifier,
+    tabAliases: List<List<String>>? = null,
     onSelect: (Int) -> Unit,
 ) {
     val g = Gh.c
     Column(modifier.fillMaxWidth()) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             tabs.forEachIndexed { index, title ->
                 val isSelected = index == selected
+                val aliases = tabAliases?.getOrNull(index).orEmpty()
                 Column(
                     modifier = Modifier
                         .clickable(
@@ -1068,7 +1097,11 @@ fun GhTopTabBar(
                         fontSize = 14.sp,
                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                         color = if (isSelected) g.accent else g.fgMuted,
-                        modifier = Modifier.padding(bottom = 8.dp),
+                        modifier = Modifier.padding(bottom = 8.dp).semantics {
+                            if (aliases.isNotEmpty()) {
+                                set(SemanticsProperties.Text, listOf(AnnotatedString(title)) + aliases.map { AnnotatedString(it) })
+                            }
+                        },
                     )
                     Box(
                         Modifier

@@ -21,9 +21,12 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.IconButton
@@ -39,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.geometry.Offset
@@ -52,6 +56,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import kotlin.math.roundToInt
 import com.mobilegh.R
 import com.mobilegh.data.DownloadState
@@ -134,7 +140,7 @@ fun DownloadHost() {
                             Oc(R.drawable.oc_file_directory, g.fgMuted, 20.dp)
                         }
                     }
-                    OcButton(R.drawable.oc_minimize, Downloads::minimize, description = tr("最小化"))
+                    DownloadCircleAction(R.drawable.oc_minimize, Downloads::minimize, tr("最小化"), size = 40.dp)
                 }
             },
             text = {
@@ -177,103 +183,133 @@ fun DownloadHost() {
                 }
             },
             dismissButton = {
-                FlowRow {
+                FlowRow(verticalArrangement = Arrangement.Center) {
                     if (selected.active) TextButton({ Downloads.cancel(selected) }) {
                         Text(tr("取消下载"), color = g.danger)
                     }
-                    TextButton(Downloads::closeOverlay) { Text(tr("彻底关闭"), color = g.fgMuted) }
+                    DownloadCloseButton(Downloads::closeOverlay)
                 }
             },
         )
     } else if (Downloads.showHistory) {
-        AlertDialog(
-            onDismissRequest = Downloads::minimize,
-            containerColor = g.canvas,
-            shape = RoundedCornerShape(16.dp),
-            tonalElevation = 0.dp,
-            modifier = Modifier.dialogFrame(),
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+        Dialog(onDismissRequest = Downloads::minimize, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            val frame = RoundedCornerShape(16.dp)
+            Column(
+                Modifier.padding(horizontal = 16.dp).widthIn(max = 560.dp).fillMaxWidth()
+                    .clip(frame).background(g.canvas).border(1.dp, g.borderMuted.copy(alpha = 0.5f), frame),
+            ) {
+                Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Oc(R.drawable.oc_download, g.accent, 20.dp)
+                    Spacer(Modifier.width(10.dp))
                     Text(tr("下载记录"), color = g.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    if (Downloads.tasks.isNotEmpty()) {
-                        TextButton({ clearDialog = true }) { Text(tr("清空"), color = g.danger) }
+                    if (Downloads.activeCount > 0) {
+                        DownloadCircleAction(R.drawable.oc_minimize, Downloads::minimize, tr("最小化"), size = 36.dp)
+                        Spacer(Modifier.width(8.dp))
                     }
-                    OcButton(R.drawable.oc_minimize, Downloads::minimize, description = tr("最小化"))
+                    DownloadCircleAction(R.drawable.oc_x, Downloads::closeOverlay, tr("关闭"), size = 36.dp)
                 }
-            },
-            text = {
-                Column(Modifier.heightIn(max = bodyHeight).verticalScrollWithBar()) {
+                Box(
+                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp)).background(g.canvasSubtle)
+                        .border(1.dp, g.borderMuted, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp),
+                ) {
                     SwitchRow(
                         title = tr("仅 Wi-Fi 下载"),
                         desc = tr("开启后新的下载不使用移动数据；已经在进行中的任务不受影响"),
                         checked = Downloads.wifiOnly,
                         onChange = { Downloads.changeWifiOnly(it) },
                     )
-                    Spacer(Modifier.height(8.dp))
-                    if (Downloads.tasks.isEmpty()) {
-                        Text(tr("还没有下载记录"), color = g.fgMuted)
-                    } else {
-                        ScrollbarLazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            items(Downloads.tasks, key = { it.key }) { task ->
-                                var menu by remember { mutableStateOf(false) }
-                                val missing = Downloads.isFileMissing(task)
-                                Column(Modifier.fillMaxWidth()) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Column(
-                                            Modifier.weight(1f).clickable { Downloads.showHistory = false; Downloads.selectedKey = task.key },
-                                        ) {
-                                            Text(task.filename, color = g.fg, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                            Spacer(Modifier.height(6.dp))
-                                            DownloadProgress(task)
-                                        }
-                                        Box {
-                                            IconButton({ menu = true }) { Oc(R.drawable.oc_kebab_horizontal, g.fgMuted, 18.dp) }
-                                            CardDropdownMenu(
-                                                expanded = menu,
-                                                onDismissRequest = { menu = false },
-                                                actions = buildList {
-                                                    // 文件已不在时没有可打开的文件，只保留「重新下载」和移除记录
-                                                    if (task.state == DownloadState.Complete && !missing) {
-                                                        if (task.actionsArchive) add(MenuAction(tr("查找 APK"), icon = R.drawable.oc_package) {
-                                                            Downloads.showHistory = false
-                                                            Downloads.selectedKey = task.key
-                                                            ApkArchiveDialogState.task = task
-                                                        })
-                                                        add(MenuAction(tr("打开文件"), icon = R.drawable.oc_file) { Downloads.open(ctx, task) })
-                                                        add(MenuAction(tr("打开所在文件夹"), icon = R.drawable.oc_file_directory) { Downloads.revealFolder(ctx, task) })
-                                                        add(MenuAction(tr("删除本地文件"), danger = true, icon = R.drawable.oc_trash) { pendingDelete = task })
-                                                    }
-                                                    // 排队、传输中、已暂停的任务都能暂停 / 继续
-                                                    if (task.canTogglePause) {
-                                                        val paused = task.paused
-                                                        add(MenuAction(if (paused) tr("继续") else tr("暂停"), icon = if (paused) R.drawable.oc_play else R.drawable.oc_clock) { Downloads.togglePause(task) })
-                                                    }
-                                                    if (task.active) {
-                                                        add(MenuAction(tr("取消下载"), danger = true, icon = R.drawable.oc_x) { Downloads.cancel(task) })
-                                                    } else {
-                                                        add(MenuAction(tr("重新下载"), icon = R.drawable.oc_sync) { Downloads.retry(task) })
-                                                    }
-                                                    add(MenuAction(tr("从记录中移除"), icon = R.drawable.oc_x_circle) { Downloads.forget(ctx, task) })
-                                                },
-                                            )
-                                        }
-                                    }
+                }
+                if (Downloads.tasks.isEmpty()) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.size(56.dp).clip(CircleShape).background(g.canvasSubtle), contentAlignment = Alignment.Center) {
+                            Oc(R.drawable.oc_download, g.fgMuted, 26.dp)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text(tr("还没有下载记录"), color = g.fgMuted, fontSize = 14.sp)
+                    }
+                } else {
+                    ScrollbarLazyColumn(
+                        Modifier.fillMaxWidth().heightIn(max = bodyHeight),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(Downloads.tasks, key = { it.key }) { task ->
+                            var menu by remember { mutableStateOf(false) }
+                            val missing = Downloads.isFileMissing(task)
+                            val card = RoundedCornerShape(12.dp)
+                            Row(
+                                Modifier.fillMaxWidth().clip(card).border(1.dp, g.borderMuted, card)
+                                    .clickable { Downloads.showHistory = false; Downloads.selectedKey = task.key }
+                                    .padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+                            ) {
+                                Box(Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(g.accent.copy(alpha = 0.10f)), contentAlignment = Alignment.Center) {
+                                    Oc(if (task.filename.endsWith(".apk", true)) R.drawable.oc_package else R.drawable.oc_file, g.accent, 18.dp)
                                 }
-                            }
-                            if (Downloads.droppedRecords > 0) {
-                                item {
-                                    Text(
-                                        trf("较早的 {0} 条记录已移出列表（最多保留 {1} 条），本地文件不受影响", Downloads.droppedRecords, HISTORY_KEEP),
-                                        color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp,
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(task.filename, color = g.fg, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Spacer(Modifier.height(8.dp))
+                                    DownloadProgress(task)
+                                }
+                                Box {
+                                    IconButton({ menu = true }, Modifier.size(36.dp)) { Oc(R.drawable.oc_kebab_horizontal, g.fgMuted, 18.dp) }
+                                    CardDropdownMenu(
+                                        expanded = menu,
+                                        onDismissRequest = { menu = false },
+                                        actions = buildList {
+                                            // 文件已不在时没有可打开的文件，只保留「重新下载」和移除记录
+                                            if (task.state == DownloadState.Complete && !missing) {
+                                                if (task.actionsArchive) add(MenuAction(tr("查找 APK"), icon = R.drawable.oc_package) {
+                                                    Downloads.showHistory = false
+                                                    Downloads.selectedKey = task.key
+                                                    ApkArchiveDialogState.task = task
+                                                })
+                                                add(MenuAction(tr("打开文件"), icon = R.drawable.oc_file) { Downloads.open(ctx, task) })
+                                                add(MenuAction(tr("打开所在文件夹"), icon = R.drawable.oc_file_directory) { Downloads.revealFolder(ctx, task) })
+                                                add(MenuAction(tr("删除本地文件"), danger = true, icon = R.drawable.oc_trash) { pendingDelete = task })
+                                            }
+                                            // 排队、传输中、已暂停的任务都能暂停 / 继续
+                                            if (task.canTogglePause) {
+                                                val paused = task.paused
+                                                add(MenuAction(if (paused) tr("继续") else tr("暂停"), icon = if (paused) R.drawable.oc_play else R.drawable.oc_clock) { Downloads.togglePause(task) })
+                                            }
+                                            if (task.active) {
+                                                add(MenuAction(tr("取消下载"), danger = true, icon = R.drawable.oc_x) { Downloads.cancel(task) })
+                                            } else {
+                                                add(MenuAction(tr("重新下载"), icon = R.drawable.oc_sync) { Downloads.retry(task) })
+                                            }
+                                            add(MenuAction(tr("从记录中移除"), icon = R.drawable.oc_x_circle) { Downloads.forget(ctx, task) })
+                                        },
                                     )
                                 }
                             }
                         }
+                        if (Downloads.droppedRecords > 0) {
+                            item {
+                                Text(
+                                    trf("较早的 {0} 条记录已移出列表（最多保留 {1} 条），本地文件不受影响", Downloads.droppedRecords, HISTORY_KEEP),
+                                    color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp,
+                                    modifier = Modifier.padding(horizontal = 4.dp),
+                                )
+                            }
+                        }
                     }
                 }
-            },
-            confirmButton = { TextButton(Downloads::closeOverlay) { Text(tr("彻底关闭"), color = g.fgMuted) } },
-        )
+                HDivider()
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (Downloads.tasks.isNotEmpty()) {
+                        Text(
+                            tr("清空"), color = g.danger, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                            modifier = Modifier.clip(RoundedCornerShape(50)).border(1.dp, g.danger.copy(alpha = 0.5f), RoundedCornerShape(50))
+                                .clickable { clearDialog = true }.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    DownloadCloseButton(Downloads::closeOverlay)
+                }
+            }
+        }
         if (clearDialog) {
             AlertDialog(
                 onDismissRequest = { clearDialog = false },
@@ -336,10 +372,46 @@ private fun FinishedNotice(task: DownloadTask) {
                 Text(task.filename, color = g.fgMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Text(tr("点按查看"), color = g.accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            IconButton(
-                Downloads::closeOverlay,
-                modifier = Modifier.semantics { contentDescription = tr("关闭提示") },
-            ) { Oc(R.drawable.oc_x, g.fgMuted, 16.dp) }
+            DownloadCircleAction(R.drawable.oc_x, Downloads::closeOverlay, tr("关闭"), size = 36.dp, danger = false)
+        }
+    }
+}
+
+@Composable
+private fun DownloadCloseButton(onClick: () -> Unit) {
+    val g = Gh.c
+    val label = tr("关闭")
+    val pill = RoundedCornerShape(50)
+    Text(
+        label, color = g.fg, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+        modifier = Modifier.clip(pill).background(g.canvasSubtle, pill).border(1.dp, g.borderMuted, pill)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 18.dp, vertical = 8.dp)
+            .semantics { contentDescription = label },
+    )
+}
+
+@Composable
+private fun DownloadCircleAction(
+    icon: Int,
+    onClick: () -> Unit,
+    description: String,
+    size: androidx.compose.ui.unit.Dp = 40.dp,
+    danger: Boolean = false,
+) {
+    val g = Gh.c
+    GhTooltip(description) {
+        Box(
+            Modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(if (danger) g.danger.copy(alpha = 0.10f) else g.canvasSubtle, CircleShape)
+                .border(1.dp, if (danger) g.danger else g.border, CircleShape)
+                .clickable(role = Role.Button, onClick = onClick)
+                .semantics { contentDescription = description },
+            contentAlignment = Alignment.Center,
+        ) {
+            Oc(icon, if (danger) g.danger else g.fgMuted, 18.dp)
         }
     }
 }

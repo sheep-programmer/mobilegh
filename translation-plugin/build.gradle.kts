@@ -44,6 +44,7 @@ android {
 kotlin.compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation(libs.mlkit.translate)
     implementation(libs.mlkit.language.id)
 }

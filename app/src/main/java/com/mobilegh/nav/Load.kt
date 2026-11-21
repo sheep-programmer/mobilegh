@@ -179,7 +179,8 @@ class Pager<T>(
     private var page = 0
     private var job: Job? = null
     private var operation = 0
-    private enum class Request { More, Refresh, All, Chunked }
+    private var silentRefreshing = false
+    private enum class Request { More, Refresh, SilentRefresh, All, Chunked }
     private var failed: Request? = null
     /** 最近一次请求的类型，供 [cancelLoadAll] 判断当前是否在全量加载 */
     private var active: Request? = null
@@ -214,17 +215,23 @@ class Pager<T>(
     }
 
     fun loadMore() {
-        if (!loading && !end) request(Request.More)
+        if (!loading && !silentRefreshing && !end) request(Request.More)
     }
 
     fun refresh() = request(Request.Refresh)
+
+    /** Refresh an already populated pager without showing the pull-to-refresh indicator or clearing its rows. */
+    fun refreshSilently() {
+        if (loading || silentRefreshing || !loadedOnce) return
+        request(Request.SilentRefresh)
+    }
 
     /**
      * 加载全部剩余页（用于本地搜索过滤）。[maxItems] 为已加载条目的上限：达到后停止翻页，
      * 并把 [truncated] 置为 true；已加载的条目与游标保留，之后仍可 [loadMore] 继续。默认不限制。
      */
     fun loadAll(maxItems: Int = PAGER_UNLIMITED) {
-        if (!loading && !end) {
+        if (!loading && !silentRefreshing && !end) {
             allLimit = maxItems
             request(Request.All)
         }
@@ -240,7 +247,7 @@ class Pager<T>(
         pagesPerStep: Int = CHUNK_PAGES_PER_STEP,
         pauseMs: Long = CHUNK_PAUSE_MS,
     ) {
-        if (!loading && !end) {
+        if (!loading && !silentRefreshing && !end) {
             allLimit = maxItems
             chunkPages = pagesPerStep
             chunkPauseMs = pauseMs
@@ -263,7 +270,7 @@ class Pager<T>(
     }
 
     fun retry() {
-        if (loading) return
+        if (loading || silentRefreshing) return
         when (failed) {
             Request.Refresh -> refresh()
             Request.All -> loadAll(allLimit)
@@ -278,7 +285,8 @@ class Pager<T>(
         if (Session.generation != generation) return
         val id = ++operation
         job?.cancel()
-        loading = true
+        silentRefreshing = kind == Request.SilentRefresh
+        loading = !silentRefreshing
         refreshing = kind == Request.Refresh
         error = null
         failed = null
@@ -297,18 +305,22 @@ class Pager<T>(
                             break
                         }
                         // 刷新：旧条目保持可见，直到新的第一页取回并提交后才替换（失败则保留旧条目）
-                        val next = if (kind == Request.Refresh) 1 else page + 1
+                        val next = if (kind == Request.Refresh || kind == Request.SilentRefresh) 1 else page + 1
                         if (!commitPage(id, next, kind)) return@launch
                     } while (kind == Request.All && !end)
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                if (id == operation && Session.generation == generation) { error = e.friendly(); failed = kind }
+                if (id == operation && Session.generation == generation && kind != Request.SilentRefresh) {
+                    error = e.friendly()
+                    failed = kind
+                }
             } finally {
                 if (id == operation) {
                     loading = false
                     refreshing = false
+                    silentRefreshing = false
                     loadedOnce = true
                 }
             }
@@ -350,12 +362,13 @@ class Pager<T>(
     private suspend fun commitPage(id: Int, next: Int, kind: Request): Boolean {
         val result = withContext(Dispatchers.Default) {
             if (Session.generation != generation) throw CancellationException("Account changed")
-            fetchPage?.invoke(next, kind == Request.Refresh)
-                ?: PagerPage(fetch(next, kind == Request.Refresh))
+            val force = kind == Request.Refresh || kind == Request.SilentRefresh
+            fetchPage?.invoke(next, force)
+                ?: PagerPage(fetch(next, force))
         }
         if (id != operation || Session.generation != generation) return false
         // 刷新：旧条目保持可见，直到新的第一页取回并提交后才替换（失败则保留旧条目）
-        if (kind == Request.Refresh) items.clear()
+        if (kind == Request.Refresh || kind == Request.SilentRefresh) items.clear()
         result.onCommit()
         items.addAll(result.items)
         page = next
@@ -370,6 +383,7 @@ class Pager<T>(
         job?.cancel()
         loading = false
         refreshing = false
+        silentRefreshing = false
         transform(items)
     }
 }

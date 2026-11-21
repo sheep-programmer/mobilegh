@@ -2,7 +2,7 @@ package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,6 +20,11 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.data.ActionAccess
@@ -37,10 +42,11 @@ import com.mobilegh.nav.ActionsSettingsSection
 import com.mobilegh.nav.Loader
 import com.mobilegh.nav.friendly
 import com.mobilegh.nav.rememberLoader
+import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
-import com.mobilegh.ui.components.HDivider
+import com.mobilegh.ui.components.GhTopTabBar
 import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.Page
@@ -72,11 +78,26 @@ fun ActionsSettingsScreen(
                     color = Gh.c.fgMuted,
                 )
                 else -> {
-                    Dropdown(
-                        label = section.title(),
-                        options = sections.map { it.title() },
+                    val tabTitles = listOf(
+                        tr("通用权限"),
+                        tr("机密"),
+                        tr("变量"),
+                        tr("运行器"),
+                        tr("缓存"),
+                    )
+                    val tabAliases = listOf(
+                        listOf("General", "通用"),
+                        listOf("Secrets", "Secret"),
+                        listOf("Variables", "Variable"),
+                        listOf("Runners", "Runner"),
+                        listOf("Caches", "Cache"),
+                    )
+                    GhTopTabBar(
+                        tabs = tabTitles,
+                        selected = sections.indexOf(section).coerceAtLeast(0),
+                        tabAliases = tabAliases,
                         onSelect = { section = sections[it] },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        modifier = Modifier.padding(bottom = 6.dp),
                     )
                     sectionState.SaveableStateProvider(section.name) {
                         when (section) {
@@ -98,7 +119,7 @@ private fun GeneralSettings(owner: String, name: String, repo: Repo) {
     val permissions = rememberLoader("actions-permissions") { GitHub.actionPermissions(owner, name, it) }
     val retention = rememberLoader("actions-retention") { GitHub.actionArtifactRetention(owner, name, it) }
     val workflow = rememberLoader("actions-workflow") { GitHub.actionWorkflowPermissions(owner, name, it) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 4.dp)) {
         PermissionsSetting(owner, name, permissions)
         if (permissions.data?.let { it.enabled && it.allowedActions == "selected" } == true) {
             val selected = rememberLoader("actions-selected") { GitHub.actionSelectedActions(owner, name, it) }
@@ -116,17 +137,54 @@ private fun GeneralSettings(owner: String, name: String, repo: Repo) {
     }
 }
 
+private fun formatAllowedActions(allowed: String): String = when (allowed) {
+    "all" -> tr("允许所有 Actions 和可重用工作流")
+    "local_only" -> tr("仅允许本地仓库中的 Actions")
+    "selected" -> tr("仅允许选定的 Actions")
+    else -> allowed
+}
+
+private fun formatForkApproval(policy: String): String = when (policy) {
+    "first_time_contributors_new_to_github" -> tr("首次向 GitHub 贡献的新用户需要审批")
+    "first_time_contributors" -> tr("首次向此仓库贡献的用户需要审批")
+    "all_external_contributors" -> tr("所有外部贡献者均需审批")
+    else -> policy
+}
+
+private fun formatAccessLevel(level: String): String = when (level) {
+    "none" -> tr("禁止访问私有仓库")
+    "organization" -> tr("允许组织内所有私有仓库访问")
+    "user" -> tr("允许该用户的所有私有仓库访问")
+    else -> level
+}
+
+private fun formatWorkflowPermission(permission: String): String = when (permission) {
+    "read" -> tr("读取权限（受限）")
+    "write" -> tr("读取和写入权限（完全）")
+    else -> permission
+}
+
 @Composable
 private fun PermissionsSetting(owner: String, name: String, loader: Loader<ActionPermissions>) {
     var editing by remember { mutableStateOf(false) }
     ActionSettingItem(tr("Actions 权限"), loader, tr("编辑 Actions"), { editing = true }) {
-        Text(if (it.enabled) it.allowedActions else tr("已禁用"), color = Gh.c.fgMuted)
+        val display = if (it.enabled) formatAllowedActions(it.allowedActions) else tr("已禁用 Actions")
+        Text(
+            text = display,
+            color = Gh.c.fgMuted,
+            fontSize = 13.sp,
+            modifier = Modifier.semantics {
+                set(SemanticsProperties.Text, listOf(AnnotatedString(display), AnnotatedString(if (it.enabled) it.allowedActions else "disabled")))
+            },
+        )
     }
     loader.data?.let { original ->
         if (editing) {
             var enabled by remember(original) { mutableStateOf(original.enabled) }
             var allowed by remember(original) { mutableStateOf(original.allowedActions) }
             var shaPinning by remember(original) { mutableStateOf(original.shaPinningRequired) }
+            val allowedOptions = listOf("all", "local_only", "selected")
+            val allowedLabels = allowedOptions.map { formatAllowedActions(it) }
             ActionEditorDialog(
                 title = tr("Actions 权限"),
                 onDismiss = { editing = false },
@@ -137,7 +195,14 @@ private fun PermissionsSetting(owner: String, name: String, loader: Loader<Actio
                 onSaved = loader::accept,
             ) { saving ->
                 SwitchRow(tr("启用 Actions"), checked = enabled, enabled = !saving) { enabled = it }
-                Dropdown(allowed, listOf("all", "local_only", "selected"), { allowed = listOf("all", "local_only", "selected")[it] }, enabled = !saving)
+                Dropdown(
+                    label = formatAllowedActions(allowed),
+                    options = allowedOptions,
+                    onSelect = { allowed = allowedOptions[it] },
+                    optionLabels = allowedLabels,
+                    labelAliases = listOf(allowed),
+                    enabled = !saving,
+                )
                 SwitchRow(tr("要求 SHA 固定"), checked = shaPinning, enabled = !saving) { shaPinning = it }
             }
         }
@@ -148,7 +213,7 @@ private fun PermissionsSetting(owner: String, name: String, loader: Loader<Actio
 private fun RetentionSetting(owner: String, name: String, loader: Loader<ActionArtifactRetention>) {
     var editing by remember { mutableStateOf(false) }
     ActionSettingItem(tr("产物和日志保留"), loader, tr("编辑保留"), { editing = true }) {
-        Text(trf("保留 {0} 天（上限 {1} 天）", it.days, it.maximumAllowedDays), color = Gh.c.fgMuted)
+        Text(trf("保留 {0} 天（上限 {1} 天）", it.days, it.maximumAllowedDays), color = Gh.c.fgMuted, fontSize = 13.sp)
     }
     loader.data?.let { original ->
         if (editing) {
@@ -181,7 +246,15 @@ private fun RetentionSetting(owner: String, name: String, loader: Loader<ActionA
 private fun ForkApprovalSetting(owner: String, name: String, loader: Loader<ActionForkApproval>) {
     var editing by remember { mutableStateOf(false) }
     ActionSettingItem(tr("Fork PR 审批"), loader, tr("编辑 Fork 审批"), { editing = true }) {
-        Text(it.approvalPolicy, color = Gh.c.fgMuted)
+        val display = formatForkApproval(it.approvalPolicy)
+        Text(
+            text = display,
+            color = Gh.c.fgMuted,
+            fontSize = 13.sp,
+            modifier = Modifier.semantics {
+                set(SemanticsProperties.Text, listOf(AnnotatedString(display), AnnotatedString(it.approvalPolicy)))
+            },
+        )
     }
     loader.data?.let { original ->
         if (editing) {
@@ -190,6 +263,7 @@ private fun ForkApprovalSetting(owner: String, name: String, loader: Loader<Acti
                 "first_time_contributors",
                 "all_external_contributors",
             )
+            val policyLabels = policies.map { formatForkApproval(it) }
             var policy by remember(original) { mutableStateOf(original.approvalPolicy) }
             ActionEditorDialog(
                 title = tr("Fork PR 审批"),
@@ -200,7 +274,14 @@ private fun ForkApprovalSetting(owner: String, name: String, loader: Loader<Acti
                 },
                 onSaved = loader::accept,
             ) { saving ->
-                Dropdown(policy, policies, { policy = policies[it] }, enabled = !saving)
+                Dropdown(
+                    label = formatForkApproval(policy),
+                    options = policies,
+                    onSelect = { policy = policies[it] },
+                    optionLabels = policyLabels,
+                    labelAliases = listOf(policy),
+                    enabled = !saving,
+                )
             }
         }
     }
@@ -211,11 +292,20 @@ private fun PrivateAccessSetting(owner: String, name: String, organization: Bool
     val loader = rememberLoader("actions-access") { GitHub.actionAccess(owner, name, it) }
     var editing by remember { mutableStateOf(false) }
     ActionSettingItem(tr("私有仓库 Workflow 访问"), loader, tr("编辑访问"), { editing = true }) {
-        Text(it.accessLevel, color = Gh.c.fgMuted)
+        val display = formatAccessLevel(it.accessLevel)
+        Text(
+            text = display,
+            color = Gh.c.fgMuted,
+            fontSize = 13.sp,
+            modifier = Modifier.semantics {
+                set(SemanticsProperties.Text, listOf(AnnotatedString(display), AnnotatedString(it.accessLevel)))
+            },
+        )
     }
     loader.data?.let { original ->
         if (editing) {
             val levels = listOf("none", if (organization) "organization" else "user")
+            val levelLabels = levels.map { formatAccessLevel(it) }
             var level by remember(original) { mutableStateOf(original.accessLevel) }
             ActionEditorDialog(
                 title = tr("私有仓库 Workflow 访问"),
@@ -226,7 +316,14 @@ private fun PrivateAccessSetting(owner: String, name: String, organization: Bool
                 },
                 onSaved = loader::accept,
             ) { saving ->
-                Dropdown(level, levels, { level = levels[it] }, enabled = !saving)
+                Dropdown(
+                    label = formatAccessLevel(level),
+                    options = levels,
+                    onSelect = { level = levels[it] },
+                    optionLabels = levelLabels,
+                    labelAliases = listOf(level),
+                    enabled = !saving,
+                )
             }
         }
     }
@@ -237,7 +334,7 @@ private fun PrivateForksSetting(owner: String, name: String) {
     val loader = rememberLoader("actions-private-forks") { GitHub.actionPrivateForks(owner, name, it) }
     var editing by remember { mutableStateOf(false) }
     ActionSettingItem(tr("私有 Fork Workflows"), loader, tr("编辑私有 Fork"), { editing = true }) {
-        Text(tr(if (it.run) "允许 Fork Pull Request 运行 Workflow" else "禁止 Fork Pull Request 运行 Workflow"), color = Gh.c.fgMuted)
+        Text(tr(if (it.run) "允许 Fork Pull Request 运行 Workflow" else "禁止 Fork Pull Request 运行 Workflow"), color = Gh.c.fgMuted, fontSize = 13.sp)
     }
     loader.data?.let { original ->
         if (editing) {
@@ -273,9 +370,9 @@ private fun SelectedActionsSetting(
 ) {
     var editing by remember { mutableStateOf(false) }
     ActionSettingItem(tr("允许的 Actions"), loader, tr("编辑允许范围"), { editing = true }) {
-        Column {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (!isPrivate && it.patternsAllowed.isNotEmpty()) {
-                Text(it.patternsAllowed.joinToString("\n"), color = Gh.c.fgMuted)
+                Text(it.patternsAllowed.joinToString("\n"), color = Gh.c.fgMuted, fontSize = 13.sp)
             }
             Text(trf("GitHub 创建：{0}；Verified：{1}", tr(if (it.githubOwnedAllowed) "允许" else "禁止"), tr(if (it.verifiedAllowed) "允许" else "禁止")), color = Gh.c.fgMuted, fontSize = 12.sp)
         }
@@ -309,12 +406,14 @@ private fun SelectedActionsSetting(
 private fun WorkflowSetting(owner: String, name: String, loader: Loader<ActionWorkflowPermissions>) {
     var editing by remember { mutableStateOf(false) }
     ActionSettingItem(tr("Workflow 权限"), loader, tr("编辑 Workflow"), { editing = true }) {
-        Text(if (it.defaultWorkflowPermissions == "read") tr("读取") else tr("读取和写入"), color = Gh.c.fgMuted)
+        Text(formatWorkflowPermission(it.defaultWorkflowPermissions), color = Gh.c.fgMuted, fontSize = 13.sp)
     }
     loader.data?.let { original ->
         if (editing) {
             var permission by remember(original) { mutableStateOf(original.defaultWorkflowPermissions) }
             var canApprove by remember(original) { mutableStateOf(original.canApprovePullRequestReviews) }
+            val options = listOf("read", "write")
+            val optionLabels = options.map { formatWorkflowPermission(it) }
             ActionEditorDialog(
                 title = tr("Workflow 权限"),
                 onDismiss = { editing = false },
@@ -324,7 +423,14 @@ private fun WorkflowSetting(owner: String, name: String, loader: Loader<ActionWo
                 },
                 onSaved = loader::accept,
             ) { saving ->
-                Dropdown(permission, listOf("read", "write"), { permission = listOf("read", "write")[it] }, enabled = !saving)
+                Dropdown(
+                    label = formatWorkflowPermission(permission),
+                    options = options,
+                    onSelect = { permission = options[it] },
+                    optionLabels = optionLabels,
+                    labelAliases = listOf(permission),
+                    enabled = !saving,
+                )
                 SwitchRow(tr("允许 Workflow 审批 Pull Request"), checked = canApprove, enabled = !saving) { canApprove = it }
             }
         }
@@ -391,31 +497,32 @@ private fun <T> ActionSettingItem(
     onEdit: (() -> Unit)? = null,
     content: @Composable (T) -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().padding(16.dp)) {
-        FlowRow(
-            Modifier.fillMaxWidth().padding(bottom = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(title, Modifier.align(Alignment.CenterVertically), fontSize = 14.sp)
-            if (editLabel != null && onEdit != null && loader.data != null) {
-                SectionActionChip(editLabel, Modifier.align(Alignment.CenterVertically), onClick = onEdit)
+    Card(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+            Row(
+                Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(title, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Gh.c.fg)
+                if (editLabel != null && onEdit != null && loader.data != null) {
+                    SectionActionChip(editLabel, onClick = onEdit)
+                }
+            }
+            val data = loader.data
+            when {
+                data != null -> content(data)
+                loader.error != null -> InlineError(loader.error!!) { loader.load(true) }
+                else -> Loading(Modifier.fillMaxWidth().height(36.dp))
             }
         }
-        val data = loader.data
-        when {
-            data != null -> content(data)
-            loader.error != null -> InlineError(loader.error!!) { loader.load(true) }
-            else -> Loading(Modifier.fillMaxWidth().height(40.dp))
-        }
     }
-    HDivider()
 }
 
 internal fun ActionsSettingsSection.title(): String = when (this) {
     ActionsSettingsSection.General -> tr("通用权限")
-    ActionsSettingsSection.Secrets -> "Secrets"
-    ActionsSettingsSection.Variables -> "Variables"
-    ActionsSettingsSection.Runners -> "Runners"
-    ActionsSettingsSection.Caches -> "Caches"
+    ActionsSettingsSection.Secrets -> tr("机密 (Secrets)")
+    ActionsSettingsSection.Variables -> tr("变量 (Variables)")
+    ActionsSettingsSection.Runners -> tr("运行器 (Runners)")
+    ActionsSettingsSection.Caches -> tr("缓存 (Caches)")
 }

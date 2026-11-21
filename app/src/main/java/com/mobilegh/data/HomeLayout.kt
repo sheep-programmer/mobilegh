@@ -194,6 +194,9 @@ class HomeLayoutStore internal constructor(private val storage: LocalRecordStora
 
 object HomePrefs {
     private var store: HomeLayoutStore? = null
+    private var cachedLogin: String? = null
+    private var cachedRevision = -1
+    private var cachedLayout = HomeLayout()
     var revision by mutableIntStateOf(0)
         private set
 
@@ -204,18 +207,31 @@ object HomePrefs {
             override fun write(key: String, value: String) { prefs.edit().putString(key, value).apply() }
             override fun remove(key: String) { prefs.edit().remove(key).apply() }
         })
+        cachedLogin = null
+        cachedRevision = -1
+        cachedLayout = HomeLayout()
     }
 
     /** 读取当前账号的布局；在 Composable 中调用会随修改自动刷新 */
     fun layout(): HomeLayout {
-        revision
-        return Session.login?.let { store?.read(it) } ?: HomeLayout()
+        val currentRevision = revision
+        val login = Session.login
+        if (login == null) return HomeLayout()
+        if (cachedLogin == login && cachedRevision == currentRevision) return cachedLayout
+        val value = store?.read(login) ?: HomeLayout()
+        cachedLogin = login
+        cachedRevision = currentRevision
+        cachedLayout = value
+        return value
     }
 
     private fun <T> change(block: HomeLayoutStore.(String) -> T): T? {
         val login = Session.login ?: return null
         val s = store ?: return null
-        return s.block(login).also { revision++ }
+        return s.block(login).also {
+            revision++
+            cachedRevision = -1
+        }
     }
 
     private fun syncShortcuts() {

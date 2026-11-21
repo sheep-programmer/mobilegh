@@ -40,6 +40,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -672,8 +674,8 @@ fun DiscardChangesDialog(onKeep: () -> Unit, onDiscard: () -> Unit) {
 }
 
 /**
- * 页面底部的评论输入栏：Markdown 工具栏 + 输入框（或预览）+ 发送按钮，草稿自动保存。
- * Issue / PR、Gist 评论共用；发送逻辑由 onSend 负责。
+ * 页面底部的评论输入栏：常态下极简单行胶囊展示，彻底隐藏工具栏与模式栏以节省垂直空间。
+ * 点按输入框直接无缝弹起全屏 Markdown 编辑器；返回时退回紧凑栏，草稿完整保留。
  */
 @Composable
 fun CommentComposerBar(
@@ -691,69 +693,81 @@ fun CommentComposerBar(
 ) {
     val g = Gh.c
     var fullscreenEdit by remember { mutableStateOf(false) }
-    // 只有正在输入或预览时才显示格式工具栏：平时把空间留给评论框
-    var editing by remember { mutableStateOf(false) }
-    Column(Modifier.background(g.header).navigationBarsPadding().imePadding()) {
+
+    Column(Modifier.background(g.header).navigationBarsPadding()) {
         HDivider()
-        // 编辑 / 预览 与全屏入口固定在输入框上方
-        MarkdownModeBar(
-            preview, onPreviewChange,
-            Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-            onExpand = { fullscreenEdit = true },
-        )
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (preview) {
-                Box(Modifier.weight(1f).heightIn(min = 44.dp, max = 200.dp).verticalScrollWithBar()) {
-                    MarkdownPreview(value.text, contextRepo)
-                }
-            } else {
-                androidx.compose.material3.OutlinedTextField(
-                    value, onValueChange,
-                    Modifier.weight(1f).heightIn(max = 160.dp).onFocusChanged { editing = it.isFocused },
-                    placeholder = { Text(placeholder, color = g.fgMuted) },
-                    singleLine = false,
-                    shape = RoundedCornerShape(6.dp),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(40.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(g.canvasSubtle)
+                    .border(1.dp, g.borderMuted, RoundedCornerShape(20.dp))
+                    .clickable(role = Role.Button, onClick = { fullscreenEdit = true })
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Oc(R.drawable.oc_pencil, g.fgMuted, 16.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = if (value.text.isBlank()) placeholder else value.text,
+                    color = if (value.text.isBlank()) g.fgMuted else g.fg,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
             }
-            Spacer(Modifier.width(4.dp))
-            // 附件：发送键左边一个明确的「选择文件」图标
             if (onAttach != null) {
+                Spacer(Modifier.width(6.dp))
                 OcButton(R.drawable.oc_paperclip, onAttach, g.fgMuted, description = tr("添加附件"))
-                Spacer(Modifier.width(2.dp))
             }
-            OcButton(R.drawable.oc_paper_airplane, onSend, if (value.text.isBlank()) g.fgMuted else g.accent, enabled = !sending && value.text.isNotBlank())
-        }
-        // 格式工具栏放在输入框下方，只在编辑时出现；模式栏（编辑 / 预览 / 全屏）在输入框上方
-        // 编辑状态下始终显示（不再依赖输入框焦点，否则收起键盘后就只剩上方的模式栏）
-        if (!preview) {
-            MentionSuggestions(value, onValueChange, contextRepo, Modifier.padding(horizontal = 8.dp))
-            MarkdownToolbar(value, onValueChange, Modifier.padding(horizontal = 8.dp, vertical = 2.dp), showSavedReplies = true)
+            Spacer(Modifier.width(4.dp))
+            OcButton(
+                R.drawable.oc_paper_airplane, onSend,
+                if (value.text.isBlank()) g.fgMuted else g.accent,
+                enabled = !sending && value.text.isNotBlank(),
+                description = tr("发表评论"),
+            )
         }
         DraftBinding(draft, DraftValue(body = value.text))
     }
+
     val sendButton: @Composable () -> Unit = {
-        if (onAttach != null) OcButton(R.drawable.oc_paperclip, onAttach, g.fgMuted, description = tr("添加附件"))
+        if (onAttach != null) {
+            OcButton(R.drawable.oc_paperclip, onAttach, g.fgMuted, description = tr("添加附件"))
+            Spacer(Modifier.width(4.dp))
+        }
         OcButton(
-            R.drawable.oc_paper_airplane, onSend,
+            R.drawable.oc_paper_airplane,
+            onClick = {
+                fullscreenEdit = false
+                onPreviewChange(false)
+                onSend()
+            },
             if (value.text.isBlank()) g.fgMuted else g.accent,
             enabled = !sending && value.text.isNotBlank(),
+            description = tr("发表评论"),
         )
     }
-    if (preview) {
+
+    if (fullscreenEdit || preview) {
         MarkdownFullscreenSheet(
-            value, onValueChange, preview = true,
-            onPreviewChange = { if (!it) { onPreviewChange(false); fullscreenEdit = true } else onPreviewChange(true) },
-            contextRepo = contextRepo, onDismiss = { onPreviewChange(false) },
-            placeholder = placeholder, trailing = sendButton,
-        )
-    }
-    if (fullscreenEdit) {
-        MarkdownFullscreenSheet(
-            value, onValueChange, preview = false,
-            onPreviewChange = { if (it) { fullscreenEdit = false; onPreviewChange(true) } },
-            contextRepo = contextRepo, onDismiss = { fullscreenEdit = false },
-            placeholder = placeholder, trailing = sendButton,
+            value = value,
+            onValueChange = onValueChange,
+            preview = preview,
+            onPreviewChange = onPreviewChange,
+            contextRepo = contextRepo,
+            onDismiss = {
+                fullscreenEdit = false
+                onPreviewChange(false)
+            },
+            placeholder = placeholder,
+            trailing = sendButton,
         )
     }
 }

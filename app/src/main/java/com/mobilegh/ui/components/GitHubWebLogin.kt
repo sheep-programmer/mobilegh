@@ -82,6 +82,18 @@ object GitHubWebLogin {
         dismiss?.invoke()
     }
 
+    /**
+     * 授权已在页面内走完（拿到回调）时关闭窗口：不触发 [onDismiss]。
+     * [close] 会通知“用户中途退出”并取消未完成的授权；若在刚开始兑换 Token 时调用它，
+     * 会把这次兑换连同 pending 记录一起取消，表现为 2FA 通过、点继续后又回到登录页。
+     */
+    fun finish() {
+        url = null
+        title = null
+        onDone = null
+        onDismiss = null
+    }
+
     internal fun loggedIn() {
         runCatching { CookieManager.getInstance().flush() }
         val callback = onDone
@@ -162,7 +174,7 @@ fun GitHubWebLoginHost() {
                                     if (MobileApprovalOAuth.handles(u)) {
                                         runCatching { CookieManager.getInstance().flush() }
                                         MobileApprovalOAuth.complete(context, u)
-                                        GitHubWebLogin.close()
+                                        GitHubWebLogin.finish()
                                         return true
                                     }
                                     return false

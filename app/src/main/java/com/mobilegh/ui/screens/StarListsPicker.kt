@@ -100,7 +100,7 @@ private fun rememberCatalogFreshness(loader: Loader<List<GitHubStarList>>, snaps
         val stale = StarListCache.isStale(
             snapshot.loadedAtMs, snapshot.loadedRevision, UserLists.changes.value, System.currentTimeMillis(),
         )
-        if (snapshot.value != null && stale) loader.refresh()
+        if (snapshot.value != null && stale) loader.refreshSilently()
     }
 }
 
@@ -162,9 +162,6 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
     val scope = rememberCoroutineScope()
     val catalog = rememberStarListCatalog(account.login)
     val ctx = rememberCtx()
-    LaunchedEffect(catalog) {
-        if (catalog.data != null || catalog.error != null) catalog.refresh()
-    }
     var snapshot by remember { mutableStateOf<RepositoryListMemberships?>(null) }
     // 界面上的选择；null 表示还没读到归属
     var picked by remember { mutableStateOf<Set<String>?>(null) }

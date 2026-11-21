@@ -3,8 +3,26 @@ package com.mobilegh.ui.screens
 import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import com.mobilegh.R
+import com.mobilegh.i18n.trf
+import com.mobilegh.ui.components.Oc
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
@@ -28,12 +46,12 @@ import com.mobilegh.ui.components.SwitchRow
 import com.mobilegh.ui.components.dialogFrame
 import com.mobilegh.ui.components.rememberCtx
 import com.mobilegh.ui.theme.Gh
-import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun OfflineTranslationSettings() {
     val ctx = rememberCtx()
@@ -46,6 +64,15 @@ internal fun OfflineTranslationSettings() {
     var languages by remember { mutableStateOf<List<String>>(emptyList()) }
     var language by rememberSaveable { mutableStateOf<String?>(null) }
     var modelPicker by remember { mutableStateOf(false) }
+    // 已下载的语言；null 表示读不到（旧版翻译组件不支持这个查询），不能显示成「一个都没有」
+    var downloaded by remember { mutableStateOf<List<String>?>(null) }
+    var downloadedLoaded by remember { mutableStateOf(false) }
+    var refresh by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Session.translateDocuments, refresh) {
+        if (!Session.translateDocuments) return@LaunchedEffect
+        downloaded = runCatching { OfflineTranslation.downloaded() }.getOrNull()
+        downloadedLoaded = true
+    }
 
     fun cancel() {
         job?.cancel()
@@ -60,10 +87,11 @@ internal fun OfflineTranslationSettings() {
         job = scope.launch {
             try {
                 work()
+                refresh++
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                com.mobilegh.data.AppLog.warn("translation", failure.javaClass.simpleName)
+                com.mobilegh.data.AppLog.warn("translation", failure.javaClass.simpleName + ": " + failure.message.orEmpty())
                 error = failure.message?.takeIf { it == tr("当前版本尚未提供离线翻译组件") }
                     ?: tr("下载或校验失败，请检查网络和存储空间后重试")
             } finally {
@@ -86,6 +114,7 @@ internal fun OfflineTranslationSettings() {
         if (enabled) prompt = true else Session.disableDocumentTranslation()
     }
     if (Session.translateDocuments) {
+        DownloadedLanguages(downloaded, downloadedLoaded)
         com.mobilegh.ui.components.MenuRow(com.mobilegh.R.drawable.oc_download, tr("下载其他翻译语言")) {
             run(tr("正在读取语言列表…")) {
                 languages = OfflineTranslation.languages().filterNot { it == "zh" }
@@ -108,7 +137,10 @@ internal fun OfflineTranslationSettings() {
         Text(tr("首次使用需安装独立翻译组件并联网下载中英互译模型。下载和校验通过后，离线翻译会自动开启。"))
     }
     if (modelPicker) {
-        val names = languages.map { Locale.forLanguageTag(it).getDisplayLanguage(Locale.getDefault()) }
+        val names = languages.map { code ->
+            val name = OfflineTranslation.languageName(code)
+            if (code in downloaded.orEmpty()) trf("{0} · 已下载", name) else name
+        }
         GhDialog(tr("下载其他翻译语言"), onDismiss = { modelPicker = false }, confirm = tr("下载"),
             confirmEnabled = language in languages,
             onConfirm = {
@@ -141,5 +173,46 @@ internal fun OfflineTranslationSettings() {
     }
     error?.let { message ->
         GhDialog(tr("离线翻译"), onDismiss = { error = null }) { Text(message) }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DownloadedLanguages(downloaded: List<String>?, loaded: Boolean) {
+    val g = Gh.c
+    val shape = RoundedCornerShape(12.dp)
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(shape).background(g.canvasSubtle)
+            .border(1.dp, g.borderMuted, shape).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(tr("已下载的语言"), color = g.fg, fontSize = 14.sp)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LanguageChip(trf("{0} · 内置", OfflineTranslation.languageName("en")), ready = true)
+            downloaded?.forEach { code ->
+                LanguageChip(OfflineTranslation.languageName(code), ready = true)
+            }
+        }
+        when {
+            !loaded -> Unit
+            downloaded == null -> Text(tr("更新翻译组件后，可在这里查看已下载的语言"), color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp)
+            downloaded.isEmpty() -> Text(tr("还没有下载语言模型"), color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp)
+            else -> Text(tr("英语已内置；其他语言之间会经英语中转翻译"), color = g.fgMuted, fontSize = 12.sp, lineHeight = 18.sp)
+        }
+    }
+}
+
+@Composable
+private fun LanguageChip(label: String, ready: Boolean) {
+    val g = Gh.c
+    val shape = RoundedCornerShape(50)
+    Row(
+        Modifier.clip(shape).border(1.dp, if (ready) g.success.copy(alpha = 0.5f) else g.border, shape)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Oc(R.drawable.oc_check, if (ready) g.success else g.fgMuted, 14.dp)
+        Spacer(Modifier.width(6.dp))
+        Text(label, color = g.fg, fontSize = 13.sp)
     }
 }

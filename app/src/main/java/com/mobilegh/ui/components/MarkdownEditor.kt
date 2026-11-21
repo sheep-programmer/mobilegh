@@ -30,6 +30,9 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.Text
@@ -373,6 +376,13 @@ fun MarkdownFullscreenSheet(
     trailing: (@Composable () -> Unit)? = null,
 ) {
     val g = Gh.c
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(preview) {
+        if (!preview) {
+            kotlinx.coroutines.delay(100)
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
@@ -400,7 +410,7 @@ fun MarkdownFullscreenSheet(
             } else {
                 OutlinedTextField(
                     value, onValueChange,
-                    Modifier.fillMaxWidth().weight(1f).padding(horizontal = 6.dp, vertical = 4.dp),
+                    Modifier.fillMaxWidth().weight(1f).focusRequester(focusRequester).padding(horizontal = 6.dp, vertical = 4.dp),
                     placeholder = { Text(placeholder, color = g.fgMuted) },
                     shape = RoundedCornerShape(6.dp),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),

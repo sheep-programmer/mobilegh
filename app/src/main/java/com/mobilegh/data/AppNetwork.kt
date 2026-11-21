@@ -117,6 +117,20 @@ object AppNetwork {
         }.getOrNull()
     }
 
+    /** Snapshot the proxy that a separately installed companion can use for a direct HTTP transfer. */
+    internal fun externalProxy(): NetworkProxy {
+        val configured = current
+        val info = systemProxyInfo() ?: return configured
+        return externalProxy(configured, info.host, info.port)
+    }
+
+    internal fun externalProxy(configured: NetworkProxy, systemHost: String?, systemPort: Int): NetworkProxy {
+        if (configured.mode != ProxyMode.System) return configured
+        val host = systemHost?.takeIf { it.isNotBlank() } ?: return configured
+        val port = systemPort.takeIf { it in 1..65535 } ?: return configured
+        return NetworkProxy(ProxyMode.Http, host, port)
+    }
+
     /** 系统给出了主机和端口时使用它；PAC 自动配置脚本无法在这里执行，只能直连。 */
     internal fun systemProxies(host: String?, port: Int): List<Proxy> {
         val name = host?.takeIf { it.isNotBlank() }

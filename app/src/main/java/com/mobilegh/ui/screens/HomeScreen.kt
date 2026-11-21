@@ -58,7 +58,7 @@ fun HomeScreen() {
     LaunchedEffect(listsRevision) {
         if (observedRevision.longValue != listsRevision) {
             observedRevision.longValue = listsRevision
-            lists.refresh()
+            lists.refreshSilently()
         }
     }
     RefreshProfileOnChange(me)

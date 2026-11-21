@@ -344,6 +344,11 @@ private const val EMPTY_KEY = "__empty__"
 private const val FOOTER_KEY = "__footer__"
 private const val GROUP_KEY = "__group__"
 
+/** Compose uses this value as a reusable slot type for rows in heterogeneous lazy lists. */
+internal fun lazyContentType(value: Any?): String = value?.let {
+    it::class.simpleName ?: "item"
+} ?: "null"
+
 /** 懒列表末尾的空状态，撑满列表剩余的可见高度 */
 fun LazyListScope.emptyItem(
     state: LazyListState,
@@ -429,7 +434,11 @@ fun <T> PagedList(
             val ordered = if (itemSort == null) filtered else filtered.sortedWith(itemSort)
             val directed = if (itemReverse) ordered.reversed() else ordered
             val shown = if (itemKey == null) directed else directed.distinctBy(itemKey)
-            fun rows(list: List<T>) = itemsIndexed(list, key = if (itemKey == null) null else { _, value -> itemKey(value) }) { i, it ->
+            fun rows(list: List<T>) = itemsIndexed(
+                list,
+                key = if (itemKey == null) null else { _, value -> itemKey(value) },
+                contentType = { _, value -> lazyContentType(value) },
+            ) { i, it ->
                 if (boxed) {
                     Column(Modifier.groupItem(i == 0, i == list.lastIndex, Gh.c.border, Gh.c.canvas)) { item(it) }
                 } else {

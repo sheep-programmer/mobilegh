@@ -4,6 +4,7 @@ import com.mobilegh.ui.components.ReleaseNotes
 
 import com.mobilegh.data.ReleasePlatform
 import com.mobilegh.data.matchesAsset
+import com.mobilegh.data.releaseAssetSuffix
 
 import com.mobilegh.ui.components.MenuRow
 import com.mobilegh.ui.components.verticalScrollWithBar
@@ -15,7 +16,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.clickable
@@ -46,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -314,12 +318,14 @@ private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean,
                                 ),
                             )
                         }.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalAlignment = Alignment.Top,
                     ) {
                         Oc(R.drawable.oc_package, g.fgMuted)
                         Spacer(Modifier.width(8.dp))
-                        Text(a.name, fontSize = 13.sp, color = g.accent, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(trf("{0} · {1} 次下载", fmtSize(a.size), fmtCount(a.downloadCount)), fontSize = 11.sp, color = g.fgMuted)
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            ReleaseAssetFilename(a.name)
+                            Text(trf("{0} · {1} 次下载", fmtSize(a.size), fmtCount(a.downloadCount)), fontSize = 11.sp, color = g.fgMuted)
+                        }
                     }
                 }
                 if (platform == ReleasePlatform.All) listOf("zip", "tar.gz").forEach { ext ->
@@ -345,6 +351,33 @@ private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean,
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ReleaseAssetFilename(filename: String) {
+    val suffix = remember(filename) { releaseAssetSuffix(filename) }
+    Row(Modifier.clearAndSetSemantics { text = AnnotatedString(filename) }) {
+        Text(
+            filename.dropLast(suffix.length),
+            modifier = Modifier.weight(1f, fill = false).alignByBaseline(),
+            fontSize = 13.sp,
+            color = Gh.c.accent,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (suffix.isNotEmpty()) {
+            Text(
+                suffix,
+                modifier = Modifier.alignByBaseline(),
+                fontSize = 13.sp,
+                color = Gh.c.accent,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

@@ -8,12 +8,11 @@ import android.app.Activity
 import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -62,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -162,6 +162,9 @@ fun AppRoot(nav: Navigator) {
     }
 }
 
+/** 页面切换动画时长（毫秒） */
+internal const val NAV_TRANSITION_MS = 260
+
 @Composable
 private fun Main(nav: Navigator) {
     val holder = rememberSaveableStateHolder()
@@ -240,32 +243,46 @@ private fun Main(nav: Navigator) {
                 modifier = Modifier.fillMaxSize(),
                 containerColor = Gh.c.canvas,
                 contentWindowInsets = WindowInsets(0),
-                bottomBar = {
-                    Column {
-                        ConnectivityBanner(if (nav.stack.isEmpty()) Modifier else Modifier.navigationBarsPadding())
-                        if (!useRail && nav.stack.isEmpty()) RootNavigationBar(nav)
-                    }
-                },
             ) { pad ->
                 AnimatedContent(
                     modifier = Modifier.padding(pad),
                     targetState = nav.stack.lastOrNull(),
                     contentKey = { it?.id ?: "root" },
                     transitionSpec = {
+                        // 页面本身不透明，只做平移：不用整页透明度动画（会让整页走离屏图层，列表页上很耗）。
+                        // 进入：新页从右滑入并压在旧页上，旧页轻微左移；返回时反过来，离开的页盖在上面滑出。
+                        val move = tween<IntOffset>(NAV_TRANSITION_MS, easing = FastOutSlowInEasing)
                         if (nav.lastWasPush) {
-                            (slideInHorizontally(tween(220)) { it / 4 } + fadeIn(tween(220))) togetherWith fadeOut(tween(120))
+                            ContentTransform(
+                                targetContentEnter = slideInHorizontally(move) { it },
+                                initialContentExit = slideOutHorizontally(move) { -it / 5 },
+                                targetContentZIndex = 1f,
+                            )
                         } else {
-                            fadeIn(tween(180)) togetherWith (slideOutHorizontally(tween(200)) { it / 4 } + fadeOut(tween(200)))
+                            ContentTransform(
+                                targetContentEnter = slideInHorizontally(move) { -it / 5 },
+                                initialContentExit = slideOutHorizontally(move) { it },
+                                targetContentZIndex = -1f,
+                            )
                         }
                     },
                     label = "nav",
                 ) { entry ->
+                    // 底部 Tab 栏和网络提示属于各自这一层页面，随页面一起滑入滑出。
+                    // 原先挂在 Scaffold 上、按栈是否为空瞬间显隐，转场开始那一帧两个页面都会被整体重新布局。
                     if (entry == null) {
-                        RootTabs(nav, holder)
+                        Column(Modifier.fillMaxSize().background(Gh.c.canvas)) {
+                            Box(Modifier.weight(1f).fillMaxWidth()) { RootTabs(nav, holder) }
+                            ConnectivityBanner()
+                            if (!useRail) RootNavigationBar(nav)
+                        }
                     } else {
                         CompositionLocalProvider(LocalEntry provides entry) {
                             holder.SaveableStateProvider(entry.id) {
-                                Box(Modifier.fillMaxSize().background(Gh.c.canvas)) { ScreenHost(entry.screen) }
+                                Column(Modifier.fillMaxSize().background(Gh.c.canvas)) {
+                                    Box(Modifier.weight(1f).fillMaxWidth()) { ScreenHost(entry.screen) }
+                                    ConnectivityBanner(Modifier.navigationBarsPadding())
+                                }
                             }
                         }
                     }

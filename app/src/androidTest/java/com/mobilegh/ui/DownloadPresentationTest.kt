@@ -131,7 +131,7 @@ class DownloadPresentationTest {
         InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.onNodeWithText("下载完成").assertIsDisplayed()
         compose.onNodeWithText("点按查看").performClick()
-        compose.onNodeWithText("彻底关闭").performClick()
+        compose.onNodeWithContentDescription("关闭").performClick()
         compose.onNodeWithTag("download-completion-notice").assertDoesNotExist()
         compose.runOnIdle {
             assertEquals(1, Downloads.tasks.size)
@@ -141,6 +141,34 @@ class DownloadPresentationTest {
         compose.onNodeWithText(task.filename).assertIsDisplayed()
         compose.onNodeWithContentDescription("最小化").performClick()
         compose.onNodeWithTag("download-minimized-pill").assertIsDisplayed()
+    }
+
+    @Test fun historyDialogIsRoomyAndKeepsCloseAndMinimizeReachable() {
+        val running = task.copy(key = "history-running", url = "https://example.invalid/b.zip", filename = "mobilegh-0.40.6-arm64-v8a-release-with-a-very-long-file-name.zip",
+            state = DownloadState.Queued, total = 20_000_000, downloaded = 7_000_000, isAppUpdate = false)
+        val failed = task.copy(key = "history-failed", url = "https://example.invalid/c.tar.gz", filename = "linux-musl.tar.gz",
+            state = DownloadState.Failed, total = 0, downloaded = 0, isAppUpdate = false, message = "连接中断")
+        compose.runOnUiThread {
+            Downloads.tasks.clear(); Downloads.tasks.addAll(listOf(task, running, failed)); Downloads.showHistory = true
+        }
+        compose.setContent {
+            MobileGhTheme { DownloadOverlayLayout(bottomBarVisible = false) { DownloadHost() } }
+        }
+        compose.onNodeWithText(task.filename).assertIsDisplayed()
+        compose.onNodeWithText("清空").assertIsDisplayed()
+        compose.onNodeWithContentDescription("最小化").assertIsDisplayed()
+        compose.onNodeWithContentDescription("关闭").assertIsDisplayed()
+        shot("download-history-filled.png")
+        compose.runOnUiThread { Downloads.tasks.clear() }
+        compose.onNodeWithText("还没有下载记录").assertIsDisplayed()
+        compose.onNodeWithText("清空").assertDoesNotExist()
+        compose.waitForIdle()
+        shot("download-history-empty.png")
+    }
+
+    private fun shot(name: String) {
+        val image = compose.onNode(isDialog()).captureToImage().asAndroidBitmap()
+        File(compose.activity.getExternalFilesDir(null), name).outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
     @Test fun explicitCloseDoesNotCancelPausedTransfer() {
@@ -154,7 +182,7 @@ class DownloadPresentationTest {
         compose.onNodeWithTag("download-minimized-pill").performClick()
         compose.onNodeWithContentDescription("最小化").performClick()
         compose.onNodeWithTag("download-minimized-pill").performClick()
-        compose.onNodeWithText("彻底关闭").performClick()
+        compose.onNodeWithContentDescription("关闭").performClick()
         compose.runOnIdle {
             assertTrue(Downloads.overlayClosed)
             assertEquals(DownloadState.Waiting, Downloads.tasks.single().state)
@@ -180,7 +208,7 @@ class DownloadPresentationTest {
         val install = compose.onNodeWithText("安装更新").fetchSemanticsNode().boundsInRoot
         val dialog = compose.onNode(isDialog()).fetchSemanticsNode().boundsInRoot
         assertTrue("Minimize belongs in the upper-right of the dialog", minimize.center.x > dialog.center.x && minimize.bottom < install.top)
-        compose.onNodeWithText("彻底关闭").assertIsDisplayed()
+        compose.onNodeWithContentDescription("关闭").assertIsDisplayed()
         val image = compose.onNode(isDialog()).captureToImage().asAndroidBitmap()
         File(compose.activity.getExternalFilesDir(null), "download-update-large-font.png").outputStream().use {
             image.compress(Bitmap.CompressFormat.PNG, 100, it)

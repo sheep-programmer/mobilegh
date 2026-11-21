@@ -36,7 +36,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
-import java.util.Locale
 
 internal suspend fun translateDocumentBlocks(
     blocks: List<HtmlBlock>,
@@ -270,7 +269,7 @@ internal class DocumentTranslation(private val parsed: ParsedHtml, private val t
                 if (language == null || language == target) return@mapDocumentInlines parts
                 translateInlineRuns(parts) { text ->
                     val cacheKey = TranslationParagraphCache.Key(scope, language, target, text)
-                    cache.read(cacheKey) ?: OfflineTranslation.translate(language, target, text)
+                    cache.read(cacheKey) ?: polishTranslation(text, OfflineTranslation.translate(language, target, text), language, target)
                         .also { result -> cache.write(cacheKey, result) }
                 }
             }.single()
@@ -344,7 +343,7 @@ internal fun DocumentTranslationContent(
                 }
                 if (failed && !showOriginal) {
                     val message = missingLanguage?.let {
-                        com.mobilegh.i18n.trf("请在离线翻译设置下载{0}模型，当前显示原文", Locale.forLanguageTag(it).getDisplayLanguage())
+                        com.mobilegh.i18n.trf("请在离线翻译设置下载{0}模型，当前显示原文", OfflineTranslation.languageName(it))
                     } ?: tr("翻译失败，正在显示原文")
                     Text(message, color = Gh.c.fgMuted, fontSize = 12.sp)
                     SectionActionChip(tr("重试")) { failed = false; attempt++ }

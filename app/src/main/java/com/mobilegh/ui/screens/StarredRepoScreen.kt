@@ -116,7 +116,7 @@ internal fun StarredRepoPage(login: String, name: String, isRootTab: Boolean = f
     LaunchedEffect(revision) {
         if (observedRevision.longValue != revision) {
             observedRevision.longValue = revision
-            if (lists?.data != null) lists.refresh()
+            if (lists?.data != null) lists.refreshSilently()
         }
     }
     val subtitle = if (name.isNotEmpty()) "$login/$name" else login
@@ -329,7 +329,7 @@ private fun rememberStarPagerFreshness(
         val stale = StarListCache.isStale(
             snapshot.loadedAtMs, snapshot.loadedRevision, revision(), System.currentTimeMillis(),
         )
-        if (pager.loadedOnce && stale) pager.refresh()
+        if (pager.loadedOnce && stale) pager.refreshSilently()
     }
 }
 
@@ -361,7 +361,7 @@ internal fun rememberPagerFreshness(pager: Pager<*>, key: String) {
         clock.loadingSeen = pager.loading
     }
     LaunchedEffect(pager) {
-        if (pager.loadedOnce && starListNeedsRefresh(clock.loadedAtMs, System.currentTimeMillis())) pager.refresh()
+        if (pager.loadedOnce && starListNeedsRefresh(clock.loadedAtMs, System.currentTimeMillis())) pager.refreshSilently()
     }
 }
 
@@ -545,8 +545,6 @@ internal fun StarListCard(name: String, description: String, count: Int, isPriva
         Modifier
             .padding(horizontal = 16.dp, vertical = 5.dp)
             .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
                 enabled = enabled,
                 onClick = onClick,
             )

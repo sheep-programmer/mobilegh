@@ -386,8 +386,6 @@ private fun RecommendedRepoCard(repo: Repo) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
             ) { nav.push(Screen.Repo(owner, name)) },
     ) {
         Column(

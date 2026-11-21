@@ -436,8 +436,6 @@ fun HomeFavoriteRow(repo: FavoriteRepo, canUp: Boolean, canDown: Boolean, onOpen
     Row(
         Modifier.fillMaxWidth()
             .combinedClickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
                 onClickLabel = tr("打开仓库"),
                 onLongClickLabel = tr("调整收藏"),
                 onLongClick = { menu = true },

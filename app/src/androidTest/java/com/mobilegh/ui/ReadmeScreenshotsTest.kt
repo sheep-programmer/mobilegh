@@ -139,6 +139,8 @@ class ReadmeScreenshotsTest {
             p == "/repos/mona/mobilegh/contents/src/Main.kt" -> sampleCode
             // 作业日志：带时间戳的原始文本，页面里按分组、命令、警告、错误分别着色
             p.contains("/actions/jobs/") && p.endsWith("/logs") -> sampleJobLog
+            p == "/repos/mona/mobilegh/actions/jobs/1" ->
+                """{"id":1,"run_id":1,"name":"build","status":"completed","conclusion":"failure","started_at":"${ago(3)}","completed_at":"${ago(3)}","steps":[{"name":"Build Android app","status":"completed","conclusion":"failure","number":1}]}"""
             p == "/repos/mona/mobilegh/events" -> """[{"id":"1","type":"PushEvent","actor":{"login":"mona","avatar_url":"https://avatars.githubusercontent.com/u/1?v=4"},"repo":{"name":"mona/mobilegh"},"payload":{"ref":"refs/heads/feature/login","head":"abcdef1234567","size":3,"commits":[{"sha":"111","message":"older change"},{"sha":"abcdef1234567","message":"Fix login redirect"}]},"created_at":"${ago(3)}"},{"id":"2","type":"PushEvent","actor":{"login":"hubot","avatar_url":"https://avatars.githubusercontent.com/u/2?v=4"},"repo":{"name":"mona/mobilegh"},"payload":{"ref":"refs/heads/main","head":"fedcba9876543","size":1,"commits":[{"sha":"fedcba9876543","message":"Bump version"}]},"created_at":"${ago(9)}"}]"""
             p == "/user" -> user("mona", "Mona Lisa")
             p == "/graphql" -> when {
@@ -152,7 +154,7 @@ class ReadmeScreenshotsTest {
             p.startsWith("/notifications") -> "[" + listOf(
                 notification(1, "Crash when opening the repository list", "Issue", "mention", true),
                 notification(2, "feat: upload files and folders as one commit", "PullRequest", "review_requested", true),
-                notification(3, "Release v0.27.9", "Release", "subscribed", false),
+                notification(3, "Release v${com.mobilegh.BuildConfig.VERSION_NAME}", "Release", "subscribed", false),
                 notification(4, "CI failed on main", "CheckSuite", "ci_activity", false),
             ).joinToString(",") + "]"
             p.endsWith("/received_events") || p.endsWith("/events") -> "[" + listOf(
@@ -414,6 +416,10 @@ class ReadmeScreenshotsTest {
     @Test fun notifications() = shot("07-notifications") { it.push(Screen.Notifications) }
     @Test fun insights() = shot("08-insights", wait = 3500, after = { tapCharts() }) { it.push(Screen.Insights("mona", "mobilegh")) }
     @Test fun settings() = shot("10-settings") { it.push(Screen.Settings) }
+    @Test fun tabletSettings() {
+        assumeTrue("Tablet screenshots require a wide window", compose.activity.resources.configuration.screenWidthDp >= 840)
+        shot("26-tablet-settings") { it.push(Screen.Settings) }
+    }
     @Test fun login() {
         compose.runOnUiThread { Session.signOut() }
         shot("11-login") { }

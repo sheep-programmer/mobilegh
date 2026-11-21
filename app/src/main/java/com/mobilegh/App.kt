@@ -13,6 +13,9 @@ import com.mobilegh.data.Update
 import com.mobilegh.data.History
 import com.mobilegh.data.LinkDefault
 import com.mobilegh.service.ImportServices
+import android.os.Handler
+import android.os.Looper
+import android.view.Choreographer
 
 class App : Application() {
     override fun onCreate() {
@@ -37,7 +40,6 @@ class App : Application() {
         WidgetStore.init(this)
         com.mobilegh.data.NotificationStore.init(this)
         com.mobilegh.data.BackgroundNotificationSettings.init(this)
-        com.mobilegh.service.NotificationPollingWorker.sync(this)
         WidgetStore.listener = { kind -> Widgets.update(this, kind) }
         com.mobilegh.data.MobileApprovalMonitor.reload(this)
         History.init(this)
@@ -48,16 +50,23 @@ class App : Application() {
         Downloads.init(this)
         // 仓库导入：共享 runtime + 启动时把上次中断的任务标记为可重试
         ImportServices.init(this)
-        // 上次更新的安装包：若已是新版本在运行，删除安装包以省空间
-        Update.removeInstalledPackage(this)
-        // 启动后台静默检查一次新版本（走加速节点，失败不影响使用）
-        Update.checkQuietly()
-        // 每次启动静默测速，自动选择最快的加速节点
-        Net.speedTestAsync()
-        // 成就缓存与 github.com 连接预热：成就页第一次打开不用再等握手
+        // 成就缓存与网页连接需要在 Web 初始化后使用
         com.mobilegh.data.Web.init(this)
-        com.mobilegh.data.Web.warmUp()
-        // 自动静默续期 GitHub 网页会话（防止超过 14 天未使用闲置过期）
-        com.mobilegh.data.WebAttachmentUploader.renewSessionAsync()
+        scheduleDeferredStartupWork()
+    }
+
+    /** Keep optional maintenance work away from the first rendered frame. */
+    private fun scheduleDeferredStartupWork() {
+        val main = Handler(Looper.getMainLooper())
+        Choreographer.getInstance().postFrameCallback {
+            main.post {
+                com.mobilegh.service.NotificationPollingWorker.sync(this)
+                Update.removeInstalledPackage(this)
+                Update.checkQuietly()
+                Net.speedTestAsync()
+                com.mobilegh.data.Web.warmUp()
+                com.mobilegh.data.WebAttachmentUploader.renewSessionAsync()
+            }
+        }
     }
 }

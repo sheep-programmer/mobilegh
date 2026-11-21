@@ -300,13 +300,13 @@ fun RepoScreen(owner: String, name: String) {
                     item {
                         // Star / Watch / Fork
                         ButtonRowAdaptive(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 4.dp)) {
-                            val s = starStatus.data == true
+                            val s = effectiveStarState(starStatus.data)
                             GhButton(
                                 "${if (s) tr("已 Star") else "Star"} ${fmtCount(r.stargazersCount)}",
                                 // 写入期间不改成禁用态，否则点一下按钮会灰一下；重复点击由 onClick 里的 starBusy 挡住
                                 icon = if (s) R.drawable.oc_star_fill else R.drawable.oc_star, iconTint = if (s) g.star else null,
                                 // 只在第一次读取 Star 状态之前禁用；下拉刷新期间保持可用，按钮不会闪
-                                enabled = entry.sameAccount() && starStatus.data != null,
+                                enabled = entry.sameAccount(),
                                 // 和 GitHub 一样：点按切换 Star；只有已 Star 的仓库才能长按管理所在列表
                                 onLongClick = {
                                     if (s) showLists = true
@@ -729,6 +729,9 @@ private fun ForkDialog(
 /** Star 写入时先在本地把计数加一或减一，界面立即变化；写入失败再回滚。计数不会低于 0。 */
 internal fun repoWithStar(repo: Repo, on: Boolean): Repo =
     repo.copy(stargazersCount = (repo.stargazersCount + if (on) 1 else -1).coerceAtLeast(0))
+
+/** The initial repository page should remain actionable while the optional Star status request is pending. */
+internal fun effectiveStarState(value: Boolean?): Boolean = value == true
 
 @Composable
 private fun RepoHeader(r: Repo, onEdited: () -> Unit = {}) {

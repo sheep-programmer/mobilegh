@@ -4,6 +4,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
+class ListContentTypeTest {
+    @Test fun contentTypeUsesStableRuntimeType() {
+        assertEquals("String", lazyContentType("item"))
+        assertEquals("Int", lazyContentType(1))
+    }
+}
+
 class ListScrollProgressTest {
     // 10 项：前 4 项各 100px，第 4 项是 2000px 的 README，其余 5 项未见过（估算为中位数 100px）
     private val known = mapOf(0 to 100, 1 to 100, 2 to 100, 3 to 100, 4 to 2000)

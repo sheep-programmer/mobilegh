@@ -30,7 +30,7 @@ These screenshots were captured from the v0.40.6 emulator build using fictional 
 
 ## Download and sign in
 
-Requires **Android 8.0 (API 26) or later**. The v0.40.7 ARM64 app is approximately **8.82 MiB**. [Release notes](docs/RELEASE_v0.40.7.md)
+Requires **Android 8.0 (API 26) or later**. The v0.40.8 ARM64 app is approximately **8.82 MiB**. [Release notes](docs/RELEASE_v0.40.8.md)
 
 | Device | APK |
 | --- | --- |

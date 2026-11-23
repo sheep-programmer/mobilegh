@@ -131,7 +131,7 @@ internal fun stuckDownloadHint(isPrivate: Boolean, slow: Boolean): String = when
 }
 
 /** 慢速判定的窗口：连续监控满这么久，平均速度才算数，短时间的波动不算 */
-internal const val SLOW_WINDOW_MS = 45_000L
+internal const val SLOW_WINDOW_MS = 15_000L
 
 /**
  * 平均速度低于 64 KB/s 视为节点太慢。取值依据：远低于正常加速节点的速度，普通波动不会触发；
@@ -242,7 +242,7 @@ object Downloads {
     private val engine by lazy { ResumableTransfer(transferHttp) }
     /** 没有进度的任务从什么时候开始卡住的（只记内存，用于判断该换节点了） */
     private val stalledSince = HashMap<String, Long>()
-    private const val STALL_MS = 20_000L
+    private const val STALL_MS = 8_000L
     /** 每次尝试的速度采样（只记内存）：window* 用于判断慢速，total* 用于算完成时的实测速度 */
     private val paces = HashMap<String, Pace>()
     /** 两次采样间隔超过这个时间，说明监控中断（App 在后台、暂停），这段时间不计入速度 */
@@ -980,6 +980,9 @@ object Downloads {
             current.state == DownloadState.Running || current.state == DownloadState.Preparing -> {
                 pausing.add(current.key)
                 transfers[current.key]?.cancel()
+                // 取消当前请求后，清掉旧的 keep-alive 连接。继续下载仍使用 .part/.mt.plan，
+                // 但会建立新连接，避免暂停后只是复用了已经卡住的镜像连接。
+                transferHttp.connectionPool.evictAll()
             }
             current.state == DownloadState.Waiting && current.paused -> {
                 update(current.copy(state = DownloadState.Queued, paused = false, message = null))

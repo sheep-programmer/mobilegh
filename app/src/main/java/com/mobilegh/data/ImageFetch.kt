@@ -73,14 +73,25 @@ object ImageFetch {
         if (!file.exists() || !file.isFile) return null
         return try {
             val bytes = file.readBytes()
-            if (bytes.size < 2) return null
+            if (bytes.size < 2) {
+                file.delete()
+                return null
+            }
             val mimeLen = bytes[0].toInt() and 0xFF
-            if (bytes.size < 1 + mimeLen) return null
+            if (bytes.size < 1 + mimeLen) {
+                file.delete()
+                return null
+            }
             val mime = if (mimeLen > 0) String(bytes, 1, mimeLen, Charsets.UTF_8) else null
             val imgBytes = bytes.copyOfRange(1 + mimeLen, bytes.size)
+            if (imgBytes.isEmpty() || mimeOf(target, imgBytes) == null) {
+                file.delete()
+                return null
+            }
             file.setLastModified(System.currentTimeMillis())
             Result(imgBytes, mime)
         } catch (_: Throwable) {
+            file.delete()
             null
         }
     }
@@ -97,9 +108,13 @@ object ImageFetch {
             System.arraycopy(mimeBytes, 0, buf, 1, mimeBytes.size)
             System.arraycopy(result.bytes, 0, buf, 1 + mimeBytes.size, result.bytes.size)
             val file = File(dir, diskKey(target))
-            val tmp = File(dir, "${file.name}.tmp")
-            tmp.writeBytes(buf)
-            tmp.renameTo(file)
+            val tmp = File(dir, "${file.name}.${System.nanoTime()}.tmp")
+            try {
+                tmp.writeBytes(buf)
+                check(tmp.renameTo(file)) { "image cache rename failed" }
+            } finally {
+                if (tmp.exists()) tmp.delete()
+            }
             trimDiskCacheIfNeeded(dir)
         } catch (_: Throwable) {
         }
@@ -200,12 +215,22 @@ object ImageFetch {
             failed.remove(key)
             cache.remove(key)
         }
-        val shared = !force && !background
+        // 页面请求与后台预取必须共享同一个下载。否则 README 打开时会同时发起两条请求，
+        // 页面可能先看到失败，而后台请求随后又覆盖同一个磁盘缓存文件。
+        val shared = !force
         val own = InFlight()
         // 同一张图被 Compose 与 WebView 同时请求时共用一次下载
         if (shared) {
             val running = synchronized(inFlight) { inFlight.getOrPut(key) { own } }
-            if (running !== own) return running.await().takeIf { key == cacheKey(target) }
+            if (running !== own) {
+                val sharedResult = running.await()
+                if (sharedResult != null && key == cacheKey(target)) return sharedResult
+                // A background prefetch is deliberately allowed to fail without poisoning the UI.
+                // If the foreground arrived while that prefetch was running, retry immediately with
+                // a fresh candidate race instead of exposing the prefetch failure as a broken image.
+                if (!background && key == cacheKey(target)) return fetch(target, force = true)
+                return null
+            }
         }
         try {
             val network = fetchNetwork(target, force, key)
@@ -227,6 +252,21 @@ object ImageFetch {
             own.done()
         }
     }
+
+    /**
+     * 面向界面的图片请求入口。
+     *
+     * [fetch] 保留单次请求语义，便于节点竞速和诊断。界面层使用这个入口时，临时网络失败会
+     * 自动再跑一次候选节点，并穿透上一次失败的短暂冷却。已确认不存在的资源不会重复请求。
+     */
+    fun fetchResilient(url: String, force: Boolean = false, background: Boolean = false): Result? =
+        retryImageLoad(
+            maxAttempts = 3,
+            retryDelayMs = 250,
+            isMissing = { isMissing(url) },
+        ) { attempt ->
+            fetch(url, force = force || attempt > 0, background = background)
+        }
 
     private fun recentFailure(key: String): Failure? {
         val failure = failed.get(key) ?: return null
@@ -312,7 +352,41 @@ object ImageFetch {
         }
     }
 
-    private class Outcome(val result: Result?, val skipNode: Boolean, val code: Int? = null) {
+    /**
+     * 图片请求的短重试策略。
+     *
+     * 临时网络失败会清掉失败冷却并重新走候选节点，404/410 则立即结束，避免把已经删除的
+     * 图片反复排进请求队列。这个函数保持在数据层，Compose、WebView 和图片查看器可以共享同一行为。
+     */
+    internal fun <T> retryImageLoad(
+        maxAttempts: Int,
+        retryDelayMs: Long,
+        isMissing: () -> Boolean,
+        load: (attempt: Int) -> T?,
+    ): T? {
+        require(maxAttempts > 0)
+        repeat(maxAttempts) { attempt ->
+            val value = load(attempt)
+            if (value != null) return value
+            if (isMissing() || attempt == maxAttempts - 1) return null
+            if (retryDelayMs > 0) {
+                try {
+                    Thread.sleep(retryDelayMs)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return null
+                }
+            }
+        }
+        return null
+    }
+
+    private class Outcome(
+        val result: Result?,
+        val skipNode: Boolean,
+        val code: Int? = null,
+        val quarantineNode: Boolean = skipNode,
+    ) {
         val missing: Boolean get() = code == 404 || code == 410
     }
 
@@ -354,12 +428,12 @@ object ImageFetch {
                 }
                 call.enqueue(object : okhttp3.Callback {
                     override fun onFailure(call: okhttp3.Call, e: IOException) {
-                        settle(node, Outcome(null, skipNode = true), call.isCanceled())
+                        settle(node, Outcome(null, skipNode = true, quarantineNode = false), call.isCanceled())
                     }
 
                     override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
                         val outcome = runCatching { response.use { parse(it, url) } }
-                            .getOrElse { Outcome(null, skipNode = true) }
+                            .getOrElse { Outcome(null, skipNode = true, quarantineNode = false) }
                         settle(node, outcome, call.isCanceled())
                     }
                 })
@@ -375,8 +449,8 @@ object ImageFetch {
                 }
                 return@settle
             }
-            if (outcome.skipNode && node != Net.DIRECT.id) {
-                // 404/410 只说明这张图在这个地址不存在，不代表节点不可用
+            if (outcome.skipNode && outcome.quarantineNode && node != Net.DIRECT.id) {
+                // 临时 408/429/5xx 或连接中断只影响本次请求，不能把节点冷却两分钟。
                 Net.markImageFail(target, node)
             }
             // 这个节点没成，立刻补上下一个候选
@@ -398,9 +472,11 @@ object ImageFetch {
     /** 只有单个候选时走同步请求，省掉一次线程切换 */
     private fun execute(target: String, node: String, url: String, force: Boolean): Outcome =
         runCatching { newCall(url, force).execute().use { parse(it, url) } }.getOrElse {
-            Outcome(null, skipNode = true)
+            Outcome(null, skipNode = true, quarantineNode = false)
         }.also {
-            if (it.result == null && it.skipNode && node != Net.DIRECT.id) Net.markImageFail(target, node)
+            if (it.result == null && it.skipNode && it.quarantineNode && node != Net.DIRECT.id) {
+                Net.markImageFail(target, node)
+            }
         }
 
     private fun isGitHubApiUrl(url: String): Boolean {
@@ -418,15 +494,23 @@ object ImageFetch {
     }
 
     private fun parse(resp: okhttp3.Response, url: String): Outcome {
-        if (!resp.isSuccessful) return Outcome(null, resp.code != 404 && resp.code != 410, resp.code)
+        if (!resp.isSuccessful) {
+            return Outcome(
+                result = null,
+                skipNode = true,
+                code = resp.code,
+                quarantineNode = shouldQuarantineImageNode(resp.code, transportFailure = false, invalidBody = false),
+            )
+        }
         val type = resp.header("Content-Type")?.substringBefore(';')?.trim()?.lowercase()
         if (type != null && (type.startsWith("text/html") || type.startsWith("application/json"))) {
-            return Outcome(null, true)
+            return Outcome(null, true, quarantineNode = true)
         }
-        if (resp.body.contentLength() > MAX_BYTES) return Outcome(null, true)
-        val bytes = resp.body.byteStream().use { ImageContent.readLimited(it, MAX_BYTES) } ?: return Outcome(null, true)
-        if (bytes.isEmpty() || looksLikeHtml(bytes)) return Outcome(null, true)
-        val mime = mimeOf(url, bytes) ?: return Outcome(null, true)
+        if (resp.body.contentLength() > MAX_BYTES) return Outcome(null, true, quarantineNode = true)
+        val bytes = resp.body.byteStream().use { ImageContent.readLimited(it, MAX_BYTES) }
+            ?: return Outcome(null, true, quarantineNode = true)
+        if (bytes.isEmpty() || looksLikeHtml(bytes)) return Outcome(null, true, quarantineNode = true)
+        val mime = mimeOf(url, bytes) ?: return Outcome(null, true, quarantineNode = true)
         return Outcome(Result(bytes, mime), false)
     }
 
@@ -448,4 +532,14 @@ object ImageFetch {
         "image/bmp" -> "bmp"
         else -> "png"
     }
+}
+
+/**
+ * 只有明确的鉴权/内容不兼容才把镜像加入短暂冷却。
+ * 408、429、5xx 和连接中断通常是瞬时状态，必须留给下一张图片继续尝试。
+ */
+internal fun shouldQuarantineImageNode(code: Int?, transportFailure: Boolean, invalidBody: Boolean): Boolean {
+    if (transportFailure) return false
+    if (invalidBody) return true
+    return code == 401 || code == 403 || code == 451
 }

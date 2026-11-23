@@ -3,6 +3,7 @@ package com.mobilegh.nav
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.mobilegh.data.ApiException
@@ -176,6 +177,10 @@ class Pager<T>(
     var end by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
     var loadedOnce by mutableStateOf(false)
+    var silentRefreshVersion by mutableIntStateOf(0)
+        private set
+    var silentRefreshSucceeded by mutableStateOf(false)
+        private set
     private var page = 0
     private var job: Job? = null
     private var operation = 0
@@ -286,6 +291,7 @@ class Pager<T>(
         val id = ++operation
         job?.cancel()
         silentRefreshing = kind == Request.SilentRefresh
+        if (kind == Request.SilentRefresh) silentRefreshSucceeded = false
         loading = !silentRefreshing
         refreshing = kind == Request.Refresh
         error = null
@@ -322,6 +328,7 @@ class Pager<T>(
                     refreshing = false
                     silentRefreshing = false
                     loadedOnce = true
+                    if (kind == Request.SilentRefresh) silentRefreshVersion++
                 }
             }
         }
@@ -374,6 +381,7 @@ class Pager<T>(
         page = next
         knownTotalPages = result.totalPages
         end = result.hasMore?.not() ?: hasMore?.invoke(next)?.not() ?: (result.items.size < pageSize)
+        if (kind == Request.SilentRefresh) silentRefreshSucceeded = true
         return true
     }
 

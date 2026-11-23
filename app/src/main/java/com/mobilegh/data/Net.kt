@@ -56,6 +56,8 @@ object Net {
         CdnNode("jsd-mirror", "jsDelivr · jsdmirror.com", NodeType.JsDelivr, "https://cdn.jsdmirror.com"),
         CdnNode("jsd-mirror-cn", "jsDelivr · jsdmirror.cn", NodeType.JsDelivr, "https://cdn.jsdmirror.cn"),
         CdnNode("ghfast", "ghfast.top", NodeType.Prefix, "https://ghfast.top/"),
+        // 已实测支持 Release 二进制的 Range 请求，不能与只返回网页的 ghproxy.link 混用。
+        CdnNode("gh-ddlc", "gh.ddlc.top", NodeType.Prefix, "https://gh.ddlc.top/"),
         CdnNode("gh-proxy", "gh-proxy.com", NodeType.Prefix, "https://gh-proxy.com/"),
         CdnNode("gh-proxy-cdn", "gh-proxy.com · CDN", NodeType.Prefix, "https://cdn.gh-proxy.com/"),
         CdnNode("gh-proxy-edge", "gh-proxy.com · EdgeOne", NodeType.Prefix, "https://edgeone.gh-proxy.com/"),
@@ -444,10 +446,11 @@ object Net {
         val failed = synchronized(this) { currentFailures(cls) }
         val okId = synchronized(this) { imageOk[cls] }
         val list = imageCandidates(url, raw, failed, okId)
-        // camo 与头像只由 GitHub 自身及其 Fastly CDN 稳定提供；公共代理常返回 403 或超时。
-        // 未有成功节点记忆时直连优先，将等待压低至百毫秒级。
-        if (cls == "camo") return list.sortedBy { if (it.first == DIRECT.id) 0 else 1 }
-        if (cls == "avatar" && okId == null) return list.sortedBy { if (it.first == DIRECT.id) 0 else 1 }
+        // Camo 是 GitHub 的签名代理结果，公共镜像几乎都会拒绝或返回错误页，只保留直连。
+        if (cls == "camo") return list.filter { it.first == DIRECT.id }
+        // 头像首次请求只走官方直连，避免一张头像同时打到多个公共镜像。某个节点成功过后，
+        // 后续头像才复用该节点，失败时仍会回退直连。
+        if (cls == "avatar" && okId == null) return list.filter { it.first == DIRECT.id }
         return list
     }
 

@@ -109,7 +109,8 @@ internal fun StarredRepoPage(login: String, name: String, isRootTab: Boolean = f
     val account = remember { StarListAccount(Session.login ?: login, Session.generation) }
     // 换账号后重新尝试服务端搜索；只在页面级执行，切换页签不能重置支持状态。
     LaunchedEffect(Session.generation) { StarredRepos.resetSupport() }
-    val lists = if (signedIn) rememberStarListCatalog(login) else null
+    // 默认进入“全部 Star”时不加载列表目录。列表目录只在用户切到“列表”页签后需要。
+    val lists = if (shouldLoadStarListCatalog(signedIn, tab)) rememberStarListCatalog(login) else null
     val revision by UserLists.changes.collectAsState()
     // 只有页面可见期间列表真的变化才刷新；进入页面时由快照决定要不要请求（见 rememberStarListCatalog）
     val observedRevision = retain("star-page-revision:$login") { mutableLongStateOf(revision) }
@@ -148,6 +149,8 @@ internal fun StarredRepoPage(login: String, name: String, isRootTab: Boolean = f
         }
     }
 }
+
+internal fun shouldLoadStarListCatalog(signedIn: Boolean, tab: Int): Boolean = signedIn && tab == 1
 
 /** 标题：列表页签里显示当前列表名，其余情况就是「已 Star」 */
 private fun starredTitle(listsTab: Boolean, selectedList: String?, lists: List<GitHubStarList>?): String {
@@ -325,11 +328,24 @@ private fun rememberStarPagerFreshness(
             }
         }
     }
+    LaunchedEffect(pager, pager.silentRefreshVersion) {
+        if (pager.silentRefreshVersion.compareTo(1) < 0) return@LaunchedEffect
+        if (pager.silentRefreshSucceeded) {
+            snapshot.items = pager.items.toList()
+            snapshot.pages = pager.committedPages
+            snapshot.ended = pager.end
+            snapshot.loadedAtMs = System.currentTimeMillis()
+            snapshot.loadedRevision = revision()
+            snapshot.silentRetryAfterMs = 0L
+        } else {
+            snapshot.silentRetryAfterMs = System.currentTimeMillis() + StarListCache.SILENT_RETRY_BACKOFF_MS
+        }
+    }
     LaunchedEffect(pager) {
         val stale = StarListCache.isStale(
             snapshot.loadedAtMs, snapshot.loadedRevision, revision(), System.currentTimeMillis(),
         )
-        if (pager.loadedOnce && stale) pager.refreshSilently()
+        if (pager.loadedOnce && stale && StarListCache.canAttemptSilentRefresh(snapshot)) pager.refreshSilently()
     }
 }
 

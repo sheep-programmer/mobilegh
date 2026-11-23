@@ -160,7 +160,7 @@ private fun ImageViewerContent(url: String, title: String) {
     val result by key(reload) {
         produceState(ImageLoadState(), url) {
             val image = try {
-                val data = withContext(Dispatchers.IO) { ImageFetch.fetch(url, force = reload > 0) }
+                val data = withContext(Dispatchers.IO) { ImageFetch.fetchResilient(url, force = reload > 0) }
                 data?.let {
                     withContext(Dispatchers.Default) {
                         val mime = it.mime ?: ImageFetch.mimeOf(url, it.bytes)

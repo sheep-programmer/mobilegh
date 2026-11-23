@@ -39,6 +39,17 @@ class ImageNodeSelectionTest {
         assertEquals(Net.DIRECT.id, Net.imageCandidates(camo).first().first)
     }
 
+    @Test fun camoDoesNotFanOutToPublicMirrors() {
+        // Camo 地址本身已经是 GitHub 的签名代理结果，多个公共镜像只会增加失败请求。
+        assertEquals(listOf(Net.DIRECT.id), Net.imageCandidates(camo).map { it.first })
+    }
+
+    @Test fun avatarDoesNotFanOutBeforeAWorkingNodeIsKnown() {
+        val freshAvatar = "https://avatars.githubusercontent.com/u/987654321?v=4&s=80"
+        assertEquals(Net.DIRECT.id, Net.imageCandidates(freshAvatar).first().first)
+        assertTrue(Net.imageCandidates(freshAvatar).size <= 2)
+    }
+
     @Test fun avatarIsFetchedDirectlyFirstWhenNoNodeMemorized() {
         // 头像在没有历史成功节点时直连优先，百毫秒直出，免去镜像 403 导致的长时等待
         Net.markImageFail(avatar, "gh-proxy")

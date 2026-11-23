@@ -37,6 +37,13 @@ class NetNodesTest {
         assertEquals("ghproxy-net", nodes.last().id)
     }
 
+    @Test fun rangeVerifiedDdlcProxyIsAvailableForDownloads() {
+        assertEquals(
+            "https://gh.ddlc.top/",
+            nodes.first { it.id == "gh-ddlc" && it.type == NodeType.Prefix }.base,
+        )
+    }
+
     @Test fun nodesFailingRealDownloadsStayOut() {
         // 实测下载内容不对或超时：g.blfrp.cn 返回的文件校验不通过，wget.la 下载超时
         assertTrue(nodes.none { it.base.contains("blfrp") || it.base.contains("wget.la") })

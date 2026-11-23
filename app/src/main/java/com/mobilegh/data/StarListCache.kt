@@ -17,12 +17,14 @@ class StarSnapshot<T>(val generation: Int) {
     var loadedAtMs = 0L
     /** 加载时的版本号（Star 写入或列表变化的计数）；之后版本变了，快照即过期 */
     var loadedRevision = -1L
+    var silentRetryAfterMs = 0L
 }
 
 /** 星标快照的进程内存放处。账号切换后快照会被丢弃，最多保留 [MAX_ENTRIES] 份。 */
 object StarListCache {
     /** 快照超过这个时间才在重新进入页面时刷新；下拉刷新不受此限制 */
     const val MAX_AGE_MS = 5 * 60_000L
+    const val SILENT_RETRY_BACKOFF_MS = 30_000L
     private const val MAX_ENTRIES = 16
 
     /** Star / Unstar 成功后递增；与快照记录的版本不同就视为过期 */
@@ -54,4 +56,7 @@ object StarListCache {
      */
     fun isStale(loadedAtMs: Long, loadedRevision: Long, revision: Long, nowMs: Long): Boolean =
         loadedAtMs == 0L || loadedRevision != revision || nowMs - loadedAtMs > MAX_AGE_MS
+
+    fun canAttemptSilentRefresh(snapshot: StarSnapshot<*>, nowMs: Long = System.currentTimeMillis()): Boolean =
+        nowMs >= snapshot.silentRetryAfterMs
 }

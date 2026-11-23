@@ -708,7 +708,7 @@ class GhWebClient(
         // 经应用转发（WebResourceResponse）时播放器会一直停在缓冲状态，所以这里必须放行。
         val range = request.requestHeaders.entries.firstOrNull { it.key.equals("Range", true) }?.value
         if (MediaProxy.wants(url, range)) return null
-        val r = ImageFetch.fetch(target)
+        val r = ImageFetch.fetchResilient(target)
             // 图片链路拿不到（超过 16 MB 的大 GIF、镜像全部失败）时，改从源站流式转发
             ?: return mediaResponse(url, null)
                 ?: WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), java.io.ByteArrayInputStream(ByteArray(0)))

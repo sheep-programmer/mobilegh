@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 慢速判定：有进度但连续一个窗口（45 秒）平均速度低于 64 KB/s，且还有下一个候选节点，才换节点。
+ * 慢速判定：有进度但连续一个窗口（15 秒）平均速度低于 64 KB/s，且还有下一个候选节点，才换节点。
  * 窗口没满、没有候选、剩下的数据一个窗口内就能下完，都不换。
  */
 class SlowDownloadTest {
@@ -17,15 +17,15 @@ class SlowDownloadTest {
     }
 
     @Test fun slowDownloadWithAnotherNodeRotates() {
-        // 45 秒只下了 1 MB，约 23 KB/s
-        assertTrue(isSlowDownload(windowMs = SLOW_WINDOW_MS, windowBytes = 1 * mb, remainingBytes = null, hasNextCandidate = true))
-        assertTrue(isSlowDownload(windowMs = SLOW_WINDOW_MS, windowBytes = 1 * mb, remainingBytes = 50 * mb, hasNextCandidate = true))
+        // 15 秒只下了 500 KiB，约 33 KB/s，属于慢速连接
+        assertTrue(isSlowDownload(windowMs = SLOW_WINDOW_MS, windowBytes = 500 * 1024, remainingBytes = null, hasNextCandidate = true))
+        assertTrue(isSlowDownload(windowMs = SLOW_WINDOW_MS, windowBytes = 500 * 1024, remainingBytes = 50 * mb, hasNextCandidate = true))
     }
 
     @Test fun windowMustBeFullBeforeJudging() {
         assertFalse(isSlowDownload(windowMs = SLOW_WINDOW_MS - 1, windowBytes = 0, remainingBytes = null, hasNextCandidate = true))
-        // 只监控了 20 秒，速度再低也还不算数
-        assertFalse(isSlowDownload(windowMs = 20_000, windowBytes = 100_000, remainingBytes = null, hasNextCandidate = true))
+        // 只监控了 10 秒，速度再低也还不算数
+        assertFalse(isSlowDownload(windowMs = 10_000, windowBytes = 100_000, remainingBytes = null, hasNextCandidate = true))
         assertFalse(isSlowDownload(windowMs = 0, windowBytes = 0, remainingBytes = null, hasNextCandidate = true))
     }
 
@@ -36,15 +36,15 @@ class SlowDownloadTest {
 
     @Test fun thresholdIsExactlySixtyFourKilobytesPerSecond() {
         val atThreshold = SLOW_BYTES_PER_SEC * SLOW_WINDOW_MS / 1000
-        assertEquals(65536L * 45, atThreshold)
+        assertEquals(65536L * 15, atThreshold)
         assertFalse(isSlowDownload(SLOW_WINDOW_MS, atThreshold, null, true))
         assertTrue(isSlowDownload(SLOW_WINDOW_MS, atThreshold - 1, null, true))
     }
 
     @Test fun nearlyFinishedDownloadIsNotRestarted() {
         // 23 KB/s 的速度下，剩下 100 KB 一个窗口内就能下完，换节点从头下反而慢
-        assertFalse(isSlowDownload(SLOW_WINDOW_MS, 1 * mb, remainingBytes = 100_000, hasNextCandidate = true))
+        assertFalse(isSlowDownload(SLOW_WINDOW_MS, 500 * 1024, remainingBytes = 100_000, hasNextCandidate = true))
         // 剩下 50 MB 就不一样了
-        assertTrue(isSlowDownload(SLOW_WINDOW_MS, 1 * mb, remainingBytes = 50 * mb, hasNextCandidate = true))
+        assertTrue(isSlowDownload(SLOW_WINDOW_MS, 500 * 1024, remainingBytes = 50 * mb, hasNextCandidate = true))
     }
 }

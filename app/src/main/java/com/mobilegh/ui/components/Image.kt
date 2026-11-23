@@ -91,7 +91,7 @@ object Images {
         if (running !== mine) return running.await()
         return try {
             val bmp = withContext(Dispatchers.IO) {
-                val r = ImageFetch.fetch(url, force) ?: return@withContext null
+                val r = ImageFetch.fetchResilient(url, force) ?: return@withContext null
                 decode(r.bytes, maxDim)?.also { if (memKey == key(url, maxDim)) mem.put(memKey, it) }
             }
             mine.complete(bmp)
@@ -168,7 +168,7 @@ object Images {
             // 2. 外部 HTTP/HTTPS 图片引用
             if (filename.startsWith("http://", ignoreCase = true) || filename.startsWith("https://", ignoreCase = true)) {
                 cached(filename, 512)?.let { return it.asAndroidBitmap() }
-                val fetched = ImageFetch.cached(filename) ?: ImageFetch.fetch(filename)
+                val fetched = ImageFetch.cached(filename) ?: ImageFetch.fetchResilient(filename)
                 val bytes = fetched?.bytes ?: return null
                 return if (ImageContent.mimeOf(filename, bytes) == "image/svg+xml") {
                     renderEmbeddedSvg(bytes)

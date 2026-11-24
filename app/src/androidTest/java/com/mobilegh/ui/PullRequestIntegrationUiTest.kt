@@ -25,6 +25,7 @@ import com.mobilegh.data.GitHubStarList
 import com.mobilegh.data.OrganizationDirectory
 import com.mobilegh.data.Repo
 import com.mobilegh.data.Session
+import com.mobilegh.data.StarListCache
 import com.mobilegh.data.User
 import com.mobilegh.nav.Loader
 import com.mobilegh.nav.LocalEntry
@@ -149,6 +150,45 @@ class PullRequestIntegrationUiTest {
             }
         }
         compose.onNodeWithText("倒序").assertIsDisplayed()
+    }
+
+    @Test fun starFeedRowsStayBelowSearchAndSortWhenSwitchingTabs() {
+        val nav = compose.runOnUiThread { signInFixture() }
+        val repo = Repo(id = 42, name = "layout-fixture", owner = User(login = "octocat"))
+        compose.runOnUiThread {
+            val feedKey = "rl-starred:$TEST_LOGIN:0:true::true"
+            nav.root.bag[feedKey] = Pager<Repo>(nav.root.scope).apply {
+                restoreFrom(listOf(repo), pages = 1, ended = true)
+            }
+            StarListCache.snapshot<Repo>(feedKey, Session.generation).apply {
+                loadedAtMs = System.currentTimeMillis()
+                loadedRevision = StarListCache.starRevision
+            }
+            val catalog = listOf(GitHubStarList("reading", "Layout fixture list", "", false, "reading", TEST_LOGIN, 1))
+            nav.root.bag["star-lists:$TEST_LOGIN:$TEST_LOGIN:${Session.generation}"] =
+                Loader(nav.root.scope) { catalog }.apply { accept(catalog) }
+        }
+        compose.setContent {
+            MobileGhTheme {
+                CompositionLocalProvider(LocalNav provides nav, LocalEntry provides nav.root) {
+                    StarredRepoPage(TEST_LOGIN, "", isRootTab = true)
+                }
+            }
+        }
+
+        fun assertFeedLayout() {
+            val search = compose.onNodeWithContentDescription("搜索 Star").assertIsDisplayed().getUnclippedBoundsInRoot()
+            val sort = compose.onNodeWithText("倒序", useUnmergedTree = true).assertIsDisplayed().getUnclippedBoundsInRoot()
+            val title = compose.onNodeWithText("layout-fixture", substring = true).assertIsDisplayed().getUnclippedBoundsInRoot()
+            assertTrue("Search must end before the sort row: search=$search, sort=$sort", search.bottom <= sort.top)
+            assertTrue("Sort must end before the first repository: sort=$sort, title=$title", sort.bottom <= title.top)
+        }
+
+        assertFeedLayout()
+        compose.onNodeWithText("列表").performClick()
+        compose.onNodeWithText("Layout fixture list").assertIsDisplayed()
+        compose.onNodeWithText("全部 Star").performClick()
+        assertFeedLayout()
     }
 
     @Test fun disabledSortsDoNotReact() {

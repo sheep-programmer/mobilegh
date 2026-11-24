@@ -93,9 +93,6 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
                 checkAccount(v.user)
                 Session.signIn(clean, v.user, scopes = v.scopes)
                 AppLog.info("auth", tr("Token 登录成功"))
-                if (!GitHubWebLogin.hasSession()) {
-                    GitHubWebLogin.request(tr("登录 GitHub（同步网页会话）"))
-                }
             },
             now = { SystemClock.elapsedRealtime() },
         )

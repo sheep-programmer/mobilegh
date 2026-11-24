@@ -500,9 +500,11 @@ private fun ReleaseForm(owner: String, name: String, seed: ReleaseSeed, modifier
         }
         if (rel != null) {
             Spacer(Modifier.height(8.dp))
-            ReleaseAssetsBlock(
+            ReleaseAssetManagementBlock(
                 owner, name, rel.id, assets, canUpload = canPush && !busy,
                 onUploaded = { assets = assets + it },
+                onUpdated = { updated -> assets = assets.map { if (it.id == updated.id) updated else it } },
+                onDeleted = { assetId -> assets = assets.filterNot { it.id == assetId } },
             )
         }
         Spacer(Modifier.height(8.dp))

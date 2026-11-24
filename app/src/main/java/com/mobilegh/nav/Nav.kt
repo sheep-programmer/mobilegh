@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicLong
 import com.mobilegh.data.AppLog
 import com.mobilegh.data.History
 import com.mobilegh.data.IssueQuery
+import com.mobilegh.data.Repo
 import com.mobilegh.data.Session
 import com.mobilegh.data.ProjectOwnerKind
 import com.mobilegh.i18n.tr
@@ -145,7 +146,7 @@ enum class Tab(private val titleZh: String) { Home("首页"), Repos("仓库"), S
 
 private val ids = AtomicLong()
 
-class Entry(val screen: Screen) {
+class Entry(val screen: Screen, internal val repoPreview: Repo? = null) {
     val id: String = "e${ids.incrementAndGet()}"
     /** 打开页面时的账号；写操作据此确认没有在中途切换账号 */
     val login: String? = Session.login
@@ -169,11 +170,16 @@ class Navigator {
 
     val top: Entry get() = stack.lastOrNull() ?: root
 
-    fun push(s: Screen) {
+    fun push(s: Screen) = push(Entry(s))
+
+    internal fun openRepo(repo: Repo) = push(Entry(Screen.Repo(repo.owner.login, repo.name), repo.copy(permissions = null)))
+
+    private fun push(entry: Entry) {
+        val s = entry.screen
         History.navigation(s)
         AppLog.trackScreen(s.toString())
         lastWasPush = true
-        stack.add(Entry(s))
+        stack.add(entry)
     }
 
     fun replace(s: Screen) {

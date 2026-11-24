@@ -27,6 +27,13 @@ class ImageNodeSelectionTest {
         assertTrue(Net.imageCandidates(raw).any { it.first == "ghfast" })
     }
 
+    @Test fun transientMirrorFailureIsTemporarilySkippedForTheSameImageClass() {
+        Net.markImageTransientFail(raw, "ghfast")
+        assertFalse(Net.imageCandidates(raw).any { it.first == "ghfast" })
+        val otherRaw = "https://raw.githubusercontent.com/o/other/main/diagram.svg"
+        assertFalse(Net.imageCandidates(otherRaw).any { it.first == "ghfast" })
+    }
+
     @Test fun lastGoodNodeIsTriedFirstForTheSameKindOfImage() {
         Net.markImageOk(avatar, "gh-proxy")
         val first = Net.imageCandidates(avatar).first().first
@@ -48,6 +55,11 @@ class ImageNodeSelectionTest {
         val freshAvatar = "https://avatars.githubusercontent.com/u/987654321?v=4&s=80"
         assertEquals(Net.DIRECT.id, Net.imageCandidates(freshAvatar).first().first)
         assertTrue(Net.imageCandidates(freshAvatar).size <= 2)
+    }
+
+    @Test fun aSuccessfulOfficialAvatarDoesNotEnablePublicMirrorsForTheNextAvatar() {
+        Net.markImageOk(avatar, Net.DIRECT.id)
+        assertEquals(listOf(Net.DIRECT.id), Net.imageCandidates(avatar).map { it.first })
     }
 
     @Test fun avatarIsFetchedDirectlyFirstWhenNoNodeMemorized() {

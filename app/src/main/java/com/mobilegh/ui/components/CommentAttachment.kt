@@ -13,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import com.mobilegh.data.CommentAttachments
+import com.mobilegh.data.Session
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 import com.mobilegh.nav.LocalEntry
@@ -22,7 +23,7 @@ import com.mobilegh.nav.act
  * 评论附件的选择与上传：从系统选择器选一张图片或一段视频，传到 GitHub 的附件存储，
  * 把返回的地址交给调用方插入正文。上传期间 [uploading] 会变非空，界面可以显示进度。
  *
- * 需要应用内的网页登录：没有登录时先弹出登录页，登录成功后自动继续上传刚才选的文件。
+ * 有 GitHub Token 时直接上传。没有 Token 时再使用应用内网页登录，登录成功后继续上传。
  */
 class CommentAttachmentState(val uploading: String?, val pick: () -> Unit)
 
@@ -37,10 +38,6 @@ fun rememberCommentAttachments(
     var uploading by remember { mutableStateOf<String?>(null) }
 
     fun start(uri: Uri) {
-        if (!GitHubWebLogin.hasSession()) {
-            GitHubWebLogin.request { start(uri) }
-            return
-        }
         val resolver = ctx.contentResolver
         val (name, size) = describe(resolver, uri)
         if (!CommentAttachments.isAllowed(name)) {
@@ -70,10 +67,9 @@ fun rememberCommentAttachments(
         if (uri != null) start(uri)
     }
     // uploading 状态需要暴露给界面：包一层 state
-    // 先确认网页登录，再打开文件选择器，避免选完文件才发现要登录
+    // Token 会话可以直接打开选择器，未登录时才先进入网页会话登录。
     val openPicker: () -> Unit = {
-        if (GitHubWebLogin.hasSession()) pick.launch(arrayOf("*/*"))
-        else GitHubWebLogin.request { pick.launch(arrayOf("*/*")) }
+        pick.launch(arrayOf("image/*", "video/*"))
     }
     return remember(uploading) { CommentAttachmentState(uploading, openPicker) }
 }

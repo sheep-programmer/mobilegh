@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.Api
 import com.mobilegh.data.GitHubStarList
 import com.mobilegh.data.Repo
 import com.mobilegh.data.Session
@@ -54,6 +55,7 @@ import com.mobilegh.data.StarredRepos
 import com.mobilegh.data.StarredReposClient
 import com.mobilegh.data.UserLists
 import com.mobilegh.data.UserListsClient
+import com.mobilegh.data.RepoFeedCache
 import com.mobilegh.data.starMatches
 import com.mobilegh.nav.Loader
 import com.mobilegh.nav.LocalEntry
@@ -81,6 +83,7 @@ import com.mobilegh.ui.components.relTime
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
+import java.io.File
 
 /**
  * 「已 Star」页：上面两个页签（全部 Star / 列表），两个页签各管各的状态。
@@ -131,20 +134,24 @@ internal fun StarredRepoPage(login: String, name: String, isRootTab: Boolean = f
         // 作为底部导航的根页签时，底部系统栏的留白已经由外层处理，这里再留一次会在列表下面多出一截空白
         contentWindowInsets = if (isRootTab) androidx.compose.foundation.layout.WindowInsets(0) else null,
     ) { pad ->
-        Column(Modifier.padding(pad)) {
+        Column(Modifier.fillMaxSize().padding(pad)) {
             // 进入某个列表后不再显示「全部 Star / 列表」页签，只有标题栏的返回，界面更干净
             if (signedIn && !inDetail) {
-                com.mobilegh.ui.components.Segmented(
+                Segmented(
                     listOf(tr("全部 Star"), tr("列表")), tab,
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    animateSelection = false,
                 ) { index ->
                     tab = index
                     if (index == 0) selectedList = null
                 }
             }
-            when {
-                listsTab && lists != null -> StarListsTab(lists, isMe, login, account, selectedList) { selectedList = it }
-                else -> StarFeedTab(login, isMe)
+            // Keep one scrollable hierarchy mounted at a time. Animating two LazyColumns
+            // here makes their cards overlap the search controls during the transition.
+            if (lists != null) {
+                StarListsTab(lists, isMe, login, account, selectedList) { selectedList = it }
+            } else {
+                StarFeedTab(login, isMe)
             }
         }
     }
@@ -282,6 +289,7 @@ private fun rememberStarFeedPager(
     val pagerKey = "rl-starred:$login:$index:$descending:$query:$searchSupported"
     // 快照放在进程内：离开页面再回来时仍能拿到上次的页、游标和条目
     val snapshot = StarListCache.snapshot<Repo>(pagerKey, Session.generation)
+    val diskSnapshot = remember(pagerKey) { RepoFeedCache(File(Api.cacheDir, "repo-feeds")).read(pagerKey) }
     val cursors = snapshot.cursors
     val pageSize = when {
         searching -> StarredReposClient.PAGE_SIZE
@@ -297,8 +305,17 @@ private fun rememberStarFeedPager(
                 STAR_SORTS[index].value, if (descending) "desc" else "asc",
             ))
         }
-    }, restore = { p -> snapshot.pages > 0 && p.restoreFrom(snapshot.items, snapshot.pages, snapshot.ended) })
+    }, restore = { p ->
+        if (snapshot.pages > 0 && p.restoreFrom(snapshot.items, snapshot.pages, snapshot.ended)) true
+        else diskSnapshot?.let { p.restoreFrom(it.items, 1, it.ended) } == true
+    })
     rememberStarPagerFreshness(pager, snapshot)
+    LaunchedEffect(pager, diskSnapshot) { if (diskSnapshot != null) pager.refreshSilently() }
+    LaunchedEffect(pager, pager.loading, pager.silentRefreshVersion) {
+        if (pager.loadedOnce && !pager.loading && pager.error == null) {
+            RepoFeedCache(File(Api.cacheDir, "repo-feeds")).write(pagerKey, pager.items, pager.committedPages, pager.end)
+        }
+    }
     return pager
 }
 

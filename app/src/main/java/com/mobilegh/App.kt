@@ -66,6 +66,7 @@ class App : Application() {
                 Net.speedTestAsync()
                 com.mobilegh.data.Web.warmUp()
                 com.mobilegh.data.WebAttachmentUploader.renewSessionAsync()
+                com.mobilegh.data.HomePrefs.warmFavoritesAsync()
             }
         }
     }

@@ -25,6 +25,7 @@ object StarListCache {
     /** 快照超过这个时间才在重新进入页面时刷新；下拉刷新不受此限制 */
     const val MAX_AGE_MS = 5 * 60_000L
     const val SILENT_RETRY_BACKOFF_MS = 30_000L
+    const val HOME_REFRESH_MIN_INTERVAL_MS = 60_000L
     private const val MAX_ENTRIES = 16
 
     /** Star / Unstar 成功后递增；与快照记录的版本不同就视为过期 */

@@ -6,7 +6,7 @@ MobileGH 是一款用 Kotlin 和 Jetpack Compose 构建的第三方 GitHub Andro
 
 ## 界面预览
 
-截图取自 v0.40.6 的模拟器构建，使用虚构账号和本地测试数据。
+截图取自 v0.40.9 的模拟器构建，使用虚构账号和本地测试数据。
 
 <table>
   <tr>
@@ -30,7 +30,7 @@ MobileGH 是一款用 Kotlin 和 Jetpack Compose 构建的第三方 GitHub Andro
 
 ## 下载与登录
 
-支持 **Android 8.0（API 26）及以上**。v0.40.8 的 ARM64 主安装包约 **8.82 MiB**。 [Release 说明](docs/RELEASE_v0.40.8.md)
+支持 **Android 8.0（API 26）及以上**。v0.40.9 的 ARM64 主安装包和各架构校验值见最新 Release。 [Release 说明](docs/RELEASE_v0.40.9.md)
 
 | 设备 | 安装包 |
 | --- | --- |

@@ -25,6 +25,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -228,18 +229,26 @@ private fun SegBtn(icon: Int, label: String, active: Boolean, onClick: () -> Uni
 @Composable
 private fun AttachStrip(uploading: String?, onAttach: () -> Unit) {
     val g = Gh.c
-    Row(
-        Modifier.fillMaxWidth()
-            .clickable(enabled = uploading == null, role = Role.Button, onClick = onAttach)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Oc(R.drawable.oc_paperclip, g.fgMuted, 16.dp)
-        Spacer(Modifier.width(6.dp))
-        Text(
-            if (uploading != null) trf("正在上传 {0}…", uploading) else tr("点击添加图片或视频"),
-            fontSize = 13.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
-        )
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth()
+                .clickable(enabled = uploading == null, role = Role.Button, onClick = onAttach)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Oc(R.drawable.oc_paperclip, if (uploading != null) g.accent else g.fgMuted, 16.dp)
+            Spacer(Modifier.width(6.dp))
+            Text(
+                if (uploading != null) trf("正在上传 {0}…", uploading) else tr("点击添加图片或视频"),
+                fontSize = 13.sp, color = if (uploading != null) g.accent else g.fgMuted,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            if (uploading != null) {
+                Spacer(Modifier.weight(1f))
+                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = g.accent)
+            }
+        }
+        if (uploading != null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = g.accent)
     }
 }
 

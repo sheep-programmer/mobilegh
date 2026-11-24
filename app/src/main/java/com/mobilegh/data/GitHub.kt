@@ -197,7 +197,11 @@ object GitHub {
 
     // ---------------- 仓库 ----------------
     suspend fun repo(o: String, n: String, force: Boolean = false, headers: Map<String, String> = emptyMap()) =
-        Api.get<Repo>(r(o, n), force, headers = headers).also { if (it.isPrivate) Net.markPrivate(it.fullName) }
+        Api.get<Repo>(r(o, n), force, headers = headers).also {
+            val restricted = it.isPrivate || it.visibility == "internal"
+            Net.confirmImageVisibility(o, n, restricted)
+            if (restricted) Net.markPrivate(it.fullName)
+        }
     suspend fun repoLicense(o: String, n: String) = Api.get<LicenseFile>("${r(o, n)}/license", false)
 
     private fun List<Repo>.track() = onEach { if (it.isPrivate) Net.markPrivate(it.fullName) }

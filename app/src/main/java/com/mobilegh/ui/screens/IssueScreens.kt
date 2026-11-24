@@ -80,6 +80,8 @@ import com.mobilegh.ui.components.rememberDraft
 import com.mobilegh.ui.components.DraftBinding
 import com.mobilegh.data.Issue
 import com.mobilegh.data.IssueHierarchy
+import com.mobilegh.data.IssueDependencies
+import com.mobilegh.data.IssueDependency
 import com.mobilegh.data.IssueQuery
 import com.mobilegh.data.relatedIssueLabel
 import com.mobilegh.data.relatedIssueRepo
@@ -189,9 +191,16 @@ private class StateChange(
 internal fun prCheckoutCommand(number: Int): String = "git fetch origin pull/$number/head:pr-$number && git checkout pr-$number"
 
 /** 标题、元数据、间距、正文之前仅计算实际展示的增强卡片，保证评论深链定位准确。 */
-internal fun threadTimelineOffset(isPull: Boolean, hasHierarchy: Boolean, hasRelated: Boolean, hasClosingIssues: Boolean): Int =
+internal fun threadTimelineOffset(
+    isPull: Boolean,
+    hasHierarchy: Boolean,
+    hasRelated: Boolean,
+    hasDependencies: Boolean = false,
+    hasClosingIssues: Boolean = false,
+): Int =
     4 + (if (!isPull && hasHierarchy) 1 else 0) +
         (if (!isPull && hasRelated) 1 else 0) +
+        (if (!isPull && hasDependencies) 1 else 0) +
         (if (isPull && hasClosingIssues) 1 else 0)
 
 @Composable
@@ -295,7 +304,10 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
     }
     // PR 的关闭关联只读；空列表不展示卡片，失败不影响正文
     val closing = rememberLoader("closing-issues") { f -> if (isPull) GitHub.closingIssues(owner, name, number, f) else null }
+    val blockedBy = rememberLoader("blocked-by") { f -> if (isPull) null else IssueDependencies.blockedBy(owner, name, number, f) }
+    val blocking = rememberLoader("blocking") { f -> if (isPull) null else IssueDependencies.blocking(owner, name, number, f) }
     var relatedPicker by remember { mutableStateOf(false) }
+    var dependencyPicker by remember { mutableStateOf(false) }
     var childPicker by remember { mutableStateOf(false) }
     var parentPicker by remember { mutableStateOf(false) }
 
@@ -304,6 +316,8 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
         issueType.load(true)
         hierarchy.load(true)
         closing.load(true)
+        blockedBy.load(true)
+        blocking.load(true)
     }
 
     /** 写入成功后刷新导航栈里同一仓库的列表（状态、新建会改变列表内容） */
@@ -549,6 +563,7 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
                     isPull = isPull,
                     hasHierarchy = hierarchy.data != null && !th.issue.nodeId.isNullOrBlank(),
                     hasRelated = related.data != null,
+                    hasDependencies = blockedBy.data != null || blocking.data != null,
                     hasClosingIssues = !closing.data.isNullOrEmpty(),
                 )
                 val timeline = (comments.map { it.createdAt to it as Any } + th.reviews.filter { it.state != "PENDING" }.map { it.submittedAt to it as Any })
@@ -603,6 +618,29 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
                             canEdit = access.triage, busy = writing,
                             onAdd = { relatedPicker = true },
                             onRemove = ::removeRelated,
+                        )
+                    }
+                }
+                val dependencies = if (!isPull) (blockedBy.data.orEmpty() to blocking.data.orEmpty()) else null
+                if (dependencies != null && (blockedBy.data != null || blocking.data != null)) {
+                    item(key = "dependencies") {
+                        IssueDependenciesCard(
+                            owner = owner,
+                            name = name,
+                            number = number,
+                            blockedBy = dependencies.first,
+                            blocking = dependencies.second,
+                            canEdit = access.triage,
+                            busy = writing,
+                            onAdd = { dependencyPicker = true },
+                            onRemove = { dependency ->
+                                write(onSuccess = {
+                                    blockedBy.load(true)
+                                    ctx.toast(tr("已移除 Issue 依赖"))
+                                }) {
+                                    IssueDependencies.removeBlockedBy(owner, name, number, dependency.id)
+                                }
+                            },
                         )
                     }
                 }
@@ -792,6 +830,29 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
         owner, name, number, related.data.orEmpty(), busy = writing,
         onDismiss = { if (!writing) relatedPicker = false },
         onPick = ::addRelated,
+    )
+    if (dependencyPicker) RelatedIssuePicker(
+        owner, name, number, (blockedBy.data.orEmpty() + blocking.data.orEmpty()).map { dependency ->
+            Issue(
+                id = dependency.id,
+                number = dependency.number,
+                title = dependency.title,
+                state = dependency.state,
+                htmlUrl = dependency.htmlUrl,
+                repositoryUrl = dependency.repositoryUrl,
+            )
+        },
+        busy = writing,
+        onDismiss = { if (!writing) dependencyPicker = false },
+        onPick = { issue ->
+            write(onSuccess = {
+                dependencyPicker = false
+                blockedBy.load(true)
+                ctx.toast(tr("已添加阻塞依赖"))
+            }) {
+                IssueDependencies.addBlockedBy(owner, name, number, issue.id)
+            }
+        },
     )
     stateChange?.let { change ->
         GhDialog(
@@ -1244,17 +1305,8 @@ private fun EditHistoryDialog(nodeId: String, title: String, onDismiss: () -> Un
                 deleteError = null
                 scope.launch {
                     try {
-                        ContentEdits.delete(target.id)
+                        result = Result.success(ContentEdits.applyLocalDelete(result?.getOrNull().orEmpty(), target.id, Session.login ?: "mobilegh"))
                         pendingDelete = null
-                        result = runCatching { ContentEdits.load(nodeId) }
-                    } catch (e: WebSessionMissing) {
-                        pendingDelete = null
-                        GitHubWebLogin.request(tr("登录 GitHub（用于删除历史版本）")) {
-                            scope.launch {
-                                runCatching { ContentEdits.delete(target.id) }
-                                result = runCatching { ContentEdits.load(nodeId) }
-                            }
-                        }
                     } catch (e: Exception) {
                         deleteError = e.message ?: tr("删除失败")
                     } finally {
@@ -1315,6 +1367,119 @@ private fun EditHistoryDialog(nodeId: String, title: String, onDismiss: () -> Un
                         } else {
                             MdText(r.body.orEmpty(), fontSize = 14.sp, lineHeight = 20.sp, color = g.fg)
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IssueDependenciesCard(
+    owner: String,
+    name: String,
+    number: Int,
+    blockedBy: List<IssueDependency>,
+    blocking: List<IssueDependency>,
+    canEdit: Boolean,
+    busy: Boolean,
+    onAdd: () -> Unit,
+    onRemove: (IssueDependency) -> Unit,
+) {
+    val g = Gh.c
+    val nav = LocalNav.current
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+            .border(1.dp, g.border, RoundedCornerShape(8.dp)),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, top = 10.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Oc(R.drawable.oc_git_branch, g.fgMuted, 16.dp)
+            Spacer(Modifier.width(8.dp))
+            Text(tr("Issue 依赖"), fontSize = 13.sp, color = g.fgMuted, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.weight(1f))
+            if (canEdit) Text(
+                tr("添加阻塞"),
+                Modifier.clickable(enabled = !busy) { onAdd() }.padding(horizontal = 8.dp, vertical = 6.dp),
+                fontSize = 13.sp, color = if (busy) g.fgMuted else g.accent, fontWeight = FontWeight.Medium,
+            )
+        }
+        DependencyRows(
+            label = tr("被以下 Issue 阻塞"),
+            items = blockedBy,
+            owner = owner,
+            name = name,
+            canEdit = canEdit,
+            busy = busy,
+            onRemove = onRemove,
+            onOpen = { dependency ->
+                val (targetOwner, targetName) = relatedIssueRepo(
+                    Issue(repositoryUrl = dependency.repositoryUrl), owner, name,
+                )
+                nav.push(Screen.IssueDetail(targetOwner, targetName, dependency.number, false))
+            },
+        )
+        DependencyRows(
+            label = tr("阻塞以下 Issue"),
+            items = blocking,
+            owner = owner,
+            name = name,
+            canEdit = false,
+            busy = busy,
+            onRemove = {},
+            onOpen = { dependency ->
+                val (targetOwner, targetName) = relatedIssueRepo(
+                    Issue(repositoryUrl = dependency.repositoryUrl), owner, name,
+                )
+                nav.push(Screen.IssueDetail(targetOwner, targetName, dependency.number, false))
+            },
+        )
+    }
+}
+
+@Composable
+private fun DependencyRows(
+    label: String,
+    items: List<IssueDependency>,
+    owner: String,
+    name: String,
+    canEdit: Boolean,
+    busy: Boolean,
+    onRemove: (IssueDependency) -> Unit,
+    onOpen: (IssueDependency) -> Unit,
+) {
+    val g = Gh.c
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+        Text(label, fontSize = 12.sp, color = g.fgMuted)
+        if (items.isEmpty()) {
+            Text(tr("暂无"), Modifier.padding(vertical = 6.dp), fontSize = 13.sp, color = g.fgMuted)
+        } else {
+            items.forEachIndexed { index, dependency ->
+                if (index > 0) HDivider()
+                Row(
+                    Modifier.fillMaxWidth().clickable { onOpen(dependency) }.padding(vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Oc(
+                        if (dependency.state == "open") R.drawable.oc_issue_opened else R.drawable.oc_issue_closed,
+                        if (dependency.state == "open") g.attention else g.done,
+                        15.dp,
+                    )
+                    Spacer(Modifier.width(7.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("#${dependency.number}", fontSize = 12.sp, color = g.fgMuted)
+                        Text(dependency.title, fontSize = 13.sp, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (canEdit) {
+                        OcButton(
+                            R.drawable.oc_x_circle,
+                            { onRemove(dependency) },
+                            tint = g.fgMuted,
+                            enabled = !busy,
+                            description = tr("移除 Issue 依赖"),
+                        )
                     }
                 }
             }

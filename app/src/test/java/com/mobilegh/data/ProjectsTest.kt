@@ -109,6 +109,50 @@ class ProjectsTest {
         assertEquals(listOf(status.id, "f-est"), cardFieldValues(it, limit = 2).map { v -> v.fieldId })
     }
 
+    @Test fun itemSearchMatchesMetadataAndFieldValuesCaseInsensitively() {
+        val matching = item(
+            "one",
+            ProjectFieldValue("f-note", "Notes", "TEXT", ProjectValueKind.Text, "Needs API review"),
+        ).copy(title = "Improve project view", repository = "octocat/mobilegh")
+        val other = item("two").copy(title = "Update docs")
+
+        assertEquals(listOf("one"), filterProjectItems(listOf(matching, other), "API").map { it.id })
+        assertEquals(listOf("one"), filterProjectItems(listOf(matching, other), "mobilegh").map { it.id })
+        assertEquals(listOf("one", "two"), filterProjectItems(listOf(matching, other), "").map { it.id })
+        assertEquals(emptyList<ProjectItem>(), filterProjectItems(listOf(matching, other), "missing"))
+    }
+
+    @Test fun editableProjectValuesValidateAndOverlayTextNumberAndDate() = runBlocking {
+        val text = ProjectField("f-text", "Notes", "TEXT")
+        val number = ProjectField("f-number", "Estimate", "NUMBER")
+        val date = ProjectField("f-date", "Due", "DATE")
+        val original = item("a")
+
+        assertEquals(ProjectValueKind.Text, text.editableValueKind())
+        assertEquals(ProjectValueKind.Number, number.editableValueKind())
+        assertEquals(ProjectValueKind.Date, date.editableValueKind())
+        assertEquals("2.5", normalizeProjectFieldInput(number, " 2.5 "))
+        assertEquals("2026-10-20", normalizeProjectFieldInput(date, "2026-10-20"))
+        assertNull(normalizeProjectFieldInput(text, "   "))
+
+        val edited = original
+            .withFieldValue(text, "Needs review")
+            .withFieldValue(number, "2.5")
+            .withFieldValue(date, "2026-10-20")
+        assertEquals("Needs review", edited.value(text.id)?.text)
+        assertEquals("2.5", edited.value(number.id)?.text)
+        assertEquals("2026-10-20", edited.value(date.id)?.text)
+
+        val cleared = edited.withFieldValue(number, null)
+        assertNull(cleared.value(number.id))
+        assertEquals("Needs review", cleared.value(text.id)?.text)
+
+        val badNumber = failure { normalizeProjectFieldInput(number, "2x") }
+        assertTrue(badNumber is IllegalArgumentException)
+        val badDate = failure { normalizeProjectFieldInput(date, "2026-02-30") }
+        assertTrue(badDate is IllegalArgumentException)
+    }
+
     // ---------------- 本地编辑 ----------------
 
     @Test fun singleSelectEditReplacesOrClearsOnlyThatField() {
@@ -317,6 +361,10 @@ class ProjectsTest {
             }
         }
         client.setSingleSelect("P", "I1", "F", "o2")
+        client.setFieldValue("P", "I1", ProjectField("F_TEXT", "Notes", "TEXT"), "hello")
+        client.setFieldValue("P", "I1", ProjectField("F_NUMBER", "Estimate", "NUMBER"), "2.5")
+        client.setFieldValue("P", "I1", ProjectField("F_DATE", "Due", "DATE"), "2026-10-20")
+        client.setFieldValue("P", "I1", ProjectField("F_TEXT", "Notes", "TEXT"), "")
         client.setSingleSelect("P", "I1", "F", null)
         client.delete("P", "I1")
         val draft = client.addDraft("P", "  New  ", "")
@@ -325,12 +373,16 @@ class ProjectsTest {
         assertTrue(setQ.contains("updateProjectV2ItemFieldValue"))
         assertEquals("o2", setInput["value"]!!.jsonObject["singleSelectOptionId"]!!.jsonPrimitive.content)
         assertEquals(listOf("projectId", "itemId", "fieldId", "value"), setInput.keys.toList())
-        val (clearQ, clearInput) = calls[1]
-        assertTrue(clearQ.contains("clearProjectV2ItemFieldValue"))
-        assertFalse(clearInput.containsKey("value"))
-        assertEquals("I1", calls[2].second["itemId"]!!.jsonPrimitive.content)
-        assertEquals("New", calls[3].second["title"]!!.jsonPrimitive.content)
-        assertFalse(calls[3].second.containsKey("body"))
+        assertEquals("hello", calls[1].second["value"]!!.jsonObject["text"]!!.jsonPrimitive.content)
+        assertEquals("2.5", calls[2].second["value"]!!.jsonObject["number"]!!.jsonPrimitive.content)
+        assertEquals("2026-10-20", calls[3].second["value"]!!.jsonObject["date"]!!.jsonPrimitive.content)
+        assertTrue(calls[4].first.contains("clearProjectV2ItemFieldValue"))
+        assertEquals("F_TEXT", calls[4].second["fieldId"]!!.jsonPrimitive.content)
+        assertTrue(calls[5].first.contains("clearProjectV2ItemFieldValue"))
+        assertFalse(calls[5].second.containsKey("value"))
+        assertEquals("I1", calls[6].second["itemId"]!!.jsonPrimitive.content)
+        assertEquals("New", calls[7].second["title"]!!.jsonPrimitive.content)
+        assertFalse(calls[7].second.containsKey("body"))
         assertEquals("I9", draft.id)
         assertEquals(ProjectItemType.DraftIssue, draft.type)
 
@@ -345,28 +397,5 @@ class ProjectsTest {
         assertEquals("-2", ProjectsClient.fmtNumber(-2.0))
         assertEquals("2.5", ProjectsClient.fmtNumber(2.5))
         assertNull(ProjectsClient.fmtNumber(null))
-    }
-
-    @Test fun htmlParserExtractsProjectsAndEmptyList() {
-        val emptyHtml = """<div id="memexes-results"><span id="projects-search-results-text">0 open and 0 closed projects found.</span></div>"""
-        assertEquals(emptyList<ProjectSummary>(), Projects.parseProjectsFromHtml(emptyHtml))
-
-        val html = """
-            <ul>
-                <li class="Box-row">
-                    <a id="project_1" href="/orgs/myorg/projects/1">Roadmap &amp; Features</a>
-                    <span class="text-normal">Our vision</span>
-                    #1 updated <relative-time datetime="2026-11-08T12:00:00Z">Nov 8</relative-time>
-                </li>
-            </ul>
-        """.trimIndent()
-        val list = Projects.parseProjectsFromHtml(html)
-        assertEquals(1, list.size)
-        assertEquals("Roadmap & Features", list[0].title)
-        assertEquals(1, list[0].number)
-        assertEquals("/orgs/myorg/projects/1", list[0].id)
-        assertEquals("Our vision", list[0].shortDescription)
-        assertEquals("2026-11-08T12:00:00Z", list[0].updatedAt)
-        assertFalse(list[0].closed)
     }
 }

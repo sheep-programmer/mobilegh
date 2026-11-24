@@ -184,7 +184,7 @@ class Pager<T>(
     private var page = 0
     private var job: Job? = null
     private var operation = 0
-    private var silentRefreshing = false
+    private var silentRefreshing by mutableStateOf(false)
     private enum class Request { More, Refresh, SilentRefresh, All, Chunked }
     private var failed: Request? = null
     /** 最近一次请求的类型，供 [cancelLoadAll] 判断当前是否在全量加载 */
@@ -220,8 +220,10 @@ class Pager<T>(
     }
 
     fun loadMore() {
-        if (!loading && !silentRefreshing && !end) request(Request.More)
+        if (canLoadMore) request(Request.More)
     }
+
+    internal val canLoadMore get() = !loading && !silentRefreshing && !end
 
     fun refresh() = request(Request.Refresh)
 

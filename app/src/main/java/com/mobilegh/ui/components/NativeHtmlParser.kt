@@ -147,13 +147,16 @@ internal object HtmlParser {
 
     /** 预先解析：文档/评论加载完成后在后台逐条解析好，并静默预下载前排图片，滑到时秒开 */
     suspend fun prewarm(htmls: List<String>, baseUrl: String) = kotlinx.coroutines.withContext(prewarmDispatcher) {
+        val prefetched = HashSet<String>()
+        val imageBudget = 4
         for (html in htmls) {
             kotlinx.coroutines.yield()
             if (html.isNotBlank()) {
                 val parsed = parseCached(html, baseUrl)
-                val images = extractImageUrls(parsed.blocks)
-                for (imgUrl in images) {
-                    com.mobilegh.data.ImageFetch.prefetch(imgUrl)
+                if (prefetched.size < imageBudget) {
+                    for (imgUrl in extractImageUrls(parsed.blocks, limit = imageBudget - prefetched.size)) {
+                        if (prefetched.add(imgUrl)) com.mobilegh.data.ImageFetch.prefetch(imgUrl)
+                    }
                 }
             }
         }

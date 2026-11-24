@@ -107,6 +107,7 @@ object Net {
     var lastTest by mutableLongStateOf(0L)
 
     private val privateRepos = Collections.synchronizedSet(HashSet<String>())
+    private val unverifiedImageRepos = Collections.synchronizedSet(HashSet<String>())
 
     val nodes: List<CdnNode> get() = builtins + custom
 
@@ -302,6 +303,15 @@ object Net {
         privateRepos.add(fullName.lowercase())
     }
 
+    internal fun deferImageMirrors(owner: String, name: String) {
+        unverifiedImageRepos.add("$owner/$name".lowercase())
+    }
+
+    internal fun confirmImageVisibility(owner: String, name: String, privateRepo: Boolean) {
+        if (privateRepo) markPrivate("$owner/$name")
+        unverifiedImageRepos.remove("$owner/$name".lowercase())
+    }
+
     fun isPrivate(o: String, r: String) = "$o/$r".lowercase() in privateRepos
 
     /** 该仓库是否已知为私有（用于下载时决定直连+带 Token 还是走加速） */
@@ -359,9 +369,11 @@ object Net {
      */
     private val imageOk = Collections.synchronizedMap(HashMap<String, String>())
     private val imageFailedByClass = Collections.synchronizedMap(HashMap<String, MutableMap<String, Long>>())
+    private val imageTransientFailures = Collections.synchronizedMap(HashMap<String, MutableMap<String, Long>>())
 
     /** 失败只是暂时降级：网络抖动后过一会儿仍会重新尝试，避免一个瞬时超时永久废掉一个节点 */
     private const val IMAGE_FAIL_TTL_MS = 2 * 60 * 1000L
+    private const val IMAGE_TRANSIENT_FAIL_TTL_MS = 15 * 1000L
 
     fun imageClass(url: String): String {
         val host = ImageContent.parseUrl(url)?.first ?: return "other"
@@ -387,11 +399,25 @@ object Net {
         if (imageOk[cls] == id) imageOk.remove(cls)
     }
 
+    @Synchronized
+    fun markImageTransientFail(url: String, id: String) {
+        if (id == DIRECT.id || id == GITHUB_API_ID) return
+        val cls = imageClass(url)
+        imageTransientFailures.getOrPut(cls) { HashMap() }[id] = System.currentTimeMillis()
+    }
+
     /** 当前仍在「冷却」中的失败节点 */
     private fun currentFailures(cls: String): Set<String> {
         val now = System.currentTimeMillis()
         val map = imageFailedByClass[cls] ?: return emptySet()
         map.entries.removeAll { now - it.value > IMAGE_FAIL_TTL_MS }
+        return map.keys.toSet()
+    }
+
+    private fun currentTransientFailures(cls: String): Set<String> {
+        val now = System.currentTimeMillis()
+        val map = imageTransientFailures[cls] ?: return emptySet()
+        map.entries.removeAll { now - it.value > IMAGE_TRANSIENT_FAIL_TTL_MS }
         return map.keys.toSet()
     }
 
@@ -414,7 +440,7 @@ object Net {
         }
         if (privateQuery) return true
         val raw = parseRaw(url)
-        return raw != null && isPrivate(raw[0], raw[1])
+        return raw != null && (isPrivate(raw[0], raw[1]) || "${raw[0]}/${raw[1]}".lowercase() in unverifiedImageRepos)
     }
 
     /**
@@ -428,6 +454,7 @@ object Net {
     fun imageCandidates(url: String): List<Pair<String, String>> {
         val raw = parseRaw(url)
         val host = ImageContent.parseUrl(url)?.first ?: return listOf(DIRECT.id to url)
+        if (host == "camo.githubusercontent.com") return listOf(DIRECT.id to url)
         if (requiresDirectImage(url)) {
             if (raw != null) return listOf(GITHUB_API_ID to githubApiContentsUrl(raw), DIRECT.id to url)
             return listOf(DIRECT.id to url)
@@ -443,15 +470,11 @@ object Net {
             return listOf(GITHUB_API_ID to githubApiContentsUrl(raw), DIRECT.id to url)
         }
         val cls = imageClass(url)
-        val failed = synchronized(this) { currentFailures(cls) }
+        val failed = synchronized(this) { currentFailures(cls) + currentTransientFailures(cls) }
         val okId = synchronized(this) { imageOk[cls] }
+        if (cls == "avatar" && (okId == null || okId == DIRECT.id)) return listOf(DIRECT.id to url)
         val list = imageCandidates(url, raw, failed, okId)
-        // Camo 是 GitHub 的签名代理结果，公共镜像几乎都会拒绝或返回错误页，只保留直连。
-        if (cls == "camo") return list.filter { it.first == DIRECT.id }
-        // 头像首次请求只走官方直连，避免一张头像同时打到多个公共镜像。某个节点成功过后，
-        // 后续头像才复用该节点，失败时仍会回退直连。
-        if (cls == "avatar" && okId == null) return list.filter { it.first == DIRECT.id }
-        return list
+        return if (cls == "avatar") list.filter { it.first == DIRECT.id || it.first == okId } else list
     }
 
     private fun imageCandidates(

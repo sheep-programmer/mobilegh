@@ -139,6 +139,10 @@ class MainActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         updateSecureFlags()
+        com.mobilegh.data.HomePrefs.warmFavoritesAsync()
+        // OAuth is completed in the in-app WebView. Keep its GitHub cookie alive so
+        // the browser-only attachment fallback never asks the user to log in again.
+        com.mobilegh.data.WebAttachmentUploader.renewSessionAsync()
         lifecycleScope.launch { Session.restoreDocumentTranslation() }
     }
 

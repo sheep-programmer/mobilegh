@@ -78,7 +78,7 @@ fun RepoItem(repo: Repo, showOwner: Boolean = true, extra: String? = null) {
             .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = { nav.push(Screen.Repo(repo.owner.login, repo.name)) },
+                onClick = { nav.openRepo(repo) },
                 onLongClick = if (repo.htmlUrl.isBlank()) null else ({ menu = true }),
             )
             .padding(horizontal = 16.dp, vertical = 12.dp),

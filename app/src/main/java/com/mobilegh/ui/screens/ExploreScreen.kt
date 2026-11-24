@@ -3,6 +3,12 @@ package com.mobilegh.ui.screens
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,19 +42,24 @@ import com.mobilegh.data.*
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 import com.mobilegh.nav.LocalNav
+import com.mobilegh.nav.PagerPage
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.Tab
-import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
+import com.mobilegh.nav.retain
+import com.mobilegh.nav.searchHasNextPage
 import com.mobilegh.ui.components.*
 import com.mobilegh.ui.theme.Gh
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.JsonArray
 import org.jsoup.Jsoup
+import java.io.File
 import java.time.LocalDate
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.random.Random
 
 /**
@@ -63,7 +74,7 @@ fun ExploreScreen() {
     val login = Session.login
     var selectedTab by rememberSaveable { mutableIntStateOf(0) } // 0: 活动 (默认), 1: 动态
     var cat by rememberSaveable { mutableStateOf(EventCat.All) }
-    var refreshSeed by rememberSaveable { mutableIntStateOf(Random.nextInt(1, 100000)) }
+    var refreshSeed by retain("explore-shuffle") { mutableIntStateOf(Random.nextInt()) }
 
     val scope = rememberCoroutineScope()
     val refreshRotate = remember { Animatable(0f) }
@@ -71,22 +82,6 @@ fun ExploreScreen() {
 
     val activityState = rememberLazyListState()
     val feedState = rememberLazyListState()
-
-    // 活动标签：支持无限下滑自动懒加载不中断，刷新/换一批换源
-    val hotPager = rememberPager(
-        key = "explore-activity-stream:$refreshSeed",
-        pageSize = 30,
-        hasMore = { page -> page < 34 },
-    ) { page, force ->
-        val q = "created:>${LocalDate.now().minusDays(45)} stars:>30"
-        val result = GitHub.searchRepos(q, "stars", page, force)
-        result.items.shuffled(Random(refreshSeed + page * 41L))
-    }
-
-    // 动态标签：关注的人与 Star 的仓库动态
-    val feed = rememberPager("explore-activity:${login ?: "none"}") { p, f ->
-        if (login != null) GitHub.received(login, p, f) else emptyList()
-    }
 
     com.mobilegh.nav.OnTabReselect(Tab.Explore) {
         if (selectedTab == 0) {
@@ -120,8 +115,41 @@ fun ExploreScreen() {
                     .padding(horizontal = 16.dp, vertical = 6.dp),
             ) { selectedTab = it }
 
-            if (selectedTab == 0) {
-                // 活动 Tab：无限自动懒加载推荐流，下拉刷新与点击换一批重新随机
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    (slideInHorizontally(tween(220)) { it / 5 } + fadeIn(tween(180))) togetherWith
+                        (slideOutHorizontally(tween(180)) { -it / 5 } + fadeOut(tween(120)))
+                },
+                label = "explore-tab-content",
+            ) { tab ->
+            if (tab == 0) {
+                val apiBase = Net.apiBase
+                var refreshCached by retain("explore-cache-refresh:$apiBase") { mutableStateOf(false) }
+                val hotPager = rememberPager("explore-activity-stream:$apiBase", GitHub.PER, fetchPage = { page, force ->
+                    val seed = refreshSeed
+                    val q = "is:public created:>${LocalDate.now().minusDays(45)} stars:>30"
+                    val cache = if (page == 1 && apiBase == "https://api.github.com") {
+                        ExplorePageCache(File(Api.cacheDir, "explore-recommendations.json"))
+                    } else null
+                    val cached = if (force || cache == null) null else withContext(Dispatchers.IO) { cache.read(q) }
+                    val result = cached?.result ?: GitHub.searchRepos(q, "stars", page, force).also {
+                        if (cache != null && Net.apiBase == apiBase) withContext(Dispatchers.IO) { cache.write(q, it) }
+                    }
+                    PagerPage(
+                        result.items.shuffled(Random(seed + page * 41L)),
+                        hasMore = result.items.isNotEmpty() && searchHasNextPage(page, GitHub.PER, result.totalCount),
+                        // Any cached page is immediately visible. Refresh it silently on
+                        // entry so the first frame has content without waiting for search.
+                        onCommit = { if (page == 1) refreshCached = cached != null },
+                    )
+                })
+                LaunchedEffect(hotPager, refreshCached, hotPager.loading) {
+                    if (refreshCached && !hotPager.loading) {
+                        refreshCached = false
+                        hotPager.refreshSilently()
+                    }
+                }
                 PagedList(
                     pager = hotPager,
                     modifier = Modifier.fillMaxSize(),
@@ -129,7 +157,7 @@ fun ExploreScreen() {
                     boxed = false,
                     divider = false,
                     onRefresh = {
-                        refreshSeed = Random.nextInt(1, 100000)
+                        refreshSeed = Random.nextInt()
                     },
                     header = {
                         // 1. 发现模块
@@ -191,7 +219,8 @@ fun ExploreScreen() {
                                         .border(1.dp, g.accent.copy(alpha = 0.2f), RoundedCornerShape(50))
                                         .clickable(enabled = !isRefreshingBatch) {
                                             isRefreshingBatch = true
-                                            refreshSeed = Random.nextInt(1, 100000)
+                                            refreshSeed = Random.nextInt()
+                                            hotPager.refresh()
                                             scope.launch {
                                                 try {
                                                     var spins = 0
@@ -235,12 +264,17 @@ fun ExploreScreen() {
                     },
                     itemKey = { it.id },
                 ) { repo ->
+                    val visible by remember(activityState, repo.id) {
+                        derivedStateOf { activityState.layoutInfo.visibleItemsInfo.any { it.key == repo.id } }
+                    }
                     Box(Modifier.padding(horizontal = 12.dp, vertical = 5.dp)) {
-                        RecommendedRepoCard(repo)
+                        RecommendedRepoCard(repo, visible)
                     }
                 }
             } else {
-                // 动态 Tab：关注的开发者与 Star 仓库的事件动态流
+                val feed = rememberPager("explore-activity:${login ?: "none"}") { p, f ->
+                    if (login != null) GitHub.received(login, p, f) else emptyList()
+                }
                 PagedList(
                     feed,
                     modifier = Modifier.fillMaxSize(),
@@ -305,68 +339,88 @@ fun ExploreScreen() {
                     }
                 }
             }
+            }
         }
     }
 }
 
 /** 仓库内容及简介预览缓存 */
 private object RepoPreviewCache {
-    val snippets = ConcurrentHashMap<String, String>()
-    val descMap = ConcurrentHashMap<String, String>()
+    data class Preview(val text: String?, val retryAfter: Long = 0)
+
+    val snippets = android.util.LruCache<String, Preview>(128)
+    val descriptions = android.util.LruCache<String, String>(128)
+}
+
+internal object ExplorePreviewGate {
+    private val permits = Semaphore(2)
+
+    suspend fun <T> withPermit(block: suspend () -> T): T = permits.withPermit { block() }
 }
 
 @Composable
-internal fun rememberRepoPreviewSnippet(owner: String, name: String, desc: String?): String? {
-    val key = "$owner/$name"
-    var snippet by remember(key) { mutableStateOf(RepoPreviewCache.snippets[key]) }
-    LaunchedEffect(key) {
-        if (snippet != null || owner.isBlank() || name.isBlank()) return@LaunchedEffect
-        val text = withContext(Dispatchers.IO) {
-            val html = runCatching { GitHub.readme(owner, name, null) }.getOrNull()
-            if (!html.isNullOrBlank()) {
-                runCatching {
-                    val doc = Jsoup.parseBodyFragment(html)
-                    doc.select("script, style, img").remove()
-                    doc.select("a").forEach { a ->
-                        if (a.text().isBlank()) a.remove()
-                    }
-                    val lines = mutableListOf<String>()
-                    val elements = doc.body().select("h1, h2, h3, h4, h5, h6, p, li, blockquote, pre")
-                    for (el in elements) {
-                        if (el.parents().any { it.tagName() == "li" }) continue
-                        val t = el.text().trim()
-                        if (t.isNotBlank()) {
-                            when {
-                                el.tagName() == "li" -> lines.add("• $t")
-                                el.tagName().startsWith("h") -> lines.add("\n$t")
-                                else -> lines.add(t)
-                            }
-                        }
-                    }
-                    val clean = lines.joinToString("\n").trim()
-                    if (clean.isNotBlank()) clean.take(1500) else null
-                }.getOrNull()
-            } else null
-        }
-        if (!text.isNullOrBlank()) {
-            RepoPreviewCache.snippets[key] = text
-            snippet = text
+private fun rememberRepoPreviewSnippet(owner: String, name: String, visible: Boolean): String? {
+    val generation = Session.generation
+    val key = "${Net.apiBase}:$generation:$owner/$name"
+    var snippet by remember(key) { mutableStateOf(RepoPreviewCache.snippets.get(key)?.text) }
+    LaunchedEffect(key, visible) {
+        if (!visible || snippet != null || owner.isBlank() || name.isBlank()) return@LaunchedEffect
+        snippet = ExplorePreviewGate.withPermit {
+            val cached = RepoPreviewCache.snippets.get(key)
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (cached != null && (cached.text != null || now < cached.retryAfter)) return@withPermit cached.text
+            val text = try {
+                GitHub.readme(owner, name, null)?.let { html ->
+                    withContext(Dispatchers.Default) { repoPreviewText(html) }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                null
+            }
+            if (Session.generation != generation) return@withPermit null
+            val retryAfter = if (text == null) android.os.SystemClock.elapsedRealtime() + 60_000 else 0L
+            RepoPreviewCache.snippets.put(key, RepoPreviewCache.Preview(text, retryAfter))
+            text
         }
     }
     return snippet
 }
 
+private fun repoPreviewText(html: String): String? {
+    val body = Jsoup.parseBodyFragment(html).body()
+    body.select("script, style, img").remove()
+    return buildString {
+        for (element in body.select("h1, h2, h3, h4, h5, h6, p, li, blockquote, pre")) {
+            if (length >= 1500) break
+            if (element.parents().any { it.tagName() == "li" }) continue
+            val text = element.text().trim()
+            if (text.isEmpty()) continue
+            if (element.tagName() == "li") append("• ")
+            if (element.tagName().startsWith("h")) append('\n')
+            appendLine(text.take((1500 - length).coerceAtLeast(0)))
+        }
+    }.trim().takeIf { it.isNotEmpty() }
+}
+
 @Composable
 internal fun rememberRepoDesc(o: String, r: String): String? {
-    val key = "$o/$r"
-    var desc by remember(key) { mutableStateOf(RepoPreviewCache.descMap[key]) }
+    val generation = Session.generation
+    val key = "${Net.apiBase}:$generation:$o/$r"
+    var desc by remember(key) { mutableStateOf(RepoPreviewCache.descriptions.get(key)) }
     LaunchedEffect(key) {
         if (desc != null || o.isBlank() || r.isBlank()) return@LaunchedEffect
-        val d = withContext(Dispatchers.IO) {
-            runCatching { GitHub.repo(o, r).description }.getOrNull()
+        val d = ExplorePreviewGate.withPermit {
+            try {
+                RepoPreviewCache.descriptions.get(key) ?: GitHub.repo(o, r).description
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                null
+            }
         }
-        if (!d.isNullOrBlank()) {
-            RepoPreviewCache.descMap[key] = d
+        if (!d.isNullOrBlank() && Session.generation == generation) {
+            RepoPreviewCache.descriptions.put(key, d)
             desc = d
         }
     }
@@ -375,18 +429,18 @@ internal fun rememberRepoDesc(o: String, r: String): String? {
 
 /** 推荐仓库精美卡片（保证简介展示，限制一半内容预览，点击进入仓库详情） */
 @Composable
-private fun RecommendedRepoCard(repo: Repo) {
+private fun RecommendedRepoCard(repo: Repo, visible: Boolean) {
     val nav = LocalNav.current
     val g = Gh.c
     val owner = repo.owner.login
     val name = repo.name
-    val snippet = rememberRepoPreviewSnippet(owner, name, repo.description)
+    val snippet = rememberRepoPreviewSnippet(owner, name, visible)
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(
-            ) { nav.push(Screen.Repo(owner, name)) },
+            ) { nav.openRepo(repo) },
     ) {
         Column(
             Modifier

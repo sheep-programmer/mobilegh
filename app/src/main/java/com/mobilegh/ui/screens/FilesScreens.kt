@@ -1,5 +1,6 @@
 package com.mobilegh.ui.screens
 
+import androidx.compose.foundation.layout.Arrangement
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.ExperimentalFoundationApi
 import com.mobilegh.ui.components.verticalScrollWithBar
@@ -105,6 +106,54 @@ private val BINARY_EXT = setOf("zip", "jar", "apk", "aab", "so", "dll", "exe", "
 
 internal fun ext(path: String) = path.substringAfterLast('/').substringAfterLast('.', "").lowercase()
 
+internal fun fileCommitMessage(commit: com.mobilegh.data.Commit?): String =
+    commit?.commit?.message?.lineSequence()?.firstOrNull()?.trim().orEmpty()
+
+internal fun fileCommitDate(commit: com.mobilegh.data.Commit?): String? =
+    commit?.commit?.author?.date ?: commit?.commit?.committer?.date
+
+internal fun fileEntryKind(content: com.mobilegh.data.Content): String = when (content.type) {
+    "dir" -> tr("文件夹")
+    "submodule" -> tr("子模块")
+    "symlink" -> tr("符号链接")
+    else -> tr("文件")
+}
+
+internal fun fileEntrySize(content: com.mobilegh.data.Content): String =
+    if (content.type == "dir") tr("文件夹") else fmtSize(content.size)
+
+@Composable
+private fun FileEntryDetailsDialog(
+    content: com.mobilegh.data.Content,
+    commit: com.mobilegh.data.Commit?,
+    owner: String,
+    name: String,
+    ref: String?,
+    onDismiss: () -> Unit,
+    onOpenCommit: (String) -> Unit,
+) {
+    val commitMessage = fileCommitMessage(commit)
+    val commitDate = fileCommitDate(commit)
+    GhDialog(
+        tr("文件详情"), onDismiss,
+        confirm = tr("查看提交"), confirmPrimary = false,
+        confirmEnabled = !commit?.sha.isNullOrBlank(),
+        dismissText = tr("关闭"),
+        onConfirm = { commit?.sha?.let(onOpenCommit) },
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(content.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Gh.c.fg)
+            Text(fileEntryKind(content), fontSize = 13.sp, color = Gh.c.fgMuted)
+            Text(trf("路径：{0}", content.path), fontSize = 13.sp, color = Gh.c.fgMuted)
+            Text(trf("大小：{0}", fileEntrySize(content)), fontSize = 13.sp, color = Gh.c.fgMuted)
+            if (content.sha.isNotBlank()) Text(trf("SHA：{0}", content.sha.take(12)), fontSize = 12.sp, color = Gh.c.fgMuted)
+            if (commitMessage.isNotBlank()) Text(trf("最近提交：{0}", commitMessage), fontSize = 13.sp, color = Gh.c.fg)
+            commit?.author?.login?.takeIf { it.isNotBlank() }?.let { Text(trf("提交人：{0}", it), fontSize = 13.sp, color = Gh.c.fgMuted) }
+            commitDate?.let { Text(trf("提交时间：{0}", it), fontSize = 13.sp, color = Gh.c.fgMuted) }
+        }
+    }
+}
+
 @Composable
 fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
     val nav = LocalNav.current
@@ -133,6 +182,7 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
         },
     ) { pad ->
         LoadBox(items, Modifier.padding(pad).fillMaxSize()) { list ->
+            var details by remember { mutableStateOf<Pair<com.mobilegh.data.Content, com.mobilegh.data.Commit?>?>(null) }
             // 列表已显示，再请求最后提交；失败或已有数据时不重复请求
             LaunchedEffect(Unit) { if (last.data == null && !last.loading) last.load() }
             val hasLast = last.data != null
@@ -167,14 +217,26 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
                     }
                 }
                 itemsIndexed(list, key = { _, it -> it.path }) { idx, c ->
+                    var commit by remember(c.path, ref) { mutableStateOf<com.mobilegh.data.Commit?>(null) }
+                    var commitLoading by remember(c.path, ref) { mutableStateOf(false) }
+                    androidx.compose.runtime.LaunchedEffect(c.path, ref) {
+                        if (!commitLoading) {
+                            commitLoading = true
+                            commit = runCatching { GitHub.commits(owner, name, ref, c.path, 1, false).firstOrNull() }.getOrNull()
+                            commitLoading = false
+                        }
+                    }
                     Row(
-                        box(base + idx).fillMaxWidth().clickable {
+                        box(base + idx).fillMaxWidth().combinedClickable(
+                            onClick = {
                             when (c.type) {
                                 "dir" -> nav.push(Screen.Files(owner, name, c.path, ref))
                                 "submodule" -> c.htmlUrl?.let { u -> com.mobilegh.nav.Links.route(u)?.let(nav::pushLink) ?: ExternalLinkDialog.show(u, c.name) }
                                 else -> nav.push(Screen.FileView(owner, name, c.path, ref))
                             }
-                        }.padding(horizontal = 12.dp, vertical = 12.dp),
+                            },
+                            onLongClick = { details = c to commit },
+                        ).padding(horizontal = 12.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         when (c.type) {
@@ -184,11 +246,39 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
                             else -> Oc(if (ext(c.name) in IMAGE_EXT) R.drawable.oc_file_media else R.drawable.oc_file, g.fgMuted)
                         }
                         Spacer(Modifier.width(12.dp))
-                        Text(c.name, color = g.fg, fontSize = 14.sp, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(c.name, color = g.fg, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val message = fileCommitMessage(commit)
+                            val date = fileCommitDate(commit)
+                            if (message.isNotBlank() || date != null || commitLoading) {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        message,
+                                        Modifier.weight(1f), color = g.fgMuted, fontSize = 12.sp,
+                                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    )
+                                    date?.let {
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(relTime(it), color = g.fgMuted, fontSize = 11.sp, maxLines = 1)
+                                    }
+                                }
+                            }
+                        }
                         if (c.type == "file") Text(fmtSize(c.size), fontSize = 12.sp, color = g.fgMuted)
                     }
                 }
                 if (list.isEmpty()) emptyItem(listState, tr("空目录"), R.drawable.oc_file_directory)
+            }
+            details?.let { (content, commit) ->
+                FileEntryDetailsDialog(
+                    content = content,
+                    commit = commit,
+                    owner = owner,
+                    name = name,
+                    ref = ref,
+                    onDismiss = { details = null },
+                    onOpenCommit = { sha -> details = null; nav.push(Screen.CommitDetail(owner, name, sha)) },
+                )
             }
         }
     }

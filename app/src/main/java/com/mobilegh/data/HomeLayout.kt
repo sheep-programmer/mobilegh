@@ -10,6 +10,12 @@ import kotlinx.serialization.json.Json
 import java.util.UUID
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.launch
 
 /** 首页「我的工作」里的内置入口；顺序即默认布局 */
 enum class BuiltinShortcut(val id: String) {
@@ -193,6 +199,8 @@ class HomeLayoutStore internal constructor(private val storage: LocalRecordStora
 }
 
 object HomePrefs {
+    private val warmupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var lastWarmupAt = 0L
     private var store: HomeLayoutStore? = null
     private var cachedLogin: String? = null
     private var cachedRevision = -1
@@ -210,6 +218,24 @@ object HomePrefs {
         cachedLogin = null
         cachedRevision = -1
         cachedLayout = HomeLayout()
+    }
+
+    /** Refresh pinned repositories and prime metadata before Favorites is opened. */
+    fun warmFavoritesAsync() {
+        val login = Session.login ?: return
+        val now = System.currentTimeMillis()
+        if (now - lastWarmupAt < 60_000L) return
+        lastWarmupAt = now
+        val generation = Session.generation
+        warmupScope.launch {
+            val pinned = runCatching { GitHub.pinned(login) }.getOrNull()
+            if (Session.login.equals(login, true) && Session.generation == generation && !pinned.isNullOrEmpty()) {
+                syncWithPinned(pinned, merge = true)
+            }
+            layout().favorites.take(12).map { favorite ->
+                async { runCatching { GitHub.repo(favorite.owner, favorite.name) } }
+            }.awaitAll()
+        }
     }
 
     /** 读取当前账号的布局；在 Composable 中调用会随修改自动刷新 */

@@ -1,8 +1,6 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import com.mobilegh.ui.components.verticalScrollWithBar
-import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -48,7 +46,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -73,22 +70,22 @@ import com.mobilegh.data.Session
 import com.mobilegh.data.applyProjectEdits
 import com.mobilegh.data.boardGroupField
 import com.mobilegh.data.cardFieldValues
+import com.mobilegh.data.filterProjectItems
 import com.mobilegh.data.groupProjectItems
+import com.mobilegh.data.normalizeProjectFieldInput
 import com.mobilegh.data.withSingleSelect
+import com.mobilegh.data.withFieldValue
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.Screen
 import com.mobilegh.nav.friendly
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.nav.rememberPager
 import com.mobilegh.nav.retain
-import com.mobilegh.ui.components.share
-import com.mobilegh.ui.components.addLinkActions
 import com.mobilegh.ui.components.Card
 import com.mobilegh.ui.components.Chips
 import com.mobilegh.ui.components.Counter
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.ErrorState
-import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
 import com.mobilegh.ui.components.HDivider
@@ -102,7 +99,6 @@ import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.PagedList
 import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.RadioRow
-import com.mobilegh.ui.components.ExternalLinkDialog
 import com.mobilegh.ui.components.Segmented
 import com.mobilegh.ui.components.TextLink
 import com.mobilegh.ui.components.boxedItems
@@ -119,42 +115,28 @@ import com.mobilegh.ui.theme.projectBg
 import com.mobilegh.ui.theme.projectFg
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import com.mobilegh.i18n.tr
-import com.mobilegh.i18n.trf
 
 // ======================= 项目列表 =======================
 
 @Composable
 fun ProjectsScreen(kind: ProjectOwnerKind, login: String, name: String) {
     val nav = LocalNav.current
-    val ctx = rememberCtx()
     val cursors = retain("projects:cursors:$kind:$login:$name") { GraphQlCursors() }
     val pager = rememberPager("projects:$kind:$login:$name", ProjectsClient.LIST_PAGE) { page, _ ->
         cursors.page(page) { after -> Projects.list(kind, login, name, after) }
     }
     var filter by rememberSaveable { mutableIntStateOf(0) }
-    val webUrl = when (kind) {
-        ProjectOwnerKind.Org -> "https://github.com/orgs/$login/projects"
-        ProjectOwnerKind.User -> "https://github.com/users/$login/projects"
-        ProjectOwnerKind.Repo -> "https://github.com/$login/$name/projects"
-    }
-    Page(
-        tr("项目"),
-        subtitle = if (kind == ProjectOwnerKind.Repo) "$login/$name" else login,
-        actions = {
-            OcButton(R.drawable.oc_link_external, { ctx.openBrowser(webUrl) }, description = tr("在浏览器打开"))
-        },
-    ) { pad ->
+    Page("项目", subtitle = if (kind == ProjectOwnerKind.Repo) "$login/$name" else login) { pad ->
         val err = pager.error
-        if (err != null && pager.items.isEmpty()) {
-            ProjectErrorState(err, Modifier.padding(pad).fillMaxSize(), webUrl = webUrl) { pager.error = null; pager.refresh() }
+        if (err != null && pager.items.isEmpty() && ProjectErrors.ofMessage(err) in setOf(ProjectErrorKind.Scope, ProjectErrorKind.Forbidden)) {
+            ProjectErrorState(err, Modifier.padding(pad).fillMaxSize()) { pager.error = null; pager.refresh() }
         } else {
             Column(Modifier.padding(pad)) {
-                Chips(listOf(tr("开启"), tr("已关闭"), tr("全部")), filter) { filter = it }
+                Chips(listOf("开启", "已关闭", "全部"), filter) { filter = it }
                 HDivider()
                 PagedList(
                     pager,
-                    empty = if (kind == ProjectOwnerKind.Repo) tr("此仓库没有关联的项目") else tr("暂无可见的项目"),
+                    empty = if (kind == ProjectOwnerKind.Repo) "此仓库没有关联的项目" else "暂无可见的项目",
                     emptyIcon = R.drawable.oc_table,
                     itemKey = { it.id },
                     itemFilter = { p -> when (filter) { 0 -> !p.closed; 1 -> p.closed; else -> true } },
@@ -173,68 +155,25 @@ private fun ProjectRow(p: ProjectSummary, onClick: () -> Unit) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(p.title, Modifier.weight(1f, false), color = g.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (p.closed) { Spacer(Modifier.width(6.dp)); Pill(tr("已关闭"), g.done) }
-                if (!p.public) { Spacer(Modifier.width(6.dp)); com.mobilegh.ui.components.VisibilityBadge(true) }
+                if (p.closed) { Spacer(Modifier.width(6.dp)); Pill("已关闭", g.done) }
+                if (!p.public) { Spacer(Modifier.width(6.dp)); Pill("私有") }
             }
             p.shortDescription?.let { Text(it, color = g.fgMuted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-            val parts = listOfNotNull("#${p.number}", p.itemCount?.let { trf("{0} 个条目", it) }, p.updatedAt?.let { trf("更新于 {0}", relTime(it)) })
+            val parts = listOfNotNull("#${p.number}", p.itemCount?.let { "$it 个条目" }, p.updatedAt?.let { "更新于 ${relTime(it)}" })
             Text(parts.joinToString(" · "), color = g.fgMuted, fontSize = 12.sp)
         }
     }
 }
 
-/** Projects 专用错误：缺少 scope / 被组织限制时说明原因并提供重新授权或浏览器直接查看 */
+/** Projects 专用错误：缺少 scope / 被组织限制时说明原因并提供重新授权 */
 @Composable
-private fun ProjectErrorState(
-    msg: String,
-    modifier: Modifier = Modifier.fillMaxSize(),
-    webUrl: String? = null,
-    retry: () -> Unit,
-) {
+private fun ProjectErrorState(msg: String, modifier: Modifier = Modifier.fillMaxSize(), retry: () -> Unit) {
     val nav = LocalNav.current
-    val ctx = rememberCtx()
-    val g = Gh.c
-
     when (ProjectErrors.ofMessage(msg)) {
-        ProjectErrorKind.Scope -> Column(
-            modifier.padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Oc(R.drawable.oc_table, g.accent, 36.dp)
-            Spacer(Modifier.height(14.dp))
-            Text(
-                tr("当前授权未开放 Projects 接口权限"),
-                color = g.fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                tr("GitHub 官方移动端授权受服务端限制，未开放 Projects v2 API。你可以直接在浏览器中打开查看，或使用 Token / 设备码登录以在 App 中原生使用。"),
-                color = g.fgMuted, fontSize = 13.sp, lineHeight = 18.sp, textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(20.dp))
-            if (webUrl != null) {
-                GhButton(
-                    tr("在浏览器中直接查看"),
-                    Modifier.fillMaxWidth(0.85f),
-                    primary = true,
-                    icon = R.drawable.oc_link_external,
-                    onClick = { ctx.openBrowser(webUrl) },
-                )
-                Spacer(Modifier.height(10.dp))
-            }
-            GhButton(
-                tr("重新授权（补齐权限）"),
-                Modifier.fillMaxWidth(0.85f),
-                primary = webUrl == null,
-                onClick = { nav.push(Screen.Reauthorize) },
-            )
-            Spacer(Modifier.height(10.dp))
-            TextLink(tr("重试加载")) { retry() }
-        }
+        ProjectErrorKind.Scope -> ErrorState(msg, modifier, retry, action = "重新授权") { nav.push(Screen.Reauthorize) }
         ProjectErrorKind.Forbidden -> ErrorState(
-            trf("{0}\n\n若组织启用了 OAuth 应用访问限制，需由组织管理员批准本应用；也可以重新授权后再试。", msg),
-            modifier, retry, action = tr("重新授权"),
+            "$msg\n\n若组织启用了 OAuth 应用访问限制，需由组织管理员批准本应用；也可以重新授权后再试。",
+            modifier, retry, action = "重新授权",
         ) { nav.push(Screen.Reauthorize) }
         else -> ErrorState(msg, modifier, retry)
     }
@@ -246,13 +185,14 @@ private fun WriteError(msg: String) {
     val nav = LocalNav.current
     Column {
         InlineError(msg)
-        if (ProjectErrors.ofMessage(msg) == ProjectErrorKind.Scope) TextLink(tr("重新授权")) { nav.push(Screen.Reauthorize) }
+        if (ProjectErrors.ofMessage(msg) == ProjectErrorKind.Scope) TextLink("重新授权") { nav.push(Screen.Reauthorize) }
     }
 }
 
 // ======================= 项目详情 =======================
 
 private data class AddTarget(val option: ProjectOption?)
+private data class EditTarget(val item: ProjectItem)
 
 @Composable
 fun ProjectDetailScreen(id: String, title: String) {
@@ -277,13 +217,12 @@ fun ProjectDetailScreen(id: String, title: String) {
         if (seeded.value != null && items.loaded && items.hasMore && !items.loading && items.error == null) items.loadMore()
     }
     Page(
-        d?.title ?: title, subtitle = d?.let { trf("项目 #{0}", it.number) + if (it.closed) tr(" · 已关闭") else "" },
+        d?.title ?: title, subtitle = d?.let { "项目 #${it.number}" + if (it.closed) " · 已关闭" else "" },
         actions = {
             if (d != null && d.url.isNotBlank()) MoreMenu(listOf(
-                MenuAction(tr("刷新")) { project.refresh() },
-                MenuAction(tr("复制链接")) { ctx.copy(d.url) },
-                MenuAction(tr("分享")) { ctx.share(d.url) },
-                MenuAction(tr("在浏览器打开")) { ctx.openBrowser(d.url) },
+                MenuAction("刷新") { project.refresh() },
+                MenuAction("复制链接") { ctx.copy(d.url) },
+                MenuAction("在浏览器打开") { ctx.openBrowser(d.url) },
             ))
         },
     ) { pad ->
@@ -319,12 +258,16 @@ private fun ProjectBody(
     var removing by remember { mutableStateOf<ProjectItem?>(null) }
     var addTarget by remember { mutableStateOf<AddTarget?>(null) }
     var viewingDraft by remember { mutableStateOf<ProjectItem?>(null) }
+    var editing by remember { mutableStateOf<EditTarget?>(null) }
+    var query by rememberSaveable { mutableStateOf("") }
 
     val view = d.views.getOrNull(viewIndex) ?: d.views.firstOrNull()
     val groupField = boardGroupField(d.fields, view)
     val board = (mode ?: if (view == null) (if (groupField != null) 0 else 1) else if (view.layout == ProjectLayout.Board) 0 else 1) == 0
-    val columns = remember(all, groupField) { groupProjectItems(all, groupField) }
+    val shown = remember(all, query) { filterProjectItems(all, query) }
+    val columns = remember(shown, groupField) { groupProjectItems(shown, groupField) }
     val canUpdate = d.viewerCanUpdate && Session.token != null && !Session.authExpired
+    val editableFields = remember(d.fields) { d.fields.filter { it.editableValueKind() != null } }
 
     fun sameAccount() = Session.login == account.first && Session.generation == account.second && Session.token != null
 
@@ -332,9 +275,9 @@ private fun ProjectBody(
     fun guarded(onError: (String) -> Unit, onFinally: () -> Unit, block: suspend () -> Unit, onDone: () -> Unit) {
         scope.launch {
             try {
-                check(sameAccount()) { tr("账号已切换，请重新打开项目") }
+                check(sameAccount()) { "账号已切换，请重新打开项目" }
                 block()
-                check(sameAccount()) { tr("账号已切换，旧账号的修改结果不再更新当前页面") }
+                check(sameAccount()) { "账号已切换，旧账号的修改结果不再更新当前页面" }
                 onDone()
             } catch (e: CancellationException) {
                 throw e
@@ -351,17 +294,19 @@ private fun ProjectBody(
         when {
             item.type == ProjectItemType.DraftIssue -> viewingDraft = item
             repo != null && item.number != null -> nav.push(Screen.IssueDetail(repo.first, repo.second, item.number, item.type == ProjectItemType.PullRequest))
-            item.url != null -> com.mobilegh.nav.Links.route(item.url)?.let(nav::pushLink) ?: ExternalLinkDialog.show(item.url, item.title)
-            else -> ctx.toast(tr("当前账号无权查看此条目"))
+            item.url != null -> ctx.openBrowser(item.url)
+            else -> ctx.toast("当前账号无权查看此条目")
         }
     }
 
     fun actions(item: ProjectItem): List<MenuAction> = buildList {
-        if (canUpdate && groupField != null) add(MenuAction(tr("移动到…")) { moving = item })
+        if (canUpdate && groupField != null) add(MenuAction("移动到…") { moving = item })
+        if (canUpdate && editableFields.isNotEmpty()) add(MenuAction("编辑字段") { editing = EditTarget(item) })
         if (item.url != null) {
-            addLinkActions(ctx, item.url)
+            add(MenuAction("在浏览器打开") { ctx.openBrowser(item.url) })
+            add(MenuAction("复制链接") { ctx.copy(item.url) })
         }
-        if (canUpdate) add(MenuAction(tr("从项目移除"), danger = true) { removing = item })
+        if (canUpdate) add(MenuAction("从项目移除", danger = true) { removing = item })
     }
 
     val longPress: (ProjectItem) -> Unit = { item -> if (canUpdate && groupField != null) moving = item }
@@ -370,26 +315,33 @@ private fun ProjectBody(
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 if (d.views.isNotEmpty() && view != null) {
-                    Dropdown(view.name.ifBlank { trf("视图 {0}", view.number) }, d.views.map { "${it.name.ifBlank { trf("视图 {0}", it.number) }} · ${layoutLabel(it.layout)}" }, {
+                    Dropdown(view.name.ifBlank { "视图 ${view.number}" }, d.views.map { "${it.name.ifBlank { "视图 ${it.number}" }} · ${layoutLabel(it.layout)}" }, {
                         viewIndex = it
                         mode = null
                     }, Modifier.weight(1f, false))
                 }
                 Spacer(Modifier.weight(1f))
-                Segmented(listOf(tr("看板"), tr("列表")), if (board) 0 else 1, Modifier.width(150.dp)) { mode = it }
+                Segmented(listOf("看板", "列表"), if (board) 0 else 1, Modifier.width(150.dp)) { mode = it }
             }
+            GhField(
+                query,
+                { query = it },
+                "搜索条目",
+                modifier = Modifier.fillMaxWidth(),
+            )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val status = buildList {
-                    add(trf("已加载 {0}/{1} 个条目", all.size, pager.totalCount.coerceAtLeast(all.size)))
-                    if (pager.loading) add(tr("加载中…"))
-                    if (!d.viewerCanUpdate) add(tr("只读"))
+                    add("已加载 ${all.size}/${pager.totalCount.coerceAtLeast(all.size)} 个条目")
+                    if (query.isNotBlank()) add("显示 ${shown.size}")
+                    if (pager.loading) add("加载中…")
+                    if (!d.viewerCanUpdate) add("只读")
                 }
                 Text(status.joinToString(" · "), Modifier.weight(1f), color = g.fgMuted, fontSize = 12.sp)
-                if (canUpdate && !board) TextLink(tr("添加草稿")) { addTarget = AddTarget(null) }
+                if (canUpdate && !board) TextLink("添加草稿") { addTarget = AddTarget(null) }
             }
-            if (view?.layout == ProjectLayout.Roadmap && mode == null) Text(tr("路线图视图暂以列表显示"), color = g.fgMuted, fontSize = 12.sp)
-            view?.filter?.let { Text(trf("此视图的筛选条件「{0}」未应用，显示全部条目", it), color = g.fgMuted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-            if (pager.limited) Text(trf("条目较多，仅显示前 {0} 个", ProjectsClient.MAX_ITEMS), color = g.fgMuted, fontSize = 12.sp)
+            if (view?.layout == ProjectLayout.Roadmap && mode == null) Text("路线图视图暂以列表显示", color = g.fgMuted, fontSize = 12.sp)
+            view?.filter?.let { Text("此视图的筛选条件「$it」未应用，显示全部条目", color = g.fgMuted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+            if (pager.limited) Text("条目较多，仅显示前 ${ProjectsClient.MAX_ITEMS} 个", color = g.fgMuted, fontSize = 12.sp)
             pager.error?.let { InlineError(it, retry = pager::retry) }
         }
         HDivider()
@@ -401,19 +353,31 @@ private fun ProjectBody(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(columns, key = { it.key }) { col ->
-                        BoardColumn(col, groupField, d, canUpdate, onAdd = { addTarget = AddTarget(col.option) }) { item ->
+                        BoardColumn(
+                            col,
+                            groupField,
+                            d,
+                            canUpdate,
+                            emptyMessage = if (query.isBlank()) "暂无条目" else "没有匹配的条目",
+                            onAdd = { addTarget = AddTarget(col.option) },
+                        ) { item ->
                             ItemCard(item, d, groupField, actions(item), Modifier.combinedClickable(onClick = { open(item) }, onLongClick = { longPress(item) }))
                         }
                     }
                 }
             } else {
                 val listState = rememberLazyListState()
-                ScrollbarLazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp)) {
-                    boxedItems(all, key = { it.id }) { item ->
+                LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(top = 12.dp, bottom = 24.dp)) {
+                    boxedItems(shown, key = { it.id }) { item ->
                         ItemRow(item, d, groupField, actions(item), Modifier.combinedClickable(onClick = { open(item) }, onLongClick = { longPress(item) }))
                     }
-                    if (all.isEmpty() && !pager.loading && pager.error == null) {
-                        emptyItem(listState, tr("项目中暂无条目"), R.drawable.oc_table, if (canUpdate) tr("添加草稿") else null) { addTarget = AddTarget(null) }
+                    if (shown.isEmpty() && !pager.loading && pager.error == null) {
+                        emptyItem(
+                            listState,
+                            if (query.isBlank()) "项目中暂无条目" else "没有匹配的条目",
+                            R.drawable.oc_table,
+                            if (query.isBlank() && canUpdate) "添加草稿" else null,
+                        ) { addTarget = AddTarget(null) }
                     }
                 }
             }
@@ -427,7 +391,7 @@ private fun ProjectBody(
         var busy by remember(item.id) { mutableStateOf(false) }
         var error by remember(item.id) { mutableStateOf<String?>(null) }
         GhDialog(
-            tr("移动到…"), { if (!busy) moving = null }, confirm = if (busy) tr("移动中…") else tr("移动"),
+            "移动到…", { if (!busy) moving = null }, confirm = if (busy) "移动中…" else "移动",
             confirmEnabled = !busy && selected != current,
             onConfirm = {
                 val option = field.options.firstOrNull { it.id == selected }
@@ -439,10 +403,10 @@ private fun ProjectBody(
                 }
             },
         ) {
-            Column(Modifier.heightIn(max = 420.dp).verticalScrollWithBar()) {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
                 Text(item.title, color = g.fgMuted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(8.dp))
-                RadioRow(selected == null, trf("无 {0}", field.name), enabled = !busy) { selected = null }
+                RadioRow(selected == null, "无 ${field.name}", enabled = !busy) { selected = null }
                 field.options.forEach { o -> RadioRow(selected == o.id, o.name, enabled = !busy) { selected = o.id } }
                 error?.let { WriteError(it) }
             }
@@ -453,21 +417,21 @@ private fun ProjectBody(
         var busy by remember(item.id) { mutableStateOf(false) }
         var error by remember(item.id) { mutableStateOf<String?>(null) }
         GhDialog(
-            tr("从项目移除"), { if (!busy) removing = null }, confirm = if (busy) tr("移除中…") else tr("移除"), danger = true, confirmEnabled = !busy,
+            "从项目移除", { if (!busy) removing = null }, confirm = if (busy) "移除中…" else "移除", danger = true, confirmEnabled = !busy,
             onConfirm = {
                 busy = true
                 error = null
                 guarded({ error = it }, { busy = false }, { Projects.delete(d.id, item.id) }) {
                     edits[item.id] = null
                     removing = null
-                    ctx.toast(tr("已从项目移除"))
+                    ctx.toast("已从项目移除")
                 }
             },
         ) {
             Column {
                 Text(
-                    if (item.type == ProjectItemType.DraftIssue) trf("草稿「{0}」将被永久删除，无法恢复。", item.title)
-                    else trf("将「{0}」从项目中移除。议题或拉取请求本身不会被删除。", item.title),
+                    if (item.type == ProjectItemType.DraftIssue) "草稿「${item.title}」将被永久删除，无法恢复。"
+                    else "将「${item.title}」从项目中移除。议题或拉取请求本身不会被删除。",
                     fontSize = 14.sp,
                 )
                 error?.let { WriteError(it) }
@@ -482,7 +446,7 @@ private fun ProjectBody(
         var error by remember { mutableStateOf<String?>(null) }
         val option = target.option
         GhDialog(
-            tr("添加草稿"), { if (!busy) addTarget = null }, confirm = if (busy) tr("添加中…") else tr("添加"),
+            "添加草稿", { if (!busy) addTarget = null }, confirm = if (busy) "添加中…" else "添加",
             confirmEnabled = !busy && draftTitle.isNotBlank(),
             onConfirm = {
                 busy = true
@@ -504,7 +468,7 @@ private fun ProjectBody(
                     }
                 }) {
                     created?.let { added.add(0, it) }
-                    statusError?.let { ctx.toast(trf("草稿已添加，但未能设置{0}：{1}", groupField?.name ?: tr("状态"), it)) }
+                    statusError?.let { ctx.toast("草稿已添加，但未能设置${groupField?.name ?: "状态"}：$it") }
                     draftTitle = ""
                     draftBody = ""
                     addTarget = null
@@ -512,9 +476,9 @@ private fun ProjectBody(
             },
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (option != null && groupField != null) Text(trf("添加到「{0}」", option.name), color = g.fgMuted, fontSize = 13.sp)
-                GhField(draftTitle, { if (!busy) draftTitle = it }, tr("标题"))
-                GhField(draftBody, { if (!busy) draftBody = it }, tr("正文（可选）"), singleLine = false, minLines = 3)
+                if (option != null && groupField != null) Text("添加到「${option.name}」", color = g.fgMuted, fontSize = 13.sp)
+                GhField(draftTitle, { if (!busy) draftTitle = it }, "标题")
+                GhField(draftBody, { if (!busy) draftBody = it }, "正文（可选）", singleLine = false, minLines = 3)
                 error?.let { WriteError(it) }
             }
         }
@@ -522,14 +486,14 @@ private fun ProjectBody(
 
     viewingDraft?.let { item ->
         GhDialog(item.title, { viewingDraft = null }) {
-            Column(Modifier.heightIn(max = 420.dp).verticalScrollWithBar(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Oc(R.drawable.oc_issue_draft, g.fgMuted, 14.dp)
                     Spacer(Modifier.width(6.dp))
-                    Text(tr("草稿"), color = g.fgMuted, fontSize = 13.sp)
+                    Text("草稿", color = g.fgMuted, fontSize = 13.sp)
                 }
                 val body = item.body?.takeIf { it.isNotBlank() }
-                Text(body ?: tr("没有正文"), color = if (body == null) g.fgMuted else g.fg, fontSize = 14.sp)
+                Text(body ?: "没有正文", color = if (body == null) g.fgMuted else g.fg, fontSize = 14.sp)
                 val values = cardFieldValues(item, limit = 8)
                 if (values.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     values.forEach { ValuePill(it, d) }
@@ -537,12 +501,67 @@ private fun ProjectBody(
             }
         }
     }
+
+    editing?.let { target ->
+        val fields = editableFields
+        if (fields.isEmpty()) {
+            editing = null
+        } else {
+            var fieldIndex by remember(target.item.id) { mutableIntStateOf(0) }
+            val field = fields.getOrNull(fieldIndex) ?: fields.first()
+            var value by remember(target.item.id, field.id) { mutableStateOf(target.item.value(field.id)?.text.orEmpty()) }
+            var busy by remember(target.item.id, field.id) { mutableStateOf(false) }
+            var error by remember(target.item.id, field.id) { mutableStateOf<String?>(null) }
+            GhDialog(
+                "编辑字段",
+                { if (!busy) editing = null },
+                confirm = if (busy) "保存中…" else "保存",
+                confirmEnabled = !busy,
+                onConfirm = {
+                    val normalized = try {
+                        normalizeProjectFieldInput(field, value)
+                    } catch (e: IllegalArgumentException) {
+                        error = e.message ?: "字段值无效"
+                        return@GhDialog
+                    }
+                    busy = true
+                    error = null
+                    guarded({ error = it }, { busy = false }, { Projects.setFieldValue(d.id, target.item.id, field, normalized) }) {
+                        edits[target.item.id] = target.item.withFieldValue(field, normalized)
+                        editing = null
+                    }
+                },
+            ) {
+                Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(target.item.title, color = g.fgMuted, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Dropdown(
+                        field.name,
+                        fields.map { it.name },
+                        { fieldIndex = it },
+                        Modifier.fillMaxWidth(),
+                        enabled = !busy,
+                    )
+                    GhField(
+                        value,
+                        { if (!busy) value = it },
+                        field.name,
+                        singleLine = field.editableValueKind() != ProjectValueKind.Text,
+                        minLines = if (field.editableValueKind() == ProjectValueKind.Text) 3 else 1,
+                        enabled = !busy,
+                        placeholder = if (field.editableValueKind() == ProjectValueKind.Date) "YYYY-MM-DD" else null,
+                    )
+                    Text("清空字段可提交空值", color = g.fgMuted, fontSize = 12.sp)
+                    error?.let { WriteError(it) }
+                }
+            }
+        }
+    }
 }
 
 private fun layoutLabel(l: ProjectLayout) = when (l) {
-    ProjectLayout.Board -> tr("看板")
-    ProjectLayout.Table -> tr("表格")
-    ProjectLayout.Roadmap -> tr("路线图")
+    ProjectLayout.Board -> "看板"
+    ProjectLayout.Table -> "表格"
+    ProjectLayout.Roadmap -> "路线图"
 }
 
 @Composable
@@ -562,6 +581,7 @@ private fun BoardColumn(
     field: ProjectField?,
     d: ProjectDetail,
     canUpdate: Boolean,
+    emptyMessage: String,
     onAdd: () -> Unit,
     card: @Composable (ProjectItem) -> Unit,
 ) {
@@ -575,7 +595,7 @@ private fun BoardColumn(
             OptionDot(col.option)
             Spacer(Modifier.width(8.dp))
             Text(
-                col.option?.name ?: if (field == null) tr("全部条目") else trf("无 {0}", field.name),
+                col.option?.name ?: if (field == null) "全部条目" else "无 ${field.name}",
                 Modifier.weight(1f, false), color = g.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
@@ -585,14 +605,14 @@ private fun BoardColumn(
             if (canUpdate && !d.closed) OcButton(R.drawable.oc_plus, onAdd, g.fgMuted)
         }
         HDivider()
-        ScrollbarLazyColumn(
+        LazyColumn(
             Modifier.fillMaxWidth().weight(1f),
             contentPadding = PaddingValues(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(col.items, key = { it.id }) { card(it) }
             if (col.items.isEmpty()) item {
-                Text(tr("暂无条目"), Modifier.fillMaxWidth().padding(vertical = 16.dp), color = g.fgMuted, fontSize = 13.sp,
+                Text(emptyMessage, Modifier.fillMaxWidth().padding(vertical = 16.dp), color = g.fgMuted, fontSize = 13.sp,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
         }
@@ -613,8 +633,8 @@ private fun itemIcon(item: ProjectItem): Pair<Int, Color> {
 }
 
 private fun itemSubtitle(item: ProjectItem) = item.reference ?: when (item.type) {
-    ProjectItemType.DraftIssue -> tr("草稿")
-    ProjectItemType.Redacted -> tr("无权访问")
+    ProjectItemType.DraftIssue -> "草稿"
+    ProjectItemType.Redacted -> "无权访问"
     else -> ""
 }
 

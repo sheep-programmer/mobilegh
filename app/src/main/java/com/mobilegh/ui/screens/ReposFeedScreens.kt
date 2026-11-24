@@ -5,16 +5,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.mobilegh.R
 import com.mobilegh.data.ForkSort
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.Api
+import com.mobilegh.data.RepoFeedCache
 import com.mobilegh.data.Session
 import com.mobilegh.nav.PagerPage
 import com.mobilegh.nav.RepoKind
@@ -28,15 +32,24 @@ import com.mobilegh.ui.components.RepoItem
 import com.mobilegh.ui.components.relTime
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
+import java.io.File
 
 /** 用户仓库与组织仓库：一个排序下拉 + 一份分页列表 */
 @Composable
 internal fun RepoFeedScreen(kind: RepoKind, login: String, name: String) {
     var sort by rememberSaveable { mutableIntStateOf(0) }
-    val pager = rememberPager("rl:$kind:$login:$name:$sort") { page, force ->
+    val pagerKey = "rl:$kind:$login:$name:$sort"
+    val diskSnapshot = remember(pagerKey) { RepoFeedCache(File(Api.cacheDir, "repo-feeds")).read(pagerKey) }
+    val pager = rememberPager(pagerKey, restore = { p -> diskSnapshot?.let { p.restoreFrom(it.items, 1, it.ended) } == true }) { page, force ->
         val order = SORTS[sort].first
         if (kind == RepoKind.Org) GitHub.orgRepos(login, order, page, force)
         else GitHub.userRepos(login, order, page, force)
+    }
+    LaunchedEffect(pager, diskSnapshot) { if (diskSnapshot != null) pager.refreshSilently() }
+    LaunchedEffect(pager, pager.loading, pager.silentRefreshVersion) {
+        if (pager.loadedOnce && !pager.loading && pager.error == null) {
+            RepoFeedCache(File(Api.cacheDir, "repo-feeds")).write(pagerKey, pager.items, pager.committedPages, pager.end)
+        }
     }
     val state = rememberLazyListState()
     Page(repoFeedTitle(kind), subtitle = repoPageSubtitle(login, name)) { pad ->

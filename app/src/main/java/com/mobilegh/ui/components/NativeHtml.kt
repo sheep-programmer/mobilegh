@@ -70,6 +70,7 @@ import com.mobilegh.data.VideoRoute
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
@@ -544,19 +545,30 @@ private fun DetailsBlock(block: HtmlBlock.Details) {
     }
 }
 
+// Use the clipped bounds so a long document inside a scroll container only loads visible images.
+private fun Modifier.onImageVisibilityChanged(onChanged: (Boolean) -> Unit): Modifier =
+    onGloballyPositioned { coordinates ->
+        val bounds = coordinates.boundsInWindow()
+        onChanged(bounds.width > 0f && bounds.height > 0f)
+    }
+
 /** 块级图片：缓存里有就直接显示；否则先占位（按宽高属性保留比例），加载完成后替换。 */
 @Composable
 private fun BlockImage(block: HtmlBlock.Image) {
     val g = Gh.c
     val src = block.src
-    var bmp by remember(src) { mutableStateOf(Images.cached(src, 1024)) }
+    val requestKey = ImageFetch.cacheKey(src)
+    var visible by remember { mutableStateOf(false) }
+    var bmp by remember(requestKey) { mutableStateOf(Images.cached(src, 1024)) }
     // 加载失败：显示提示，点按重试（以前失败后一直是灰块，不知道发生了什么）
-    var failed by remember(src) { mutableStateOf(false) }
-    var attempt by remember(src) { mutableIntStateOf(0) }
-    LaunchedEffect(src, attempt) {
-        if (bmp == null || attempt > 0) {
+    var failed by remember(requestKey) { mutableStateOf(false) }
+    var missing by remember(requestKey) { mutableStateOf(false) }
+    var attempt by remember(requestKey) { mutableIntStateOf(0) }
+    LaunchedEffect(requestKey, attempt, visible) {
+        if (visible && bmp == null && !missing) {
             failed = false
-            bmp = runCatching { Images.load(src, 1024, force = attempt > 0) }.getOrNull()
+            bmp = Images.loadWithRecovery(src, 1024, force = attempt > 0)
+            missing = bmp == null && ImageFetch.isMissing(src)
             failed = bmp == null
         }
     }
@@ -569,70 +581,75 @@ private fun BlockImage(block: HtmlBlock.Image) {
     val openOnTap = imageLinkOnTap(link, LocalLinkedImagesOpenLink.current, badge = false)
     val preview = { ImageViewer.open(block.viewSrc ?: src, alt, link) }
     // 按 HTML 的 width 属性显示（如 logo 写了 width="104"），没写才铺满；超过可用宽度时自动收窄
-    val widthMod = if (w != null && w > 0) Modifier.width(w.dp) else Modifier.fillMaxWidth()
-    val base = widthMod.clip(RoundedCornerShape(6.dp))
+    val viewport = (if (w != null && w > 0) Modifier.width(w.dp) else Modifier.fillMaxWidth())
+        .onImageVisibilityChanged { visible = it }
+    val base = Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
         .combinedClickable(
             onClick = { if (openOnTap != null) openLink(openOnTap, alt) else preview() },
             onLongClick = if (link == null) null else if (openOnTap != null) preview else ({ openLink(link, alt) }),
         )
     val loaded = bmp
     val shape = RoundedCornerShape(8.dp)
-    if (loaded != null) {
-        Image(loaded, alt.ifBlank { null }, base, contentScale = ContentScale.FillWidth)
-    } else if (failed) {
-        Box(
-            widthMod
-                .heightIn(min = 76.dp, max = 130.dp)
-                .clip(shape)
-                .background(g.canvasSubtle)
-                .border(1.dp, g.borderMuted, shape)
-                .clickable { failed = false; attempt++ }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
+    Box(viewport) {
+        if (loaded != null) {
+            Image(loaded, alt.ifBlank { null }, base, contentScale = ContentScale.FillWidth)
+        } else if (failed) {
+            Box(
+                Modifier.fillMaxWidth()
+                    .heightIn(min = 76.dp, max = 130.dp)
+                    .clip(shape)
+                    .background(g.canvasSubtle)
+                    .border(1.dp, g.borderMuted, shape)
+                    .clickable(enabled = !missing) { failed = false; attempt++ }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
                 ) {
-                    Oc(R.drawable.oc_file_media, g.fgMuted, 16.dp)
-                    Text(
-                        alt.ifBlank { tr("无法加载图片") },
-                        color = g.fg,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(g.canvas)
-                        .border(1.dp, g.border, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    Oc(R.drawable.oc_sync, g.accent, 12.dp)
-                    Text(tr("重新加载"), color = g.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Oc(R.drawable.oc_file_media, g.fgMuted, 16.dp)
+                        Text(
+                            if (missing) tr("图片已失效") else alt.ifBlank { tr("无法加载图片") },
+                            color = g.fg,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    if (!missing) {
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(g.canvas)
+                                .border(1.dp, g.border, RoundedCornerShape(12.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                            Oc(R.drawable.oc_sync, g.accent, 12.dp)
+                            Text(tr("重新加载"), color = g.accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
-        }
-    } else {
-        val sized = if (ratio != null) base.aspectRatio(ratio) else if (w != null && w > 0) base.aspectRatio(1f) else base.height(120.dp)
-        Box(
-            sized
-                .clip(shape)
-                .background(g.canvasSubtle)
-                .border(1.dp, g.borderMuted, shape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Oc(R.drawable.oc_file_media, g.fgMuted.copy(alpha = 0.35f), 22.dp)
+        } else {
+            val sized = if (ratio != null) base.aspectRatio(ratio) else if (w != null && w > 0) base.aspectRatio(1f) else base.height(120.dp)
+            Box(
+                sized
+                    .clip(shape)
+                    .background(g.canvasSubtle)
+                    .border(1.dp, g.borderMuted, shape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Oc(R.drawable.oc_file_media, g.fgMuted.copy(alpha = 0.35f), 22.dp)
+            }
         }
     }
 }
@@ -664,14 +681,17 @@ private fun ImageRowBlock(block: HtmlBlock.ImageRow) {
 @Composable
 private fun RowImage(img: Inline.Image, maxWidth: Dp = Dp.Unspecified) {
     val g = Gh.c
-    var retry by remember(img.src) { mutableIntStateOf(0) }
-    var bmp by remember(img.src) { mutableStateOf(Images.cached(img.src, 1024)) }
-    var failed by remember(img.src) { mutableStateOf(false) }
-    var missing by remember(img.src) { mutableStateOf(false) }
-    LaunchedEffect(img.src, retry) {
-        if (bmp == null || retry > 0) {
+    val requestKey = ImageFetch.cacheKey(img.src)
+    var visible by remember { mutableStateOf(false) }
+    val viewport = Modifier.widthIn(max = maxWidth).onImageVisibilityChanged { visible = it }
+    var retry by remember(requestKey) { mutableIntStateOf(0) }
+    var bmp by remember(requestKey) { mutableStateOf(Images.cached(img.src, 1024)) }
+    var failed by remember(requestKey) { mutableStateOf(false) }
+    var missing by remember(requestKey) { mutableStateOf(false) }
+    LaunchedEffect(requestKey, retry, visible) {
+        if (visible && bmp == null && !missing) {
             failed = false
-            val loaded = runCatching { Images.load(img.src, 1024, force = retry > 0) }.getOrNull()
+            val loaded = Images.loadWithRecovery(img.src, 1024, force = retry > 0)
             if (loaded != null) {
                 bmp = loaded
             } else {
@@ -691,72 +711,72 @@ private fun RowImage(img: Inline.Image, maxWidth: Dp = Dp.Unspecified) {
             onLongClick = if (link == null) null else if (openOnTap != null) preview else ({ openLink(link, img.alt) }),
         )
     val loaded = bmp
-    if (loaded == null) {
-        val placeholderH = when {
-            img.height != null -> img.height.dp
-            (img.width ?: 0) > 120 -> 120.dp
-            else -> 24.dp
-        }
-        val shape = RoundedCornerShape(4.dp)
-        if (failed) {
-            Box(
-                Modifier
-                    .widthIn(max = maxWidth)
-                    .then(if (img.width != null) Modifier.width(img.width.dp) else Modifier)
-                    .height(placeholderH)
-                    .clip(shape)
-                    .background(g.canvasSubtle)
-                    .border(1.dp, g.borderMuted, shape)
-                    .clickable(enabled = !missing, onClickLabel = tr("重试加载")) {
-                        failed = false
-                        retry++
-                    }
-                    .padding(horizontal = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+    Box(viewport) {
+        if (loaded == null) {
+            val placeholderH = when {
+                img.height != null -> img.height.dp
+                (img.width ?: 0) > 120 -> 120.dp
+                else -> 24.dp
+            }
+            val shape = RoundedCornerShape(4.dp)
+            if (failed) {
+                Box(
+                    Modifier
+                        .then(if (img.width != null) Modifier.width(img.width.dp) else Modifier)
+                        .height(placeholderH)
+                        .clip(shape)
+                        .background(g.canvasSubtle)
+                        .border(1.dp, g.borderMuted, shape)
+                        .clickable(enabled = !missing, onClickLabel = tr("重试加载")) {
+                            failed = false
+                            retry++
+                        }
+                        .padding(horizontal = 8.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    if (!missing) Oc(R.drawable.oc_sync, g.accent, 12.dp)
-                    Text(
-                        if (missing) tr("图片已失效") else img.alt.ifBlank { tr("重试") },
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = g.fgMuted,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        if (!missing) Oc(R.drawable.oc_sync, g.accent, 12.dp)
+                        Text(
+                            if (missing) tr("图片已失效") else img.alt.ifBlank { tr("重试") },
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = g.fgMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            } else {
+                Box(
+                    Modifier
+                        .size((img.width ?: 72).dp, placeholderH)
+                        .clip(shape)
+                        .background(g.canvasSubtle)
+                        .border(1.dp, g.borderMuted, shape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Oc(R.drawable.oc_file_media, g.fgMuted.copy(alpha = 0.35f), 12.dp)
                 }
             }
         } else {
-            Box(
-                Modifier
-                    .widthIn(max = maxWidth)
-                    .size((img.width ?: 72).dp, placeholderH)
-                    .clip(shape)
-                    .background(g.canvasSubtle)
-                    .border(1.dp, g.borderMuted, shape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Oc(R.drawable.oc_file_media, g.fgMuted.copy(alpha = 0.35f), 12.dp)
+            val scale = Images.scaleOf(loaded)
+            val naturalW = loaded.width / scale
+            val aspect = loaded.width.toFloat() / loaded.height.coerceAtLeast(1)
+            val w = when {
+                img.width != null -> img.width.toFloat()
+                img.height != null -> img.height * aspect
+                else -> naturalW
             }
+            // width 会被限制在可用宽度内，再按宽高比定高度，超宽的图不会变形
+            Image(
+                loaded, img.alt.ifBlank { null },
+                click.width(w.dp).aspectRatio(aspect),
+                contentScale = ContentScale.FillWidth,
+            )
         }
-    } else {
-        val scale = Images.scaleOf(loaded)
-        val naturalW = loaded.width / scale
-        val aspect = loaded.width.toFloat() / loaded.height.coerceAtLeast(1)
-        val w = when {
-            img.width != null -> img.width.toFloat()
-            img.height != null -> img.height * aspect
-            else -> naturalW
-        }
-        // width 会被限制在可用宽度内，再按宽高比定高度，超宽的图不会变形
-        Image(
-            loaded, img.alt.ifBlank { null },
-            click.widthIn(max = maxWidth).width(w.dp).aspectRatio(aspect),
-            contentScale = ContentScale.FillWidth,
-        )
     }
 }
 
@@ -833,13 +853,15 @@ private fun YouTubeTile(block: HtmlBlock.YouTube) {
 /** 行内图片（徽章等）：尺寸来自 HTML 属性，不额外占位。 */
 @Composable
 private fun InlineImage(src: String, alt: String, width: Int, height: Int) {
+    var visible by remember { mutableStateOf(false) }
     NetImage(
         src,
-        Modifier.size(width.dp, height.dp),
+        Modifier.size(width.dp, height.dp).onImageVisibilityChanged { visible = it },
         contentScale = ContentScale.Fit,
         placeholder = false,
         contentDescription = alt.ifBlank { null },
         targetDim = maxOf(width, height) * 3,
+        startLoading = visible,
     )
 }
 

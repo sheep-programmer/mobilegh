@@ -148,6 +148,10 @@ object MobileApprovalOAuth {
                 if (purpose != ApprovalOAuthPurpose.ApprovalOnly || Session.token == null) {
                     Session.signIn(token, user, clientId = ApprovalOAuthProtocol.CLIENT_ID, scopes = grantedScopes)
                 }
+                // The OAuth page was opened by the app WebView. Its cookie is now
+                // available to the legacy attachment endpoint, so refresh it once
+                // without presenting another login page.
+                WebAttachmentUploader.renewSessionAsync(force = true)
                 check(prefs.edit().remove("pending").commit()) { tr("无法更新授权请求") }
                 lastCallback = null
                 issued = null

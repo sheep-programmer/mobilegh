@@ -139,71 +139,55 @@ internal fun matchNotifFilters(
     selectedTypes: Set<String>,
     selectedReasons: Set<String>,
     selectedRepos: Set<String>,
-): Boolean {
-    // 1. 类型多选过滤：为空表示不限类型；选中多项时，符合其中任意一项即匹配
-    if (selectedTypes.isNotEmpty()) {
-        val matchesType = selectedTypes.any { key ->
-            when (key) {
-                "WorkflowRun" -> n.subject.type in setOf("CheckSuite", "WorkflowRun")
-                else -> n.subject.type == key
-            }
-        }
-        if (!matchesType) return false
-    }
+    selectedOrganizations: Set<String> = emptySet(),
+): Boolean = (selectedTypes.isEmpty() || selectedTypes.any { matchNotifType(n, it) }) &&
+    (selectedReasons.isEmpty() || n.reason in selectedReasons) &&
+    (selectedRepos.isEmpty() || n.repository.fullName in selectedRepos) &&
+    (selectedOrganizations.isEmpty() || n.organizationLogin()?.lowercase() in selectedOrganizations)
 
-    // 2. 原因多选过滤：为空表示不限原因；选中多项时，符合其中任意一项即匹配
-    if (selectedReasons.isNotEmpty()) {
-        if (n.reason !in selectedReasons) return false
-    }
+private fun Notification.organizationLogin(): String? = repository.owner
+    .takeIf { it.type == "Organization" }?.login?.takeIf { it.isNotBlank() }
 
-    // 3. 仓库多选过滤：为空表示不限仓库；选中多项时，属于所选仓库之一即匹配
-    if (selectedRepos.isNotEmpty()) {
-        if (n.repository.fullName !in selectedRepos) return false
+internal fun notificationOrganizationOptions(items: List<Notification>, selected: Set<String>): List<MultiSelectOption> {
+    val logins = buildMap {
+        items.forEach { n -> n.organizationLogin()?.let { putIfAbsent(it.lowercase(), it) } }
+        selected.forEach { putIfAbsent(it, it) }
     }
-
-    return true
+    return logins.toSortedMap().map { (id, login) -> MultiSelectOption(id, login, R.drawable.oc_organization) }
 }
 
-val REASON_OPTIONS = listOf(
-    MultiSelectOption("assign", tr("被指派"), R.drawable.oc_person),
-    MultiSelectOption("mention", tr("被提及"), R.drawable.oc_mention),
-    MultiSelectOption("review_requested", tr("评审请求"), R.drawable.oc_eye),
-    MultiSelectOption("author", tr("作者"), R.drawable.oc_pencil),
-    MultiSelectOption("comment", trc("评论", "reason"), R.drawable.oc_comment),
-    MultiSelectOption("team_mention", tr("团队提及"), R.drawable.oc_people),
-    MultiSelectOption("state_change", tr("状态变化"), R.drawable.oc_git_commit),
-    MultiSelectOption("ci_activity", tr("CI 活动"), R.drawable.oc_play),
-    MultiSelectOption("security_alert", tr("安全告警"), R.drawable.oc_shield_lock),
-    MultiSelectOption("subscribed", tr("订阅"), R.drawable.oc_bell),
-    MultiSelectOption("invitation", tr("邀请"), R.drawable.oc_mail),
+private data class NotificationReason(val icon: Int, val label: () -> String)
+
+private val NOTIFICATION_REASONS = mapOf(
+    "assign" to NotificationReason(R.drawable.oc_person) { tr("被指派") },
+    "mention" to NotificationReason(R.drawable.oc_mention) { tr("被提及") },
+    "review_requested" to NotificationReason(R.drawable.oc_eye) { tr("评审请求") },
+    "author" to NotificationReason(R.drawable.oc_pencil) { tr("作者") },
+    "comment" to NotificationReason(R.drawable.oc_comment) { trc("评论", "reason") },
+    "team_mention" to NotificationReason(R.drawable.oc_people) { tr("团队提及") },
+    "state_change" to NotificationReason(R.drawable.oc_git_commit) { tr("状态变化") },
+    "ci_activity" to NotificationReason(R.drawable.oc_play) { tr("CI 活动") },
+    "security_alert" to NotificationReason(R.drawable.oc_shield_lock) { tr("安全告警") },
+    "subscribed" to NotificationReason(R.drawable.oc_bell) { tr("订阅") },
+    "invitation" to NotificationReason(R.drawable.oc_mail) { tr("邀请") },
+    "manual" to NotificationReason(R.drawable.oc_bell) { tr("手动订阅") },
+    "approval_requested" to NotificationReason(R.drawable.oc_eye) { tr("等待批准") },
+    "agent_session_finished" to NotificationReason(R.drawable.oc_check) { tr("Copilot 代理会话已完成") },
+    "member_feature_requested" to NotificationReason(R.drawable.oc_organization) { tr("组织成员申请启用功能") },
+    "security_advisory_credit" to NotificationReason(R.drawable.oc_shield_lock) { tr("安全公告贡献致谢") },
 )
 
-/** reason 筛选下拉里的选项：null 表示不筛选 */
-private val REASON_FILTERS = listOf(
-    null to tr("全部原因"),
-    "assign" to tr("被指派"),
-    "mention" to tr("被提及"),
-    "review_requested" to tr("评审请求"),
-    "author" to tr("作者"),
-    "comment" to trc("评论", "reason"),
-    "team_mention" to tr("团队提及"),
-    "state_change" to tr("状态变化"),
-    "ci_activity" to tr("CI 活动"),
-    "security_alert" to tr("安全告警"),
-    "subscribed" to tr("订阅"),
-    "invitation" to tr("邀请"),
-)
-
-/** 行内 Pill 的文案：比筛选项多一些 GitHub 会返回的原因 */
-private val REASON_EXTRA = mapOf(
-    "manual" to tr("手动订阅"),
-    "approval_requested" to tr("等待批准"),
-)
+internal fun notificationReasonOptions(items: List<Notification>, selected: Set<String>): List<MultiSelectOption> {
+    val discovered = (items.map { it.reason } + selected).filter { it.isNotBlank() }.toSortedSet()
+    return (NOTIFICATION_REASONS.keys + discovered).map { id ->
+        MultiSelectOption(id, reasonZh(id), NOTIFICATION_REASONS[id]?.icon ?: R.drawable.oc_bell)
+    }
+}
 
 /** 需要优先处理的提及类原因：Pill 用强调色 */
 private val REASON_ATTENTION = setOf("assign", "mention", "team_mention", "review_requested")
 
-private fun reasonZh(r: String) = REASON_FILTERS.firstOrNull { it.first == r }?.second ?: REASON_EXTRA[r] ?: r
+private fun reasonZh(r: String) = NOTIFICATION_REASONS[r]?.label?.invoke() ?: r
 
 private fun subjectTypeZh(type: String) = when (type) {
     "Issue" -> "Issue"
@@ -683,6 +667,7 @@ fun NotificationsScreen() {
     val selectedTypes = remember { mutableStateListOf<String>() }
     val selectedReasons = remember { mutableStateListOf<String>() }
     val selectedRepos = remember { mutableStateListOf<String>() }
+    val selectedOrganizations = remember { mutableStateListOf<String>() }
     val notifPrefs = remember { ctx.getSharedPreferences("notification_ui_prefs", android.content.Context.MODE_PRIVATE) }
     var grouped by rememberSaveable { mutableStateOf(notifPrefs.getBoolean("grouped", true)) }
     var selection by rememberSaveable { mutableStateOf(false) }
@@ -993,15 +978,30 @@ fun NotificationsScreen() {
     val selectedTypesSet = selectedTypes.toSet()
     val selectedReasonsSet = selectedReasons.toSet()
     val selectedReposSet = selectedRepos.toSet()
-    val matched = visible.filter { n ->
-        matchNotifFilters(n, selectedTypesSet, selectedReasonsSet, selectedReposSet)
+    val selectedOrganizationsSet = selectedOrganizations.toSet()
+    val reasonOptions = notificationReasonOptions(visible, selectedReasonsSet)
+    val organizationOptions = remember(visible, selectedOrganizationsSet) {
+        notificationOrganizationOptions(visible, selectedOrganizationsSet)
     }
+    val matched = visible.filter { n ->
+        matchNotifFilters(n, selectedTypesSet, selectedReasonsSet, selectedReposSet, selectedOrganizationsSet)
+    }
+    val matchedIds = matched.mapTo(HashSet()) { it.id }
     val busy = state.busyLabel != null
-    val hasActiveFilter = selectedTypes.isNotEmpty() || selectedReasons.isNotEmpty() || selectedRepos.isNotEmpty()
+    val hasActiveFilter = selectedTypes.isNotEmpty() || selectedReasons.isNotEmpty() ||
+        selectedRepos.isNotEmpty() || selectedOrganizations.isNotEmpty()
 
     fun clearSelection() {
         selection = false
         selected.clear()
+    }
+
+    fun clearFilters() {
+        selectedTypes.clear()
+        selectedReasons.clear()
+        selectedRepos.clear()
+        selectedOrganizations.clear()
+        clearSelection()
     }
 
     fun toggleSelect(n: Notification) {
@@ -1019,9 +1019,8 @@ fun NotificationsScreen() {
         subtitle = when {
             selection -> null
             busy -> if (state.busyTotal <= 0) trf("正在{0}…", state.busyLabel) else trf("正在{0}：{1}/{2}", state.busyLabel, state.busyDone, state.busyTotal)
-            matched.isEmpty() && hasActiveFilter -> tr("未找到匹配的通知")
             matched.isEmpty() -> null
-            hasActiveFilter -> trf("筛选出 {0} 条（共 {1} 条）", matched.size, visible.size)
+            hasActiveFilter -> trf("已筛选：显示 {0} 条（已加载 {1} 条）", matched.size, visible.size)
             filter == 0 -> trf("{0} 条未读", matched.count { state.unread(it) })
             else -> trf("{0} 条", matched.size)
         },
@@ -1092,7 +1091,7 @@ fun NotificationsScreen() {
             }
             HDivider()
 
-            // 紧凑单行筛选栏：类型下拉、原因下拉、仓库下拉、重置（不占多余垂直空间，支持多选与内部滚动条）
+            // 紧凑单行筛选栏，可横向滚动。
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1113,24 +1112,46 @@ fun NotificationsScreen() {
                     onApply = { newSet ->
                         selectedTypes.clear()
                         selectedTypes.addAll(newSet)
+                        clearSelection()
                     },
                     active = selectedTypes.isNotEmpty(),
                 )
 
                 val reasonLabel = when {
                     selectedReasons.isEmpty() -> tr("原因")
-                    selectedReasons.size == 1 -> REASON_OPTIONS.firstOrNull { it.id == selectedReasons.first() }?.label ?: tr("原因")
+                    selectedReasons.size == 1 -> reasonZh(selectedReasons.first())
                     else -> trf("原因 ({0})", selectedReasons.size)
                 }
                 MultiSelectDropdown(
                     label = reasonLabel,
-                    options = REASON_OPTIONS,
+                    options = reasonOptions,
                     selectedIds = selectedReasonsSet,
                     onApply = { newSet ->
                         selectedReasons.clear()
                         selectedReasons.addAll(newSet)
+                        clearSelection()
                     },
                     active = selectedReasons.isNotEmpty(),
+                )
+
+                val organizationLabel = when (selectedOrganizations.size) {
+                    0 -> tr("组织")
+                    1 -> organizationOptions.first { it.id == selectedOrganizations.first() }.label
+                    else -> trf("组织 ({0})", selectedOrganizations.size)
+                }
+                MultiSelectDropdown(
+                    label = organizationLabel,
+                    options = organizationOptions,
+                    selectedIds = selectedOrganizationsSet,
+                    onApply = { newSet ->
+                        selectedOrganizations.clear()
+                        selectedOrganizations.addAll(newSet)
+                        clearSelection()
+                    },
+                    active = selectedOrganizations.isNotEmpty(),
+                    enabled = organizationOptions.isNotEmpty(),
+                    searchable = true,
+                    dialogTitle = tr("筛选组织"),
                 )
 
                 if (availableRepos.isNotEmpty()) {
@@ -1149,6 +1170,7 @@ fun NotificationsScreen() {
                         onApply = { newSet ->
                             selectedRepos.clear()
                             selectedRepos.addAll(newSet)
+                            clearSelection()
                         },
                         active = selectedRepos.isNotEmpty(),
                         searchable = true,
@@ -1162,11 +1184,7 @@ fun NotificationsScreen() {
                             .clip(RoundedCornerShape(8.dp))
                             .background(g.danger.copy(alpha = 0.08f))
                             .border(1.dp, g.danger.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
-                            .clickable {
-                                selectedTypes.clear()
-                                selectedReasons.clear()
-                                selectedRepos.clear()
-                            }
+                            .clickable(onClick = ::clearFilters)
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -1181,28 +1199,32 @@ fun NotificationsScreen() {
             HDivider()
 
             Box(Modifier.weight(1f)) {
+                val noMatches = tr("没有匹配的通知")
                 PagedList(
                     pager,
                     state = listState,
-                    empty = if (filter == 0) tr("没有未读通知，全部处理完了") else tr("暂无通知"),
+                    empty = when {
+                        hasActiveFilter -> noMatches
+                        filter == 0 -> tr("没有未读通知，全部处理完了")
+                        else -> tr("暂无通知")
+                    },
                     emptyIcon = R.drawable.oc_bell,
-                    emptyAction = if (filter == 0) tr("查看全部通知") else tr("刷新"),
-                    onEmptyAction = if (filter == 0) ({
-                        filter = 1
-                    }) else ({ pager.refresh() }),
+                    emptyAction = when {
+                        hasActiveFilter -> tr("清除筛选")
+                        filter == 0 -> tr("查看全部通知")
+                        else -> tr("刷新")
+                    },
+                    onEmptyAction = when {
+                        hasActiveFilter -> ::clearFilters
+                        filter == 0 -> ({ filter = 1 })
+                        else -> pager::refresh
+                    },
+                    autoLoad = !hasActiveFilter,
                     itemKey = { it.id },
                     extraItems = extraUnread,
-                    // 不筛 read：点开/标为已读后条目留在列表里（变灰），与 GitHub 客户端一致
-                    itemFilter = { n ->
-                        n.id !in state.done && matchNotifFilters(n, selectedTypesSet, selectedReasonsSet, selectedReposSet)
-                    },
-                    filteredEmpty = when {
-                        selectedTypes.isNotEmpty() && selectedRepos.isNotEmpty() -> tr("该仓库下没有匹配的通知类型")
-                        selectedTypes.isNotEmpty() -> tr("已加载的通知里没有所选类型")
-                        selectedReasons.isNotEmpty() -> tr("已加载的通知里没有所选原因")
-                        selectedRepos.isNotEmpty() -> tr("所选仓库中没有匹配的通知")
-                        else -> tr("没有匹配的通知")
-                    },
+                    // 和数量、全选共用去重后的匹配结果，已读条目仍留在列表。
+                    itemFilter = { it.id in matchedIds },
+                    filteredEmpty = if (hasActiveFilter && !pager.end) tr("已加载的通知中没有匹配项") else noMatches,
                     groupKey = if (grouped) { n -> n.repository.id } else null,
                     groupHeader = { list ->
                         RepoHeader(

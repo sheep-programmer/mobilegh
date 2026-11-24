@@ -3,6 +3,7 @@ package com.mobilegh.ui.components
 import android.graphics.BitmapFactory
 import android.graphics.Bitmap
 import android.util.LruCache
+import android.util.Xml
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,8 +42,13 @@ import com.mobilegh.data.ImageFetch
 import com.mobilegh.data.ImageContent
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import org.xmlpull.v1.XmlPullParser
 
 /** 极简图片加载器：内存 LRU + OkHttp 磁盘缓存 + 按显示尺寸采样解码。替代 Coil/Glide 以保持轻量。 */
 object Images {
@@ -59,6 +65,7 @@ object Images {
 
     /** 解码中的地址：同一张图被多个列表项引用时只解码一次 */
     private val decoding = HashMap<String, CompletableDeferred<ImageBitmap?>>()
+    private val visibleLoads = Semaphore(6)
 
     /** 已经解码好的最大尺寸；只要不小于需要的尺寸就能直接复用，避免重复解码 */
     fun cached(url: String, maxDim: Int = 2048): ImageBitmap? {
@@ -90,18 +97,47 @@ object Images {
         }
         if (running !== mine) return running.await()
         return try {
-            val bmp = withContext(Dispatchers.IO) {
-                val r = ImageFetch.fetchResilient(url, force) ?: return@withContext null
-                decode(r.bytes, maxDim)?.also { if (memKey == key(url, maxDim)) mem.put(memKey, it) }
+            val bmp = visibleLoads.withPermit {
+                runInterruptible(Dispatchers.IO) {
+                    val first = ImageFetch.fetchResilient(url, force) ?: return@runInterruptible null
+                    val decoded = decode(first.bytes, maxDim) ?: run {
+                        // A valid image signature does not guarantee that the whole response can be decoded.
+                        if (memKey != key(url, maxDim)) return@runInterruptible null
+                        val fresh = ImageFetch.fetchResilient(url, force = true)
+                        fresh?.let { decode(it.bytes, maxDim) }.also {
+                            if (it == null && fresh != null) {
+                                com.mobilegh.data.AppLog.warn("image", "Image decode failed (${fresh.mime ?: "unknown"})")
+                            }
+                        }
+                    }
+                    decoded?.takeIf { memKey == key(url, maxDim) }?.also { mem.put(memKey, it) }
+                }
             }
             mine.complete(bmp)
             bmp
+        } catch (error: CancellationException) {
+            mine.complete(null)
+            throw error
         } catch (t: Throwable) {
             mine.complete(null)
             null
         } finally {
             if (!force) synchronized(decoding) { decoding.remove(memKey) }
         }
+    }
+
+    /** The caller owns the lifetime, so leaving the viewport cancels any scheduled retry. */
+    internal suspend fun loadWithRecovery(url: String, maxDim: Int, force: Boolean = false): ImageBitmap? {
+        val requestKey = ImageFetch.cacheKey(url)
+        load(url, maxDim, force)?.let { return it }
+        for (backoff in listOf(900L, 3_200L)) {
+            if (ImageFetch.isMissing(url) || requestKey != ImageFetch.cacheKey(url)) return null
+            delay(backoff + url.hashCode().mod(250))
+            if (requestKey != ImageFetch.cacheKey(url)) return null
+            cached(url, maxDim)?.let { return it }
+            load(url, maxDim, force = true)?.let { return it }
+        }
+        return null
     }
 
     /** SVG 渲染的放大倍数：徽章等矢量图按 3 倍像素栅格化，在高密度屏上保持清晰；逻辑尺寸 = 位图尺寸 / 倍数 */
@@ -209,6 +245,14 @@ object Images {
     }
 
     private fun parseSvg(bytes: ByteArray): com.caverock.androidsvg.SVG {
+        // AndroidSVG can return an empty document when a response ends before the SVG root closes.
+        val xml = Xml.newPullParser().apply { setInput(bytes.inputStream(), null) }
+        var event = xml.nextToken()
+        while (event != XmlPullParser.END_DOCUMENT &&
+            !(event == XmlPullParser.END_TAG && xml.depth == 1 && xml.name == "svg")) {
+            event = xml.nextToken()
+        }
+        require(event == XmlPullParser.END_TAG) { "Incomplete SVG document" }
         val normalized = SvgForeignText.normalize(bytes)
         return try {
             com.caverock.androidsvg.SVG.getFromInputStream(normalized.inputStream())
@@ -257,6 +301,7 @@ fun NetImage(
     contentDescription: String? = null,
     /** 已知目标采样边长；传入时首帧直接触发加载，不用等待 onSizeChanged 布局回调，消除首帧空白延迟 */
     targetDim: Int? = null,
+    startLoading: Boolean = true,
 ) {
     var size by remember { mutableStateOf(IntSize.Zero) }
     val initialDim = targetDim?.coerceIn(64, 2048)
@@ -265,9 +310,9 @@ fun NetImage(
     val requestKey = requestUrl?.let { ImageFetch.cacheKey(it) }
     // produceState 的 key 只重启协程，不会重置已记住的 value；换 URL 时必须另建状态。
     val bmp by key(requestKey, maxDim) {
-        produceState<ImageBitmap?>(if (requestUrl != null && maxDim != null) Images.cached(requestUrl, maxDim) else null) {
-            if (value == null && requestUrl != null && maxDim != null) {
-                val loaded = Images.load(requestUrl, maxDim)
+        produceState<ImageBitmap?>(if (requestUrl != null && maxDim != null) Images.cached(requestUrl, maxDim) else null, startLoading) {
+            if (startLoading && value == null && requestUrl != null && maxDim != null) {
+                val loaded = Images.loadWithRecovery(requestUrl, maxDim)
                 if (requestKey == ImageFetch.cacheKey(requestUrl)) value = loaded
             }
         }

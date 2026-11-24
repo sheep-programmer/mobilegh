@@ -19,8 +19,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
 
-/** 没有网页登录会话（或会话已失效）：调用方应引导用户在应用内登录 github.com 后重试。 */
-class WebSessionMissing : IllegalStateException(tr("需要先登录 GitHub 网页账号才能添加附件"))
+/** 当前没有可用的 GitHub 账号会话，调用方可以引导用户使用 OAuth 或 Token 登录。 */
+class WebSessionMissing : IllegalStateException(tr("需要先登录 GitHub 账号才能添加附件"))
 
 /**
  * 评论附件上传，走 github.com 网页上拖拽附件的同一组接口（抓包确认的三步）：

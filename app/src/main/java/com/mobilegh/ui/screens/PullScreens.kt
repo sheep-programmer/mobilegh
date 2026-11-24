@@ -106,6 +106,7 @@ import com.mobilegh.ui.components.MdText
 import com.mobilegh.ui.theme.CodeStyle
 import com.mobilegh.ui.theme.Gh
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
@@ -544,11 +545,19 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
     var applying by remember { mutableStateOf<Pair<ReviewThread, String>?>(null) }
     var deleting by remember { mutableStateOf<ReviewComment?>(null) }
     var discardingPending by remember { mutableStateOf(false) }
+    var unresolvedOnly by rememberSaveable { mutableStateOf(false) }
+    var focusUnresolvedPath by remember { mutableStateOf<String?>(null) }
+    var batchDialog by remember { mutableStateOf(false) }
+    var batchRunning by remember { mutableStateOf(false) }
+    var batchStopRequested by remember { mutableStateOf(false) }
+    var batchOutcomes by remember { mutableStateOf<Map<String, PullReviewResolveOutcome>>(emptyMap()) }
     val headSha = files.data?.head
     val cloud = review.data?.takeIf { snapshot -> files.data?.let { snapshot.matches(it.head, it.base) } == true }
     val local = remember(Session.viewedRevision, Session.login) { Session.viewedFiles(owner, name, number) }
     val viewed = remember(cloud, files.data, local) { cloud?.viewedFiles(files.data?.files.orEmpty().map(ParsedFile::file)) ?: local }
     val threads = remember(comments.data) { groupReviewThreads(comments.data.orEmpty()) }
+    val discussionSummary = remember(threads) { PullReviewDiscussions(threads) }
+    val batchTargets = remember(threads, access) { pullReviewResolveTargets(threads, access) }
     val listState = rememberLazyListState()
     var restored by rememberSaveable { mutableStateOf(false) }
     var updating by remember { mutableStateOf(false) }
@@ -565,6 +574,17 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
 
     val displayedFiles = files.data?.files
     val filesByPath = remember(displayedFiles) { displayedFiles.orEmpty().associateBy { it.file.filename } }
+    val unresolvedFiles = remember(displayedFiles, discussionSummary, unresolvedOnly) {
+        if (unresolvedOnly) displayedFiles.orEmpty().filter { it.file.filename in discussionSummary.unresolvedByPath } else displayedFiles.orEmpty()
+    }
+    LaunchedEffect(focusUnresolvedPath, unresolvedFiles) {
+        val path = focusUnresolvedPath ?: return@LaunchedEffect
+        val index = unresolvedFiles.indexOfFirst { it.file.filename == path }
+        if (index >= 0) {
+            listState.animateScrollToItem(index + 1)
+            focusUnresolvedPath = null
+        }
+    }
     LaunchedEffect(displayedFiles, comments.loading) {
         if (restored || displayedFiles == null || comments.loading) return@LaunchedEffect
         val position = Session.reviewPosition(owner, name, number)
@@ -633,6 +653,29 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
 
     fun reloadComments() = comments.load(true)
 
+    fun focusUnresolved(path: String) {
+        unresolvedOnly = true
+        unresolvedFiles.forEach { collapsed[it.file.filename] = true }
+        focusUnresolvedPath = path
+    }
+
+    fun startBatchResolve() {
+        batchDialog = true
+        batchRunning = true
+        batchStopRequested = false
+        batchOutcomes = emptyMap()
+        entry.scope.launch {
+            runPullReviewResolveBatch(
+                batchTargets,
+                shouldStop = { batchStopRequested },
+                resolve = { id -> GitHub.resolveThread(id, true) },
+                report = { target, outcome -> batchOutcomes = batchOutcomes + (target.nodeId to outcome) },
+            )
+            batchRunning = false
+            reloadComments()
+        }
+    }
+
     Page(tr("文件变更"), subtitle = "$owner/$name #$number", translationInMenu = true, actions = {
         TranslationMoreMenu(emptyList())
         OcButton(R.drawable.oc_sync, { if (!updating) refreshReview() }, description = tr("刷新文件与已阅进度"))
@@ -668,10 +711,49 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
                         }
                         if (comments.data?.isNotEmpty() == true) {
                             Spacer(Modifier.height(6.dp))
-                            Text(trf("共 {0} 条行内评论 · 点按代码行可发表评论", threads.size), fontSize = 12.sp, color = g.fgMuted)
+                            Text(trf("共 {0} 个讨论 · 点按代码行可发表评论", threads.size), fontSize = 12.sp, color = g.fgMuted)
                         } else {
                             Spacer(Modifier.height(6.dp))
                             Text(tr("点按代码行可发表行内评论"), fontSize = 12.sp, color = g.fgMuted)
+                        }
+                        if (discussionSummary.unresolvedCount > 0 || discussionSummary.unknownCount > 0) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    trf("{0} 个未解决讨论", discussionSummary.unresolvedCount),
+                                    fontSize = 13.sp, color = if (discussionSummary.unresolvedCount > 0) g.attention else g.fgMuted,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                if (discussionSummary.unknownCount > 0) {
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(trf("{0} 个状态未确认", discussionSummary.unknownCount), fontSize = 12.sp, color = g.fgMuted)
+                                }
+                                Spacer(Modifier.weight(1f))
+                                TextLink(if (unresolvedOnly) tr("显示全部文件") else tr("只看未解决")) {
+                                    unresolvedOnly = !unresolvedOnly
+                                    if (unresolvedOnly) list.forEach { collapsed[it.file.filename] = true }
+                                }
+                            }
+                            discussionSummary.unresolvedByPath.entries.take(5).forEach { (path, pathThreads) ->
+                                Row(
+                                    Modifier.fillMaxWidth().clickable { focusUnresolved(path) }.padding(vertical = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(path, Modifier.weight(1f), fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(trf("{0} 个", pathThreads.size), fontSize = 12.sp, color = g.fgMuted)
+                                    Spacer(Modifier.width(4.dp))
+                                    Oc(R.drawable.oc_chevron_right, g.fgMuted, 13.dp)
+                                }
+                            }
+                            if (batchTargets.isNotEmpty()) {
+                                Spacer(Modifier.height(4.dp))
+                                GhButton(
+                                    tr("批量标记已解决"),
+                                    primary = true,
+                                    enabled = !batchRunning,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { batchDialog = true }
+                            }
                         }
                         if (stale) Text(tr("部分文件在查看后又有改动，已重新计为未查看"), fontSize = 12.sp, color = g.attention)
                         when {
@@ -693,7 +775,7 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
                     }
                     HDivider()
                 }
-                list.forEach { pf ->
+                unresolvedFiles.forEach { pf ->
                     pullFileDiff(
                         owner, name, pf, collapsed, viewed, ::setViewed,
                         anchorThreads(threads, pf), expandedThreads,
@@ -780,6 +862,61 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
             }
         },
     )
+    if (batchDialog) {
+        val completed = batchOutcomes.values.count { it is PullReviewResolveOutcome.Resolved }
+        val failed = batchOutcomes.values.count { it is PullReviewResolveOutcome.Failed }
+        val skipped = batchOutcomes.values.count { it is PullReviewResolveOutcome.Skipped }
+        val finished = !batchRunning && batchOutcomes.isNotEmpty()
+        GhDialog(
+            tr("批量标记为已解决"),
+            onDismiss = { if (!batchRunning) batchDialog = false },
+            confirm = when {
+                batchRunning && !batchStopRequested -> tr("停止")
+                batchRunning -> tr("正在停止…")
+                finished -> tr("关闭")
+                else -> tr("开始处理")
+            },
+            confirmEnabled = !batchStopRequested,
+            dismissEnabled = !batchRunning,
+            onConfirm = {
+                if (batchRunning) batchStopRequested = true
+                else if (finished) batchDialog = false
+                else startBatchResolve()
+            },
+        ) {
+            if (!batchRunning && !finished) {
+                Text(trf("将按顺序处理最多 {0} 个讨论。每个讨论都会单独调用 GitHub 的解决接口。", batchTargets.size), fontSize = 13.sp, color = g.fg)
+                if (discussionSummary.unknownCount > 0) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(tr("状态未确认的讨论不会加入批量处理。"), fontSize = 12.sp, color = g.fgMuted)
+                }
+                Spacer(Modifier.height(8.dp))
+                Column(Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
+                    batchTargets.forEach { target ->
+                        Text(
+                            target.thread.path + (target.thread.line?.let { ":$it" } ?: ""),
+                            fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = g.fg,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(vertical = 2.dp),
+                        )
+                    }
+                }
+            } else if (batchRunning) {
+                Text(trf("已完成 {0}，失败 {1}，等待处理 {2}。", completed, failed, batchTargets.size - batchOutcomes.size), fontSize = 13.sp, color = g.fg)
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(
+                    progress = { batchOutcomes.size.toFloat() / batchTargets.size.coerceAtLeast(1) },
+                    Modifier.fillMaxWidth(),
+                )
+            } else {
+                Text(trf("已解决 {0}，失败 {1}，未处理 {2}。", completed, failed, skipped), fontSize = 13.sp, color = g.fg)
+                batchOutcomes.entries.filter { it.value is PullReviewResolveOutcome.Failed }.take(5).forEach { (id, outcome) ->
+                    val error = (outcome as PullReviewResolveOutcome.Failed).error.message ?: tr("操作失败")
+                    Text(trf("{0}：{1}", id, error), fontSize = 12.sp, color = g.danger, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
 }
 
 /** 单个文件的 diff：标题（含「已查看」）+ 行内评论 + 行 */

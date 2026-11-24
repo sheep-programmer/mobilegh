@@ -100,7 +100,7 @@ private fun rememberCatalogFreshness(loader: Loader<List<GitHubStarList>>, snaps
         val stale = StarListCache.isStale(
             snapshot.loadedAtMs, snapshot.loadedRevision, UserLists.changes.value, System.currentTimeMillis(),
         )
-        if (snapshot.value != null && stale) loader.refreshSilently()
+        if (snapshot.value != null && stale && StarListCache.canAttemptSilentRefresh(snapshot)) loader.refreshSilently()
     }
 }
 

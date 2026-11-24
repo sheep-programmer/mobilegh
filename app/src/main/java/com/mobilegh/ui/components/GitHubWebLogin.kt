@@ -96,6 +96,7 @@ object GitHubWebLogin {
 
     internal fun loggedIn() {
         runCatching { CookieManager.getInstance().flush() }
+        WebAttachmentUploader.renewSessionAsync(force = true)
         val callback = onDone
         url = null
         title = null

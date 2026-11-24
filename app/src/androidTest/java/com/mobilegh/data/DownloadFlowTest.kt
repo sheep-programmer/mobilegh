@@ -1,11 +1,14 @@
 package com.mobilegh.data
 
 import android.net.Uri
+import android.os.StrictMode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -33,7 +36,27 @@ class DownloadFlowTest {
         }
 
         withTimeout(60_000) { while ((task()?.downloaded ?: 0L) < 2_000_000L) { assertNotEquals(DownloadState.Failed, task()?.state); delay(100) } }
-        instrumentation.runOnMainSync { Downloads.togglePause(task()!!) }
+        // Put an idle TLS connection in the same pool while the large transfer is still active.
+        // Otherwise continuous segment requests can keep every socket busy and mask a UI-thread close.
+        val client = Downloads::class.java.getDeclaredMethod("getTransferHttp").apply { isAccessible = true }
+            .invoke(Downloads) as OkHttpClient
+        client.newCall(Request.Builder().url("$url-keepalive").build()).execute().use { it.body.bytes() }
+        assertTrue("The download pool must contain an idle TLS connection", client.connectionPool.idleConnectionCount() > 0)
+        var pauseResult: Result<Unit>? = null
+        instrumentation.runOnMainSync {
+            val oldPolicy = StrictMode.getThreadPolicy()
+            StrictMode.setThreadPolicy(StrictMode.ThreadPolicy.Builder(oldPolicy).detectNetwork().penaltyDeathOnNetwork().build())
+            try {
+                pauseResult = runCatching {
+                    val running = checkNotNull(task())
+                    assertEquals(DownloadState.Running, running.state)
+                    Downloads.togglePause(running)
+                }
+            } finally {
+                StrictMode.setThreadPolicy(oldPolicy)
+            }
+        }
+        checkNotNull(pauseResult).getOrThrow()
         withTimeout(20_000) { while (task()?.state != DownloadState.Waiting) delay(100) }
         assertTrue(task()!!.paused)
         val pausedAt = task()!!.downloaded

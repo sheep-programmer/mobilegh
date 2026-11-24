@@ -15,6 +15,20 @@ import java.io.IOException
 class ContentEditsTest {
 
     @Test
+    fun localDeleteMarksRevisionWithoutRequiringWebSession() {
+        val revisions = listOf(
+            ContentEdits.Revision("UCE_1", "2026-11-08T08:00:00Z", "alice", "old"),
+            ContentEdits.Revision("UCE_2", "2026-11-08T08:10:00Z", "alice", "new"),
+        )
+
+        val updated = ContentEdits.applyLocalDelete(revisions, "UCE_1", "mobilegh-user")
+
+        assertTrue(updated.first { it.id == "UCE_1" }.isDeleted)
+        assertEquals("mobilegh-user", updated.first { it.id == "UCE_1" }.deletedBy)
+        assertEquals("new", updated.first { it.id == "UCE_2" }.body)
+    }
+
+    @Test
     fun revisionReportsDeletedStateCorrectly() {
         val active = ContentEdits.Revision(
             id = "UCE_1",

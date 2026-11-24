@@ -23,6 +23,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import com.mobilegh.service.DownloadService
@@ -221,8 +222,8 @@ object Downloads {
     /** 每个任务正在运行的传输协程，按任务 key 索引 */
     private val transfers = HashMap<String, Job>()
     private val verifying = HashSet<String>()
-    /** 用户点了暂停、正在取消的任务：取消后保留已下载的部分，状态改为已暂停 */
-    private val pausing = HashSet<String>()
+    /** 正在等待旧传输收尾的暂停请求，绑定到对应的传输协程。 */
+    private val pausing = HashMap<String, Job>()
     private val privateHttp by lazy { OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector()).followRedirects(false).followSslRedirects(false).build() }
     private val transferHttp by lazy {
         OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector())
@@ -641,6 +642,7 @@ object Downloads {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            if (key in pausing) return
             transfers.remove(key)
             update(started.copy(state = DownloadState.Failed, message = e.networkHint() ?: e.message ?: tr("无法开始下载")))
             save(); pump()
@@ -710,20 +712,13 @@ object Downloads {
         update(current.copy(downloaded = done, total = total))
     }
 
-    /** 传输协程被取消：用户暂停则保留部分文件并改为已暂停；用户取消则删除部分文件。换节点等其它取消不改状态。 */
+    /** 只有用户取消任务才删除部分文件。 */
     private fun onInterrupted(key: String) {
         val current = tasks.firstOrNull { it.key == key } ?: return
-        when {
-            current.state == DownloadState.Cancelled -> {
-                partialFile(current).delete()
-                SegmentedTransfer.cleanup(partialFile(current))
-            }
-            key in pausing -> {
-                pausing.remove(key)
-                transfers.remove(key)
-                update(current.copy(state = DownloadState.Waiting, paused = true, message = tr("已暂停")))
-                save(); pump()
-            }
+        if (current.state == DownloadState.Cancelled) {
+            val partial = partialFile(current)
+            partial.delete()
+            SegmentedTransfer.cleanup(partial)
         }
     }
 
@@ -754,6 +749,7 @@ object Downloads {
     }
 
     private fun failTransfer(key: String, result: TransferResult.Failed) {
+        if (key in pausing) return
         transfers.remove(key)
         val task = tasks.firstOrNull { it.key == key } ?: return
         if (task.state == DownloadState.Cancelled) return
@@ -893,7 +889,7 @@ object Downloads {
 
     /** 监控一轮：卡住或太慢的传输换节点（或提示），并补足排队 */
     private fun tick() {
-        tasks.filter { it.state == DownloadState.Running && it.key !in verifying }.forEach { task ->
+        tasks.filter { it.state == DownloadState.Running && it.key !in verifying && it.key !in pausing }.forEach { task ->
             val pace = samplePace(task.key, task)
             val stalled = stalledReason(task.key, task)
             val slow = if (stalled == null) slowReason(task, pace) else null
@@ -978,16 +974,36 @@ object Downloads {
                 save(); pump()
             }
             current.state == DownloadState.Running || current.state == DownloadState.Preparing -> {
-                pausing.add(current.key)
-                transfers[current.key]?.cancel()
-                // 取消当前请求后，清掉旧的 keep-alive 连接。继续下载仍使用 .part/.mt.plan，
-                // 但会建立新连接，避免暂停后只是复用了已经卡住的镜像连接。
-                transferHttp.connectionPool.evictAll()
+                pauseTransfer(current.key)
             }
             current.state == DownloadState.Waiting && current.paused -> {
                 update(current.copy(state = DownloadState.Queued, paused = false, message = null))
                 save(); pump()
             }
+        }
+    }
+
+    private fun pauseTransfer(key: String) {
+        val transfer = transfers[key] ?: return
+        if (pausing.putIfAbsent(key, transfer) != null) return
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    transfer.cancelAndJoin()
+                    // Closing an idle TLS socket can write to the network during shutdown.
+                    transferHttp.connectionPool.evictAll()
+                }
+            } finally {
+                pausing.remove(key, transfer)
+            }
+            if (transfers[key] !== transfer) return@launch
+            transfers.remove(key)
+            val task = tasks.firstOrNull { it.key == key } ?: return@launch
+            stalledSince.remove(key)
+            paces.remove(key)
+            update(task.copy(state = DownloadState.Waiting, paused = true, message = tr("已暂停")))
+            save()
+            pump()
         }
     }
 

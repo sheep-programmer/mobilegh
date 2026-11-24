@@ -423,10 +423,11 @@ fun <T> PagedList(
         }
     }
     LaunchedEffect(pager, state, autoLoad) {
-        snapshotFlow { autoLoad && near && !pager.loading && !pager.end && pager.error == null }
+        snapshotFlow { autoLoad && near && pager.canLoadMore && pager.error == null }
             .collect { if (it) pager.loadMore() }
     }
-    PullToRefreshBox(pager.refreshing, onRefresh = { pager.refresh(); onRefresh() }, modifier) {
+    val refresh = { onRefresh(); pager.refresh() }
+    PullToRefreshBox(pager.refreshing, onRefresh = refresh, modifier) {
         ScrollbarLazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = contentPadding) {
             header()
             val combined = pager.items + extraItems
@@ -471,7 +472,7 @@ fun <T> PagedList(
                     ) { TextLink(tr("加载更多")) { pager.loadMore() } }
                     pager.end && shown.isEmpty() -> EmptyState(
                         if (pager.items.isEmpty()) empty else filteredEmpty, emptyIcon, fill, emptyAction,
-                        onEmptyAction ?: { pager.refresh(); onRefresh() },
+                        onEmptyAction ?: refresh,
                     )
                 }
             }

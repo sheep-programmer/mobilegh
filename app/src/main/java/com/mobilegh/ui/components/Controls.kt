@@ -57,6 +57,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -1011,6 +1015,7 @@ fun Segmented(
     selected: Int,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    animateSelection: Boolean = true,
     onSelect: (Int) -> Unit,
 ) {
     val g = Gh.c
@@ -1028,6 +1033,16 @@ fun Segmented(
     ) {
         options.forEachIndexed { i, label ->
             val isSelected = i == selected
+            val animatedBg by animateColorAsState(
+                if (isSelected) selectedBg else Color.Transparent,
+                tween(if (animateSelection) 180 else 0),
+                label = "segment-bg",
+            )
+            val animatedBorder by animateColorAsState(
+                if (isSelected) selectedBorder else Color.Transparent,
+                tween(if (animateSelection) 180 else 0),
+                label = "segment-border",
+            )
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -1035,11 +1050,9 @@ fun Segmented(
                     .then(
                         if (isSelected) {
                             Modifier
-                                .background(selectedBg)
-                                .border(1.dp, selectedBorder, RoundedCornerShape(6.dp))
-                        } else {
-                            Modifier.background(Color.Transparent)
-                        }
+                                .background(animatedBg)
+                                .border(1.dp, animatedBorder, RoundedCornerShape(6.dp))
+                        } else Modifier.background(animatedBg)
                     )
                     .selectable(
                         selected = isSelected,
@@ -1082,6 +1095,7 @@ fun GhTopTabBar(
         ) {
             tabs.forEachIndexed { index, title ->
                 val isSelected = index == selected
+                val indicatorWidth by animateDpAsState(if (isSelected) 36.dp else 0.dp, tween(220), label = "tab-indicator")
                 val aliases = tabAliases?.getOrNull(index).orEmpty()
                 Column(
                     modifier = Modifier
@@ -1106,7 +1120,7 @@ fun GhTopTabBar(
                     Box(
                         Modifier
                             .height(2.5.dp)
-                            .width(if (isSelected) 36.dp else 0.dp)
+                            .width(indicatorWidth)
                             .clip(RoundedCornerShape(1.dp))
                             .background(if (isSelected) g.accent else Color.Transparent)
                     )
@@ -1234,8 +1248,10 @@ fun GhDialog(
     onDismiss: () -> Unit,
     confirm: String = tr("确定"),
     danger: Boolean = false,
+    confirmPrimary: Boolean = !danger,
     confirmEnabled: Boolean = true,
     dismissEnabled: Boolean = true,
+    dismissText: String? = null,
     /** 为 false 时点框外不会关闭：授权、更新这类必须明确作出选择的弹窗使用 */
     dismissOnClickOutside: Boolean = true,
     onConfirm: (() -> Unit)? = null,
@@ -1258,11 +1274,11 @@ fun GhDialog(
         // 之前用的是蓝色文字按钮，和页面里的按钮风格对不上。
         confirmButton = {
             if (onConfirm != null) {
-                GhButton(confirm, primary = !danger, danger = danger, enabled = confirmEnabled, onClick = onConfirm)
+                GhButton(confirm, primary = confirmPrimary, danger = danger, enabled = confirmEnabled, onClick = onConfirm)
             }
         },
         dismissButton = {
-            GhButton(if (onConfirm == null) tr("关闭") else tr("取消"), enabled = dismissEnabled, onClick = onDismiss)
+            GhButton(dismissText ?: if (onConfirm == null) tr("关闭") else tr("取消"), enabled = dismissEnabled, onClick = onDismiss)
         },
     )
 }

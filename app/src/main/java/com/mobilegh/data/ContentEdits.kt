@@ -13,7 +13,7 @@ import java.io.IOException
 /**
  * 正文 / 评论的编辑记录（网页上 "Edited N times" 里的历史版本）。
  * 通过 GraphQL 的 userContentEdits 读取；每条记录的 diff 是那次编辑之后的完整正文。
- * 历史版本删除走 GitHub 网页端私有接口（需基于 CookieManager 的 Web Session）。
+ * 历史版本删除在应用内保留本地模拟状态。GitHub 没有公开的编辑历史删除 API。
  */
 object ContentEdits {
     data class Revision(
@@ -26,6 +26,13 @@ object ContentEdits {
     ) {
         val isDeleted: Boolean get() = deletedAt != null
     }
+
+    fun applyLocalDelete(revisions: List<Revision>, revisionId: String, deletedBy: String): List<Revision> =
+        revisions.map { revision ->
+            if (revision.id == revisionId && !revision.isDeleted) {
+                revision.copy(deletedAt = java.time.Instant.now().toString(), deletedBy = deletedBy)
+            } else revision
+        }
 
     private const val QUERY = """
         query(${'$'}id: ID!) {
@@ -82,7 +89,7 @@ object ContentEdits {
     suspend fun delete(
         revisionId: String,
         cookieHeader: () -> String? = { runCatching { CookieManager.getInstance().getCookie("https://github.com") }.getOrNull() },
-        client: OkHttpClient = Api.http,
+        client: OkHttpClient? = null,
     ) = withContext(Dispatchers.IO) {
         val cookie = cookieHeader()
         if (!WebAttachmentUploader.hasSession(cookie)) {
@@ -98,7 +105,7 @@ object ContentEdits {
             .header("Origin", "https://github.com")
             .header("Referer", "https://github.com/")
             .build()
-        client.routed().newCall(req).await().use { resp ->
+        requireNotNull(client ?: Api.http).routed().newCall(req).await().use { resp ->
             if (resp.code == 401 || resp.code == 403) {
                 throw WebSessionMissing()
             }

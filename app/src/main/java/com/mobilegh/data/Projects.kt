@@ -1,7 +1,5 @@
 package com.mobilegh.data
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -9,13 +7,11 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-import okhttp3.Request
-import com.mobilegh.i18n.tr
-import com.mobilegh.i18n.trf
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 
 // ======================= 模型 =======================
 
@@ -64,6 +60,13 @@ data class ProjectField(
     val iterations: List<ProjectIteration> = emptyList(),
 ) {
     val isSingleSelect: Boolean get() = dataType == "SINGLE_SELECT"
+
+    fun editableValueKind(): ProjectValueKind? = when (dataType.uppercase()) {
+        "TEXT" -> ProjectValueKind.Text
+        "NUMBER" -> ProjectValueKind.Number
+        "DATE" -> ProjectValueKind.Date
+        else -> null
+    }
 }
 
 enum class ProjectLayout {
@@ -169,7 +172,7 @@ fun boardGroupField(fields: List<ProjectField>, view: ProjectView?): ProjectFiel
     val fromView = view?.let { v -> (v.verticalGroupByFieldIds + v.groupByFieldIds).firstNotNullOfOrNull { id -> single.firstOrNull { it.id == id } } }
     return fromView
         ?: single.firstOrNull { it.name.equals("Status", ignoreCase = true) }
-        ?: single.firstOrNull { it.name == tr("状态") }
+        ?: single.firstOrNull { it.name == "状态" }
         ?: single.firstOrNull()
 }
 
@@ -206,6 +209,52 @@ fun ProjectItem.withSingleSelect(field: ProjectField, option: ProjectOption?): P
     return copy(values = listOf(value) + rest)
 }
 
+/** 项目支持直接编辑的字段值；null 表示清空该字段。 */
+fun ProjectItem.withFieldValue(field: ProjectField, value: String?): ProjectItem {
+    val kind = field.editableValueKind() ?: return this
+    val rest = values.filterNot { it.fieldId == field.id }
+    val next = value?.let { ProjectFieldValue(field.id, field.name, field.dataType, kind, it) }
+    return copy(values = listOfNotNull(next) + rest)
+}
+
+/** 搜索已加载条目的标题、引用、类型、状态、仓库和项目字段值。 */
+fun filterProjectItems(items: List<ProjectItem>, query: String): List<ProjectItem> {
+    val needle = query.trim()
+    if (needle.isEmpty()) return items
+    return items.filter { item ->
+        buildString {
+            append(item.title).append('\n')
+            append(item.reference.orEmpty()).append('\n')
+            append(item.repository.orEmpty()).append('\n')
+            append(item.state.orEmpty()).append('\n')
+            append(item.type.name).append('\n')
+            item.values.forEach { append(it.fieldName).append('\n').append(it.text).append('\n') }
+        }.contains(needle, ignoreCase = true)
+    }
+}
+
+/** 校验并规范化编辑器输入。空白输入会清空字段。 */
+fun normalizeProjectFieldInput(field: ProjectField, raw: String): String? {
+    val value = raw.trim()
+    if (value.isEmpty()) return null
+    return when (field.editableValueKind()) {
+        ProjectValueKind.Text -> value
+        ProjectValueKind.Number -> {
+            val number = value.toBigDecimalOrNull()?.takeIf { it.toDouble().isFinite() }
+                ?: throw IllegalArgumentException("${field.name} 必须是有效数字")
+            number.stripTrailingZeros().toPlainString()
+        }
+        ProjectValueKind.Date -> {
+            try {
+                LocalDate.parse(value, DateTimeFormatter.ISO_LOCAL_DATE).toString()
+            } catch (_: DateTimeParseException) {
+                throw IllegalArgumentException("${field.name} 必须使用 YYYY-MM-DD")
+            }
+        }
+        else -> throw IllegalArgumentException("${field.name} 不支持编辑")
+    }
+}
+
 /**
  * 将本地编辑叠加到已加载的条目上：edits 中 null 表示已移除；added 是本地新建、尚未出现在加载结果中的条目，排在最前。
  * 归档条目不显示。
@@ -220,12 +269,12 @@ fun applyProjectEdits(loaded: List<ProjectItem>, edits: Map<String, ProjectItem?
 enum class ProjectErrorKind { Scope, Forbidden, NotFound, Other }
 
 object ProjectErrors {
-    val READ_SCOPE_MESSAGE: String get() = tr("当前授权缺少 read:project 权限，无法读取 GitHub Projects。") +
-        tr("请重新授权登录；如使用 Token 登录，请为 Token 勾选 project（或 read:project）权限。")
-    val WRITE_SCOPE_MESSAGE: String get() = tr("当前授权缺少 project 写入权限，无法修改项目。") +
-        tr("请重新授权登录；如使用 Token 登录，请为 Token 勾选 project 权限。")
-    val FORBIDDEN_PREFIX: String get() = tr("无权访问此项目：")
-    val NOT_FOUND_MESSAGE: String get() = tr("未找到项目，或当前账号没有访问权限")
+    const val READ_SCOPE_MESSAGE = "当前授权缺少 read:project 权限，无法读取 GitHub Projects。" +
+        "请重新授权登录；如使用 Token 登录，请为 Token 勾选 project（或 read:project）权限。"
+    const val WRITE_SCOPE_MESSAGE = "当前授权缺少 project 写入权限，无法修改项目。" +
+        "请重新授权登录；如使用 Token 登录，请为 Token 勾选 project 权限。"
+    const val FORBIDDEN_PREFIX = "无权访问此项目："
+    const val NOT_FOUND_MESSAGE = "未找到项目，或当前账号没有访问权限"
 
     /** 原始 GraphQL 错误：type 优先，message 兜底 */
     fun classify(type: String?, message: String?): ProjectErrorKind {
@@ -284,19 +333,19 @@ class GraphQlCursors {
 open class ProjectsClient(
     private val graphql: suspend (String, Map<String, Any?>) -> JsonObject = { query, variables -> Api.graphqlRoot(query, variables) },
 ) {
-    open suspend fun list(kind: ProjectOwnerKind, login: String, name: String = "", after: String? = null): DiscussionPage<ProjectSummary> {
+    suspend fun list(kind: ProjectOwnerKind, login: String, name: String = "", after: String? = null): DiscussionPage<ProjectSummary> {
         val (query, vars, ownerKey) = when (kind) {
             ProjectOwnerKind.User -> Triple(USER_PROJECTS, mapOf("login" to login), "user")
             ProjectOwnerKind.Org -> Triple(ORG_PROJECTS, mapOf("login" to login), "organization")
             ProjectOwnerKind.Repo -> Triple(REPO_PROJECTS, mapOf("owner" to login, "name" to name), "repository")
         }
         val r = read(query, vars + ("after" to after))
-        val owner = r.data.obj(ownerKey) ?: throw r.failure(if (kind == ProjectOwnerKind.Repo) tr("未找到仓库，或当前账号没有访问权限") else tr("未找到该账号，或当前账号没有访问权限"))
+        val owner = r.data.obj(ownerKey) ?: throw r.failure(if (kind == ProjectOwnerKind.Repo) "未找到仓库，或当前账号没有访问权限" else "未找到该账号，或当前账号没有访问权限")
         val conn = owner.obj("projectsV2") ?: throw r.failure(ProjectErrors.NOT_FOUND_MESSAGE)
         return connection(conn, after, ::parseSummary)
     }
 
-    open suspend fun detail(projectId: String): ProjectDetail {
+    suspend fun detail(projectId: String): ProjectDetail {
         val r = read(DETAIL_QUERY, mapOf("id" to projectId))
         val node = r.data.obj("node")?.takeIf { it.str("id") != null } ?: throw r.failure(ProjectErrors.NOT_FOUND_MESSAGE)
         return ProjectDetail(
@@ -310,206 +359,9 @@ open class ProjectsClient(
     }
 
     suspend fun items(projectId: String, after: String?): DiscussionPage<ProjectItem> {
-        if (projectId.startsWith("/") || projectId.startsWith("http")) {
-            return DiscussionPage(emptyList(), null, false, 0)
-        }
-        return try {
-            val r = read(ITEMS_QUERY, mapOf("id" to projectId, "after" to after))
-            val node = r.data.obj("node") ?: throw r.failure(ProjectErrors.NOT_FOUND_MESSAGE)
-            connection(node.obj("items") ?: malformed("items"), after, ::parseItem)
-        } catch (e: ApiException) {
-            if (ProjectErrors.ofMessage(e.message) == ProjectErrorKind.Scope) {
-                DiscussionPage(emptyList(), null, false, 0)
-            } else {
-                throw e
-            }
-        }
-    }
-
-    internal suspend fun listFromWeb(kind: ProjectOwnerKind, login: String, name: String = ""): DiscussionPage<ProjectSummary> = withContext(Dispatchers.IO) {
-        val path = when (kind) {
-            ProjectOwnerKind.Org -> "orgs/$login/projects"
-            ProjectOwnerKind.User -> "users/$login/projects"
-            ProjectOwnerKind.Repo -> "$login/$name/projects"
-        }
-        val url = "https://github.com/$path"
-        val request = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-            .header("Accept-Language", "en-US,en;q=0.9")
-            .build()
-        val response = Api.http.routed().newCall(request).await()
-        if (response.code == 404) return@withContext DiscussionPage(emptyList(), null, false, 0)
-        if (!response.isSuccessful) throw ApiException(response.code, trf("公开网页加载失败 ({0})", response.code))
-        val html = response.body.string()
-        val items = parseProjectsFromHtml(html)
-        DiscussionPage(items, null, false, items.size)
-    }
-
-    internal fun parseProjectsFromHtml(html: String): List<ProjectSummary> {
-        val rowRegex = Regex("""<li[^>]*class="[^"]*Box-row[^"]*"[^>]*>(.*?)</li>""", RegexOption.DOT_MATCHES_ALL)
-        val linkRegex = Regex("""<a[^>]*href="([^"]*/projects/(\d+))"[^>]*>([^<]+)</a>""")
-        val descRegex = Regex("""class="text-normal"[^>]*>\s*([^<]+)\s*</span>""")
-        val timeRegex = Regex("""<relative-time[^>]*datetime="([^"]+)"""")
-
-        val list = mutableListOf<ProjectSummary>()
-        for (m in rowRegex.findAll(html)) {
-            val row = m.groupValues[1]
-            val linkMatch = linkRegex.find(row) ?: continue
-            val href = linkMatch.groupValues[1]
-            val number = linkMatch.groupValues[2].toIntOrNull() ?: 0
-            val title = Web.unescape(linkMatch.groupValues[3].trim())
-            val desc = descRegex.find(row)?.groupValues?.getOrNull(1)?.let { Web.unescape(it.trim()) }
-            val time = timeRegex.find(row)?.groupValues?.getOrNull(1)
-            val closed = row.contains("octicon-issue-closed") || row.contains("Closed")
-            list.add(
-                ProjectSummary(
-                    id = href,
-                    number = number,
-                    title = title,
-                    shortDescription = desc,
-                    closed = closed,
-                    public = true,
-                    updatedAt = time,
-                    url = "https://github.com$href",
-                    itemCount = null,
-                )
-            )
-        }
-        return list
-    }
-
-    internal suspend fun detailFromWeb(projectId: String): ProjectDetail = withContext(Dispatchers.IO) {
-        val url = if (projectId.startsWith("http")) projectId else "https://github.com/${projectId.removePrefix("/")}"
-        val request = Request.Builder().url(url)
-            .header("User-Agent", "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
-            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-            .header("Accept-Language", "en-US,en;q=0.9")
-            .build()
-        val response = Api.http.routed().newCall(request).await()
-        if (response.code == 404) throw ApiException(404, ProjectErrors.NOT_FOUND_MESSAGE)
-        if (!response.isSuccessful) throw ApiException(response.code, trf("公开网页加载失败 ({0})", response.code))
-        val html = response.body.string()
-
-        fun extractJson(id: String): JsonElement? {
-            val pattern = Regex("""<script type="application/json" id="$id">(.*?)</script>""", RegexOption.DOT_MATCHES_ALL)
-            val raw = pattern.find(html)?.groupValues?.getOrNull(1) ?: return null
-            return runCatching { Api.json.parseToJsonElement(raw) }.getOrNull()
-        }
-
-        val memexData = extractJson("memex-data") as? JsonObject ?: throw ApiException(404, ProjectErrors.NOT_FOUND_MESSAGE)
-        val title = memexData.str("title") ?: tr("项目")
-        val number = memexData.int("number") ?: 0
-        val shortDesc = memexData.str("shortDescription")
-        val closed = memexData["closedAt"] != null && memexData["closedAt"] !is JsonNull
-
-        val columnsData = (extractJson("memex-columns-data") as? JsonArray)?.objects().orEmpty()
-        val fields = columnsData.mapNotNull { col ->
-            val id = col.str("id") ?: col.int("databaseId")?.toString() ?: return@mapNotNull null
-            val name = col.str("name").orEmpty()
-            val dataType = col.str("dataType").orEmpty().uppercase()
-            val options = col.obj("settings")?.arr("options")?.objects().orEmpty().mapNotNull { opt ->
-                val optId = opt.str("id") ?: return@mapNotNull null
-                val optName = opt.str("name").orEmpty()
-                val optColor = ProjectColor.of(opt.str("color"))
-                ProjectOption(optId, optName, optColor)
-            }
-            ProjectField(id, name, if (dataType == "SINGLESELECT") "SINGLE_SELECT" else dataType, options)
-        }
-
-        val viewsData = (extractJson("memex-views") as? JsonArray)?.objects().orEmpty()
-        val views = viewsData.mapNotNull { v ->
-            val id = v.str("id") ?: v.int("number")?.toString() ?: return@mapNotNull null
-            val viewNum = v.int("number") ?: 0
-            val viewName = v.str("name").orEmpty()
-            val layout = ProjectLayout.of(v.str("layout")?.uppercase())
-            val verticalGroupBy = v.arr("verticalGroupBy")?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
-            val groupBy = v.arr("groupBy")?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
-            ProjectView(id, viewNum, viewName, layout, groupByFieldIds = groupBy, verticalGroupByFieldIds = verticalGroupBy)
-        }
-
-        val itemsData = extractJson("memex-paginated-items-data") as? JsonObject
-        val itemsList = if (itemsData != null) parseWebItems(itemsData) else emptyList()
-
-        ProjectDetail(
-            id = projectId,
-            number = number,
-            title = title,
-            shortDescription = shortDesc,
-            closed = closed,
-            url = url,
-            viewerCanUpdate = false,
-            fields = fields,
-            views = views,
-            items = DiscussionPage(itemsList, null, false, itemsList.size),
-        )
-    }
-
-    internal fun parseWebItems(itemsData: JsonObject): List<ProjectItem> {
-        val result = mutableListOf<ProjectItem>()
-        val groupedList = itemsData.arr("groupedItems")?.objects()
-        val directNodes = itemsData.arr("nodes")?.objects()
-        val allNodes = when {
-            groupedList != null -> groupedList.flatMap { it.arr("nodes")?.objects().orEmpty() }
-            directNodes != null -> directNodes
-            else -> emptyList()
-        }
-        for (node in allNodes) {
-            val id = node.str("id") ?: node.int("id")?.toString() ?: continue
-            val contentType = node.str("contentType")
-            val itemType = ProjectItemType.of(contentType, contentType)
-            val content = node.obj("content")
-            val url = content?.str("url")
-            val columnValues = node.arr("memexProjectColumnValues")?.objects().orEmpty()
-
-            var title = ""
-            var number: Int? = null
-            var state: String? = null
-            var stateReason: String? = null
-            val values = mutableListOf<ProjectFieldValue>()
-
-            for (cv in columnValues) {
-                val colId = cv.str("memexProjectColumnId") ?: cv.int("memexProjectColumnId")?.toString().orEmpty()
-                val valObj = cv.obj("value")
-                if (colId.equals("Title", ignoreCase = true)) {
-                    valObj?.obj("title")?.str("raw")?.let { title = it }
-                    if (title.isBlank()) valObj?.str("raw")?.let { title = it }
-                    number = valObj?.int("number")
-                    state = valObj?.str("state")?.uppercase()
-                    stateReason = valObj?.str("stateReason")
-                } else if (valObj != null) {
-                    val singleSelectId = valObj.str("id")
-                    val singleSelectName = valObj.str("name")
-                    if (singleSelectId != null && singleSelectName != null) {
-                        values.add(ProjectFieldValue(colId, colId, "SINGLE_SELECT", ProjectValueKind.SingleSelect, singleSelectName, singleSelectId))
-                    }
-                }
-            }
-            if (title.isBlank()) {
-                title = content?.str("title") ?: tr("无标题")
-            }
-            val repo = url?.substringAfter("https://github.com/")?.substringBefore("/issues/")?.takeIf { it.contains('/') }
-                ?: url?.substringAfter("https://github.com/")?.substringBefore("/pull/")?.takeIf { it.contains('/') }
-
-            result.add(
-                ProjectItem(
-                    id = id,
-                    type = itemType,
-                    archived = node.bool("archived") ?: false,
-                    title = title,
-                    number = number,
-                    url = url,
-                    repository = repo,
-                    state = state,
-                    stateReason = stateReason,
-                    isDraft = itemType == ProjectItemType.DraftIssue,
-                    merged = state == "MERGED",
-                    body = null,
-                    values = values,
-                )
-            )
-        }
-        return result
+        val r = read(ITEMS_QUERY, mapOf("id" to projectId, "after" to after))
+        val node = r.data.obj("node") ?: throw r.failure(ProjectErrors.NOT_FOUND_MESSAGE)
+        return connection(node.obj("items") ?: malformed("items"), after, ::parseItem)
     }
 
     /** 设置单选字段；optionId 为 null 时清空该字段。仅由用户的显式操作调用，不自动重试。 */
@@ -522,24 +374,62 @@ open class ProjectsClient(
         }
         val r = write(if (optionId == null) CLEAR_MUTATION else UPDATE_MUTATION, mapOf("input" to input))
         val key = if (optionId == null) "clearProjectV2ItemFieldValue" else "updateProjectV2ItemFieldValue"
-        r.data.obj(key)?.obj("projectV2Item")?.str("id") ?: throw r.failure(tr("GitHub 未确认字段已修改；请刷新检查"))
+        r.data.obj(key)?.obj("projectV2Item")?.str("id") ?: throw r.failure("GitHub 未确认字段已修改；请刷新检查")
+    }
+
+    /** 设置文本、数字或日期字段；空值使用官方 clear mutation。 */
+    suspend fun setFieldValue(projectId: String, itemId: String, field: ProjectField, rawValue: String?) {
+        val value = rawValue?.let { normalizeProjectFieldInput(field, it) }
+        if (value == null) {
+            clearFieldValue(projectId, itemId, field.id)
+            return
+        }
+        val kind = field.editableValueKind() ?: throw IllegalArgumentException("${field.name} 不支持编辑")
+        val fieldValue = buildJsonObject {
+            when (kind) {
+                ProjectValueKind.Text -> put("text", value)
+                ProjectValueKind.Number -> put("number", value.toDouble())
+                ProjectValueKind.Date -> put("date", value)
+                else -> error("${field.name} 不支持编辑")
+            }
+        }
+        val input = buildJsonObject {
+            put("projectId", projectId)
+            put("itemId", itemId)
+            put("fieldId", field.id)
+            put("value", fieldValue)
+        }
+        val r = write(UPDATE_MUTATION, mapOf("input" to input))
+        r.data.obj("updateProjectV2ItemFieldValue")?.obj("projectV2Item")?.str("id")
+            ?: throw r.failure("GitHub 未确认字段已修改；请刷新检查")
+    }
+
+    private suspend fun clearFieldValue(projectId: String, itemId: String, fieldId: String) {
+        val input = buildJsonObject {
+            put("projectId", projectId)
+            put("itemId", itemId)
+            put("fieldId", fieldId)
+        }
+        val r = write(CLEAR_MUTATION, mapOf("input" to input))
+        r.data.obj("clearProjectV2ItemFieldValue")?.obj("projectV2Item")?.str("id")
+            ?: throw r.failure("GitHub 未确认字段已修改；请刷新检查")
     }
 
     suspend fun delete(projectId: String, itemId: String) {
         val input = buildJsonObject { put("projectId", projectId); put("itemId", itemId) }
         val r = write(DELETE_MUTATION, mapOf("input" to input))
-        r.data.obj("deleteProjectV2Item")?.str("deletedItemId") ?: throw r.failure(tr("GitHub 未确认条目已移除；请刷新检查"))
+        r.data.obj("deleteProjectV2Item")?.str("deletedItemId") ?: throw r.failure("GitHub 未确认条目已移除；请刷新检查")
     }
 
     suspend fun addDraft(projectId: String, title: String, body: String): ProjectItem {
-        require(title.isNotBlank()) { tr("请填写标题") }
+        require(title.isNotBlank()) { "请填写标题" }
         val input = buildJsonObject {
             put("projectId", projectId)
             put("title", title.trim())
             if (body.isNotBlank()) put("body", body)
         }
         val r = write(ADD_DRAFT_MUTATION, mapOf("input" to input))
-        val node = r.data.obj("addProjectV2DraftIssue")?.obj("projectItem") ?: throw r.failure(tr("GitHub 未确认草稿已添加；请刷新检查"))
+        val node = r.data.obj("addProjectV2DraftIssue")?.obj("projectItem") ?: throw r.failure("GitHub 未确认草稿已添加；请刷新检查")
         return parseItem(node)
     }
 
@@ -550,7 +440,7 @@ open class ProjectsClient(
             val e = errors.firstOrNull() ?: return ApiException(404, fallback)
             val msg = e.str("message")
             return when (ProjectErrors.classify(e.str("type"), msg)) {
-                ProjectErrorKind.Forbidden -> ApiException(403, ProjectErrors.FORBIDDEN_PREFIX + (msg ?: tr("权限不足")))
+                ProjectErrorKind.Forbidden -> ApiException(403, ProjectErrors.FORBIDDEN_PREFIX + (msg ?: "权限不足"))
                 ProjectErrorKind.NotFound -> ApiException(404, fallback)
                 else -> ApiException(400, msg ?: fallback)
             }
@@ -568,7 +458,7 @@ open class ProjectsClient(
         }
         val data = root["data"] as? JsonObject
         val result = Result(data, errors)
-        if (data == null) throw result.failure(tr("GraphQL 错误"))
+        if (data == null) throw result.failure("GraphQL 错误")
         return result
     }
 
@@ -611,7 +501,7 @@ open class ProjectsClient(
         return ProjectItem(
             id = n.need("id"), type = if (content == null) ProjectItemType.Redacted else type,
             archived = n.bool("isArchived") ?: false,
-            title = content?.str("title") ?: tr("无权访问的条目"),
+            title = content?.str("title") ?: "无权访问的条目",
             number = content?.int("number"), url = content?.str("url"),
             repository = content?.obj("repository")?.str("nameWithOwner"),
             state = content?.str(if (pr) "prState" else "issueState"), stateReason = content?.str("stateReason"),
@@ -647,14 +537,14 @@ open class ProjectsClient(
         val info = node.obj("pageInfo") ?: malformed("pageInfo")
         val next = info.str("endCursor")
         val hasNext = info.bool("hasNextPage") ?: false
-        if (hasNext && (next.isNullOrBlank() || next == after)) throw ApiException(502, tr("GitHub 返回的分页游标无效，请刷新重试"))
+        if (hasNext && (next.isNullOrBlank() || next == after)) throw ApiException(502, "GitHub 返回的分页游标无效，请刷新重试")
         val items = nodes.mapNotNull { if (it is JsonObject) parse(it) else null }
         return DiscussionPage(items, next, hasNext, node.int("totalCount") ?: items.size)
     }
 
     private fun JsonElement.bool(key: String) = ((this as? JsonObject)?.get(key) as? JsonPrimitive)?.takeIf { it !is JsonNull }?.booleanOrNull
     private fun JsonObject.need(key: String) = str(key) ?: malformed(key)
-    private fun malformed(key: String): Nothing = throw ApiException(502, trf("GitHub 项目数据不完整：{0}", key))
+    private fun malformed(key: String): Nothing = throw ApiException(502, "GitHub 项目数据不完整：$key")
 
     companion object {
         const val LIST_PAGE = 20
@@ -745,33 +635,4 @@ open class ProjectsClient(
     }
 }
 
-object Projects : ProjectsClient() {
-    override suspend fun list(kind: ProjectOwnerKind, login: String, name: String, after: String?): DiscussionPage<ProjectSummary> {
-        return try {
-            super.list(kind, login, name, after)
-        } catch (e: ApiException) {
-            if (ProjectErrors.ofMessage(e.message) == ProjectErrorKind.Scope) {
-                // Token 缺少 read:project 权限时（如官方移动端 OAuth 登录），自动抓取公开网页数据并解析为 ProjectSummary 原生模型，100% 原生渲染
-                listFromWeb(kind, login, name)
-            } else {
-                throw e
-            }
-        }
-    }
-
-    override suspend fun detail(projectId: String): ProjectDetail {
-        return if (projectId.startsWith("/") || projectId.startsWith("http")) {
-            detailFromWeb(projectId)
-        } else {
-            try {
-                super.detail(projectId)
-            } catch (e: ApiException) {
-                if (ProjectErrors.ofMessage(e.message) == ProjectErrorKind.Scope) {
-                    detailFromWeb(projectId)
-                } else {
-                    throw e
-                }
-            }
-        }
-    }
-}
+object Projects : ProjectsClient()

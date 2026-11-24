@@ -260,7 +260,9 @@ fun NewIssueScreen(owner: String, name: String, parentNodeId: String? = null, pa
             onError = { sharedUploadError = it; ctx.toast(trf("分享图片上传失败：{0}", it)) },
             label = tr("上传分享图片"),
         ) {
-            if (!com.mobilegh.ui.components.GitHubWebLogin.hasSession()) error(tr("请先登录 GitHub 网页会话后重试"))
+            if (com.mobilegh.data.Session.token == null && !com.mobilegh.ui.components.GitHubWebLogin.hasSession()) {
+                error(tr("请先登录 GitHub 账号后重试"))
+            }
             uploadShared(
                 attachments = attachments,
                 startIndex = sharedUploadIndex,

@@ -71,13 +71,11 @@ class IssuesComprehensiveVerificationTest {
             }
         }
 
-        // Wait for both failure UI states to appear
-        compose.waitUntil(5000) {
-            runCatching {
-                compose.onNodeWithText("重新加载").assertIsDisplayed()
-                compose.onNodeWithText("重试").assertIsDisplayed()
-                true
-            }.getOrDefault(false)
+        // The failure UI appears after the automatic recovery attempts.
+        compose.waitUntil(12_000) {
+            compose.mainClock.advanceTimeBy(1_000)
+            compose.onAllNodesWithText("重新加载").fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodesWithText("重试").fetchSemanticsNodes().isNotEmpty()
         }
 
         assertNull("ImageViewer should be closed initially", ImageViewer.url)

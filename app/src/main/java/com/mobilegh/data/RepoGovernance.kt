@@ -3,6 +3,11 @@ package com.mobilegh.data
 import com.mobilegh.i18n.tr
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.io.InputStream
 
 /*
@@ -145,6 +150,29 @@ internal const val DISABLE_AUTO_MERGE =
 fun releaseAssetUploadUrl(owner: String, name: String, releaseId: Long, fileName: String): String =
     "https://uploads.github.com/repos/$owner/$name/releases/$releaseId/assets?name=${Api.q(fileName)}"
 
+internal fun releaseAssetPath(owner: String, name: String, assetId: Long): String =
+    "/repos/${Api.encodePath(owner)}/${Api.encodePath(name)}/releases/assets/$assetId"
+
+internal fun releaseAssetUpdateBody(name: String, label: String?): JsonObject = buildJsonObject {
+    put("name", name)
+    put("label", label?.let(::JsonPrimitive) ?: JsonNull)
+}
+
+/** Returns selected names that already exist on the release, ignoring case for a safe upload preflight. */
+internal fun releaseAssetNameConflicts(
+    assets: List<Asset>,
+    selectedNames: List<String>,
+    replacingAssetId: Long? = null,
+): List<String> {
+    val existing = assets
+        .filter { it.id != replacingAssetId }
+        .map { it.name.lowercase() }
+        .toSet()
+    return selectedNames
+        .filter { it.lowercase() in existing }
+        .distinct()
+}
+
 object RepoGovernance {
     private fun r(o: String, n: String) = "/repos/$o/$n"
 
@@ -191,5 +219,17 @@ object RepoGovernance {
         val resp = Api.uploadRaw(releaseAssetUploadUrl(o, n, releaseId, fileName), mediaType, size, open)
         Api.ensureOk(resp)
         return Api.json.decodeFromString(resp.body)
+    }
+
+    suspend fun updateReleaseAsset(
+        o: String,
+        n: String,
+        assetId: Long,
+        fileName: String,
+        label: String?,
+    ): Asset = Api.send("PATCH", releaseAssetPath(o, n, assetId), releaseAssetUpdateBody(fileName, label))
+
+    suspend fun deleteReleaseAsset(o: String, n: String, assetId: Long) {
+        Api.exec("DELETE", releaseAssetPath(o, n, assetId))
     }
 }

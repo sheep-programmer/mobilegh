@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.data.GitHub
+import com.mobilegh.data.Api
 import com.mobilegh.data.Invitation
 import com.mobilegh.data.OrgMembership
 import com.mobilegh.data.Session
@@ -95,6 +96,8 @@ import com.mobilegh.ui.components.UserItem
 import com.mobilegh.ui.theme.Gh
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
+import com.mobilegh.data.RepoFeedCache
+import java.io.File
 import kotlinx.coroutines.flow.first
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
@@ -135,8 +138,15 @@ fun ReposTab() {
     val orgs = directory.data?.orgs.orEmpty().map { it.login }
     val safeOrg = selectedOrg?.takeIf { it in orgs }
     val key = "repos:$filter:$sort:$visibility"
-    val pager = rememberPager(key) { p, force ->
+    val diskSnapshot = remember(key) { RepoFeedCache(File(Api.cacheDir, "repo-feeds")).read(key) }
+    val pager = rememberPager(key, restore = { p -> diskSnapshot?.let { p.restoreFrom(it.items, 1, it.ended) } == true }) { p, force ->
         if (filter == 3) emptyList() else GitHub.myRepos(filters[filter].second, SORTS[sort].first, vis[visibility].first, p, force)
+    }
+    LaunchedEffect(pager, diskSnapshot) { if (diskSnapshot != null) pager.refreshSilently() }
+    LaunchedEffect(pager, pager.loading, pager.silentRefreshVersion) {
+        if (pager.loadedOnce && !pager.loading && pager.error == null) {
+            RepoFeedCache(File(Api.cacheDir, "repo-feeds")).write(key, pager.items, pager.committedPages, pager.end)
+        }
     }
     // 新建或 Fork 仓库后回到列表时自动刷新
     com.mobilegh.nav.OnRepoChanged(com.mobilegh.data.RepoWrite.ANY, com.mobilegh.data.RepoWrite.ANY, com.mobilegh.data.RepoWrite.REPOS) { pager.refresh() }

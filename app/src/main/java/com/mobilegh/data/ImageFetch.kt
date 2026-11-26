@@ -145,8 +145,8 @@ object ImageFetch {
     private val http by lazy {
         Api.http.newBuilder()
             .connectTimeout(4, TimeUnit.SECONDS)
-            .readTimeout(12, TimeUnit.SECONDS)
-            .callTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(8, TimeUnit.SECONDS)
+            .callTimeout(10, TimeUnit.SECONDS)
             // 列表页会同时出现十几张头像；默认「每主机 5 个并发」会把它们排成一条长队。
             .dispatcher(Dispatcher().apply { maxRequests = 64; maxRequestsPerHost = 16 })
             .build()
@@ -228,6 +228,7 @@ object ImageFetch {
             if (force) {
                 failed.remove(key)
                 cache.remove(key)
+                Net.clearImageTransientFailures(target)
             } else {
                 cached(target)?.let { own.result = it; return it }
                 if (recentFailure(key) != null) return null
@@ -283,7 +284,7 @@ object ImageFetch {
             isMissing = { sourceMissing() || key != cacheKey(target) },
         ) { attempt ->
             if (attempt == 0) race(target, candidates, force, outcomes)
-            else race(target, official.filter { outcomes[it.first]?.missing != true }, force = true, outcomes)
+            else race(target, candidates.filter { outcomes[it.first]?.missing != true }, force = true, outcomes)
         }
         if (key != cacheKey(target) || token != Session.token) return Outcome(null, false)
         if (winner == null) {

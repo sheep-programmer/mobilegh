@@ -92,6 +92,16 @@ fun DownloadHost() {
     val bodyHeight = (LocalConfiguration.current.screenHeightDp.dp * 0.45f).coerceAtLeast(64.dp)
     var clearDialog by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<DownloadTask?>(null) }
+    val autoInstallKey = Downloads.pendingAutoInstallKey
+    androidx.compose.runtime.LaunchedEffect(autoInstallKey) {
+        if (autoInstallKey != null) {
+            val task = Downloads.tasks.firstOrNull {
+                it.key == autoInstallKey && it.state == DownloadState.Complete && !Downloads.isFileMissing(it)
+            }
+            Downloads.pendingAutoInstallKey = null
+            if (task != null) Downloads.installApk(ctx, task)
+        }
+    }
     pendingDelete?.let { task ->
         // 删除手机上的文件无法恢复，先确认
         GhDialog(tr("删除本地文件？"), { pendingDelete = null }, confirm = tr("删除"), danger = true, onConfirm = {
@@ -109,12 +119,13 @@ fun DownloadHost() {
         // 记录是完成的，但文件已经不在手机上：不再显示「下载完成」，改为提供重新下载
         val missing = Downloads.isFileMissing(selected)
         val done = selected.state == DownloadState.Complete && !missing
+        val isUpdate = selected.isAppUpdate || com.mobilegh.data.Update.isPendingUpdate(selected.filename)
         val stateTitle = when {
-            missing -> tr("文件已不在")
-            selected.state == DownloadState.Complete -> tr("下载完成")
-            selected.state == DownloadState.Failed -> tr("下载失败")
-            selected.state == DownloadState.Cancelled -> tr("已取消下载")
-            else -> tr("下载详情")
+            missing -> tr(if (isUpdate) "更新包已不在" else "文件已不在")
+            selected.state == DownloadState.Complete -> tr(if (isUpdate) "更新包已就绪" else "下载完成")
+            selected.state == DownloadState.Failed -> tr(if (isUpdate) "更新下载失败" else "下载失败")
+            selected.state == DownloadState.Cancelled -> tr(if (isUpdate) "已取消更新" else "已取消下载")
+            else -> tr(if (isUpdate) "应用更新" else "下载详情")
         }
         AlertDialog(
             onDismissRequest = Downloads::minimize,
@@ -125,7 +136,11 @@ fun DownloadHost() {
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Oc(
-                        if (done) R.drawable.oc_check_circle_fill else R.drawable.oc_download,
+                        when {
+                            done -> R.drawable.oc_check_circle_fill
+                            isUpdate -> R.drawable.oc_sync
+                            else -> R.drawable.oc_download
+                        },
                         when {
                             done -> g.success
                             missing -> g.attention
@@ -145,6 +160,10 @@ fun DownloadHost() {
             },
             text = {
                 Column(Modifier.heightIn(max = bodyHeight).verticalScrollWithBar()) {
+                    if (isUpdate) {
+                        Pill(tr("MobileGH 应用更新"), g.accent)
+                        Spacer(Modifier.height(8.dp))
+                    }
                     Text(selected.filename, color = g.fg, fontWeight = FontWeight.Medium, fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(18.dp))
                     DownloadProgress(selected)
@@ -155,7 +174,15 @@ fun DownloadHost() {
                         }
                     }
                     Spacer(Modifier.height(14.dp))
-                    Text(if (selected.appDirectory) tr("保存到 MobileGH 的下载目录") else tr("保存到手机「下载」文件夹"), fontSize = 12.sp, color = g.fgMuted)
+                    Text(
+                        when {
+                            isUpdate -> tr("应用更新包 · 下载完成后自动安装")
+                            selected.appDirectory -> tr("保存到 MobileGH 的下载目录")
+                            else -> tr("保存到手机「下载」文件夹")
+                        },
+                        fontSize = 12.sp,
+                        color = g.fgMuted,
+                    )
                 }
             },
             confirmButton = {
@@ -244,10 +271,23 @@ fun DownloadHost() {
                                     .padding(start = 12.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
                             ) {
                                 Box(Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).background(g.accent.copy(alpha = 0.10f)), contentAlignment = Alignment.Center) {
-                                    Oc(if (task.filename.endsWith(".apk", true)) R.drawable.oc_package else R.drawable.oc_file, g.accent, 18.dp)
+                                    val isUpdateTask = task.isAppUpdate || com.mobilegh.data.Update.isPendingUpdate(task.filename)
+                                    Oc(
+                                        when {
+                                            isUpdateTask -> R.drawable.oc_sync
+                                            task.filename.endsWith(".apk", true) -> R.drawable.oc_package
+                                            else -> R.drawable.oc_file
+                                        },
+                                        g.accent,
+                                        18.dp,
+                                    )
                                 }
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
+                                    if (task.isAppUpdate || com.mobilegh.data.Update.isPendingUpdate(task.filename)) {
+                                        Pill(tr("应用更新"), g.accent)
+                                        Spacer(Modifier.height(4.dp))
+                                    }
                                     Text(task.filename, color = g.fg, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                     Spacer(Modifier.height(8.dp))
                                     DownloadProgress(task)
@@ -352,15 +392,22 @@ fun DownloadHost() {
 @Composable
 private fun FinishedNotice(task: DownloadTask) {
     val g = Gh.c
+    val ctx = rememberCtx()
     val failed = task.state == DownloadState.Failed
+    val isUpdate = task.isAppUpdate || com.mobilegh.data.Update.isPendingUpdate(task.filename)
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
         Row(
             Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp).fillMaxWidth().testTag("download-completion-notice")
                 .clip(RoundedCornerShape(12.dp)).background(g.canvas)
                 .border(1.dp, g.border, RoundedCornerShape(12.dp))
                 .clickable {
-                    // 查看详情后返回仍能找到，只有明确关闭才移除悬浮提示。
-                    Downloads.selectedKey = task.key
+                    if (isUpdate && !failed) {
+                        Downloads.closeOverlay()
+                        Downloads.installApk(ctx, task)
+                    } else {
+                        // 查看详情后返回仍能找到，只有明确关闭才移除悬浮提示。
+                        Downloads.selectedKey = task.key
+                    }
                 }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -368,10 +415,18 @@ private fun FinishedNotice(task: DownloadTask) {
             Oc(if (failed) R.drawable.oc_x else R.drawable.oc_check, if (failed) g.danger else g.success, 18.dp)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(if (failed) tr("下载失败") else tr("下载完成"), color = g.fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    when {
+                        failed && isUpdate -> tr("应用更新失败")
+                        failed -> tr("下载失败")
+                        isUpdate -> tr("应用更新已就绪")
+                        else -> tr("下载完成")
+                    },
+                    color = g.fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                )
                 Text(task.filename, color = g.fgMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text(tr("点按查看"), color = g.accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            Text(tr(if (isUpdate && !failed) "立即安装" else "点按查看"), color = g.accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             DownloadCircleAction(R.drawable.oc_x, Downloads::closeOverlay, tr("关闭"), size = 36.dp, danger = false)
         }
     }

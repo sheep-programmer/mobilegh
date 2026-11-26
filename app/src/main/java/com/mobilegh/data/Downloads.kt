@@ -266,6 +266,8 @@ object Downloads {
 
     val tasks = mutableStateListOf<DownloadTask>()
     var selectedKey by mutableStateOf<String?>(null)
+    var pendingAutoInstallKey by mutableStateOf<String?>(null)
+    private val autoInstalledKeys = HashSet<String>()
     var showHistory by mutableStateOf(false)
     var minimized by mutableStateOf(false)
         internal set
@@ -1286,6 +1288,9 @@ object Downloads {
                 // 记下哪个节点真的下成了：下次优先用它，失败过的节点排到最后
                 if (old.state != task.state && task.state == DownloadState.Complete) {
                     task.nodeId?.let(Net::markDownloadOk)
+                    if ((task.isAppUpdate || Update.isPendingUpdate(task.filename)) && autoInstalledKeys.add(task.key)) {
+                        pendingAutoInstallKey = task.key
+                    }
                 }
                 // 完成或失败时用户不在看它的弹窗（例如点过「后台下载」）：留下提示，避免完成后找不到
                 if (old.state != task.state && task.state in setOf(DownloadState.Complete, DownloadState.Failed) && selectedKey != task.key) {

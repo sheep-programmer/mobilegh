@@ -28,12 +28,28 @@ class RepoBrowseHelpersTest {
 
         assertEquals("Fix parser", fileCommitMessage(commit))
         assertEquals("2026-11-24T08:30:00Z", fileCommitDate(commit))
+        val formatted = fileEntryCommitTime("2026-11-24T08:30:00Z")
+        assertTrue(formatted.contains("(") && formatted.contains(")"))
+        assertEquals("", fileEntryCommitTime(null))
+        assertEquals("not-a-date", fileEntryCommitTime("not-a-date"))
     }
 
     @Test fun readmeIndexFollowsTheLanguageBarPosition() {
         // 0 头部、1 按钮、2 分支行、3 快捷入口，有语言条时它占第 4 项
         assertEquals(4, repoReadmeIndex(hasLanguages = false))
         assertEquals(5, repoReadmeIndex(hasLanguages = true))
+    }
+
+    @Test fun readmeBaseUrlUsesHtmlDataPathWhenPresent() {
+        val html = """<div id="readme" class="md" data-path="docs/README.md"><article>...</article></div>"""
+        assertEquals(
+            "https://github.com/tiann/KernelSU/blob/main/docs/README.md",
+            readmeBaseUrl("tiann", "KernelSU", "main", html),
+        )
+        assertEquals(
+            "https://github.com/tiann/KernelSU/blob/main/README.md",
+            readmeBaseUrl("tiann", "KernelSU", "main", "<article>no data-path</article>"),
+        )
     }
 
     @Test fun jumpLineAcceptsOnlyLinesInsideTheFile() {

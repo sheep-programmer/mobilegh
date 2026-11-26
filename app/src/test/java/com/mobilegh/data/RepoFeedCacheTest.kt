@@ -63,4 +63,15 @@ class RepoFeedCacheTest {
 
         assertNull(cache.read("repos:all", nowMs = 1_000L))
     }
+
+    @Test fun overwritesExistingEntryAndRestoresCursors() {
+        val cache = RepoFeedCache(folder.root)
+        cache.write("starred", listOf(Repo(id = 1)), pages = 1, ended = false, nowMs = 1_000L, cursors = mapOf(2 to "c2"))
+        cache.write("starred", listOf(Repo(id = 1), Repo(id = 2)), pages = 2, ended = false, nowMs = 2_000L, cursors = mapOf(2 to "c2", 3 to "c3"))
+
+        val restored = cache.read("starred", nowMs = 3_000L)
+        assertNotNull(restored)
+        assertEquals(2, restored!!.items.size)
+        assertEquals(mapOf(2 to "c2", 3 to "c3"), restored.cursors)
+    }
 }

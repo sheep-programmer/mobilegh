@@ -55,6 +55,9 @@ class DocumentTranslationTest {
         assertEquals("Read the upgrade guide.", sample)
         assertEquals("en", resolveTranslationLanguage(sample, { "en" }, { error("Document lookup is unnecessary") }))
         assertEquals("zh", resolveTranslationLanguage("简介", { "und" }, { "zh" }))
+        assertEquals("en", resolveTranslationLanguage("Installation", { "zh-Latn" }, { "en" }))
+        assertEquals("zh", normalizeTranslationLanguageTag("zh-Hant"))
+        assertEquals(null, normalizeTranslationLanguageTag("zh-Latn"))
         assertEquals(null, resolveTranslationLanguage("", { error("Empty prose") }, { error("Empty prose") }))
     }
 

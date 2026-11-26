@@ -71,16 +71,24 @@ internal fun translationLanguageSample(parts: Sequence<String>): String = buildS
     }
 }
 
+internal fun normalizeTranslationLanguageTag(tag: String): String? {
+    val clean = tag.trim().lowercase(java.util.Locale.ROOT)
+    if (clean.isEmpty() || clean == "und" || clean.endsWith("-latn") || "-latn-" in clean) return null
+    return when {
+        clean == "zh" || clean.startsWith("zh-") -> "zh"
+        clean == "en" || clean.startsWith("en-") -> "en"
+        else -> clean.substringBefore('-')
+    }
+}
+
 internal suspend fun resolveTranslationLanguage(
     sample: String,
     identify: suspend (String) -> String,
     documentLanguage: suspend () -> String?,
 ): String? {
     if (sample.isBlank()) return null
-    return when (val tag = identify(sample)) {
-        "und" -> documentLanguage()
-        else -> tag
-    }
+    val normalized = normalizeTranslationLanguageTag(identify(sample))
+    return normalized ?: documentLanguage()
 }
 
 private val preservedTokens = Regex("""(?i)https?://[^\s<>]+|(?<![\p{L}\p{N}])@[a-z\d_-]+|[a-z\d_.-]+/[a-z\d_.-]+|\bv?\d+(?:\.\d+)+\b""")
@@ -253,8 +261,14 @@ internal class DocumentTranslation(private val parsed: ParsedHtml, private val t
 
     private suspend fun documentLanguage(): String? = languageLock.withLock {
         if (!detected) {
-            val sample = translationLanguageSample(documentText(parsed.blocks))
-            if (sample.isNotBlank()) source = OfflineTranslation.identify(sample).takeUnless { it == "und" }
+            val filtered = documentText(parsed.blocks).filter { line ->
+                // 跳过顶部的多语言切换栏（如 "English | Español | 简体中文 | ..."），避免整篇语言被误判
+                line.count { it == '|' } < 3
+            }
+            val sample = translationLanguageSample(filtered).ifBlank {
+                translationLanguageSample(documentText(parsed.blocks))
+            }
+            if (sample.isNotBlank()) source = normalizeTranslationLanguageTag(OfflineTranslation.identify(sample))
             detected = true
         }
         source
@@ -265,12 +279,24 @@ internal class DocumentTranslation(private val parsed: ParsedHtml, private val t
             mapDocumentInlines(listOf(block)) { parts ->
                 val sample = translationLanguageSample(parts.asSequence().filterIsInstance<Inline.Text>()
                     .filterNot { it.style.code }.map { it.text })
-                val language = resolveTranslationLanguage(sample, OfflineTranslation::identify, ::documentLanguage)
-                if (language == null || language == target) return@mapDocumentInlines parts
+                val identified = resolveTranslationLanguage(sample, OfflineTranslation::identify, ::documentLanguage)
+                    ?: return@mapDocumentInlines parts
+                val docLang = if (identified != target && (sample.length < 24 || sample.split(Regex("\\s+")).size < 4)) {
+                    documentLanguage()
+                } else null
+                val language = docLang ?: identified
+                if (language == target) return@mapDocumentInlines parts
                 translateInlineRuns(parts) { text ->
                     val cacheKey = TranslationParagraphCache.Key(scope, language, target, text)
-                    cache.read(cacheKey) ?: polishTranslation(text, OfflineTranslation.translate(language, target, text), language, target)
-                        .also { result -> cache.write(cacheKey, result) }
+                    cache.read(cacheKey) ?: run {
+                        val result = try {
+                            OfflineTranslation.translate(language, target, text)
+                        } catch (missing: OfflineTranslation.ModelMissing) {
+                            val fallbackLang = documentLanguage()?.takeIf { it != language && it != target } ?: throw missing
+                            OfflineTranslation.translate(fallbackLang, target, text)
+                        }
+                        polishTranslation(text, result, language, target).also { cache.write(cacheKey, it) }
+                    }
                 }
             }.single()
         }

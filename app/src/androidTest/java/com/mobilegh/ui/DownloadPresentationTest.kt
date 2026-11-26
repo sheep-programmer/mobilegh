@@ -103,7 +103,11 @@ class DownloadPresentationTest {
     }
 
     @Test fun completionRemainsAfterViewingAndMinimizingAndHomeReopensAfterClose() {
-        compose.runOnUiThread { Downloads.finishedKey = task.key }
+        val regular = task.copy(key = "regular-complete", filename = "sample-release.apk", isAppUpdate = false)
+        compose.runOnUiThread {
+            Downloads.tasks[0] = regular
+            Downloads.finishedKey = regular.key
+        }
         compose.setContent {
             MobileGhTheme {
                 Column(Modifier.fillMaxSize()) {
@@ -122,11 +126,11 @@ class DownloadPresentationTest {
             image.compress(Bitmap.CompressFormat.PNG, 100, it)
         }
         compose.onNodeWithText("点按查看").performClick()
-        compose.onNodeWithText("安装更新").assertIsDisplayed()
+        compose.onNodeWithText("安装应用").assertIsDisplayed()
         compose.onNodeWithContentDescription("最小化").performClick()
         compose.onNodeWithText("下载完成").assertIsDisplayed()
         compose.onNodeWithText("点按查看").performClick()
-        compose.onNodeWithText("安装更新").assertIsDisplayed()
+        compose.onNodeWithText("安装应用").assertIsDisplayed()
         compose.waitForIdle()
         InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         compose.onNodeWithText("下载完成").assertIsDisplayed()
@@ -138,9 +142,35 @@ class DownloadPresentationTest {
             assertTrue(file.isFile)
         }
         compose.onNodeWithContentDescription("下载记录").performClick()
-        compose.onNodeWithText(task.filename).assertIsDisplayed()
-        compose.onNodeWithContentDescription("最小化").performClick()
-        compose.onNodeWithTag("download-minimized-pill").assertIsDisplayed()
+        compose.onNodeWithText(regular.filename).assertIsDisplayed()
+        compose.onNodeWithText("关闭").performClick()
+        compose.onNodeWithTag("download-minimized-pill").assertDoesNotExist()
+    }
+
+    @Test fun updateTasksShowDistinctUpdateUiInNoticeHistoryAndDetails() {
+        compose.runOnUiThread { Downloads.finishedKey = task.key }
+        compose.setContent {
+            MobileGhTheme {
+                Box(Modifier.fillMaxSize()) {
+                    DownloadOverlayLayout(bottomBarVisible = true) { DownloadHost() }
+                }
+            }
+        }
+        compose.onNodeWithText("应用更新已就绪").assertIsDisplayed()
+        compose.onNodeWithText("立即安装").assertIsDisplayed()
+
+        compose.runOnUiThread {
+            Downloads.selectedKey = task.key
+        }
+        compose.onNodeWithText("更新包已就绪").assertIsDisplayed()
+        compose.onNodeWithText("MobileGH 应用更新").assertIsDisplayed()
+        compose.onNodeWithText("安装更新").assertIsDisplayed()
+
+        compose.runOnUiThread {
+            Downloads.selectedKey = null
+            Downloads.showHistory = true
+        }
+        compose.onNodeWithText("应用更新").assertIsDisplayed()
     }
 
     @Test fun historyDialogIsRoomyAndKeepsCloseAndMinimizeReachable() {
@@ -157,7 +187,7 @@ class DownloadPresentationTest {
         compose.onNodeWithText(task.filename).assertIsDisplayed()
         compose.onNodeWithText("清空").assertIsDisplayed()
         compose.onNodeWithContentDescription("最小化").assertIsDisplayed()
-        compose.onNodeWithContentDescription("关闭").assertIsDisplayed()
+        compose.onNodeWithText("关闭").assertIsDisplayed()
         shot("download-history-filled.png")
         compose.runOnUiThread { Downloads.tasks.clear() }
         compose.onNodeWithText("还没有下载记录").assertIsDisplayed()
@@ -182,7 +212,7 @@ class DownloadPresentationTest {
         compose.onNodeWithTag("download-minimized-pill").performClick()
         compose.onNodeWithContentDescription("最小化").performClick()
         compose.onNodeWithTag("download-minimized-pill").performClick()
-        compose.onNodeWithContentDescription("关闭").performClick()
+        compose.onNodeWithText("关闭").performClick()
         compose.runOnIdle {
             assertTrue(Downloads.overlayClosed)
             assertEquals(DownloadState.Waiting, Downloads.tasks.single().state)

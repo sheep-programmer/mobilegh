@@ -6,7 +6,7 @@ MobileGH is a third-party GitHub client for Android built with Kotlin and Jetpac
 
 ## Screenshots
 
-These screenshots were captured from the v0.40.6 emulator build using fictional accounts and local fixtures.
+These screenshots were captured from the v0.40.11 emulator build using fictional accounts and local fixtures.
 
 <table>
   <tr>
@@ -30,7 +30,7 @@ These screenshots were captured from the v0.40.6 emulator build using fictional 
 
 ## Download and sign in
 
-Requires **Android 8.0 (API 26) or later**. The v0.40.8 ARM64 app is approximately **8.82 MiB**. [Release notes](docs/RELEASE_v0.40.8.md)
+Requires **Android 8.0 (API 26) or later**. See the latest Release for the v0.40.11 ARM64 APK and per-ABI checksums. [Release notes](docs/RELEASE_v0.40.11.md)
 
 | Device | APK |
 | --- | --- |
@@ -62,6 +62,8 @@ Use the page’s **⋯** menu to switch between the translation and the original
 ### Downloads and updates
 
 Open download history from the top-right corner of Home. The dash in the top-right corner of a download panel minimizes it. Closing the panel leaves tasks and files accessible from download history. When GitHub supplies a SHA-256 digest, the app verifies the file before saving it.
+
+In-app updates use a dedicated update UI distinct from regular file downloads and automatically launch the system package installer once the update APK finishes downloading. Network settings allow configuring acceleration mirrors independently for files/images and downloads/clones.
 
 ## Build and contribute
 

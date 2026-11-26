@@ -128,6 +128,7 @@ object Update {
             isPrivate = false,
             mimeType = "application/vnd.android.package-archive",
             isAppUpdate = true,
+            openDialog = true,
             digest = info.digest,
         )
     }

@@ -3394,3 +3394,16 @@ Copilot 代理会话已完成	Copilot agent session finished
 可选	Optional
 输入下面的文件名以确认：	Type the filename below to confirm:
 确定删除 {0} 吗？此操作无法恢复。	Delete {0}? This cannot be undone.
+加载图片中…	Loading image…
+重试中…	Retrying…
+立即安装	Install now
+查看更新进度	View update progress
+更新包已不在	Update package missing
+更新包已就绪	Update ready
+更新下载失败	Update failed
+已取消更新	Update cancelled
+应用更新	App update
+MobileGH 应用更新	MobileGH App Update
+应用更新包 · 下载完成后自动安装	App update package · installs automatically when downloaded
+应用更新失败	App update failed
+应用更新已就绪	App update ready

@@ -106,10 +106,28 @@ fun UpdateDialog(onDismiss: () -> Unit, onSkip: (() -> Unit)? = null) {
                 if (onSkip != null && info != null) GhButton(tr("跳过此版本"), onClick = onSkip)
                 GhButton(if (onSkip != null) tr("稍后") else tr("关闭"), onClick = onDismiss)
                 if (info != null && !Update.checking) {
-                    GhButton(tr("下载更新"), primary = true) {
-                        onDismiss()
-                        Update.download(info)
-                        ctx.toast(tr("正在下载，完成后在下载记录中安装"))
+                    val existing = com.mobilegh.data.Downloads.tasks.firstOrNull {
+                        (it.isAppUpdate || Update.isPendingUpdate(it.filename)) && it.filename == info.assetName
+                    }
+                    when {
+                        existing != null && existing.state == com.mobilegh.data.DownloadState.Complete && !com.mobilegh.data.Downloads.isFileMissing(existing) -> {
+                            GhButton(tr("立即安装"), primary = true) {
+                                onDismiss()
+                                com.mobilegh.data.Downloads.installApk(ctx, existing)
+                            }
+                        }
+                        existing != null && existing.active -> {
+                            GhButton(tr("查看更新进度"), primary = true) {
+                                onDismiss()
+                                com.mobilegh.data.Downloads.selectedKey = existing.key
+                            }
+                        }
+                        else -> {
+                            GhButton(tr("下载更新"), primary = true) {
+                                onDismiss()
+                                Update.download(info)
+                            }
+                        }
                     }
                 } else {
                     GhButton(tr("重新检查"), enabled = !Update.checking) { scope.launch { Update.check() } }

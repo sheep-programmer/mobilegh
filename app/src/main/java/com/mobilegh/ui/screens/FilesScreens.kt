@@ -84,6 +84,7 @@ import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.Pill
 import com.mobilegh.ui.components.ZoomImage
 import com.mobilegh.ui.components.copy
+import com.mobilegh.ui.components.fmtDateTime
 import com.mobilegh.ui.components.fmtSize
 import com.mobilegh.ui.components.highlightLines
 import com.mobilegh.ui.components.openBrowser
@@ -122,6 +123,18 @@ internal fun fileEntryKind(content: com.mobilegh.data.Content): String = when (c
 internal fun fileEntrySize(content: com.mobilegh.data.Content): String =
     if (content.type == "dir") tr("文件夹") else fmtSize(content.size)
 
+internal fun fileEntryCommitTime(iso: String?): String {
+    if (iso.isNullOrBlank()) return ""
+    val formatted = fmtDateTime(iso)
+    val rel = relTime(iso)
+    return when {
+        rel.isNotEmpty() && formatted.isNotEmpty() -> "$rel ($formatted)"
+        formatted.isNotEmpty() -> formatted
+        rel.isNotEmpty() -> rel
+        else -> iso
+    }
+}
+
 @Composable
 private fun FileEntryDetailsDialog(
     content: com.mobilegh.data.Content,
@@ -145,11 +158,11 @@ private fun FileEntryDetailsDialog(
             Text(content.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Gh.c.fg)
             Text(fileEntryKind(content), fontSize = 13.sp, color = Gh.c.fgMuted)
             Text(trf("路径：{0}", content.path), fontSize = 13.sp, color = Gh.c.fgMuted)
-            Text(trf("大小：{0}", fileEntrySize(content)), fontSize = 13.sp, color = Gh.c.fgMuted)
+            if (content.type == "file") Text(trf("大小：{0}", fileEntrySize(content)), fontSize = 13.sp, color = Gh.c.fgMuted)
             if (content.sha.isNotBlank()) Text(trf("SHA：{0}", content.sha.take(12)), fontSize = 12.sp, color = Gh.c.fgMuted)
             if (commitMessage.isNotBlank()) Text(trf("最近提交：{0}", commitMessage), fontSize = 13.sp, color = Gh.c.fg)
             commit?.author?.login?.takeIf { it.isNotBlank() }?.let { Text(trf("提交人：{0}", it), fontSize = 13.sp, color = Gh.c.fgMuted) }
-            commitDate?.let { Text(trf("提交时间：{0}", it), fontSize = 13.sp, color = Gh.c.fgMuted) }
+            commitDate?.let { Text(trf("提交时间：{0}", fileEntryCommitTime(it)), fontSize = 13.sp, color = Gh.c.fgMuted) }
         }
     }
 }
@@ -250,7 +263,7 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
                             Text(c.name, color = g.fg, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             val message = fileCommitMessage(commit)
                             val date = fileCommitDate(commit)
-                            if (message.isNotBlank() || date != null || commitLoading) {
+                            if (message.isNotBlank() || date != null) {
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         message,
@@ -264,7 +277,10 @@ fun FilesScreen(owner: String, name: String, path: String, ref: String?) {
                                 }
                             }
                         }
-                        if (c.type == "file") Text(fmtSize(c.size), fontSize = 12.sp, color = g.fgMuted)
+                        if (c.type == "file") {
+                            Spacer(Modifier.width(8.dp))
+                            Text(fmtSize(c.size), fontSize = 12.sp, color = g.fgMuted)
+                        }
                     }
                 }
                 if (list.isEmpty()) emptyItem(listState, tr("空目录"), R.drawable.oc_file_directory)
@@ -534,7 +550,7 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?, line
                         Column(Modifier.fillMaxSize().verticalScrollWithBar(scrollState).padding(top = 12.dp)) {
                             HtmlView(
                                 b.html,
-                                baseUrl = "https://github.com/$owner/$name/blob/${ref ?: "HEAD"}/${path.split('/').joinToString("/") { android.net.Uri.encode(it) }}",
+                                baseUrl = "https://github.com/$owner/$name/blob/$downloadRef/${path.split('/').joinToString("/") { android.net.Uri.encode(it) }}",
                                 linkedImagesOpenLink = path.substringAfterLast('/').substringBefore('.').equals("README", ignoreCase = true),
                                 onAnchor = { y ->
                                     scope.launch { scrollState.animateScrollTo(with(density) { (y + 12).dp.roundToPx() }) }

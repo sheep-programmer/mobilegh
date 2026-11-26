@@ -44,6 +44,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -552,6 +559,21 @@ private fun Modifier.onImageVisibilityChanged(onChanged: (Boolean) -> Unit): Mod
         onChanged(bounds.width > 0f && bounds.height > 0f)
     }
 
+@Composable
+private fun rememberImageShimmerAlpha(): Float {
+    val transition = rememberInfiniteTransition(label = "image-loading")
+    val alpha by transition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 0.95f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 850, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "image-shimmer-alpha",
+    )
+    return alpha
+}
+
 /** 块级图片：缓存里有就直接显示；否则先占位（按宽高属性保留比例），加载完成后替换。 */
 @Composable
 private fun BlockImage(block: HtmlBlock.Image) {
@@ -559,13 +581,15 @@ private fun BlockImage(block: HtmlBlock.Image) {
     val src = block.src
     val requestKey = ImageFetch.cacheKey(src)
     var visible by remember { mutableStateOf(false) }
+    var everVisible by remember(requestKey) { mutableStateOf(false) }
+    if (visible) everVisible = true
     var bmp by remember(requestKey) { mutableStateOf(Images.cached(src, 1024)) }
     // 加载失败：显示提示，点按重试（以前失败后一直是灰块，不知道发生了什么）
     var failed by remember(requestKey) { mutableStateOf(false) }
     var missing by remember(requestKey) { mutableStateOf(false) }
     var attempt by remember(requestKey) { mutableIntStateOf(0) }
-    LaunchedEffect(requestKey, attempt, visible) {
-        if (visible && bmp == null && !missing) {
+    LaunchedEffect(requestKey, attempt, everVisible) {
+        if (everVisible && bmp == null && !missing) {
             failed = false
             bmp = Images.loadWithRecovery(src, 1024, force = attempt > 0)
             missing = bmp == null && ImageFetch.isMissing(src)
@@ -640,15 +664,32 @@ private fun BlockImage(block: HtmlBlock.Image) {
                 }
             }
         } else {
+            val shimmer = rememberImageShimmerAlpha()
+            val retrying = attempt > 0
             val sized = if (ratio != null) base.aspectRatio(ratio) else if (w != null && w > 0) base.aspectRatio(1f) else base.height(120.dp)
             Box(
                 sized
                     .clip(shape)
-                    .background(g.canvasSubtle)
-                    .border(1.dp, g.borderMuted, shape),
+                    .background(g.canvasSubtle.copy(alpha = shimmer))
+                    .border(1.dp, if (retrying) g.accent.copy(alpha = 0.55f) else g.borderMuted, shape),
                 contentAlignment = Alignment.Center,
             ) {
-                Oc(R.drawable.oc_file_media, g.fgMuted.copy(alpha = 0.35f), 22.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = if (retrying) g.accent else g.fgMuted,
+                    )
+                    Text(
+                        if (retrying) tr("正在重试…") else tr("加载图片中…"),
+                        fontSize = 12.sp,
+                        fontWeight = if (retrying) FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (retrying) g.accent else g.fgMuted,
+                    )
+                }
             }
         }
     }
@@ -683,13 +724,15 @@ private fun RowImage(img: Inline.Image, maxWidth: Dp = Dp.Unspecified) {
     val g = Gh.c
     val requestKey = ImageFetch.cacheKey(img.src)
     var visible by remember { mutableStateOf(false) }
+    var everVisible by remember(requestKey) { mutableStateOf(false) }
+    if (visible) everVisible = true
     val viewport = Modifier.widthIn(max = maxWidth).onImageVisibilityChanged { visible = it }
     var retry by remember(requestKey) { mutableIntStateOf(0) }
     var bmp by remember(requestKey) { mutableStateOf(Images.cached(img.src, 1024)) }
     var failed by remember(requestKey) { mutableStateOf(false) }
     var missing by remember(requestKey) { mutableStateOf(false) }
-    LaunchedEffect(requestKey, retry, visible) {
-        if (visible && bmp == null && !missing) {
+    LaunchedEffect(requestKey, retry, everVisible) {
+        if (everVisible && bmp == null && !missing) {
             failed = false
             val loaded = Images.loadWithRecovery(img.src, 1024, force = retry > 0)
             if (loaded != null) {
@@ -750,15 +793,37 @@ private fun RowImage(img: Inline.Image, maxWidth: Dp = Dp.Unspecified) {
                     }
                 }
             } else {
+                val shimmer = rememberImageShimmerAlpha()
+                val retrying = retry > 0
                 Box(
                     Modifier
                         .size((img.width ?: 72).dp, placeholderH)
                         .clip(shape)
-                        .background(g.canvasSubtle)
-                        .border(1.dp, g.borderMuted, shape),
+                        .background(g.canvasSubtle.copy(alpha = shimmer))
+                        .border(1.dp, if (retrying) g.accent.copy(alpha = 0.55f) else g.borderMuted, shape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Oc(R.drawable.oc_file_media, g.fgMuted.copy(alpha = 0.35f), 12.dp)
+                    if (placeholderH >= 48.dp) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = if (retrying) g.accent else g.fgMuted,
+                            )
+                            if (retrying) {
+                                Text(tr("重试中…"), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = g.accent)
+                            }
+                        }
+                    } else {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(12.dp),
+                            strokeWidth = 1.6.dp,
+                            color = if (retrying) g.accent else g.fgMuted,
+                        )
+                    }
                 }
             }
         } else {

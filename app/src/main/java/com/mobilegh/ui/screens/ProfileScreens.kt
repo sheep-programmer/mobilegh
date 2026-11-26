@@ -874,7 +874,7 @@ private fun ProfileReadmeCard(login: String, html: String) {
                         },
                         modifier = Modifier.fillMaxWidth().padding(14.dp),
                     ) {
-                        HtmlView(html, baseUrl = "https://github.com/$login/$login/blob/main/README.md", linkedImagesOpenLink = true)
+                        HtmlView(html, baseUrl = readmeBaseUrl(login, login, "main", html), linkedImagesOpenLink = true)
                     }
                     if (readmeScale > 1.05f) {
                         ReadmeZoomResetPill(

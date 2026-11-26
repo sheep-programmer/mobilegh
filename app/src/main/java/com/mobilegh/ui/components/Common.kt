@@ -69,6 +69,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.Color
@@ -427,7 +428,7 @@ fun <T> PagedList(
             .collect { if (it) pager.loadMore() }
     }
     val refresh = { onRefresh(); pager.refresh() }
-    PullToRefreshBox(pager.refreshing, onRefresh = refresh, modifier) {
+    PullToRefreshBox(pager.refreshing, onRefresh = refresh, modifier.clipToBounds()) {
         ScrollbarLazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = contentPadding) {
             header()
             val combined = pager.items + extraItems

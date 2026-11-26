@@ -52,7 +52,7 @@ internal object ImageContent {
         }
         if (b != null) {
             val head = String(b, 0, minOf(b.size, 4096), Charsets.UTF_8)
-            return if (Regex("(?is)^(?:\\uFEFF|\\s|<\\?xml.*?\\?>|<!--.*?-->)*<svg(?:\\s|>)").containsMatchIn(head)) "image/svg+xml" else null
+            return if (Regex("(?is)^(?:\\uFEFF|\\s|<\\?xml.*?\\?>|<!--.*?-->|<!DOCTYPE[^>]*>)*<svg(?:\\s|>)").containsMatchIn(head)) "image/svg+xml" else null
         }
         return when (url.substringBefore('?').substringBefore('#').substringAfterLast('.').lowercase()) {
             "png" -> "image/png"

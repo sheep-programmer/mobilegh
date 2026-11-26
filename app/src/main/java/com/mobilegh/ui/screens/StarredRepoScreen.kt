@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -171,7 +172,7 @@ private fun starredTitle(listsTab: Boolean, selectedList: String?, lists: List<G
 
 /** 服务端搜索 + 两种服务端排序，每个都能切正序 / 倒序 */
 @Composable
-private fun StarFeedTab(login: String, isMe: Boolean) {
+private fun ColumnScope.StarFeedTab(login: String, isMe: Boolean) {
     // 输入框与已生效关键词分开：打字过程中列表不变，按回车或点放大镜才应用
     var input by rememberSaveable { mutableStateOf("") }
     var query by rememberSaveable { mutableStateOf("") }
@@ -195,6 +196,7 @@ private fun StarFeedTab(login: String, isMe: Boolean) {
     val state = rememberLazyListState()
     PagedList(
         pager,
+        Modifier.fillMaxWidth().weight(1f),
         state = state,
         itemKey = { it.id },
         empty = starFeedEmpty(login, isMe, query),
@@ -308,7 +310,12 @@ private fun rememberStarFeedPager(
         }
     }, restore = { p ->
         if (snapshot.pages > 0 && p.restoreFrom(snapshot.items, snapshot.pages, snapshot.ended)) true
-        else diskSnapshot?.let { p.restoreFrom(it.items, it.pages, it.ended) } == true
+        else diskSnapshot?.let {
+            if (p.restoreFrom(it.items, it.pages, it.ended)) {
+                snapshot.cursors.putAll(it.cursors)
+                true
+            } else false
+        } == true
     })
     rememberStarPagerFreshness(pager, snapshot, pagerKey)
     return pager
@@ -327,7 +334,7 @@ private fun rememberStarPagerFreshness(
     key: String,
     revision: () -> Long = { StarListCache.starRevision },
 ) {
-    val claimed = ProcessRefreshClaims.claim(key)
+    val claimed = remember(key) { ProcessRefreshClaims.claim(key) }
     var sawLoading by remember(pager) { mutableStateOf(false) }
     LaunchedEffect(pager, pager.loading) {
         if (pager.loading) {
@@ -353,14 +360,19 @@ private fun rememberStarPagerFreshness(
     }
 }
 
-private fun saveStarPager(snapshot: StarSnapshot<Repo>, pager: Pager<Repo>, key: String, revision: Long) {
+private suspend fun saveStarPager(snapshot: StarSnapshot<Repo>, pager: Pager<Repo>, key: String, revision: Long) {
     val items = pager.items.toList()
+    val pages = pager.committedPages
+    val ended = pager.end
+    val cursors = snapshot.cursors.toMap()
     snapshot.items = items
-    snapshot.pages = pager.committedPages
-    snapshot.ended = pager.end
+    snapshot.pages = pages
+    snapshot.ended = ended
     snapshot.loadedAtMs = System.currentTimeMillis()
     snapshot.loadedRevision = revision
-    RepoFeedCache(File(Api.cacheDir, "repo-feeds")).write(key, items, pager.committedPages, pager.end)
+    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        RepoFeedCache(File(Api.cacheDir, "repo-feeds")).write(key, items, pages, ended, cursors = cursors)
+    }
 }
 
 /** 服务端搜索：与官方 App 同一条查询；服务端不认关键字时抛 [StarSearchUnavailable] */
@@ -404,7 +416,7 @@ private suspend fun starTimePage(
 // ---------------- 列表（Star 的分类） ----------------
 
 @Composable
-private fun StarListsTab(
+private fun ColumnScope.StarListsTab(
     lists: Loader<List<GitHubStarList>>,
     isMe: Boolean,
     login: String,
@@ -595,7 +607,7 @@ internal fun removeRetainedListRepository(bag: MutableMap<String, Any>, listId: 
 
 /** 列表详情：只保留 GitHub 顺序的正 / 倒序，加一个只在已加载内容里生效的搜索 */
 @Composable
-private fun StarListDetail(
+private fun ColumnScope.StarListDetail(
     pager: Pager<Repo>,
     list: GitHubStarList?,
     descending: Boolean,
@@ -640,6 +652,7 @@ private fun StarListDetail(
     val state = rememberLazyListState()
     PagedList(
         pager,
+        Modifier.fillMaxWidth().weight(1f),
         state = state,
         itemKey = { it.id },
         autoLoad = autoPageStarFeed(query, searching = false),
@@ -684,8 +697,12 @@ private fun rememberListDetailPager(
         pageSize = UserListsClient.DETAIL_PAGE_SIZE,
         restore = { p ->
             if (snapshot.pages > 0 && p.restoreFrom(snapshot.items, snapshot.pages, snapshot.ended)) true
-            // 磁盘只存第一页的游标语义：恢复为 1 页，后续页由进入时的静默刷新重建
-            else diskSnapshot?.let { p.restoreFrom(it.items, it.pages, it.ended) } == true
+            else diskSnapshot?.let {
+                if (p.restoreFrom(it.items, it.pages, it.ended)) {
+                    snapshot.cursors.putAll(it.cursors)
+                    true
+                } else false
+            } == true
         },
         fetchPage = { page, _ ->
             val list = lists.data?.firstOrNull { it.id == selectedList }

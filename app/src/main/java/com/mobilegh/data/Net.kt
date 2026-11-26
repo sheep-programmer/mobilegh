@@ -406,6 +406,11 @@ object Net {
         imageTransientFailures.getOrPut(cls) { HashMap() }[id] = System.currentTimeMillis()
     }
 
+    @Synchronized
+    fun clearImageTransientFailures(url: String) {
+        imageTransientFailures.remove(imageClass(url))
+    }
+
     /** 当前仍在「冷却」中的失败节点 */
     private fun currentFailures(cls: String): Set<String> {
         val now = System.currentTimeMillis()

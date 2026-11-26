@@ -520,7 +520,7 @@ fun RepoScreen(owner: String, name: String) {
                                 ) {
                                     ReadmeBody(
                                         html,
-                                        baseUrl = "https://github.com/$owner/$name/blob/$readmeRef/README.md",
+                                        baseUrl = readmeBaseUrl(owner, name, readmeRef, html),
                                         onAnchor = { y ->
                                             scope.launch {
                                                 val targetPx = with(density) { (y + 44).dp.roundToPx().coerceAtLeast(0) }
@@ -918,11 +918,35 @@ private fun StatCell(
     IconText(icon, text, modifier = modifier.clickable(onClick = onClick).padding(vertical = 2.dp), maxLines = maxLines)
 }
 
-/**
- * 仓库页 LazyColumn 中 README 那一项的下标。顺序：0 头部、1 Star/Watch/Fork、2 分支行、3 快捷入口、
+/** 仓库页 LazyColumn 中 README 那一项的下标。顺序：0 头部、1 Star/Watch/Fork、2 分支行、3 快捷入口、
  * 4 语言条（仅有语言数据时）、之后才是 README。点 README 里的页内锚点据此滚动，不再取「倒数第二项」。
  */
 internal fun repoReadmeIndex(hasLanguages: Boolean): Int = if (hasLanguages) 5 else 4
+
+private val README_DATA_PATH = Regex("""<div\b[^>]*\bid=["']readme["'][^>]*\bdata-path=["']([^"']+)["']""", RegexOption.IGNORE_CASE)
+private val README_DATA_PATH_ALT = Regex("""<div\b[^>]*\bdata-path=["']([^"']+)["'][^>]*\bid=["']readme["']""", RegexOption.IGNORE_CASE)
+
+/** 从 GitHub README HTML 的 `data-path` 还原真实文件路径，避免 `docs/README.md` 里的相对语言切换链接错解析到根目录。 */
+internal fun readmeBaseUrl(owner: String, name: String, ref: String, html: String): String {
+    val rawPath = (README_DATA_PATH.find(html) ?: README_DATA_PATH_ALT.find(html))
+        ?.groupValues?.getOrNull(1)
+        ?.trim()
+        ?.trimStart('/')
+        ?.takeIf { it.isNotEmpty() }
+        ?: "README.md"
+    val encodedPath = rawPath.split('/').filter { it.isNotEmpty() }.joinToString("/") { segment ->
+        runCatching {
+            val decoded = java.net.URLDecoder.decode(segment, "UTF-8")
+            java.net.URLEncoder.encode(decoded, "UTF-8").replace("+", "%20")
+        }.getOrDefault(segment)
+    }
+    val encodedRef = ref.split('/').filter { it.isNotEmpty() }.joinToString("/") { segment ->
+        runCatching {
+            java.net.URLEncoder.encode(segment, "UTF-8").replace("+", "%20")
+        }.getOrDefault(segment)
+    }.ifEmpty { "HEAD" }
+    return "https://github.com/$owner/$name/blob/$encodedRef/$encodedPath"
+}
 
 /** README 正文：完整展示。WebView 按完整内容高度布局，页面整体滚动。 */
 @Composable

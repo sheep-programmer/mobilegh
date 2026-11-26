@@ -37,6 +37,9 @@ class Loader<T>(private val scope: CoroutineScope, private val block: suspend (f
         private set
     var loading by mutableStateOf(false)
     var refreshing by mutableStateOf(false)
+    /** 每次请求成功完成（无论数据是否变化）加一，供调用方记录“已确认到最新”的时间点 */
+    var successVersion by mutableIntStateOf(0)
+        private set
     private var job: Job? = null
     private var operation = 0
 
@@ -55,7 +58,7 @@ class Loader<T>(private val scope: CoroutineScope, private val block: suspend (f
                     if (Session.generation != generation) throw CancellationException("Account changed")
                     block(force)
                 }
-                if (id == operation && Session.generation == generation) { data = result; error = null }
+                if (id == operation && Session.generation == generation) { data = result; error = null; successVersion++ }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
@@ -95,7 +98,7 @@ class Loader<T>(private val scope: CoroutineScope, private val block: suspend (f
                     if (Session.generation != generation) throw CancellationException("Account changed")
                     block(true)
                 }
-                if (id == operation && Session.generation == generation) data = result
+                if (id == operation && Session.generation == generation) { data = result; successVersion++ }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Throwable) {

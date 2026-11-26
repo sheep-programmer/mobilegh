@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -34,6 +35,7 @@ import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 
 /** Public GitHub GraphQL UserList API, not GitHub's private web endpoints. */
+@Serializable
 data class GitHubStarList(
     val id: String,
     val name: String,

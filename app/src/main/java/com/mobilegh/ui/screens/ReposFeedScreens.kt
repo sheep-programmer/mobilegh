@@ -18,8 +18,11 @@ import com.mobilegh.R
 import com.mobilegh.data.ForkSort
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.Api
+import com.mobilegh.data.ProcessRefreshClaims
+import com.mobilegh.data.Repo
 import com.mobilegh.data.RepoFeedCache
 import com.mobilegh.data.Session
+import com.mobilegh.nav.Pager
 import com.mobilegh.nav.PagerPage
 import com.mobilegh.nav.RepoKind
 import com.mobilegh.nav.rememberPager
@@ -33,24 +36,21 @@ import com.mobilegh.ui.components.relTime
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** 用户仓库与组织仓库：一个排序下拉 + 一份分页列表 */
 @Composable
 internal fun RepoFeedScreen(kind: RepoKind, login: String, name: String) {
     var sort by rememberSaveable { mutableIntStateOf(0) }
-    val pagerKey = "rl:$kind:$login:$name:$sort"
+    val pagerKey = "rl:$kind:${Session.login.orEmpty()}:$login:$name:$sort"
     val diskSnapshot = remember(pagerKey) { RepoFeedCache(File(Api.cacheDir, "repo-feeds")).read(pagerKey) }
-    val pager = rememberPager(pagerKey, restore = { p -> diskSnapshot?.let { p.restoreFrom(it.items, 1, it.ended) } == true }) { page, force ->
+    val pager = rememberPager(pagerKey, restore = { p -> diskSnapshot?.let { p.restoreFrom(it.items, it.pages, it.ended) } == true }) { page, force ->
         val order = SORTS[sort].first
         if (kind == RepoKind.Org) GitHub.orgRepos(login, order, page, force)
         else GitHub.userRepos(login, order, page, force)
     }
-    LaunchedEffect(pager, diskSnapshot) { if (diskSnapshot != null) pager.refreshSilently() }
-    LaunchedEffect(pager, pager.loading, pager.silentRefreshVersion) {
-        if (pager.loadedOnce && !pager.loading && pager.error == null) {
-            RepoFeedCache(File(Api.cacheDir, "repo-feeds")).write(pagerKey, pager.items, pager.committedPages, pager.end)
-        }
-    }
+    rememberRepoFeedPersistence(pager, pagerKey)
     val state = rememberLazyListState()
     Page(repoFeedTitle(kind), subtitle = repoPageSubtitle(login, name)) { pad ->
         Column(Modifier.padding(pad)) {
@@ -59,6 +59,38 @@ internal fun RepoFeedScreen(kind: RepoKind, login: String, name: String) {
             PagedList(pager, state = state, itemKey = { it.id }, empty = tr("没有可见的仓库"), emptyIcon = R.drawable.oc_repo) { RepoItem(it) }
         }
     }
+}
+
+/**
+ * 仓库列表（非星标）的磁盘缓存与进入刷新。
+ * 真实请求成功后写入磁盘；从磁盘恢复的数据不写回，避免被盖上新的时间戳。
+ * 进入页面时只在本次启动第一次进入时静默刷新一次，之后直接显示缓存，直到下拉刷新或重新启动应用。
+ */
+@Composable
+internal fun rememberRepoFeedPersistence(pager: Pager<Repo>, key: String) {
+    val claimed = remember(pager, key) { ProcessRefreshClaims.claim(key) }
+    val wasLoading = remember(pager) { BooleanArray(1) }
+    LaunchedEffect(pager, pager.loading) {
+        if (pager.loading) {
+            wasLoading[0] = true
+        } else if (wasLoading[0]) {
+            wasLoading[0] = false
+            if (pager.loadedOnce && pager.error == null) saveRepoFeed(key, pager)
+        }
+    }
+    LaunchedEffect(pager, pager.silentRefreshVersion) {
+        if (pager.silentRefreshSucceeded) saveRepoFeed(key, pager)
+    }
+    LaunchedEffect(pager) {
+        if (claimed && pager.loadedOnce) pager.refreshSilently()
+    }
+}
+
+private suspend fun saveRepoFeed(key: String, pager: Pager<Repo>) {
+    val items = pager.items.toList()
+    val pages = pager.committedPages
+    val end = pager.end
+    withContext(Dispatchers.IO) { RepoFeedCache(File(Api.cacheDir, "repo-feeds")).write(key, items, pages, end) }
 }
 
 @Composable

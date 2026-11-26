@@ -29,18 +29,21 @@ internal class RepoFeedCache(private val directory: File) {
             return null
         }
         val age = nowMs - stored.savedAt
-        if (age < 0 || age > MAX_AGE_MS * 4) return null
+        if (age < 0) return null
         return Snapshot(stored.items, stored.pages, stored.ended, age > MAX_AGE_MS)
     }
 
     fun write(key: String, items: List<Repo>, pages: Int, ended: Boolean, nowMs: Long = System.currentTimeMillis()) {
         if (items.isEmpty()) return
+        // 不截断条目：页数必须与条目数对应，否则恢复后续页会重复或跳页。超过上限则整份跳过。
+        val bytes = Api.plain.encodeToString(Stored(items, pages, ended, nowMs)).encodeToByteArray()
+        if (bytes.size > MAX_BYTES) return
         runCatching {
             directory.mkdirs()
             val target = file(key)
             val temp = File.createTempFile("repo-feed-", ".tmp", directory)
             try {
-                temp.writeText(Api.plain.encodeToString(Stored(items.take(200), pages, ended, nowMs)))
+                temp.writeBytes(bytes)
                 check(temp.renameTo(target))
             } finally {
                 temp.delete()

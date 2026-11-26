@@ -23,6 +23,8 @@ class ExplorePageCacheTest {
         assertEquals(124, cached.result.totalCount)
         assertTrue(cached.stale)
         assertNull(ExplorePageCache(file).read("different-scope", now = 901_000))
-        assertNull(ExplorePageCache(file).read("scope", now = 86_401_001))
+        val week = 7 * 24 * 60 * 60_000L
+        assertTrue(checkNotNull(ExplorePageCache(file).read("scope", now = 1_000 + week)).stale)
+        assertNull(ExplorePageCache(file).read("scope", now = 1_000 + week + 1))
     }
 }

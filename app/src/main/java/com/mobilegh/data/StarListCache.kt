@@ -13,19 +13,16 @@ class StarSnapshot<T>(val generation: Int) {
     var pages = 0
     var ended = false
     /** 单个值（Star 列表目录） */
-    var value: T? = null
+    @Volatile var value: T? = null
     var loadedAtMs = 0L
     /** 加载时的版本号（Star 写入或列表变化的计数）；之后版本变了，快照即过期 */
-    var loadedRevision = -1L
+    @Volatile var loadedRevision = -1L
     var silentRetryAfterMs = 0L
 }
 
 /** 星标快照的进程内存放处。账号切换后快照会被丢弃，最多保留 [MAX_ENTRIES] 份。 */
 object StarListCache {
-    /** 快照超过这个时间才在重新进入页面时刷新；下拉刷新不受此限制 */
-    const val MAX_AGE_MS = 5 * 60_000L
     const val SILENT_RETRY_BACKOFF_MS = 30_000L
-    const val HOME_REFRESH_MIN_INTERVAL_MS = 60_000L
     private const val MAX_ENTRIES = 16
 
     /** Star / Unstar 成功后递增；与快照记录的版本不同就视为过期 */
@@ -53,11 +50,30 @@ object StarListCache {
     }
 
     /**
-     * 快照是否过期：从未加载、超过 [MAX_AGE_MS]（恰好等于时不算过期），或版本已经变化。
+     * 快照是否过期：只看版本。加载后没有 Star / 列表变化，数据就仍然有效，不因为时间流逝而重新请求。
+     * 从未加载的快照 [StarSnapshot.loadedRevision] 为 -1，必然视为过期。
      */
-    fun isStale(loadedAtMs: Long, loadedRevision: Long, revision: Long, nowMs: Long): Boolean =
-        loadedAtMs == 0L || loadedRevision != revision || nowMs - loadedAtMs > MAX_AGE_MS
+    fun isStale(loadedRevision: Long, revision: Long): Boolean = loadedRevision != revision
 
     fun canAttemptSilentRefresh(snapshot: StarSnapshot<*>, nowMs: Long = System.currentTimeMillis()): Boolean =
         nowMs >= snapshot.silentRetryAfterMs
+
+    /**
+     * 进入页面时是否静默刷新。有缓存、且「本次启动第一次进入」（[claimed]）或版本已变，才刷新；
+     * 其余情况直接显示缓存，不发请求。决定刷新时记下退避时间，失败也不会每次进入都重试。
+     * 调用方必须先取 [ProcessRefreshClaims.claim]，保证每次启动的第一次进入都消耗掉这个标记。
+     */
+    fun takeEntryRefresh(
+        snapshot: StarSnapshot<*>,
+        hasData: Boolean,
+        claimed: Boolean,
+        revision: Long,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Boolean {
+        if (!hasData) return false
+        if (!claimed && !isStale(snapshot.loadedRevision, revision)) return false
+        if (!canAttemptSilentRefresh(snapshot, nowMs)) return false
+        snapshot.silentRetryAfterMs = nowMs + SILENT_RETRY_BACKOFF_MS
+        return true
+    }
 }

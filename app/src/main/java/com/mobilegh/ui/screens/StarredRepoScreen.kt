@@ -44,6 +44,7 @@ import com.mobilegh.data.GitHub
 import com.mobilegh.data.Api
 import com.mobilegh.data.GitHubStarList
 import com.mobilegh.data.Repo
+import com.mobilegh.data.ProcessRefreshClaims
 import com.mobilegh.data.Session
 import com.mobilegh.data.StarFeed
 import com.mobilegh.data.StarFeedClient
@@ -286,7 +287,7 @@ private fun rememberStarFeedPager(
     // Star 时间用官方星标连接的游标分页（方向由服务端排好），逐页懒加载
     val timeFeeds = Session.token != null && index == 0
     // 游标必须与 retained Pager 使用同一个 key：切走再切回时，页码和游标要一起恢复。
-    val pagerKey = "rl-starred:$login:$index:$descending:$query:$searchSupported"
+    val pagerKey = "rl-starred:${Session.login.orEmpty()}:$login:$index:$descending:$query:$searchSupported"
     // 快照放在进程内：离开页面再回来时仍能拿到上次的页、游标和条目
     val snapshot = StarListCache.snapshot<Repo>(pagerKey, Session.generation)
     val diskSnapshot = remember(pagerKey) { RepoFeedCache(File(Api.cacheDir, "repo-feeds")).read(pagerKey) }
@@ -307,95 +308,59 @@ private fun rememberStarFeedPager(
         }
     }, restore = { p ->
         if (snapshot.pages > 0 && p.restoreFrom(snapshot.items, snapshot.pages, snapshot.ended)) true
-        else diskSnapshot?.let { p.restoreFrom(it.items, 1, it.ended) } == true
+        else diskSnapshot?.let { p.restoreFrom(it.items, it.pages, it.ended) } == true
     })
-    rememberStarPagerFreshness(pager, snapshot)
-    LaunchedEffect(pager, diskSnapshot) { if (diskSnapshot != null) pager.refreshSilently() }
-    LaunchedEffect(pager, pager.loading, pager.silentRefreshVersion) {
-        if (pager.loadedOnce && !pager.loading && pager.error == null) {
-            RepoFeedCache(File(Api.cacheDir, "repo-feeds")).write(pagerKey, pager.items, pager.committedPages, pager.end)
-        }
-    }
+    rememberStarPagerFreshness(pager, snapshot, pagerKey)
     return pager
 }
 
 /**
- * 星标仓库列表的新鲜度：加载完成时把结果写入快照。重新进入时快照未过期则直接沿用、不发请求；
- * 已过期（超过 [StarListCache.MAX_AGE_MS]，或期间有过 Star / Unstar）则在后台刷新第一页，
- * 旧结果保持可见，直到新的第一页取回。下拉刷新仍由 PagedList 直接调用 refresh。
+ * 星标类分页的新鲜度与磁盘缓存。
+ * - 成功加载（或静默刷新成功）后写入进程快照与磁盘；从磁盘恢复出来的数据不会因此被盖上新的时间戳。
+ * - 进入页面：只要有数据（内存或磁盘恢复），且本次启动第一次进入或版本已变，才静默刷新第一页；旧条目保持可见。
+ * 下拉刷新仍由 PagedList 直接调用 refresh。
  */
 @Composable
 private fun rememberStarPagerFreshness(
     pager: Pager<Repo>,
     snapshot: StarSnapshot<Repo>,
+    key: String,
     revision: () -> Long = { StarListCache.starRevision },
 ) {
+    val claimed = ProcessRefreshClaims.claim(key)
     var sawLoading by remember(pager) { mutableStateOf(false) }
     LaunchedEffect(pager, pager.loading) {
         if (pager.loading) {
             sawLoading = true
         } else if (sawLoading) {
             sawLoading = false
-            if (pager.loadedOnce && pager.error == null) {
-                snapshot.items = pager.items.toList()
-                snapshot.pages = pager.committedPages
-                snapshot.ended = pager.end
-                snapshot.loadedAtMs = System.currentTimeMillis()
-                snapshot.loadedRevision = revision()
-            }
+            if (pager.loadedOnce && pager.error == null) saveStarPager(snapshot, pager, key, revision())
         }
     }
     LaunchedEffect(pager, pager.silentRefreshVersion) {
-        if (pager.silentRefreshVersion.compareTo(1) < 0) return@LaunchedEffect
+        if (pager.silentRefreshVersion < 1) return@LaunchedEffect
         if (pager.silentRefreshSucceeded) {
-            snapshot.items = pager.items.toList()
-            snapshot.pages = pager.committedPages
-            snapshot.ended = pager.end
-            snapshot.loadedAtMs = System.currentTimeMillis()
-            snapshot.loadedRevision = revision()
+            saveStarPager(snapshot, pager, key, revision())
             snapshot.silentRetryAfterMs = 0L
         } else {
             snapshot.silentRetryAfterMs = System.currentTimeMillis() + StarListCache.SILENT_RETRY_BACKOFF_MS
         }
     }
     LaunchedEffect(pager) {
-        val stale = StarListCache.isStale(
-            snapshot.loadedAtMs, snapshot.loadedRevision, revision(), System.currentTimeMillis(),
-        )
-        if (pager.loadedOnce && stale && StarListCache.canAttemptSilentRefresh(snapshot)) pager.refreshSilently()
-    }
-}
-
-/** 星标数据超过这个时间才在重新进入页面时刷新；下拉刷新不受此限制 */
-internal const val STAR_REFRESH_MAX_AGE_MS = 5 * 60_000L
-
-/** 上次加载完成的时间距今是否已超过 [maxAgeMs]（恰好等于时不算过期） */
-internal fun starListNeedsRefresh(loadedAtMs: Long, nowMs: Long, maxAgeMs: Long = STAR_REFRESH_MAX_AGE_MS): Boolean =
-    nowMs - loadedAtMs > maxAgeMs
-
-/** 保存在 Entry 里的「上次加载完成时间」，离开再回来时仍然有效 */
-private class LoadClock {
-    var loadedAtMs = 0L
-    var loadingSeen = false
-}
-
-/**
- * 重新进入页面时的刷新策略：页面重新组合时，只有数据超过 [STAR_REFRESH_MAX_AGE_MS] 才刷新第一页；
- * 未过期则保留已加载的页，不清空列表。下拉刷新仍由 PagedList 直接调用 pager.refresh()。
- * 加载完成（成功）时记录时间：只在 loading 从真变假时更新，避免重新进入时把旧数据当成刚加载的。
- */
-@Composable
-internal fun rememberPagerFreshness(pager: Pager<*>, key: String) {
-    val clock = retain("$key:loaded-clock") { LoadClock() }
-    LaunchedEffect(pager, pager.loading) {
-        if (clock.loadingSeen && !pager.loading && pager.loadedOnce && pager.error == null) {
-            clock.loadedAtMs = System.currentTimeMillis()
+        if (StarListCache.takeEntryRefresh(snapshot, hasData = pager.loadedOnce, claimed = claimed, revision = revision())) {
+            pager.refreshSilently()
         }
-        clock.loadingSeen = pager.loading
     }
-    LaunchedEffect(pager) {
-        if (pager.loadedOnce && starListNeedsRefresh(clock.loadedAtMs, System.currentTimeMillis())) pager.refreshSilently()
-    }
+}
+
+private fun saveStarPager(snapshot: StarSnapshot<Repo>, pager: Pager<Repo>, key: String, revision: Long) {
+    val items = pager.items.toList()
+    snapshot.items = items
+    snapshot.pages = pager.committedPages
+    snapshot.ended = pager.end
+    snapshot.loadedAtMs = System.currentTimeMillis()
+    snapshot.loadedRevision = revision
+    RepoFeedCache(File(Api.cacheDir, "repo-feeds")).write(key, items, pager.committedPages, pager.end)
 }
 
 /** 服务端搜索：与官方 App 同一条查询；服务端不认关键字时抛 [StarSearchUnavailable] */
@@ -709,14 +674,19 @@ private fun rememberListDetailPager(
     lists: Loader<List<GitHubStarList>>,
     account: StarListAccount,
 ): Pager<Repo> {
-    // 列表详情同样用进程内快照缓存，离开再进入不重复请求，只在列表内容变更或过期时才刷
-    val pagerKey = "rl-list:$selectedList:$descending"
+    // 列表详情：进程快照 + 磁盘缓存，冷启动后直接显示上次的条目；只在列表内容变更或每次启动首次进入时静默刷新
+    val pagerKey = "rl-list:${account.login}:$selectedList:$descending"
     val snapshot = StarListCache.snapshot<Repo>(pagerKey, account.generation)
+    val diskSnapshot = remember(pagerKey) { RepoFeedCache(File(Api.cacheDir, "repo-feeds")).read(pagerKey) }
     val cursors = snapshot.cursors
     val pager = rememberPager(
         pagerKey,
         pageSize = UserListsClient.DETAIL_PAGE_SIZE,
-        restore = { p -> snapshot.pages > 0 && p.restoreFrom(snapshot.items, snapshot.pages, snapshot.ended) },
+        restore = { p ->
+            if (snapshot.pages > 0 && p.restoreFrom(snapshot.items, snapshot.pages, snapshot.ended)) true
+            // 磁盘只存第一页的游标语义：恢复为 1 页，后续页由进入时的静默刷新重建
+            else diskSnapshot?.let { p.restoreFrom(it.items, it.pages, it.ended) } == true
+        },
         fetchPage = { page, _ ->
             val list = lists.data?.firstOrNull { it.id == selectedList }
                 ?: return@rememberPager PagerPage(emptyList(), hasMore = false)
@@ -727,6 +697,6 @@ private fun rememberListDetailPager(
             }
         },
     )
-    rememberStarPagerFreshness(pager, snapshot) { UserLists.changes.value }
+    rememberStarPagerFreshness(pager, snapshot, pagerKey) { UserLists.changes.value }
     return pager
 }

@@ -137,17 +137,12 @@ fun ReposTab() {
     val directory = rememberLoader("repo-orgs") { GitHub.orgAccess(it) }
     val orgs = directory.data?.orgs.orEmpty().map { it.login }
     val safeOrg = selectedOrg?.takeIf { it in orgs }
-    val key = "repos:$filter:$sort:$visibility"
+    val key = "repos:${Session.login.orEmpty()}:$filter:$sort:$visibility"
     val diskSnapshot = remember(key) { RepoFeedCache(File(Api.cacheDir, "repo-feeds")).read(key) }
-    val pager = rememberPager(key, restore = { p -> diskSnapshot?.let { p.restoreFrom(it.items, 1, it.ended) } == true }) { p, force ->
+    val pager = rememberPager(key, restore = { p -> diskSnapshot?.let { p.restoreFrom(it.items, it.pages, it.ended) } == true }) { p, force ->
         if (filter == 3) emptyList() else GitHub.myRepos(filters[filter].second, SORTS[sort].first, vis[visibility].first, p, force)
     }
-    LaunchedEffect(pager, diskSnapshot) { if (diskSnapshot != null) pager.refreshSilently() }
-    LaunchedEffect(pager, pager.loading, pager.silentRefreshVersion) {
-        if (pager.loadedOnce && !pager.loading && pager.error == null) {
-            RepoFeedCache(File(Api.cacheDir, "repo-feeds")).write(key, pager.items, pager.committedPages, pager.end)
-        }
-    }
+    rememberRepoFeedPersistence(pager, key)
     // 新建或 Fork 仓库后回到列表时自动刷新
     com.mobilegh.nav.OnRepoChanged(com.mobilegh.data.RepoWrite.ANY, com.mobilegh.data.RepoWrite.ANY, com.mobilegh.data.RepoWrite.REPOS) { pager.refresh() }
     val state = rememberLazyListState()

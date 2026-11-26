@@ -3,12 +3,6 @@ package com.mobilegh.ui.screens
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -59,7 +53,9 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.JsonArray
 import org.jsoup.Jsoup
 import java.io.File
+import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.temporal.TemporalAdjusters
 import kotlin.random.Random
 
 /**
@@ -115,20 +111,18 @@ fun ExploreScreen() {
                     .padding(horizontal = 16.dp, vertical = 6.dp),
             ) { selectedTab = it }
 
-            AnimatedContent(
-                targetState = selectedTab,
-                transitionSpec = {
-                    (slideInHorizontally(tween(220)) { it / 5 } + fadeIn(tween(180))) togetherWith
-                        (slideOutHorizontally(tween(180)) { -it / 5 } + fadeOut(tween(120)))
-                },
-                label = "explore-tab-content",
-            ) { tab ->
+            // 直接切换内容，不做滑动/淡入淡出：两段内容同时过渡时透明度会回落，表现为闪烁；
+            // 两个标签的列表状态都已保留（retain / 外提的 LazyListState），切换无需动画。
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+            val tab = selectedTab
             if (tab == 0) {
                 val apiBase = Net.apiBase
                 var refreshCached by retain("explore-cache-refresh:$apiBase") { mutableStateOf(false) }
                 val hotPager = rememberPager("explore-activity-stream:$apiBase", GitHub.PER, fetchPage = { page, force ->
                     val seed = refreshSeed
-                    val q = "is:public created:>${LocalDate.now().minusDays(45)} stars:>30"
+                    // 按周取整：同一周内查询文本不变，磁盘缓存才能跨天命中
+                    val monday = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+                    val q = "is:public created:>${monday.minusDays(45)} stars:>30"
                     val cache = if (page == 1 && apiBase == "https://api.github.com") {
                         ExplorePageCache(File(Api.cacheDir, "explore-recommendations.json"))
                     } else null
@@ -139,9 +133,11 @@ fun ExploreScreen() {
                     PagerPage(
                         result.items.shuffled(Random(seed + page * 41L)),
                         hasMore = result.items.isNotEmpty() && searchHasNextPage(page, GitHub.PER, result.totalCount),
-                        // Any cached page is immediately visible. Refresh it silently on
-                        // entry so the first frame has content without waiting for search.
-                        onCommit = { if (page == 1) refreshCached = cached != null },
+                        // 缓存结果立即显示；每次启动只在第一次展示缓存时静默刷新一次，之后不再自动请求，
+                        // 直到用户下拉刷新或重新启动应用。
+                        onCommit = {
+                            if (page == 1) refreshCached = cached != null && ProcessRefreshClaims.claim("explore-activity-stream:$apiBase")
+                        },
                     )
                 })
                 LaunchedEffect(hotPager, refreshCached, hotPager.loading) {

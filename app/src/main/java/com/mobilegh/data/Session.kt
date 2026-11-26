@@ -17,6 +17,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
+import java.io.File
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -190,6 +191,8 @@ object Session {
         login = null
         avatar = null
         Api.clearCache()
+        File(Api.cacheDir, "star-lists").deleteRecursively()
+        File(Api.cacheDir, "repo-feeds").deleteRecursively()
         val next = accounts.firstOrNull()
         prefs.edit().putString("current", next?.login).apply()
         next?.let { activate(it) }

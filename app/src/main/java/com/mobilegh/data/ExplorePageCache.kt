@@ -12,7 +12,7 @@ import kotlinx.serialization.SerializationException
 internal class ExplorePageCache(private val file: File) {
     private companion object {
         const val FRESH_MS = 10 * 60_000L
-        const val MAX_AGE_MS = 24 * 60 * 60_000L
+        const val MAX_AGE_MS = 7 * 24 * 60 * 60_000L
         const val MAX_CACHE_BYTES = 512 * 1024L
     }
 

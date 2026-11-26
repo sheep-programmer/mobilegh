@@ -538,7 +538,7 @@ internal class UserListDetailLoader<T>(
             limited = cached.limited
             loaded = true
             val rev = revisionProvider?.invoke() ?: 0L
-            if (StarListCache.isStale(snap.loadedAtMs, snap.loadedRevision, rev, System.currentTimeMillis())) {
+            if (StarListCache.isStale(snap.loadedRevision, rev)) {
                 refresh()
             }
             return
@@ -599,9 +599,7 @@ private fun GitHubListsContent(login: String, generation: Int, initialListId: St
     val catalogKey = "star-lists:${account.login.lowercase(Locale.ROOT)}:${login.lowercase(Locale.ROOT)}:$generation"
     val catalogSnapshot = StarListCache.snapshot<List<GitHubStarList>>(catalogKey, generation)
     var handledRevision by remember(account, login) {
-        val fresh = catalogSnapshot.value != null && !StarListCache.isStale(
-            catalogSnapshot.loadedAtMs, catalogSnapshot.loadedRevision, UserLists.changes.value, System.currentTimeMillis(),
-        )
+        val fresh = catalogSnapshot.value != null && !StarListCache.isStale(catalogSnapshot.loadedRevision, UserLists.changes.value)
         mutableLongStateOf(if (fresh) catalogSnapshot.loadedRevision else -1L)
     }
     var lists by remember { mutableStateOf(catalogSnapshot.value) }

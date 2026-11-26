@@ -6,14 +6,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ScreenStateHelpersTest {
-    // 星标列表的刷新策略：超过 5 分钟才在重新进入时刷新
-    @Test fun starredDataIsFreshForFiveMinutesThenStale() {
-        val loaded = 1_000_000L
-        assertFalse(starListNeedsRefresh(loaded, loaded))
-        assertFalse(starListNeedsRefresh(loaded, loaded + STAR_REFRESH_MAX_AGE_MS))
-        assertTrue(starListNeedsRefresh(loaded, loaded + STAR_REFRESH_MAX_AGE_MS + 1))
-    }
-
     // 星标列表选择器：只有写入成功才收起弹层，失败保留弹层与错误
     @Test fun pickerClosesOnlyAfterSuccessfulWriteThatWasRequested() {
         assertTrue(pickerDismissesAfterWrite(closeRequested = true, failed = false))

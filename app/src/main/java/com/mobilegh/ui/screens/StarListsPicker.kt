@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
+import com.mobilegh.data.Api
 import com.mobilegh.data.GitHub
 import com.mobilegh.data.GitHubStarList
 import com.mobilegh.data.ListedRepository
@@ -30,7 +31,8 @@ import com.mobilegh.data.RepositoryListMemberships
 import com.mobilegh.data.Session
 import com.mobilegh.data.StarListAccount
 import com.mobilegh.data.StarListCache
-import com.mobilegh.data.StarSnapshot
+import com.mobilegh.data.ProcessRefreshClaims
+import com.mobilegh.data.StarListCatalogCache
 import com.mobilegh.data.StarLists
 import com.mobilegh.data.UserLists
 import com.mobilegh.data.UserListsClient
@@ -51,6 +53,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.Locale
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
@@ -58,50 +61,44 @@ import com.mobilegh.i18n.trf
 /**
  * 首页「收藏列表」和仓库长按弹窗共用同一份 Star 列表读取入口：
  * 同一个 GraphQL 查询、同一个账号校验，列表顺序也保持一致。
+ *
+ * 数据来源依次为：进程内快照 → 磁盘缓存（冷启动）→ 网络。有缓存时立即显示；
+ * 进入页面时只有「本次启动第一次进入」或「Star / 列表已变化」才静默刷新，数据不变则界面不动。
  */
 @Composable
 internal fun rememberStarListCatalog(login: String): Loader<List<GitHubStarList>> {
     val active = Session.login ?: login
     val account = remember(active, login, Session.generation) { StarListAccount(active, Session.generation) }
     val key = "star-lists:${active.lowercase(Locale.ROOT)}:${login.lowercase(Locale.ROOT)}:${account.generation}"
-    // 目录快照放在进程内：离开页面再回来时直接显示上次的列表，不必每次都请求
     val snapshot = StarListCache.snapshot<List<GitHubStarList>>(key, account.generation)
+    val diskCache = remember { StarListCatalogCache(File(Api.cacheDir, "star-lists")) }
     val loader = retain(key) { e ->
-        Loader(e.scope) { _ -> UserLists.lists(account, login) }.also { l ->
+        Loader(e.scope) { _ ->
+            // 版本在请求前取：请求期间若列表有变化，存下的版本与之不符，下次进入会再刷新
+            val revision = UserLists.changes.value
+            UserLists.lists(account, login).also { lists ->
+                snapshot.value = lists
+                snapshot.loadedRevision = revision
+                snapshot.loadedAtMs = System.currentTimeMillis()
+                if (Session.generation == account.generation) diskCache.write(active, login, lists)
+            }
+        }.also { l ->
+            if (snapshot.value == null) {
+                // 冷启动：磁盘上的上次结果先显示，版本记为 -1，必定视为过期并刷新一次
+                diskCache.read(active, login)?.let { cached ->
+                    snapshot.value = cached
+                    snapshot.loadedRevision = -1L
+                }
+            }
             val cached = snapshot.value
             if (cached != null) l.accept(cached) else l.load()
         }
     }
-    rememberCatalogFreshness(loader, snapshot)
-    return loader
-}
-
-/**
- * 目录的新鲜度：加载成功后写入快照；重新进入时快照过期（超时或列表有变化）才在后台刷新，
- * 旧结果保持可见直到新数据到达。
- */
-@Composable
-private fun rememberCatalogFreshness(loader: Loader<List<GitHubStarList>>, snapshot: StarSnapshot<List<GitHubStarList>>) {
-    var sawLoading by remember(loader) { mutableStateOf(false) }
-    LaunchedEffect(loader, loader.loading) {
-        if (loader.loading) {
-            sawLoading = true
-        } else if (sawLoading) {
-            sawLoading = false
-            val data = loader.data
-            if (data != null && loader.error == null) {
-                snapshot.value = data
-                snapshot.loadedAtMs = System.currentTimeMillis()
-                snapshot.loadedRevision = UserLists.changes.value
-            }
-        }
-    }
+    val claimed = remember(key) { ProcessRefreshClaims.claim(key) }
     LaunchedEffect(loader) {
-        val stale = StarListCache.isStale(
-            snapshot.loadedAtMs, snapshot.loadedRevision, UserLists.changes.value, System.currentTimeMillis(),
-        )
-        if (snapshot.value != null && stale && StarListCache.canAttemptSilentRefresh(snapshot)) loader.refreshSilently()
+        if (StarListCache.takeEntryRefresh(snapshot, hasData = snapshot.value != null, claimed = claimed, revision = UserLists.changes.value)) loader.refreshSilently()
     }
+    return loader
 }
 
 /** 一次写入成功后给用户的反馈：加入了哪些列表、移出了哪些列表；没有变化时返回 null。 */

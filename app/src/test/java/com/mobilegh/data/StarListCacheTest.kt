@@ -11,26 +11,49 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StarListCacheTest {
-    private val max = StarListCache.MAX_AGE_MS
-
     @Test fun neverLoadedSnapshotIsStale() {
-        assertTrue(StarListCache.isStale(loadedAtMs = 0, loadedRevision = 0, revision = 0, nowMs = 1_000))
+        assertTrue(StarListCache.isStale(loadedRevision = -1, revision = 0))
     }
 
-    @Test fun freshSnapshotWithSameRevisionIsNotStale() {
-        assertFalse(StarListCache.isStale(loadedAtMs = 1_000, loadedRevision = 3, revision = 3, nowMs = 1_000 + max / 2))
+    @Test fun sameRevisionIsNotStaleNoMatterHowOld() {
+        assertFalse(StarListCache.isStale(loadedRevision = 3, revision = 3))
     }
 
-    @Test fun exactlyMaxAgeIsStillFresh() {
-        assertFalse(StarListCache.isStale(loadedAtMs = 1_000, loadedRevision = 3, revision = 3, nowMs = 1_000 + max))
+    @Test fun changedRevisionIsStale() {
+        assertTrue(StarListCache.isStale(loadedRevision = 3, revision = 4))
     }
 
-    @Test fun olderThanMaxAgeIsStale() {
-        assertTrue(StarListCache.isStale(loadedAtMs = 1_000, loadedRevision = 3, revision = 3, nowMs = 1_000 + max + 1))
+    @Test fun entryRefreshNeedsData() {
+        val snapshot = StarSnapshot<String>(generation = 1)
+        assertFalse(StarListCache.takeEntryRefresh(snapshot, hasData = false, claimed = true, revision = 0, nowMs = 1_000))
     }
 
-    @Test fun changedRevisionIsStaleEvenWhenRecent() {
-        assertTrue(StarListCache.isStale(loadedAtMs = 1_000, loadedRevision = 3, revision = 4, nowMs = 1_001))
+    @Test fun firstEntryOfLaunchRefreshesOnceThenBacksOff() {
+        val snapshot = StarSnapshot<String>(generation = 1).also { it.loadedRevision = 3 }
+        assertTrue(StarListCache.takeEntryRefresh(snapshot, hasData = true, claimed = true, revision = 3, nowMs = 1_000))
+        assertFalse(StarListCache.takeEntryRefresh(snapshot, hasData = true, claimed = true, revision = 3, nowMs = 1_001))
+        assertFalse(
+            StarListCache.takeEntryRefresh(
+                snapshot, hasData = true, claimed = true, revision = 3,
+                nowMs = 1_000 + StarListCache.SILENT_RETRY_BACKOFF_MS - 1,
+            ),
+        )
+        assertTrue(
+            StarListCache.takeEntryRefresh(
+                snapshot, hasData = true, claimed = true, revision = 3,
+                nowMs = 1_000 + StarListCache.SILENT_RETRY_BACKOFF_MS,
+            ),
+        )
+    }
+
+    @Test fun laterEntriesWithoutChangeDoNotRefresh() {
+        val snapshot = StarSnapshot<String>(generation = 1).also { it.loadedRevision = 3 }
+        assertFalse(StarListCache.takeEntryRefresh(snapshot, hasData = true, claimed = false, revision = 3, nowMs = 1_000))
+    }
+
+    @Test fun laterEntriesRefreshWhenRevisionChanged() {
+        val snapshot = StarSnapshot<String>(generation = 1).also { it.loadedRevision = 3 }
+        assertTrue(StarListCache.takeEntryRefresh(snapshot, hasData = true, claimed = false, revision = 4, nowMs = 1_000))
     }
 
     @Test fun snapshotIsSharedForSameKeyAndAccount() {

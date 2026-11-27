@@ -5,8 +5,12 @@ import kotlinx.coroutines.launch
 import androidx.compose.foundation.ExperimentalFoundationApi
 import com.mobilegh.ui.components.verticalScrollWithBar
 import com.mobilegh.ui.components.ScrollbarLazyColumn
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -348,6 +352,7 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?, line
     // 当前高亮并滚动到的行：来自链接里的 #L 锚点，或「跳到行」；每次定位都是新对象
     var focus by remember(lines) { mutableStateOf(lines?.let { LineFocus(it) }) }
     var jumpOpen by remember { mutableStateOf(false) }
+    var outlineOpen by remember { mutableStateOf(false) }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var currentMatchIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -437,6 +442,16 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?, line
                 if (editable) add(MenuAction(tr("编辑文件"), icon = R.drawable.oc_pencil) { nav.push(Screen.EditFile(owner, name, ref, path)) })
                 if (b is FileBody.Code) {
                     add(MenuAction(tr("复制全部内容"), icon = R.drawable.oc_copy) { ctx.copy(b.text) })
+                    add(MenuAction(tr("生成代码分享图"), icon = R.drawable.oc_share_android) {
+                        val allLines = b.text.lines()
+                        val range = focus?.range ?: (1..minOf(24, allLines.size.coerceAtLeast(1)))
+                        val start = range.first.coerceIn(1, allLines.size.coerceAtLeast(1))
+                        val end = range.last.coerceIn(start, minOf(start + 27, allLines.size.coerceAtLeast(start)))
+                        val snippet = allLines.subList(start - 1, end)
+                        val bmp = com.mobilegh.ui.components.ShareCardRenderer.renderCodeCard(owner, name, path, snippet, start, g.dark)
+                        com.mobilegh.ui.components.ShareCardRenderer.shareBitmap(ctx, bmp, "code-${name}-${start}-${end}", tr("分享代码卡片"))
+                    })
+                    add(MenuAction(tr("符号大纲…"), icon = R.drawable.oc_list_unordered) { outlineOpen = true })
                     add(MenuAction(tr("跳到行…"), icon = R.drawable.oc_arrow_down) { jumpOpen = true })
                 } else if (b is FileBody.Html && source.data != null) {
                     add(MenuAction(tr("复制全部源码"), icon = R.drawable.oc_copy) { ctx.copy(source.data!!.first) })
@@ -576,6 +591,53 @@ fun FileViewScreen(owner: String, name: String, path: String, ref: String?, line
         JumpToLineDialog(total = (body.data as? FileBody.Code)?.lines?.size ?: 0, onDismiss = { jumpOpen = false }) { line ->
             focus = LineFocus(line..line)
             jumpOpen = false
+        }
+    }
+    if (outlineOpen) {
+        val codeText = (body.data as? FileBody.Code)?.text.orEmpty()
+        CodeOutlineDialog(path = path, text = codeText, onDismiss = { outlineOpen = false }) { line ->
+            focus = LineFocus(line..line)
+            outlineOpen = false
+        }
+    }
+}
+
+@Composable
+private fun CodeOutlineDialog(path: String, text: String, onDismiss: () -> Unit, onSelect: (Int) -> Unit) {
+    val g = Gh.c
+    var filter by rememberSaveable { mutableStateOf("") }
+    val symbols = remember(path, text) { CodeOutline.extract(path, text) }
+    val filtered = remember(symbols, filter) {
+        if (filter.isBlank()) symbols else symbols.filter { it.name.contains(filter.trim(), ignoreCase = true) }
+    }
+    GhDialog(tr("符号大纲"), onDismiss, confirm = tr("关闭"), onConfirm = onDismiss) {
+        Column(Modifier.heightIn(max = 420.dp)) {
+            if (symbols.isEmpty()) {
+                Text(tr("未在此文件中识别到类、函数或标题符号。"), fontSize = 13.sp, color = g.fgMuted)
+            } else {
+                GhField(filter, { filter = it }, tr("筛选符号…"))
+                Spacer(Modifier.height(8.dp))
+                ScrollbarLazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
+                    items(filtered, key = { "${it.line}:${it.name}" }) { sym ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable { onSelect(sym.line) }
+                                .padding(start = (sym.depth * 12).dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                sym.kind, fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = g.accent,
+                                modifier = Modifier.background(g.accentSubtle, RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(sym.name, Modifier.weight(1f), fontSize = 13.sp, color = g.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("L${sym.line}", fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = g.fgMuted)
+                        }
+                    }
+                    if (filtered.isEmpty()) {
+                        item { Text(tr("没有匹配的符号。"), fontSize = 13.sp, color = g.fgMuted, modifier = Modifier.padding(vertical = 8.dp)) }
+                    }
+                }
+            }
         }
     }
 }

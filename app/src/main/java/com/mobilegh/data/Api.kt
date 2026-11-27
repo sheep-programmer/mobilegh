@@ -18,7 +18,10 @@ import okhttp3.Cache
 import okhttp3.CacheControl
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.ConnectionPool
+import okhttp3.Dispatcher
 import okhttp3.Headers
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
@@ -75,8 +78,10 @@ object Api {
     val http: OkHttpClient by lazy {
         OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector())
             .cache(cache)
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .dispatcher(Dispatcher().apply { maxRequests = 64; maxRequestsPerHost = 16 })
+            .connectionPool(ConnectionPool(8, 5, TimeUnit.MINUTES))
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(20, TimeUnit.SECONDS)
             .authenticator { _, response ->
                 val expected = response.request.header("Authorization")?.removePrefix("Bearer ")
                 val host = response.request.url.host
@@ -145,13 +150,15 @@ object Api {
         force: Boolean = false,
         headers: Map<String, String> = emptyMap(),
     ): Resp {
-        val rb = Request.Builder().url(url(path))
+        val resolvedUrl = url(path)
+        val rb = Request.Builder().url(resolvedUrl)
         headers.forEach { (k, v) -> rb.header(k, v) }
         // Bind this operation to its initiating account, before OkHttp queues the request.
         // A long-running import supplies its captured account explicitly; never overwrite it.
         val callToken = Session.token
-        val requestHost = rb.build().url.host
-        if (callToken != null && rb.build().header("Authorization") == null &&
+        val requestHost = resolvedUrl.toHttpUrlOrNull()?.host
+        val hasAuthHeader = headers.keys.any { it.equals("Authorization", ignoreCase = true) }
+        if (callToken != null && !hasAuthHeader &&
             (requestHost in AUTH_HOSTS || requestHost == Net.apiHost)
         ) {
             rb.header("Authorization", "Bearer $callToken")
@@ -256,7 +263,8 @@ object Api {
     fun ensureOk(r: Resp): Resp {
         if (r.code in 200..299) return r
         val msg = runCatching { errorMessage(r.body) }.getOrNull()
-        throw ApiException(r.code, friendly(r.code, msg))
+        val retryAfter = r.headers["retry-after"]?.trim()?.toIntOrNull()?.takeIf { it > 0 }
+        throw ApiException(r.code, friendly(r.code, msg, retryAfter))
     }
 
     /**
@@ -277,10 +285,15 @@ object Api {
         }
     }
 
-    private fun friendly(code: Int, msg: String?): String = when {
+    internal fun friendly(code: Int, msg: String?, retryAfterSeconds: Int? = null): String = when {
         code == 401 -> tr("认证失败：Token 无效或已过期")
-        code == 403 && msg?.contains("rate limit", true) == true -> tr("API 调用次数已达上限，请稍后再试")
+        code == 429 || (code == 403 && (msg?.contains("rate limit", true) == true || msg?.contains("wait a few minutes", true) == true)) ->
+            if (retryAfterSeconds != null) trf("请求过于频繁，请约 {0} 秒后再试", retryAfterSeconds)
+            else if (code == 429) tr("请求过于频繁，请稍后再试")
+            else tr("API 调用次数已达上限，请稍后再试")
         code == 403 && msg?.contains("SAML", true) == true -> tr("该组织启用了 SAML SSO，请在 GitHub 网页上为 Token 授权 SSO")
+        code == 403 && msg?.contains("personal access token", true) == true -> tr("当前个人访问令牌（PAT）缺少该操作所需权限")
+        code == 403 && msg?.contains("admin rights", true) == true -> tr("需要仓库管理员权限才能执行此操作")
         // 安全功能未开启（如 Dependabot 告警被关闭）时 GitHub 返回英文原文，这里给出可理解的中文原因
         code == 403 && msg?.contains("disabled", true) == true -> tr("该仓库未启用此功能，或当前 Token 没有查看权限")
         code == 403 && msg?.contains("not authorized", true) == true -> tr("没有查看此内容的权限，请确认 Token 包含所需的权限")
@@ -289,6 +302,8 @@ object Api {
         code == 404 -> tr("未找到内容（可能不存在或 Token 没有权限）")
         code == 409 && msg != null -> msg
         code == 422 -> trf("请求无效：{0}", msg ?: "")
+        code == 500 -> tr("GitHub 服务器内部异常 (500)，请稍后重试")
+        code in setOf(502, 503, 504) -> trf("GitHub 服务或当前代理节点暂时不可用 (HTTP {0})，请稍后重试或切换网络节点", code)
         msg != null -> "$msg ($code)"
         else -> trf("请求失败 ({0})", code)
     }
@@ -300,7 +315,7 @@ object Api {
         headers: Map<String, String> = emptyMap(),
     ): T {
         val body = ensureOk(call("GET", path, accept = accept, force = force, headers = headers)).body
-        return withContext(Dispatchers.Default) { json.decodeFromString(body) }
+        return decodeJson(path, body)
     }
 
     suspend fun text(path: String, accept: String? = null, force: Boolean = false): String =
@@ -313,7 +328,16 @@ object Api {
         headers: Map<String, String> = emptyMap(),
     ): T {
         val text = ensureOk(call(method, path, body, headers = headers)).body
-        return withContext(Dispatchers.Default) { json.decodeFromString(text) }
+        return decodeJson(path, text)
+    }
+
+    @PublishedApi
+    internal suspend inline fun <reified T> decodeJson(path: String, body: String): T {
+        if (body.trimStart().startsWith("<")) {
+            AppLog.warn("network", "Unexpected HTML response for ${path.take(120)}", null, body.take(240))
+            throw ApiException(-2, tr("服务器返回了网页而非 API 数据，请检查网络认证或代理设置"))
+        }
+        return withContext(Dispatchers.Default) { json.decodeFromString(body) }
     }
 
     /**
@@ -389,7 +413,8 @@ object Api {
 /** 把底层网络异常换成中文提示，不向界面暴露 IP、端口等原始信息；非网络异常返回 null */
 fun Throwable.networkHint(): String? = when (this) {
     is java.net.UnknownHostException -> tr("无法解析 GitHub 地址，请检查网络或 DNS 设置")
-    is java.io.InterruptedIOException -> tr("连接 GitHub 超时，请检查网络或代理后重试")
+    is java.net.SocketTimeoutException, is java.io.InterruptedIOException -> tr("连接或读取超时，请检查网络质量或切换加速节点")
+    is java.net.ConnectException -> tr("无法连接到 GitHub 服务器，请检查网络或代理端口是否可用")
     is java.net.SocketException -> tr("无法连接 GitHub，请检查网络或代理后重试")
     is javax.net.ssl.SSLException -> tr("安全连接失败，请检查系统时间或代理证书")
     is java.net.ProtocolException, is java.io.EOFException -> tr("网络连接中断，请稍后重试")

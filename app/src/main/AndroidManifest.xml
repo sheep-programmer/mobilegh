@@ -104,6 +104,7 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+        <receiver android:name=".service.NotificationActionReceiver" android:exported="false" />
 
         <!-- 桌面小组件（Jetpack Glance） -->
         <receiver

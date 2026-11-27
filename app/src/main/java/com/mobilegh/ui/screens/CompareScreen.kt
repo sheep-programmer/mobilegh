@@ -22,9 +22,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.R
+import com.mobilegh.ui.components.Loading
 import com.mobilegh.data.Branch
 import com.mobilegh.data.Compare
 import com.mobilegh.data.Comparison
@@ -85,8 +89,7 @@ fun CompareScreen(owner: String, name: String, initialBase: String = "HEAD~1", i
     // 非 null 时弹出删除确认；只允许删除目标分支，且不能是默认分支
     var deleting by remember { mutableStateOf<Branch?>(null) }
     val compare = rememberLoader("compare:$base:$head") { force ->
-        val c = Compare.load(owner, name, base, head, force = force)
-        c to c.files.distinctBy { it.filename }.map { f -> ParsedFile(f) }
+        Compare.load(owner, name, base, head, force = force)
     }
     val collapsed = remember(base, head) { mutableStateMapOf<String, Boolean>() }
     val r = repo.data
@@ -106,14 +109,23 @@ fun CompareScreen(owner: String, name: String, initialBase: String = "HEAD~1", i
                 onBase = { dialog = 1 }, onHead = { dialog = 2 },
                 onSwap = { val before = base; base = head; head = before },
             )
-            LoadBox(compare, Modifier.fillMaxWidth().weight(1f)) { (c, files) ->
+            LoadBox(compare, Modifier.fillMaxWidth().weight(1f)) { c ->
+                val rawFiles = remember(c) { c.files.distinctBy { it.filename } }
+                val files by produceState<List<ParsedFile>?>(null, rawFiles) {
+                    value = withContext(Dispatchers.Default) { rawFiles.map { f -> ParsedFile(f) } }
+                }
                 if (tab == 0) {
                     val listState = rememberLazyListState()
                     ScrollbarLazyColumn(Modifier.fillMaxSize(), state = listState) {
-                        item { CompareHeader(c, files.size, tab) { tab = it } }
-                        if (files.size >= 300) item { Text(tr("GitHub 比较接口最多返回 300 个文件，此列表可能不完整。"), Modifier.padding(16.dp), color = g.attention, fontSize = 12.sp) }
-                        if (files.isEmpty()) emptyItem(listState, tr("两个版本没有可显示的文件差异"), R.drawable.oc_diff)
-                        fileDiffs(files, collapsed, g) { f -> nav.push(Screen.FileView(owner, name, f.filename, head)) }
+                        item { CompareHeader(c, rawFiles.size, tab) { tab = it } }
+                        if (rawFiles.size >= 300) item { Text(tr("GitHub 比较接口最多返回 300 个文件，此列表可能不完整。"), Modifier.padding(16.dp), color = g.attention, fontSize = 12.sp) }
+                        val parsed = files
+                        if (parsed == null) {
+                            item(key = "compare-files-loading") { Loading(Modifier.fillMaxWidth().height(72.dp)) }
+                        } else {
+                            if (parsed.isEmpty()) emptyItem(listState, tr("两个版本没有可显示的文件差异"), R.drawable.oc_diff)
+                            fileDiffs(parsed, collapsed, g) { f -> nav.push(Screen.FileView(owner, name, f.filename, head)) }
+                        }
                         item { Spacer(Modifier.height(24.dp)) }
                     }
                 } else {
@@ -122,7 +134,7 @@ fun CompareScreen(owner: String, name: String, initialBase: String = "HEAD~1", i
                     }
                     PagedList(
                         commits, itemKey = { it.sha }, empty = tr("两个版本之间没有提交"),
-                        header = { item { CompareHeader(c, files.size, tab) { tab = it } } },
+                        header = { item { CompareHeader(c, rawFiles.size, tab) { tab = it } } },
                     ) { CommitRow(owner, name, it) }
                 }
             }

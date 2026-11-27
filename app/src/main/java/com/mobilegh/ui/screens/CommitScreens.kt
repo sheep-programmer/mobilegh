@@ -1,6 +1,7 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.background
+import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,7 +24,11 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -124,13 +129,10 @@ fun CommitDetailScreen(owner: String, name: String, sha: String) {
     val ctx = rememberCtx()
     val nav = LocalNav.current
     val g = Gh.c
-    val data = rememberLoader("commit") {
-        val c = GitHub.commit(owner, name, sha)
-        c to c.files.orEmpty().map { ParsedFile(it) }
-    }
+    val data = rememberLoader("commit") { GitHub.commit(owner, name, sha) }
     val collapsed = retain("collapsed") { mutableStateMapOf<String, Boolean>() }
     // 链接里可能是分支名或 HEAD，加载后统一换成实际 SHA
-    val sha = data.data?.first?.sha?.takeIf { it.isNotBlank() } ?: sha
+    val sha = data.data?.sha?.takeIf { it.isNotBlank() } ?: sha
     Page(
         trf("提交 {0}", sha.take(7)), subtitle = "$owner/$name",
         actions = {
@@ -141,7 +143,11 @@ fun CommitDetailScreen(owner: String, name: String, sha: String) {
             })
         },
     ) { pad ->
-        LoadBox(data, Modifier.padding(pad).fillMaxSize()) { (c, files) ->
+        LoadBox(data, Modifier.padding(pad).fillMaxSize()) { c ->
+            val files by produceState<List<ParsedFile>?>(null, c) {
+                value = withContext(Dispatchers.Default) { c.files.orEmpty().map { ParsedFile(it) } }
+            }
+            val fileCount = files?.size ?: c.files?.size ?: 0
             val state = rememberLazyListState()
             RegisterScrollTop(state)
             ScrollbarLazyColumn(Modifier.fillMaxSize(), state = state) {
@@ -181,7 +187,7 @@ fun CommitDetailScreen(owner: String, name: String, sha: String) {
                         Spacer(Modifier.height(10.dp))
                         c.stats?.let { s ->
                             Row {
-                                Text(trf("{0} 个文件变更 ", files.size), fontSize = 13.sp, color = g.fg)
+                                Text(trf("{0} 个文件变更 ", fileCount), fontSize = 13.sp, color = g.fg)
                                 Text("+${s.additions} ", fontSize = 13.sp, color = g.success, fontWeight = FontWeight.SemiBold)
                                 Text("−${s.deletions}", fontSize = 13.sp, color = g.danger, fontWeight = FontWeight.SemiBold)
                             }
@@ -190,7 +196,12 @@ fun CommitDetailScreen(owner: String, name: String, sha: String) {
                     HDivider()
                 }
                 item { Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.End) { DiffModeToggle() } }
-                fileDiffs(files, collapsed, g) { f -> nav.push(Screen.FileView(owner, name, f.filename, sha)) }
+                val parsedFiles = files
+                if (parsedFiles == null) {
+                    item(key = "commit-files-loading") { Loading(Modifier.fillMaxWidth().height(72.dp)) }
+                } else {
+                    fileDiffs(parsedFiles, collapsed, g) { f -> nav.push(Screen.FileView(owner, name, f.filename, sha)) }
+                }
                 item { Spacer(Modifier.height(32.dp)) }
             }
         }

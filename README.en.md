@@ -68,7 +68,7 @@ Captured from the latest emulator build using fictional accounts and local test 
 
 ## Download and sign in
 
-Requires **Android 8.0 (API 26) or later**. See the latest Release for the v0.40.12 ARM64 APK and per-ABI checksums. [Release notes](docs/RELEASE_v0.40.12.md)
+Requires **Android 8.0 (API 26) or later**. See the latest Release for the v0.40.13 ARM64 APK and per-ABI checksums. [Release notes](docs/RELEASE_v0.40.13.md)
 
 | Device | APK |
 | --- | --- |

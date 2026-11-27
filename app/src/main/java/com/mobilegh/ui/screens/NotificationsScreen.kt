@@ -18,6 +18,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import com.mobilegh.ui.components.GhField
+import com.mobilegh.ui.components.SwitchRow
+import com.mobilegh.ui.components.verticalScrollWithBar
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -984,8 +988,10 @@ fun NotificationsScreen() {
         notificationOrganizationOptions(visible, selectedOrganizationsSet)
     }
     val matched = visible.filter { n ->
-        matchNotifFilters(n, selectedTypesSet, selectedReasonsSet, selectedReposSet, selectedOrganizationsSet)
+        !com.mobilegh.data.NotificationMuteRules.isMuted(n) &&
+            matchNotifFilters(n, selectedTypesSet, selectedReasonsSet, selectedReposSet, selectedOrganizationsSet)
     }
+    var muteDialog by remember { mutableStateOf(false) }
     val matchedIds = matched.mapTo(HashSet()) { it.id }
     val busy = state.busyLabel != null
     val hasActiveFilter = selectedTypes.isNotEmpty() || selectedReasons.isNotEmpty() ||
@@ -1074,6 +1080,11 @@ fun NotificationsScreen() {
                             notifPrefs.edit().putBoolean("grouped", grouped).apply()
                         }, if (grouped) g.accent else g.fg,
                         description = if (grouped) tr("取消按仓库分组") else tr("按仓库分组"),
+                    )
+                    OcButton(
+                        R.drawable.oc_bell_slash, { muteDialog = true },
+                        if (com.mobilegh.data.NotificationMuteRules.config.isActive) g.accent else g.fg,
+                        description = tr("降噪规则"),
                     )
                     OcButton(
                         R.drawable.oc_checklist, { confirmAll = true },
@@ -1343,6 +1354,34 @@ fun NotificationsScreen() {
                 trf("将忽略「{0}」。之后即使被 @ 也不再收到该线程的通知；可在该条目的菜单中「恢复订阅」撤销。", target.subject.title.take(60)),
                 color = g.fg,
             )
+        }
+    }
+
+    if (muteDialog) {
+        val current = com.mobilegh.data.NotificationMuteRules.config
+        var muteBots by remember(muteDialog) { mutableStateOf(current.muteBots) }
+        var reposText by remember(muteDialog) { mutableStateOf(current.mutedRepos.joinToString("\n")) }
+        var keywordsText by remember(muteDialog) { mutableStateOf(current.mutedKeywords.joinToString("\n")) }
+        GhDialog(
+            tr("通知降噪规则"),
+            onDismiss = { muteDialog = false },
+            confirm = tr("保存"),
+            onConfirm = {
+                com.mobilegh.data.NotificationMuteRules.update(
+                    com.mobilegh.data.NotificationMuteConfig(
+                        muteBots = muteBots,
+                        mutedRepos = reposText.lines().map { it.trim() }.filter { it.isNotEmpty() }.toSet(),
+                        mutedKeywords = keywordsText.lines().map { it.trim() }.filter { it.isNotEmpty() },
+                    ),
+                )
+                muteDialog = false
+            },
+        ) {
+            Column(Modifier.heightIn(max = 420.dp).verticalScrollWithBar(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SwitchRow(tr("自动静音 Bot 通知"), tr("过滤 dependabot、renovate、github-actions 等机器人通知"), muteBots) { muteBots = it }
+                GhField(reposText, { reposText = it }, tr("静音仓库（每行一个 owner/repo）"), singleLine = false, minLines = 2)
+                GhField(keywordsText, { keywordsText = it }, tr("静音关键词（每行一个，匹配标题）"), singleLine = false, minLines = 2)
+            }
         }
     }
 }

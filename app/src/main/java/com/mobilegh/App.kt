@@ -40,6 +40,7 @@ class App : Application() {
         WidgetStore.init(this)
         com.mobilegh.data.NotificationStore.init(this)
         com.mobilegh.data.BackgroundNotificationSettings.init(this)
+        com.mobilegh.data.NotificationMuteRules.init(this)
         WidgetStore.listener = { kind -> Widgets.update(this, kind) }
         com.mobilegh.data.MobileApprovalMonitor.reload(this)
         History.init(this)

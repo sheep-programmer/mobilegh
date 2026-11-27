@@ -86,8 +86,9 @@ object GitHubNotificationDelivery {
             // 不同线程不能使用同一 PendingIntent，否则 extra 会互相覆盖。
             data = android.net.Uri.parse("mobilegh://notification/${n.id}")
         }
-        val content = PendingIntent.getActivity(ctx, n.id.hashCode(), open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notification = NotificationCompat.Builder(ctx, CHANNEL)
+        val notifId = n.id.hashCode()
+        val content = PendingIntent.getActivity(ctx, notifId, open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val builder = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(R.drawable.oc_bell)
             .setContentTitle(n.subject.title.ifBlank { tr("GitHub 通知") })
             .setContentText(repo)
@@ -97,7 +98,11 @@ object GitHubNotificationDelivery {
             .setGroup(GROUP)
             .setCategory(NotificationCompat.CATEGORY_SOCIAL)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .build()
+            .addAction(R.drawable.oc_check, tr("标为已读"), NotificationActionReceiver.markReadIntent(ctx, n.id, notifId))
+        NotificationActionReceiver.parseIssueTarget(n.subject.url, n.subject.type)?.let { (owner, repoName, number) ->
+            builder.addAction(NotificationActionReceiver.quickReplyAction(ctx, n.id, notifId, owner, repoName, number))
+        }
+        val notification = builder.build()
         @Suppress("MissingPermission")
         return try {
             val compat = NotificationManagerCompat.from(ctx)

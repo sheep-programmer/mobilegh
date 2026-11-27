@@ -341,7 +341,17 @@ data class CheckRun(
 )
 
 @Serializable
-data class CheckOutput(val title: String? = null, val summary: String? = null)
+data class CheckOutput(val title: String? = null, val summary: String? = null, val annotationsCount: Int = 0)
+
+@Serializable
+data class CheckAnnotation(
+    val path: String = "",
+    val startLine: Int = 0,
+    val endLine: Int = 0,
+    val annotationLevel: String = "",
+    val message: String = "",
+    val title: String? = null,
+)
 
 @Serializable
 data class CheckApp(val name: String? = null, val slug: String? = null)

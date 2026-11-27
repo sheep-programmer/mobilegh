@@ -155,7 +155,7 @@ object Images {
         val svg = parseSvg(bytes)
         var w = svg.documentWidth
         var h = svg.documentHeight
-        if (w <= 0f || h <= 0f) {
+        if (w <= 0f || w.isNaN() || h <= 0f || h.isNaN()) {
             val box = svg.documentViewBox
             if (box != null && box.width() > 0f && box.height() > 0f) { w = box.width(); h = box.height() } else { w = 300f; h = 150f }
         }
@@ -245,20 +245,21 @@ object Images {
     }
 
     private fun parseSvg(bytes: ByteArray): com.caverock.androidsvg.SVG {
+        val compat = SvgCompat.normalize(bytes)
         // AndroidSVG can return an empty document when a response ends before the SVG root closes.
-        val xml = Xml.newPullParser().apply { setInput(bytes.inputStream(), null) }
+        val xml = Xml.newPullParser().apply { setInput(compat.inputStream(), null) }
         var event = xml.nextToken()
         while (event != XmlPullParser.END_DOCUMENT &&
             !(event == XmlPullParser.END_TAG && xml.depth == 1 && xml.name == "svg")) {
             event = xml.nextToken()
         }
         require(event == XmlPullParser.END_TAG) { "Incomplete SVG document" }
-        val normalized = SvgForeignText.normalize(bytes)
+        val normalized = SvgForeignText.normalize(compat)
         return try {
             com.caverock.androidsvg.SVG.getFromInputStream(normalized.inputStream())
         } catch (error: com.caverock.androidsvg.SVGParseException) {
-            if (normalized === bytes) throw error
-            com.caverock.androidsvg.SVG.getFromInputStream(bytes.inputStream())
+            if (normalized === compat) throw error
+            com.caverock.androidsvg.SVG.getFromInputStream(compat.inputStream())
         }
     }
 

@@ -2,6 +2,8 @@ package com.mobilegh.ui.screens
 
 import androidx.compose.foundation.background
 import com.mobilegh.ui.components.verticalScrollWithBar
+import com.mobilegh.ui.components.CardDropdownMenu
+import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.ScrollbarLazyColumn
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,6 +35,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -546,6 +549,15 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
     var deleting by remember { mutableStateOf<ReviewComment?>(null) }
     var discardingPending by remember { mutableStateOf(false) }
     var unresolvedOnly by rememberSaveable { mutableStateOf(false) }
+    var selectedCommitSha by rememberSaveable { mutableStateOf<String?>(null) }
+    val prCommits = rememberLoader("pr-commits") { runCatching { GitHub.pullCommits(owner, name, number) }.getOrDefault(emptyList()) }
+    val commitFiles = rememberLoader("commit-files:$selectedCommitSha") {
+        val sha = selectedCommitSha ?: return@rememberLoader null
+        GitHub.commit(owner, name, sha).files.orEmpty().map { ParsedFile(it) }
+    }
+    LaunchedEffect(selectedCommitSha) {
+        if (selectedCommitSha != null) commitFiles.load(false)
+    }
     var focusUnresolvedPath by remember { mutableStateOf<String?>(null) }
     var batchDialog by remember { mutableStateOf(false) }
     var batchRunning by remember { mutableStateOf(false) }
@@ -572,7 +584,7 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
         if (cloud != null && Session.generation == entry.generation) Session.setViewedFiles(owner, name, number, viewed)
     }
 
-    val displayedFiles = files.data?.files
+    val displayedFiles = if (selectedCommitSha != null) commitFiles.data else files.data?.files
     val filesByPath = remember(displayedFiles) { displayedFiles.orEmpty().associateBy { it.file.filename } }
     val unresolvedFiles = remember(displayedFiles, discussionSummary, unresolvedOnly) {
         if (unresolvedOnly) displayedFiles.orEmpty().filter { it.file.filename in discussionSummary.unresolvedByPath } else displayedFiles.orEmpty()
@@ -681,7 +693,7 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
         OcButton(R.drawable.oc_sync, { if (!updating) refreshReview() }, description = tr("刷新文件与已阅进度"))
     }) { pad ->
         LoadBox(files, Modifier.padding(pad).fillMaxSize()) { snapshot ->
-            val list = snapshot.files
+            val list = displayedFiles ?: snapshot.files
             // 文件内容变了（sha 不同）就不再算已查看
             val current = list.mapNotNull { pf -> pf.file.sha?.let { pf.file.filename to it } }.toMap()
             val stale = cloud?.states?.containsValue(FileReviewState.DISMISSED) ?: current.any { (path, sha) -> viewed[path] != null && viewed[path] != sha }
@@ -698,6 +710,51 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
                         }
                         Spacer(Modifier.height(8.dp))
                         DiffModeToggle()
+                        val commitList = prCommits.data.orEmpty()
+                        if (commitList.size > 1) {
+                            Spacer(Modifier.height(8.dp))
+                            var commitMenu by remember { mutableStateOf(false) }
+                            val activeCommit = commitList.firstOrNull { it.sha == selectedCommitSha }
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.weight(1f)) {
+                                    Row(
+                                        Modifier.fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .border(1.dp, g.border, RoundedCornerShape(8.dp))
+                                            .clickable { commitMenu = true }
+                                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Oc(R.drawable.oc_git_commit, if (activeCommit != null) g.accent else g.fgMuted, 14.dp)
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(
+                                            activeCommit?.let { "${it.sha.take(7)} · ${it.commit.message.lineSequence().first()}" }
+                                                ?: trf("全部提交（{0} 个）", commitList.size),
+                                            Modifier.weight(1f),
+                                            fontSize = 12.sp, color = if (activeCommit != null) g.accent else g.fg,
+                                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Oc(R.drawable.oc_chevron_down, g.fgMuted, 14.dp)
+                                    }
+                                    CardDropdownMenu(
+                                        expanded = commitMenu,
+                                        onDismissRequest = { commitMenu = false },
+                                        actions = listOf(
+                                            MenuAction(trf("全部提交（{0} 个）", commitList.size)) {
+                                                selectedCommitSha = null
+                                            },
+                                        ) + commitList.map { c ->
+                                            val title = "${c.sha.take(7)} · ${c.commit.message.lineSequence().first()}"
+                                            MenuAction(title) { selectedCommitSha = c.sha }
+                                        },
+                                    )
+                                }
+                                if (selectedCommitSha != null) {
+                                    Spacer(Modifier.width(8.dp))
+                                    TextLink(tr("全部")) { selectedCommitSha = null }
+                                }
+                            }
+                        }
                         Spacer(Modifier.height(8.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(trf("{0}/{1} 个文件已查看", count, list.size), fontSize = 13.sp, color = if (count == list.size && list.isNotEmpty()) g.success else g.fgMuted)
@@ -774,6 +831,13 @@ fun PullFilesScreen(owner: String, name: String, number: Int) {
                         }
                     }
                     HDivider()
+                }
+                if (selectedCommitSha != null && commitFiles.data == null) {
+                    item(key = "commit-files-state") {
+                        val err = commitFiles.error
+                        if (err != null) InlineError(err, Modifier.padding(16.dp)) { commitFiles.refresh() }
+                        else Loading(Modifier.fillMaxWidth().height(72.dp))
+                    }
                 }
                 unresolvedFiles.forEach { pf ->
                     pullFileDiff(
@@ -1054,21 +1118,35 @@ fun PullChecksScreen(owner: String, name: String, number: Int, sha: String) {
     val checks = rememberLoader("checks") { GitHub.checks(owner, name, sha, it) }
     val pr = rememberLoader("pr") { GitHub.pull(owner, name, number, it) }
     Page(tr("检查"), subtitle = "$owner/$name #$number") { pad ->
-        LoadBox(checks, Modifier.padding(pad).fillMaxSize()) { c ->
-            ScrollbarLazyColumn(Modifier.fillMaxSize()) {
-                item {
-                    Column(Modifier.padding(16.dp)) {
-                        pr.data?.title?.let { MdText(it, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
-                        Spacer(Modifier.height(6.dp))
+        ScrollbarLazyColumn(Modifier.padding(pad).fillMaxSize()) {
+            item(key = "checks-header") {
+                Column(Modifier.padding(16.dp)) {
+                    pr.data?.title?.let { MdText(it, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+                    if (pr.data?.title != null) Spacer(Modifier.height(6.dp))
+                    checks.data?.let { c ->
                         ChecksSummaryRow(c)
                         Spacer(Modifier.height(4.dp))
-                        Text(trf("提交 {0}", sha.take(7)), fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = g.fgMuted)
                     }
-                    HDivider()
+                    Text(trf("提交 {0}", sha.take(7)), fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = g.fgMuted)
                 }
+                HDivider()
+            }
+            val c = checks.data
+            if (c == null) {
+                item(key = "checks-state") {
+                    val err = checks.error
+                    if (err != null) {
+                        InlineError(err, Modifier.padding(16.dp)) { checks.refresh() }
+                    } else {
+                        Loading(Modifier.fillMaxWidth().height(120.dp))
+                    }
+                }
+            } else {
                 if (c.runs.isNotEmpty()) {
                     item { Text(tr("检查"), Modifier.padding(start = 16.dp, top = 16.dp, bottom = 6.dp), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg) }
-                    items(c.runs, key = { "r${it.id}" }) { r -> CheckRunRow(r) { openCheck(ctx, nav, r.htmlUrl ?: r.detailsUrl) } }
+                    items(c.runs, key = { "r${it.id}" }) { r ->
+                        CheckRunRow(owner, name, sha, r) { openCheck(ctx, nav, r.htmlUrl ?: r.detailsUrl) }
+                    }
                 }
                 if (c.statuses.isNotEmpty()) {
                     item { Text(tr("状态"), Modifier.padding(start = 16.dp, top = 20.dp, bottom = 6.dp), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg) }
@@ -1094,21 +1172,54 @@ fun PullChecksScreen(owner: String, name: String, number: Int, sha: String) {
                 if (c.total == 0) item {
                     Text(tr("这个提交没有检查结果。"), Modifier.padding(16.dp), fontSize = 13.sp, color = g.fgMuted)
                 }
-                item { Spacer(Modifier.height(32.dp)) }
             }
+            item { Spacer(Modifier.height(32.dp)) }
         }
     }
 }
 
 @Composable
-private fun CheckRunRow(r: CheckRun, onOpen: () -> Unit) {
+private fun CheckRunRow(owner: String, name: String, sha: String, r: CheckRun, onOpen: () -> Unit) {
     val g = Gh.c
+    val nav = LocalNav.current
+    val scope = rememberCoroutineScope()
     val (icon, color) = runVisual(r.status, r.conclusion)
+    val annotationCount = r.output?.annotationsCount ?: 0
+    val hasAnnotations = r.id > 0 && (annotationCount > 0 || r.conclusion in setOf("failure", "timed_out", "action_required"))
+    var expanded by remember(r.id) { mutableStateOf(false) }
+    var annotations by remember(r.id) { mutableStateOf<List<com.mobilegh.data.CheckAnnotation>?>(null) }
+    var loadingAnnotations by remember(r.id) { mutableStateOf(false) }
+    var annotationError by remember(r.id) { mutableStateOf<String?>(null) }
+
+    fun toggleAnnotations() {
+        expanded = !expanded
+        if (expanded && annotations == null && !loadingAnnotations) {
+            loadingAnnotations = true
+            annotationError = null
+            scope.launch {
+                try {
+                    annotations = GitHub.checkRunAnnotations(owner, name, r.id)
+                } catch (e: Throwable) {
+                    annotationError = e.message ?: tr("加载标注失败")
+                } finally {
+                    loadingAnnotations = false
+                }
+            }
+        }
+    }
+
     Column(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = 16.dp, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Oc(icon, color, 16.dp)
             Spacer(Modifier.width(10.dp))
             Text(r.name, Modifier.weight(1f), fontSize = 14.sp, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (hasAnnotations) {
+                Text(
+                    if (expanded) tr("收起标注") else if (annotationCount > 0) trf("标注 ({0})", annotationCount) else tr("标注"),
+                    fontSize = 12.sp, color = g.accent, fontWeight = FontWeight.Medium,
+                    modifier = Modifier.clickable(onClick = ::toggleAnnotations).padding(horizontal = 8.dp, vertical = 4.dp),
+                )
+            }
             if (r.htmlUrl != null || r.detailsUrl != null) Oc(R.drawable.oc_link_external, g.fgMuted, 14.dp)
         }
         r.output?.title?.takeIf { it.isNotBlank() }?.let {
@@ -1123,6 +1234,48 @@ private fun CheckRunRow(r: CheckRun, onOpen: () -> Unit) {
             Modifier.padding(start = 26.dp, top = 2.dp),
             fontSize = 12.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
+        if (expanded) {
+            Column(
+                Modifier.padding(start = 26.dp, top = 8.dp).fillMaxWidth()
+                    .background(g.canvasSubtle, RoundedCornerShape(8.dp))
+                    .border(1.dp, g.borderMuted, RoundedCornerShape(8.dp))
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                when {
+                    loadingAnnotations -> Text(tr("正在加载代码标注…"), fontSize = 12.sp, color = g.fgMuted)
+                    annotationError != null -> Text(annotationError!!, fontSize = 12.sp, color = g.danger)
+                    annotations.isNullOrEmpty() -> Text(tr("此检查没有行内代码标注。"), fontSize = 12.sp, color = g.fgMuted)
+                    else -> annotations!!.forEach { a ->
+                        val levelColor = when (a.annotationLevel) {
+                            "failure" -> g.danger
+                            "warning" -> g.attention
+                            else -> g.accent
+                        }
+                        val lineRange = a.startLine.takeIf { it > 0 }?.let { it..(a.endLine.coerceAtLeast(it)) }
+                        Column(
+                            Modifier.fillMaxWidth().let { mod ->
+                                if (a.path.isNotBlank()) mod.clickable {
+                                    nav.push(Screen.Blob(owner, name, "$sha/${a.path}", lineRange))
+                                } else mod
+                            },
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            if (a.path.isNotBlank()) {
+                                val loc = if (a.startLine > 0) "${a.path}:${a.startLine}" else a.path
+                                Text(loc, fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = levelColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            a.title?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+                            }
+                            if (a.message.isNotBlank()) {
+                                Text(a.message, fontSize = 12.sp, color = g.fgMuted)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

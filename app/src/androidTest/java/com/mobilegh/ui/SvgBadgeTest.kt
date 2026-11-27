@@ -62,6 +62,50 @@ class SvgBadgeTest {
         assertTrue("Rank must render inside the emblem", bitmap.purplePixels(25..44, 10..32) > 20)
     }
 
+    @Test fun stellarRaftDiagramsDecode() {
+        val assets = InstrumentationRegistry.getInstrumentation().context.assets
+        for (name in listOf("stellar-ignite-state.svg", "stellar-architecture.svg")) {
+            val bytes = assets.open(name).use { it.readBytes() }
+            val bmp = requireNotNull(Images.decode(bytes, 1024)) { "$name must decode" }.asAndroidBitmap()
+            assertTrue("$name must have positive dimensions", bmp.width > 500 && bmp.height > 150)
+            var opaque = 0
+            for (y in 0 until bmp.height step 10) {
+                for (x in 0 until bmp.width step 10) {
+                    if (android.graphics.Color.alpha(bmp.getPixel(x, y)) > 200) opaque++
+                }
+            }
+            assertTrue("$name must render visible pixels", opaque > 100)
+        }
+    }
+
+    @Test fun svg2AndWebExportedCompatibilityRenders() {
+        val source = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="auto" height="auto" viewBox="0 0 240 120">
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M0 0 L10 5 L0 10 z" fill="#2563eb"/>
+                </marker>
+              </defs>
+              <g transform="none">
+                <rect x="10" y="10" width="220" height="100" rx="auto" fill="#0f172a"/>
+                <g transform="translate(20px, 20px) translateX(10px) rotate(0deg)">
+                  <line x1="0" y1="30" x2="140" y2="30" stroke="#2563eb" stroke-width="3" marker-end="url(#arrow)"/>
+                  <text x="0" y="65" fill="#ffffff" font-size="14">Step&nbsp;1&mdash;OK&copy;</text>
+                </g>
+              </g>
+            </svg>
+        """.trimIndent().encodeToByteArray()
+        val bmp = requireNotNull(Images.decode(source, 720)) { "SVG 2 / web-exported SVG must decode" }.asAndroidBitmap()
+        assertTrue("Decoded SVG must use viewBox aspect ratio", bmp.width > bmp.height && bmp.width >= 240)
+        var opaque = 0
+        for (y in 0 until bmp.height step 8) {
+            for (x in 0 until bmp.width step 8) {
+                if (android.graphics.Color.alpha(bmp.getPixel(x, y)) > 200) opaque++
+            }
+        }
+        assertTrue("Rendered SVG must have visible pixels", opaque > 50)
+    }
+
     @Test fun unsupportedMarkupAndSvgFallbackStayUnchanged() {
         val source = """
             <svg xmlns="http://www.w3.org/2000/svg" width="250" height="55">

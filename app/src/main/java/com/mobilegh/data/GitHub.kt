@@ -579,6 +579,11 @@ object GitHub {
             sha?.takeIf { it.isNotBlank() }?.let { put("sha", it) }
         })
     suspend fun deleteBranch(o: String, n: String, branch: String) = Api.exec("DELETE", "${r(o, n)}/git/refs/heads/${Api.encodePath(branch)}")
+    /** 将目标分支最新提交合并到当前 PR 分支；expectedHeadSha 防止并发改写 */
+    suspend fun updatePullBranch(o: String, n: String, num: Int, expectedHeadSha: String? = null) =
+        Api.exec("PUT", "${r(o, n)}/pulls/$num/update-branch", buildJsonObject {
+            expectedHeadSha?.takeIf { it.isNotBlank() }?.let { put("expected_head_sha", it) }
+        }).also { RepoWrite.changed(o, n, RepoWrite.ISSUES) }
     /**
      * 提交审查：当前用户有待提交审查时提交它（其中的行内评论随之发布）；没有则直接提交一条新审查。
      */
@@ -781,6 +786,8 @@ object GitHub {
     // ---------------- 检查（check runs + commit status） ----------------
     suspend fun checkRuns(o: String, n: String, sha: String, force: Boolean) =
         Api.get<CheckRuns>("${r(o, n)}/commits/$sha/check-runs?per_page=100", force).checkRuns
+    suspend fun checkRunAnnotations(o: String, n: String, checkRunId: Long, force: Boolean = false): List<CheckAnnotation> =
+        Api.get("${r(o, n)}/check-runs/$checkRunId/annotations?per_page=100", force)
     suspend fun combinedStatus(o: String, n: String, sha: String, force: Boolean) =
         Api.get<CombinedStatus>("${r(o, n)}/commits/$sha/status?per_page=100", force)
 

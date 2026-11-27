@@ -914,7 +914,7 @@ fun MoreMenu(actions: List<MenuAction>, tint: Color = Gh.c.fg) {
     var open by remember { mutableStateOf(false) }
     // 菜单必须和按钮放在同一个 Box 里：DropdownMenu 锚定在父布局上，直接放进 Row 会跑到整行的起点（左边）
     Box {
-        OcButton(R.drawable.oc_kebab_horizontal, { open = true }, tint)
+        OcButton(R.drawable.oc_kebab_horizontal, { open = true }, tint, description = tr("更多"))
         CardDropdownMenu(expanded = open, onDismissRequest = { open = false }, actions = actions)
     }
 }

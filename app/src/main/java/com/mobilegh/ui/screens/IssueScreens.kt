@@ -1,5 +1,6 @@
 package com.mobilegh.ui.screens
 
+import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.Loading
 import com.mobilegh.ui.components.verticalScrollWithBar
 import com.mobilegh.ui.components.ScrollbarLazyColumn
@@ -210,23 +211,23 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
     val entry = LocalEntry.current
     val ctx = rememberCtx()
     val listState = rememberLazyListState()
-    val data = rememberLoader("thread") { f ->
-        coroutineScope {
-            val i = async { GitHub.issue(owner, name, number, f) }
-            // 定位到具体评论时需要全部评论；否则只取第一页，长讨论也能马上显示，后续页见 moreComments
-            val c = async {
-                if (commentId != null) GitHub.issueComments(owner, name, number, f)
-                else GitHub.issueCommentsPage(owner, name, number, 1, f)
-            }
-            val p = if (isPull) async {
-                val pr = GitHub.pull(owner, name, number, f)
-                // 检查结果依赖 head 提交；读取失败（如 Token 没有 checks 权限）时只是不显示
-                pr to runCatching { GitHub.checks(owner, name, pr.head.sha, f) }.getOrNull()
-            } else null
-            val r = if (isPull) async { runCatching { GitHub.pullReviews(owner, name, number, f) }.getOrDefault(emptyList<Review>()) } else null
-            val pc = p?.await()
-            IssueThread(i.await(), pc?.first, c.await(), r?.await().orEmpty(), pc?.second)
-        }
+    val issueLoader = rememberLoader("thread:issue") { f -> GitHub.issue(owner, name, number, f) }
+    val pullLoader = rememberLoader("thread:pull") { f -> if (isPull) GitHub.pull(owner, name, number, f) else null }
+    val commentsLoader = rememberLoader("thread:comments") { f ->
+        if (commentId != null) GitHub.issueComments(owner, name, number, f)
+        else GitHub.issueCommentsPage(owner, name, number, 1, f)
+    }
+    val reviewsLoader = rememberLoader("thread:reviews") { f ->
+        if (isPull) runCatching { GitHub.pullReviews(owner, name, number, f) }.getOrDefault(emptyList<Review>())
+        else emptyList()
+    }
+    val checksLoader = rememberLoader("thread:checks") { f ->
+        val sha = pullLoader.data?.head?.sha ?: return@rememberLoader null
+        runCatching { GitHub.checks(owner, name, sha, f) }.getOrNull()
+    }
+    val headSha = pullLoader.data?.head?.sha
+    LaunchedEffect(headSha) {
+        if (isPull && !headSha.isNullOrBlank()) checksLoader.load(false)
     }
     val draft = rememberDraft("comment:${owner.lowercase()}/${name.lowercase()}:$number")
     // 审查意见按 PR 保存草稿，关闭对话框或离开页面后再打开仍在
@@ -253,7 +254,15 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
     var copilotUnavailable by remember { mutableStateOf(false) }
     var writing by retain("thread:writing") { mutableStateOf(false) }
     val url = "https://github.com/$owner/$name/${if (isPull) "pull" else "issues"}/$number"
-    val t = data.data
+    val t = issueLoader.data?.let { issue ->
+        IssueThread(
+            issue = issue,
+            pull = pullLoader.data,
+            comments = commentsLoader.data.orEmpty(),
+            reviews = reviewsLoader.data.orEmpty(),
+            checks = checksLoader.data,
+        )
+    }
     // 第一页之后的评论：在后台逐页读取并追加，读取期间列表底部显示加载圈
     // 随第一页一起更新：刷新或重新加载后从第二页重新读起
     val moreComments = remember(t) { mutableStateListOf<Comment>() }
@@ -312,7 +321,13 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
     var parentPicker by remember { mutableStateOf(false) }
 
     fun reload() {
-        data.load(true)
+        issueLoader.load(true)
+        if (isPull) {
+            pullLoader.load(true)
+            reviewsLoader.load(true)
+            if (!pullLoader.data?.head?.sha.isNullOrBlank()) checksLoader.load(true)
+        }
+        commentsLoader.load(true)
         issueType.load(true)
         hierarchy.load(true)
         closing.load(true)
@@ -414,6 +429,14 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
                         if (open && pr != null && !pr.merged) {
                             if (pr.draft) { if (access.toggleDraft) add(MenuAction(tr("标记为可评审")) { setDraft(false) }) }
                             else if (access.merge) add(MenuAction(tr("合并 Pull Request…")) { mergeDialog = true })
+                            if ((access.merge || access.author) && pr.head.repo != null) {
+                                add(MenuAction(tr("更新分支"), enabled = !writing) {
+                                    write {
+                                        GitHub.updatePullBranch(owner, name, number, pr.head.sha)
+                                        ctx.toast(tr("已请求更新分支"))
+                                    }
+                                })
+                            }
                             // 自动合并：草稿不能开启；取消时作者本人也可以操作
                             if (!pr.draft && access.merge && pr.autoMerge == null) {
                                 add(MenuAction(tr("开启自动合并…")) { autoMergeDialog = true })
@@ -544,7 +567,14 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
         },
 
     ) { pad ->
-        LoadBox(data, Modifier.padding(pad).fillMaxSize()) { th ->
+        LoadBox(issueLoader, Modifier.padding(pad).fillMaxSize()) { loadedIssue ->
+            val th = IssueThread(
+                issue = loadedIssue,
+                pull = pullLoader.data,
+                comments = commentsLoader.data.orEmpty(),
+                reviews = reviewsLoader.data.orEmpty(),
+                checks = checksLoader.data,
+            )
             // 第一页与后台追加的后续页合并；按 id 去重（读取期间有评论被删除时，后一页会重复出现前一页的最后一条）
             val comments = remember(th.comments, moreComments.size) { (th.comments + moreComments).distinctBy { it.id } }
             // 评论与审查按时间排好；只在两者变化时重新排序，不在每次重组时都排一遍
@@ -576,8 +606,16 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
                     ThreadHeader(
                         owner, name, th,
                         editable = (!isPull || th.pull != null) && access.editTitle,
+                        canUpdateBranch = th.pull?.let { it.state == "open" && !it.merged && it.head.repo != null && (access.merge || access.author) } == true,
                         onEditTitle = { editTitle = th.issue.title },
                         onReady = { setDraft(false) },
+                        onUpdateBranch = {
+                            val pr = th.pull ?: return@ThreadHeader
+                            write {
+                                GitHub.updatePullBranch(owner, name, number, pr.head.sha)
+                                ctx.toast(tr("已请求更新分支"))
+                            }
+                        },
                     )
                 }
                 val copilot = if (!isPull && th.issue.state == "open" && access.write) CopilotAction(copilotBusy) { copilotConfirm = true } else null
@@ -718,6 +756,16 @@ fun IssueDetailScreen(owner: String, name: String, number: Int, isPull: Boolean,
                                 Spacer(Modifier.width(6.dp))
                                 Text("${e.user?.login ?: ""} $label · ${relTime(e.submittedAt)}", fontSize = 13.sp, color = g.fgMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
+                        }
+                    }
+                }
+                if (commentsLoader.data == null && (commentsLoader.loading || commentsLoader.error != null)) {
+                    item(key = "comments-loading") {
+                        val commentErr = commentsLoader.error
+                        if (commentErr != null) {
+                            InlineError(commentErr, Modifier.padding(horizontal = 16.dp)) { commentsLoader.refresh() }
+                        } else {
+                            Loading(Modifier.fillMaxWidth().height(56.dp))
                         }
                     }
                 }
@@ -1061,7 +1109,8 @@ private fun RelatedIssuePicker(
 @Composable
 private fun ThreadHeader(
     owner: String, name: String, th: IssueThread,
-    editable: Boolean, onEditTitle: () -> Unit, onReady: () -> Unit,
+    editable: Boolean, canUpdateBranch: Boolean,
+    onEditTitle: () -> Unit, onReady: () -> Unit, onUpdateBranch: () -> Unit,
 ) {
     val g = Gh.c
     val nav = LocalNav.current
@@ -1126,6 +1175,9 @@ private fun ThreadHeader(
                         Oc(icon, c, 14.dp)
                         Spacer(Modifier.width(6.dp))
                         Text(txt, fontSize = 13.sp, color = c, fontWeight = FontWeight.Medium)
+                    }
+                    if (pr.mergeableState == "behind" && canUpdateBranch) {
+                        GhButton(tr("更新分支"), Modifier.fillMaxWidth(), icon = R.drawable.oc_git_branch, onClick = onUpdateBranch)
                     }
                 } else if (pr.merged) {
                     Text(trf("已由 {0} 于 {1} 合并", pr.mergedBy?.login ?: "", relTime(pr.mergedAt)), fontSize = 13.sp, color = g.done)

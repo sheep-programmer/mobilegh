@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 400" font-family="'Segoe UI','PingFang SC','Noto Sans SC',sans-serif">
+  <defs>
+    <radialGradient id="abg" cx="50%" cy="20%" r="100%">
+      <stop offset="0%" stop-color="#0a0e20"/>
+      <stop offset="100%" stop-color="#05060f"/>
+    </radialGradient>
+    <marker id="a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#9fc6ff"/>
+    </marker>
+  </defs>
+
+  <rect width="900" height="400" rx="18" fill="url(#abg)"/>
+  <text x="34" y="40" fill="#8a94a8" font-size="12" letter-spacing="3" font-family="monospace">ARCHITECTURE · 分层架构</text>
+
+  <!-- arrows (draw first, under nodes) -->
+  <line x1="255" y1="130" x2="360" y2="168" stroke="#9fc6ff" stroke-width="1.5" stroke-opacity="0.7" marker-end="url(#a)"/>
+  <line x1="645" y1="130" x2="540" y2="168" stroke="#9fc6ff" stroke-width="1.5" stroke-opacity="0.7" marker-end="url(#a)"/>
+  <line x1="450" y1="234" x2="450" y2="272" stroke="#9fc6ff" stroke-width="1.5" stroke-opacity="0.7" marker-end="url(#a)"/>
+  <line x1="562" y1="304" x2="646" y2="304" stroke="#ffd98a" stroke-width="1.5" marker-end="url(#a)" marker-start="url(#a)"/>
+
+  <!-- Foundations -->
+  <text x="110" y="60" fill="#9fc6ff" font-size="11" letter-spacing="2" font-family="monospace" opacity="0.8">FOUNDATIONS · 基础层</text>
+  <rect x="110" y="72" width="310" height="58" rx="13" fill="#111a33" stroke="#9fc6ff" stroke-opacity="0.4" stroke-width="1.3"/>
+  <text x="130" y="98" fill="#e8eefc" font-size="14">tokens/</text>
+  <text x="130" y="117" fill="#8a94a8" font-size="11">colors · spacing · type · effects · themes 黎明</text>
+  <rect x="480" y="72" width="310" height="58" rx="13" fill="#111a33" stroke="#9fc6ff" stroke-opacity="0.4" stroke-width="1.3"/>
+  <text x="500" y="98" fill="#e8eefc" font-size="14">assets/</text>
+  <text x="500" y="117" fill="#8a94a8" font-size="11">starfield 星场 · SRConnect 连接曲线</text>
+
+  <!-- Design System -->
+  <text x="200" y="164" fill="#9fc6ff" font-size="11" letter-spacing="2" font-family="monospace" opacity="0.8">DESIGN SYSTEM · 组件库</text>
+  <rect x="200" y="174" width="500" height="60" rx="13" fill="#141d38" stroke="#9fc6ff" stroke-opacity="0.55" stroke-width="1.5"/>
+  <text x="224" y="201" fill="#e8eefc" font-size="14.5">18 primitives · core / knowledge / overlay / form</text>
+  <text x="224" y="220" fill="#8a94a8" font-size="11" font-family="monospace">window.StellarRaftDesignSystem_2866af</text>
+
+  <!-- UI Kit -->
+  <text x="140" y="266" fill="#ffd98a" font-size="11" letter-spacing="2" font-family="monospace" opacity="0.85">APP · UI KIT</text>
+  <rect x="140" y="276" width="422" height="58" rx="13" fill="#1c1a2e" stroke="#ffd98a" stroke-opacity="0.55" stroke-width="1.5"/>
+  <text x="162" y="302" fill="#fff" font-size="14.5">ui_kits/stellar-raft/ · 8 屏</text>
+  <text x="162" y="321" fill="#c9a86a" font-size="11">记忆模型 · 点亮/复习 · 持久化 · 新手引导</text>
+
+  <!-- Backend -->
+  <rect x="646" y="276" width="214" height="58" rx="13" fill="#111a33" stroke="#9fc6ff" stroke-opacity="0.4" stroke-width="1.3"/>
+  <text x="666" y="302" fill="#e8eefc" font-size="14">server/</text>
+  <text x="666" y="321" fill="#8a94a8" font-size="11">node:sqlite · 零依赖</text>
+
+  <text x="450" y="376" fill="#8a94a8" font-size="12" text-anchor="middle" font-family="monospace">令牌 → 组件 → 应用 · 旁挂零依赖后端 + 零构建文档站</text>
+</svg>

@@ -2,6 +2,7 @@ package com.mobilegh.service
 
 import com.mobilegh.data.BackgroundNotificationConfig
 import com.mobilegh.data.Notification
+import com.mobilegh.data.NotificationMuteRules
 import com.mobilegh.data.NotificationPollDecision
 import java.time.Instant
 import java.time.ZoneId
@@ -29,7 +30,7 @@ internal object NotificationPollRunner {
             !initialConfig.workingHours.allows(now(), zone())
         ) return
 
-        val threads = fetch()
+        val threads = fetch().filterNot { NotificationMuteRules.isMuted(it) }
         currentCoroutineContext().ensureActive()
         val fresh = NotificationPollDecision.choose(
             config(), initialLogin, login(), initialGeneration, generation(),

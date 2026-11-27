@@ -38,6 +38,8 @@ import com.mobilegh.data.GitHub
 import com.mobilegh.data.RepoWrite
 import com.mobilegh.data.WorkflowDispatch
 import com.mobilegh.data.WorkflowInput
+import com.mobilegh.data.WorkflowPresetStore
+import com.mobilegh.ui.components.TextLink
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
 import com.mobilegh.nav.friendly
@@ -69,8 +71,10 @@ fun RunWorkflowScreen(owner: String, name: String, workflowId: Long, path: Strin
     val ctx = rememberCtx()
     val entry = LocalEntry.current
     val g = Gh.c
+    val savedPreset = remember(owner, name, workflowId) { WorkflowPresetStore.load(ctx, owner, name, workflowId) }
+    var usePreset by rememberSaveable { mutableStateOf(savedPreset != null) }
     val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
-    var picked by rememberSaveable { mutableStateOf(ref0) }
+    var picked by rememberSaveable { mutableStateOf(ref0 ?: savedPreset?.ref) }
     val ref = picked ?: repo.data?.defaultBranch
     if (ref == null) {
         Page(tr("运行工作流"), subtitle = title) { pad ->
@@ -95,10 +99,18 @@ fun RunWorkflowScreen(owner: String, name: String, workflowId: Long, path: Strin
     val s = spec.data
     if (s != null) {
         s.inputs.forEach { input ->
-            if (input.name !in values) values[input.name] = when (input.type) {
-                "boolean" -> input.default?.lowercase() ?: "false"
-                "choice" -> input.default ?: input.options.firstOrNull().orEmpty()
-                else -> input.default.orEmpty()
+            if (input.name !in values) {
+                val remembered = if (usePreset) savedPreset?.inputs?.get(input.name) else null
+                val validRemembered = when {
+                    remembered == null -> null
+                    input.type == "choice" && input.options.isNotEmpty() && remembered !in input.options -> null
+                    else -> remembered
+                }
+                values[input.name] = validRemembered ?: when (input.type) {
+                    "boolean" -> input.default?.lowercase() ?: "false"
+                    "choice" -> input.default ?: input.options.firstOrNull().orEmpty()
+                    else -> input.default.orEmpty()
+                }
             }
         }
     }
@@ -140,6 +152,16 @@ fun RunWorkflowScreen(owner: String, name: String, workflowId: Long, path: Strin
                 }
                 s.inputs.isEmpty() -> Text(tr("该工作流没有输入参数，直接运行即可。"), Modifier.padding(16.dp), fontSize = 13.sp, color = g.fgMuted)
                 else -> Column(Modifier.padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    if (usePreset && savedPreset != null) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(tr("已自动填入上次运行参数"), Modifier.weight(1f), fontSize = 12.sp, color = g.fgMuted)
+                            TextLink(tr("恢复默认")) {
+                                usePreset = false
+                                values.clear()
+                                WorkflowPresetStore.clear(ctx, owner, name, workflowId)
+                            }
+                        }
+                    }
                     s.inputs.forEach { input -> InputField(input, values, extra.data.orEmpty(), busy) { values[input.name] = it; error = null } }
                 }
             }
@@ -156,6 +178,7 @@ fun RunWorkflowScreen(owner: String, name: String, workflowId: Long, path: Strin
                             val inputs = s!!.inputs.associate { it.name to (values[it.name] ?: "") }
                             AppLog.info("actions", tr("手动触发工作流：") + title + " @ " + ref)
                             GitHub.dispatch(owner, name, workflowId, ref, inputs)
+                            WorkflowPresetStore.save(ctx, owner, name, workflowId, ref, inputs)
                             RepoWrite.changed(owner, name, RepoWrite.ACTIONS)
                             busy = false
                             ctx.toast(trf("已触发 {0}", title))

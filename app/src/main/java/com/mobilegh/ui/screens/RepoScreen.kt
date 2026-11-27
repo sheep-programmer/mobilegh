@@ -182,8 +182,8 @@ fun RepoScreen(owner: String, name: String) {
     LaunchedEffect(repoAvailable, readme) {
         if (repoAvailable && !detailsReady.isCompleted) {
             withFrameNanos { }
-            // Give the README a head start without holding the other controls behind a slow response.
-            withTimeoutOrNull(600) { snapshotFlow { !readme.loading }.first { it } }
+            // Give the README a brief head start without holding secondary counts behind a slow response.
+            withTimeoutOrNull(150) { snapshotFlow { !readme.loading }.first { it } }
             detailsReady.complete(Unit)
         }
     }
@@ -289,6 +289,10 @@ fun RepoScreen(owner: String, name: String) {
                             ctx.toast(tr("已加入收藏"))
                         }
                         .onFailure { ctx.toast(it.message ?: tr("收藏失败")) }
+                })
+                if (r != null) add(MenuAction(tr("生成仓库名片图"), icon = R.drawable.oc_share_android) {
+                    val bmp = com.mobilegh.ui.components.ShareCardRenderer.renderRepoCard(r, g.dark)
+                    com.mobilegh.ui.components.ShareCardRenderer.shareBitmap(ctx, bmp, "repo-${r.owner.login}-${r.name}", tr("分享仓库名片"))
                 })
                 addLinkActions(ctx, "https://github.com/$owner/$name")
                 if (admin) add(MenuAction(tr("仓库设置")) { nav.push(Screen.RepoSettings(owner, name)) })

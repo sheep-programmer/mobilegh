@@ -35,6 +35,23 @@ internal object ImageContent {
         } else url
     }
 
+    /** GitHub camo 地址末段为十六进制编码的原始 URL；只接受安全的 https:// 地址作为并发兜底。 */
+    fun decodeCamoCanonicalUrl(url: String): String? {
+        val (host, path) = parseUrl(url) ?: return null
+        if (host != "camo.githubusercontent.com") return null
+        val hex = path.split('/').lastOrNull { it.isNotEmpty() } ?: return null
+        if (hex.length < 16 || hex.length % 2 != 0) return null
+        val bytes = ByteArray(hex.length / 2)
+        for (i in bytes.indices) {
+            val hi = Character.digit(hex[i * 2], 16)
+            val lo = Character.digit(hex[i * 2 + 1], 16)
+            if (hi < 0 || lo < 0) return null
+            bytes[i] = ((hi shl 4) or lo).toByte()
+        }
+        val decoded = String(bytes, Charsets.UTF_8).trim()
+        return decoded.takeIf { it.startsWith("https://", ignoreCase = true) && parseUrl(it) != null }
+    }
+
     fun mimeOf(url: String, bytes: ByteArray? = null): String? {
         val b = bytes
         if (b != null && b.size >= 12) {

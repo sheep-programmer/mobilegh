@@ -12,4 +12,7 @@ object ProcessRefreshClaims {
 
     @Synchronized
     fun claim(key: String): Boolean = claimed.add(key)
+
+    @Synchronized
+    internal fun clearForTest() = claimed.clear()
 }

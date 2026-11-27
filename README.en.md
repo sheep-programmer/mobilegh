@@ -30,7 +30,7 @@ These screenshots were captured from the v0.40.11 emulator build using fictional
 
 ## Download and sign in
 
-Requires **Android 8.0 (API 26) or later**. See the latest Release for the v0.40.11 ARM64 APK and per-ABI checksums. [Release notes](docs/RELEASE_v0.40.11.md)
+Requires **Android 8.0 (API 26) or later**. See the latest Release for the v0.40.12 ARM64 APK and per-ABI checksums. [Release notes](docs/RELEASE_v0.40.12.md)
 
 | Device | APK |
 | --- | --- |

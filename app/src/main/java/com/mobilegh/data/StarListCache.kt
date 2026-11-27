@@ -49,6 +49,11 @@ object StarListCache {
         starRevision++
     }
 
+    @Synchronized
+    internal fun clearForTest() {
+        snapshots.clear()
+    }
+
     /**
      * 快照是否过期：只看版本。加载后没有 Star / 列表变化，数据就仍然有效，不因为时间流逝而重新请求。
      * 从未加载的快照 [StarSnapshot.loadedRevision] 为 -1，必然视为过期。

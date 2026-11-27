@@ -370,7 +370,7 @@ private suspend fun saveStarPager(snapshot: StarSnapshot<Repo>, pager: Pager<Rep
     snapshot.ended = ended
     snapshot.loadedAtMs = System.currentTimeMillis()
     snapshot.loadedRevision = revision
-    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO) {
         RepoFeedCache(File(Api.cacheDir, "repo-feeds")).write(key, items, pages, ended, cursors = cursors)
     }
 }
@@ -484,6 +484,7 @@ private fun StarListDirectory(
     StarListRows(
         all = all,
         shown = browser.shown(all),
+        silentRefreshing = lists.silentRefreshing,
         isMe = isMe,
         login = login,
         header = header,
@@ -511,6 +512,7 @@ private fun StarListDirectory(
 private fun StarListRows(
     all: List<GitHubStarList>,
     shown: List<GitHubStarList>,
+    silentRefreshing: Boolean = false,
     isMe: Boolean,
     login: String,
     header: @Composable () -> Unit,
@@ -535,9 +537,12 @@ private fun StarListRows(
                 tr("没有匹配的列表"), R.drawable.oc_checklist, Modifier.fillMaxSize(), tr("清除搜索"), onClearSearch,
             )
         }
-        else -> ScrollbarLazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 6.dp)) {
-            item(contentType = "controls") { header() }
-            items(shown, key = { it.id }) { list -> StarListRow(list) { onOpen(list.id) } }
+        else -> Column(Modifier.fillMaxSize()) {
+            if (silentRefreshing) com.mobilegh.ui.components.SilentRefreshBanner()
+            ScrollbarLazyColumn(Modifier.fillMaxWidth().weight(1f), contentPadding = PaddingValues(vertical = 6.dp)) {
+                item(contentType = "controls") { header() }
+                items(shown, key = { it.id }) { list -> StarListRow(list) { onOpen(list.id) } }
+            }
         }
     }
 }

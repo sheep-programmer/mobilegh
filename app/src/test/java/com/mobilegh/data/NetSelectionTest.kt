@@ -172,6 +172,22 @@ class NetSelectionTest {
         }
     }
 
+    @Test fun camoBadgesIncludeHttpsCanonicalUrlFallback() {
+        val canonical = "https://img.shields.io/github/license/cursimple/cursimple-app"
+        val hex = canonical.toByteArray(Charsets.UTF_8).joinToString("") { "%02x".format(it) }
+        val camo = "https://camo.githubusercontent.com/083e7b1e3ab411cf9ab78bb2a520ca0b275e5e5f02fd38bb636e1dec8bf6e669/$hex"
+
+        assertEquals(canonical, ImageContent.decodeCamoCanonicalUrl(camo))
+        val candidates = ImageFetch.raceCandidatesForTarget(camo, "test-key")
+        assertEquals(listOf(Net.DIRECT.id to camo, "canonical" to canonical), candidates)
+
+        // Non-HTTPS canonical URLs must never be added as a fallback.
+        val httpCanonical = "http://example.com/badge.svg".toByteArray(Charsets.UTF_8).joinToString("") { "%02x".format(it) }
+        val httpCamo = "https://camo.githubusercontent.com/083e7b1e3ab411cf9ab78bb2a520ca0b275e5e5f02fd38bb636e1dec8bf6e669/$httpCanonical"
+        assertNull(ImageContent.decodeCamoCanonicalUrl(httpCamo))
+        assertEquals(listOf(Net.DIRECT.id to httpCamo), ImageFetch.raceCandidatesForTarget(httpCamo, "test-key-2"))
+    }
+
     private data class SelectionSnapshot(
         val rawMode: Int,
         val downloadMode: Int,

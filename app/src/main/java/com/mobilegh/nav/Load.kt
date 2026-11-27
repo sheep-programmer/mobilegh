@@ -37,6 +37,8 @@ class Loader<T>(private val scope: CoroutineScope, private val block: suspend (f
         private set
     var loading by mutableStateOf(false)
     var refreshing by mutableStateOf(false)
+    var silentRefreshing by mutableStateOf(false)
+        private set
     /** 每次请求成功完成（无论数据是否变化）加一，供调用方记录“已确认到最新”的时间点 */
     var successVersion by mutableIntStateOf(0)
         private set
@@ -92,6 +94,7 @@ class Loader<T>(private val scope: CoroutineScope, private val block: suspend (f
         if (loading || Session.generation != generation) return
         val id = ++operation
         job?.cancel()
+        silentRefreshing = true
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 val result = withContext(Dispatchers.Default) {
@@ -103,6 +106,8 @@ class Loader<T>(private val scope: CoroutineScope, private val block: suspend (f
                 throw e
             } catch (_: Throwable) {
                 // 静默：保留已有数据
+            } finally {
+                if (id == operation) silentRefreshing = false
             }
         }
     }
@@ -187,7 +192,8 @@ class Pager<T>(
     private var page = 0
     private var job: Job? = null
     private var operation = 0
-    private var silentRefreshing by mutableStateOf(false)
+    var silentRefreshing by mutableStateOf(false)
+        private set
     private enum class Request { More, Refresh, SilentRefresh, All, Chunked }
     private var failed: Request? = null
     /** 最近一次请求的类型，供 [cancelLoadAll] 判断当前是否在全量加载 */

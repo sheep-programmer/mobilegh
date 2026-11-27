@@ -154,7 +154,7 @@ object ImageFetch {
 
     // A standalone badge or external image has no mirror to race. Allow a slow origin more time.
     private val directHttp by lazy {
-        http.newBuilder().readTimeout(18, TimeUnit.SECONDS).callTimeout(20, TimeUnit.SECONDS).build()
+        http.newBuilder().readTimeout(10, TimeUnit.SECONDS).callTimeout(12, TimeUnit.SECONDS).build()
     }
 
     private val cache = object : LruCache<String, Result>(24 * 1024 * 1024) {
@@ -271,15 +271,25 @@ object ImageFetch {
         failed.put(key, Failure(SystemClock.elapsedRealtime(), missing = false))
     }
 
+    internal fun raceCandidatesForTarget(target: String, key: String = cacheKey(target)): List<Pair<String, String>> {
+        val preferred = nodeMemo.get(key)
+        val base = prioritizeRaceCandidates(Net.imageCandidates(target), preferred)
+        val canonical = ImageContent.decodeCamoCanonicalUrl(target)
+        return if (canonical != null && base.none { it.second == canonical }) {
+            base + ("canonical" to canonical)
+        } else {
+            base
+        }
+    }
+
     private fun fetchNetwork(target: String, force: Boolean, key: String, background: Boolean): Outcome {
         val token = Session.token
-        val preferred = nodeMemo.get(key)
-        val candidates = prioritizeRaceCandidates(Net.imageCandidates(target), preferred)
+        val candidates = raceCandidatesForTarget(target, key)
         val outcomes = ConcurrentHashMap<String, Outcome>()
         val official = candidates.filter { isOfficialCandidate(it.first) }
         fun sourceMissing() = official.isNotEmpty() && official.all { outcomes[it.first]?.missing == true }
         val winner = retryImageLoad(
-            maxAttempts = if (background) 1 else 2,
+            maxAttempts = if (background || candidates.size <= 1) 1 else 2,
             retryDelayMs = 300,
             isMissing = { sourceMissing() || key != cacheKey(target) },
         ) { attempt ->
@@ -296,8 +306,10 @@ object ImageFetch {
             return Outcome(null, false, if (sourceMissing()) 404 else null, failure = detail)
         }
         val (winningNode, outcome) = winner
-        Net.markImageOk(target, winningNode)
-        if (winningNode != Net.DIRECT.id) nodeMemo.put(key, winningNode)
+        if (winningNode != "canonical") {
+            Net.markImageOk(target, winningNode)
+            if (winningNode != Net.DIRECT.id) nodeMemo.put(key, winningNode)
+        }
         return outcome
     }
 

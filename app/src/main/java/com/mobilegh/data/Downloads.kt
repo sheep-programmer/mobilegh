@@ -1030,6 +1030,8 @@ object Downloads {
     /** 重试：失败或取消的任务从断点继续（部分文件还在就接着下），已完成的记录则重新开始一条新任务。 */
     fun retry(task: DownloadTask) {
         if (task.active) return
+        autoInstalledKeys.remove(task.key)
+        if (pendingAutoInstallKey == task.key) pendingAutoInstallKey = null
         if (task.state == DownloadState.Complete) {
             tasks.removeAll { it.key == task.key }
             start(task.url, task.filename, task.isPrivate, task.mimeType, isAppUpdate = task.isAppUpdate, openDialog = true,

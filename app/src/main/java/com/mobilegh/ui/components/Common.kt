@@ -39,6 +39,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -76,6 +77,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -429,7 +431,11 @@ fun <T> PagedList(
     }
     val refresh = { onRefresh(); pager.refresh() }
     PullToRefreshBox(pager.refreshing, onRefresh = refresh, modifier.clipToBounds()) {
-        ScrollbarLazyColumn(Modifier.fillMaxSize(), state = state, contentPadding = contentPadding) {
+        Column(Modifier.fillMaxSize()) {
+            if (pager.silentRefreshing && pager.items.isNotEmpty()) {
+                SilentRefreshBanner()
+            }
+            ScrollbarLazyColumn(Modifier.fillMaxWidth().weight(1f), state = state, contentPadding = contentPadding) {
             header()
             val combined = pager.items + extraItems
             val filtered = if (itemFilter == null) combined else combined.filter(itemFilter)
@@ -477,6 +483,26 @@ fun <T> PagedList(
                     )
                 }
             }
+        }
+        }
+    }
+}
+
+@Composable
+internal fun SilentRefreshBanner(modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth()) {
+        LinearProgressIndicator(
+            modifier = Modifier.fillMaxWidth().height(2.dp).testTag("paged-list-silent-refresh"),
+            color = Gh.c.accent,
+            trackColor = Gh.c.accent.copy(alpha = 0.14f),
+        )
+        Row(
+            Modifier.fillMaxWidth().background(Gh.c.canvasSubtle).padding(horizontal = 16.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.6.dp, color = Gh.c.accent)
+            Text(tr("正在后台刷新…"), fontSize = 11.sp, color = Gh.c.fgMuted)
         }
     }
 }

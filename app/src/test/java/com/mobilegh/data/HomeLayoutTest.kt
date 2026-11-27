@@ -7,25 +7,31 @@ class HomeLayoutTest {
     private val storage = MemoryRecords()
     private val store = HomeLayoutStore(storage)
     private val defaults = BuiltinShortcut.entries.map { it.id }
+    private val visibleDefaults = BuiltinShortcut.entries.filter { it.defaultVisible }.map { it.id }
 
     @Test fun neverEditedLayoutEqualsTheCurrentDefaultShortcuts() {
         val l = store.read("alice")
         assertNull(l.shortcuts)
-        assertEquals(defaults, l.visibleSlots().map { it.id })
-        assertEquals(listOf("activity", "issues", "pulls", "favorites", "saved", "repos", "orgs", "stars", "lists", "gists", "recent", "projects", "drafts", "invitations"), defaults)
+        assertEquals(defaults, l.slots().map { it.id })
+        assertEquals(visibleDefaults, l.visibleSlots().map { it.id })
+        assertTrue("settings" in l.visibleSlots().map { it.id })
+        assertFalse("invitations" in l.visibleSlots().map { it.id })
+        assertEquals(listOf("activity", "issues", "pulls", "favorites", "saved", "repos", "orgs", "stars", "lists", "gists", "recent", "projects", "drafts", "settings", "invitations"), defaults)
     }
 
     @Test fun shortcutsCanBeHiddenReorderedAndReset() {
         store.setShortcutVisible("alice", "orgs", false)
+        store.setShortcutVisible("alice", "invitations", true)
         store.moveShortcut("alice", defaults.size - 1, -(defaults.size - 1))
         val l = store.read("alice")
         assertEquals(listOf(defaults.last()) + defaults.dropLast(1), l.slots().map { it.id })
         assertFalse(l.slots().first { it.id == "orgs" }.visible)
         assertFalse("orgs" in l.visibleSlots().map { it.id })
+        assertTrue("invitations" in l.visibleSlots().map { it.id })
         store.moveShortcut("alice", 0, -1)
         assertEquals(defaults.last(), store.read("alice").slots().first().id)
         store.resetShortcuts("alice")
-        assertEquals(defaults, store.read("alice").visibleSlots().map { it.id })
+        assertEquals(visibleDefaults, store.read("alice").visibleSlots().map { it.id })
     }
 
     @Test fun unknownIdsAreDroppedAndMissingBuiltinsAppended() {
@@ -38,7 +44,7 @@ class HomeLayoutTest {
         val s = store.addSearch("alice", " 我的 Bug ", "bug", q)
         assertEquals("我的 Bug", s.name)
         var l = store.read("alice")
-        assertEquals(defaults + HomeLayout.searchSlotId(s.id), l.visibleSlots().map { it.id })
+        assertEquals(visibleDefaults + HomeLayout.searchSlotId(s.id), l.visibleSlots().map { it.id })
         assertEquals(q, l.search(HomeLayout.searchSlotId(s.id))!!.query)
         store.moveShortcut("alice", defaults.size, -defaults.size)
         assertEquals(HomeLayout.searchSlotId(s.id), store.read("alice").slots().first().id)

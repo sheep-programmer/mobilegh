@@ -377,13 +377,17 @@ fun MetaRows(
                 }
                 if (copilot != null && assignees.none { CopilotAssign.isCopilot(it.first) }) {
                     Row(
-                        Modifier.padding(top = 6.dp).clip(RoundedCornerShape(6.dp)).clickable(enabled = !copilot.busy, onClick = copilot.onClick)
-                            .padding(vertical = 2.dp),
+                        Modifier.padding(top = 6.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(g.accentSubtle)
+                            .border(1.dp, g.accent.copy(alpha = 0.35f), RoundedCornerShape(50))
+                            .clickable(enabled = !copilot.busy, onClick = copilot.onClick)
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Oc(R.drawable.oc_copilot, if (copilot.busy) g.fgMuted else g.accent, 16.dp)
+                        Oc(R.drawable.oc_copilot, if (copilot.busy) g.fgMuted else g.accent, 15.dp)
                         Spacer(Modifier.width(6.dp))
-                        Text(if (copilot.busy) tr("正在指派…") else tr("指派给 Copilot"), fontSize = 13.sp, color = if (copilot.busy) g.fgMuted else g.accent, fontWeight = FontWeight.Medium)
+                        Text(if (copilot.busy) tr("正在指派…") else tr("指派给 Copilot"), fontSize = 12.sp, color = if (copilot.busy) g.fgMuted else g.accent, fontWeight = FontWeight.Medium)
                     }
                 }
             }

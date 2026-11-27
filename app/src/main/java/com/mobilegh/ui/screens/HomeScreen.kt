@@ -30,6 +30,7 @@ import com.mobilegh.data.IssueQuery
 import com.mobilegh.data.Session
 import com.mobilegh.data.StarListAccount
 import com.mobilegh.data.UserLists
+import com.mobilegh.data.UserListsClient
 import com.mobilegh.data.UserStatusApi
 import com.mobilegh.i18n.tr
 import com.mobilegh.i18n.trf
@@ -98,12 +99,15 @@ fun HomeScreen() {
             onSaved = { nav.push(Screen.Saved) },
             onProjects = { nav.push(Screen.Projects(com.mobilegh.data.ProjectOwnerKind.User, login)) },
             onDrafts = { nav.push(Screen.Drafts) },
+            onSettings = { nav.push(Screen.Settings) },
             onInvitations = { nav.push(Screen.Invitations) },
             invitationsCount = invites.data?.takeIf { it > 0 },
         ),
     ) { nav.push(savedSearchScreen(it.query)) }
     com.mobilegh.nav.OnTabReselect(Tab.Home) { state.animateScrollToItem(0) }
     var creatingList by remember { mutableStateOf(false) }
+    var showCreateSheet by remember { mutableStateOf(false) }
+    var pickingIssueRepo by remember { mutableStateOf(false) }
     var creatingBusy by remember { mutableStateOf(false) }
     var creatingError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -120,7 +124,7 @@ fun HomeScreen() {
             // 搜索
             OcButton(R.drawable.oc_search, { nav.push(Screen.Search()) }, description = tr("搜索"))
             // 创建
-            OcButton(R.drawable.oc_plus, { nav.push(Screen.CreateRepo) }, description = tr("新建仓库"))
+            OcButton(R.drawable.oc_plus, { showCreateSheet = true }, description = tr("新建"))
             HomeDownloadsButton()
             // 消息（带未读角标）
             Box(
@@ -375,6 +379,199 @@ fun HomeScreen() {
             onDismiss = { showStatusSheet = false },
             onSaved = { userStatus.refresh(); me.refresh() },
         )
+    }
+
+    if (showCreateSheet) {
+        HomeCreateSheet(
+            canCreateList = lists.data.orEmpty().size < UserListsClient.MAX_LISTS,
+            onDismiss = { showCreateSheet = false },
+            onNewIssue = { showCreateSheet = false; pickingIssueRepo = true },
+            onCreateRepo = { showCreateSheet = false; nav.push(Screen.CreateRepo) },
+            onCreateOrg = { showCreateSheet = false; nav.push(Screen.CreateOrg) },
+            onImportRepo = { showCreateSheet = false; nav.push(Screen.ImportRepo) },
+            onCreateGist = { showCreateSheet = false; nav.push(Screen.GistEditor(null)) },
+            onCreateList = { showCreateSheet = false; creatingList = true },
+            onNewShortcut = { showCreateSheet = false; nav.push(Screen.NewShortcut) },
+        )
+    }
+
+    if (pickingIssueRepo) {
+        HomeNewIssueRepoPicker(
+            favorites = layout.favorites,
+            onDismiss = { pickingIssueRepo = false },
+            onPick = { owner, name ->
+                pickingIssueRepo = false
+                nav.push(Screen.NewIssue(owner, name))
+            },
+        )
+    }
+}
+
+@Composable
+private fun HomeCreateSheet(
+    canCreateList: Boolean,
+    onDismiss: () -> Unit,
+    onNewIssue: () -> Unit,
+    onCreateRepo: () -> Unit,
+    onCreateOrg: () -> Unit,
+    onImportRepo: () -> Unit,
+    onCreateGist: () -> Unit,
+    onCreateList: () -> Unit,
+    onNewShortcut: () -> Unit,
+) {
+    val g = Gh.c
+    FilterSheet(
+        title = tr("新建"),
+        subtitle = tr("选择要创建的内容"),
+        closeDescription = tr("关闭"),
+        onDismiss = onDismiss,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        contentSpacing = 0.dp,
+        footer = {},
+    ) {
+        val shape = RoundedCornerShape(12.dp)
+        Column(
+            Modifier.fillMaxWidth()
+                .clip(shape)
+                .background(g.canvas, shape)
+                .border(1.dp, g.border, shape),
+        ) {
+            CreateActionRow(R.drawable.oc_issue_opened, tr("新建 Issue"), tr("选择仓库并提交新的 Issue"), onClick = onNewIssue)
+            HDivider(Modifier.padding(start = 52.dp))
+            CreateActionRow(R.drawable.oc_repo, tr("新建仓库"), tr("创建一个新的个人或组织仓库"), onClick = onCreateRepo)
+            HDivider(Modifier.padding(start = 52.dp))
+            CreateActionRow(R.drawable.oc_organization, tr("新建组织"), tr("创建一个新的 GitHub 团队或组织"), onClick = onCreateOrg)
+            HDivider(Modifier.padding(start = 52.dp))
+            CreateActionRow(R.drawable.oc_repo_push, tr("导入仓库"), tr("从其他 Git 地址导入已有代码仓库"), onClick = onImportRepo)
+            HDivider(Modifier.padding(start = 52.dp))
+            CreateActionRow(R.drawable.oc_code, tr("新建 Gist"), tr("创建公开或私密代码片段"), onClick = onCreateGist)
+            if (canCreateList) {
+                HDivider(Modifier.padding(start = 52.dp))
+                CreateActionRow(R.drawable.oc_checklist, tr("新建 Star 列表"), tr("创建用于归类收藏仓库的列表"), onClick = onCreateList)
+            }
+            HDivider(Modifier.padding(start = 52.dp))
+            CreateActionRow(R.drawable.oc_plus, tr("添加首页快捷方式"), tr("将常用仓库或页面固定到首页"), onClick = onNewShortcut)
+        }
+    }
+}
+
+@Composable
+private fun CreateActionRow(
+    icon: Int,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    val g = Gh.c
+    Row(
+        Modifier.fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconBadge(icon, g.accent, g.accentSubtle, 36)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+            Text(subtitle, fontSize = 12.sp, color = g.fgMuted)
+        }
+        Oc(R.drawable.oc_chevron_right, g.fgMuted, 16.dp)
+    }
+}
+
+@Composable
+private fun HomeNewIssueRepoPicker(
+    favorites: List<com.mobilegh.data.FavoriteRepo>,
+    onDismiss: () -> Unit,
+    onPick: (owner: String, name: String) -> Unit,
+) {
+    val g = Gh.c
+    var query by remember { mutableStateOf("") }
+    val mine = rememberLoader("home-new-issue-repos") {
+        GitHub.myRepos("owner,collaborator,organization_member", "pushed", "all", 1, it)
+    }
+    var remoteResults by remember { mutableStateOf<List<com.mobilegh.data.Repo>>(emptyList()) }
+    var searching by remember { mutableStateOf(false) }
+    val trimmed = query.trim()
+    LaunchedEffect(trimmed) {
+        if (trimmed.length < 2) {
+            remoteResults = emptyList()
+            searching = false
+            return@LaunchedEffect
+        }
+        kotlinx.coroutines.delay(300)
+        searching = true
+        remoteResults = runCatching { GitHub.searchRepos(trimmed, null, 1, false).items }.getOrDefault(emptyList())
+        searching = false
+    }
+    val localCandidates = remember(favorites, mine.data) {
+        val seen = HashSet<String>()
+        buildList {
+            favorites.forEach { fav ->
+                if (seen.add(fav.fullName.lowercase())) add(fav.owner to fav.name)
+            }
+            mine.data.orEmpty().forEach { repo ->
+                val fn = "${repo.owner.login}/${repo.name}"
+                if (seen.add(fn.lowercase())) add(repo.owner.login to repo.name)
+            }
+        }
+    }
+    val shown = remember(localCandidates, remoteResults, trimmed) {
+        if (trimmed.isEmpty()) localCandidates
+        else {
+            val seen = HashSet<String>()
+            buildList {
+                localCandidates.filter { (o, n) -> "$o/$n".contains(trimmed, ignoreCase = true) }
+                    .forEach { (o, n) -> if (seen.add("$o/$n".lowercase())) add(o to n) }
+                remoteResults.forEach { repo ->
+                    val pair = repo.owner.login to repo.name
+                    if (seen.add("${pair.first}/${pair.second}".lowercase())) add(pair)
+                }
+            }
+        }
+    }
+    FilterSheet(
+        title = tr("新建 Issue"),
+        subtitle = tr("选择要提交 Issue 的仓库"),
+        closeDescription = tr("关闭"),
+        onDismiss = onDismiss,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        contentSpacing = 10.dp,
+        footer = {},
+    ) {
+        GhField(query, { query = it }, tr("搜索仓库 (owner/name)"), singleLine = true)
+        when {
+            (mine.loading && localCandidates.isEmpty()) || searching && shown.isEmpty() ->
+                Loading(Modifier.fillMaxWidth().height(72.dp))
+            shown.isEmpty() ->
+                Text(tr("没有匹配的仓库，试试输入完整仓库名"), fontSize = 13.sp, color = g.fgMuted, modifier = Modifier.padding(vertical = 8.dp))
+            else -> {
+                val shape = RoundedCornerShape(10.dp)
+                Column(
+                    Modifier.fillMaxWidth()
+                        .heightIn(max = 340.dp)
+                        .clip(shape)
+                        .background(g.canvas, shape)
+                        .border(1.dp, g.border, shape)
+                        .verticalScrollWithBar(),
+                ) {
+                    shown.forEachIndexed { index, (owner, name) ->
+                        if (index > 0) HDivider(Modifier.padding(start = 42.dp))
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .clickable { onPick(owner, name) }
+                                .padding(horizontal = 12.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Oc(R.drawable.oc_repo, g.fgMuted, 16.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Text("$owner / $name", Modifier.weight(1f), fontSize = 14.sp, color = g.fg)
+                            Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

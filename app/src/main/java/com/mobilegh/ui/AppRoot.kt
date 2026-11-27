@@ -478,6 +478,8 @@ private fun ScreenHost(s: Screen) {
         Screen.Authenticator -> AuthenticatorScreen()
         Screen.OrgDiagnostics -> OrgDiagnosticsScreen()
         Screen.CreateRepo -> CreateRepoScreen()
+        Screen.CreateOrg -> CreateOrgScreen()
+        is Screen.EditOrg -> EditOrgScreen(s.login)
         Screen.ImportRepo -> ImportRepoScreen()
         Screen.Login -> LoginScreen(adding = true)
         Screen.Reauthorize -> LoginScreen(reauthorizing = true)

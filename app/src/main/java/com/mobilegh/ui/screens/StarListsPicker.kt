@@ -1,13 +1,26 @@
 package com.mobilegh.ui.screens
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import com.mobilegh.ui.components.Oc
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -122,6 +135,22 @@ internal fun starListChangeMessage(before: Set<String>, after: Set<String>, list
 internal fun starListPickedAfterWrite(wanted: Set<String>, picked: Set<String>, confirmed: Set<String>): Set<String> =
     if (picked == wanted) confirmed else picked
 
+internal fun applyStarListCountDelta(
+    lists: List<GitHubStarList>,
+    before: Set<String>,
+    after: Set<String>,
+): List<GitHubStarList> = lists.map { list ->
+    val delta = (if (list.id in after && list.id !in before) 1 else 0) -
+        (if (list.id !in after && list.id in before) 1 else 0)
+    if (delta == 0) list else list.copy(count = (list.count + delta).coerceAtLeast(0))
+}
+
+internal fun updateStarListCatalogSnapshot(account: StarListAccount, lists: List<GitHubStarList>) {
+    val norm = account.login.lowercase(Locale.ROOT)
+    val key = "star-lists:$norm:$norm:${account.generation}"
+    StarListCache.snapshot<List<GitHubStarList>>(key, account.generation).value = lists
+}
+
 internal fun canCreateListWithRepository(snapshot: RepositoryListMemberships?, mine: Boolean): Boolean =
     snapshot != null && (snapshot.starred || mine)
 
@@ -153,7 +182,7 @@ fun AddToStarListsDialog(repo: Repo, onDismiss: () -> Unit) {
  *    因为响应丢失不代表服务端没有提交，不能直接回滚到可能已过期的旧归属。
  */
 @Composable
-private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismiss: () -> Unit, onLocal: () -> Unit) {
+internal fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismiss: () -> Unit, onLocal: () -> Unit) {
     val g = Gh.c
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
@@ -211,6 +240,11 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                     )
                     requested = wanted
                     applied = confirmed
+                    catalog.data?.let { current ->
+                        val updated = applyStarListCountDelta(current, before, confirmed)
+                        catalog.accept(updated)
+                        updateStarListCatalogSnapshot(account, updated)
+                    }
                     // 写入成功才提示；提示的是服务器确认后的变化，不是用户的点击
                     starListChangeMessage(before, confirmed, catalog.data.orEmpty())?.let { ctx.toast(it) }
                     picked = starListPickedAfterWrite(wanted, picked ?: wanted, confirmed)
@@ -281,8 +315,11 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                         val list = UserLists.create(account, name, description, privateList)
                         if (Session.generation != account.generation || !account.login.equals(Session.login, true)) return@launch
                         val current = catalog.data
-                        if (current != null) catalog.accept((current + list).distinctBy { it.id })
-                        else catalog.refresh()
+                        if (current != null) {
+                            val updated = (current + list).distinctBy { it.id }
+                            catalog.accept(updated)
+                            updateStarListCatalogSnapshot(account, updated)
+                        } else catalog.refresh()
                         // 创建入口已确认归属和可添加状态；新列表与手动勾选走同一条写入通道。
                         picked = (picked ?: applied) + list.id
                         writePending()
@@ -301,11 +338,15 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
     }
 
     // 底部弹层：点遮罩或下滑即可收起；勾选即生效，没有保存/取消按钮。写入中收起会等这次写入结束再关，避免写一半被取消
+    val repoName = repo.fullName.ifBlank { "${repo.owner.login}/${repo.name}" }
     FilterSheet(
         title = tr("Star 列表"),
-        subtitle = repo.fullName.ifBlank { "${repo.owner.login}/${repo.name}" },
+        subtitle = if (writing) "$repoName · ${tr("保存中…")}" else repoName,
         closeDescription = tr("关闭"),
         onDismiss = { if (saving || writing) closeAfterWrite = true else onDismiss() },
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        contentSpacing = 12.dp,
+        footerArrangement = Arrangement.SpaceBetween,
         footer = {
             if (lists.size < UserListsClient.MAX_LISTS) GhButton(
                 tr("新建列表"),
@@ -314,6 +355,8 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
             ) {
                 error = null
                 creating = true
+            } else {
+                Spacer(Modifier.width(1.dp))
             }
             TextButton(
                 onClick = {
@@ -321,7 +364,7 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                     nav.push(Screen.StarLists(account.login))
                 },
                 enabled = !saving && !writing,
-            ) { Text(tr("管理")) }
+            ) { Text(tr("管理列表")) }
         },
     ) {
         if (snapshot?.starred == false) Text(
@@ -344,14 +387,25 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
             base == null && catalog.error != null -> InlineError(trf("列表读取失败：{0}", catalog.error), Modifier.fillMaxWidth()) { catalog.refresh() }
             base == null -> Loading(Modifier.fillMaxWidth().height(72.dp))
             else -> {
-                // 归属是后台读的，不占版面；只有真失败了才提示并给重试
+                // 归属是后台读的，不占大块版面；用细进度条提示正在同步归属
                 val failure = membershipError
-                if (snapshot == null && failure != null) InlineError(trf("列表归属读取失败：{0}", failure), Modifier.fillMaxWidth()) { loadMembership() }
+                if (snapshot == null && failure == null) {
+                    Column(Modifier.fillMaxWidth().animateContentSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        LinearProgressIndicator(
+                            Modifier.fillMaxWidth().height(2.dp).clip(RoundedCornerShape(1.dp)),
+                            color = g.accent,
+                            trackColor = g.neutralMuted,
+                        )
+                        Text(tr("正在同步当前仓库归属…"), fontSize = 11.sp, color = g.fgMuted)
+                    }
+                } else if (snapshot == null && failure != null) {
+                    InlineError(trf("列表归属读取失败：{0}", failure), Modifier.fillMaxWidth()) { loadMembership() }
+                }
                 if (ordered.isEmpty()) Text(
                     tr("还没有 GitHub 列表，新建一个后即可加入。"),
-                    Modifier.padding(horizontal = 16.dp, vertical = 8.dp), fontSize = 13.sp, color = g.fgMuted,
+                    Modifier.padding(vertical = 8.dp), fontSize = 13.sp, color = g.fgMuted,
                 )
-                else Column(Modifier.fillMaxWidth()) {
+                else Column(Modifier.fillMaxWidth().animateContentSize()) {
                     ordered.forEach { list ->
                         // 直接在行内读状态：勾选变化一定让这一行自己重组，不依赖外层是否传下新值
                         val chosen = picked ?: applied
@@ -359,19 +413,40 @@ private fun StarListsPickerDialog(repo: Repo, account: StarListAccount, onDismis
                         val addable = snapshot?.starred != false || mine
                         // 未 Star 时只允许移除已有分类；移除后不能绕过数据层校验再次添加。
                         val enabled = snapshot != null && !saving && (addable || checked)
+                        val pendingDelta = if (writing) {
+                            (if (list.id in chosen && list.id !in applied) 1 else 0) -
+                                (if (list.id !in chosen && list.id in applied) 1 else 0)
+                        } else 0
+                        val displayCount = (list.count + pendingDelta).coerceAtLeast(0)
                         ListPickRow(
                             name = list.name,
                             isPrivate = list.isPrivate,
-                            meta = trf("{0} 个仓库", list.count),
+                            meta = trf("{0} 个仓库", displayCount),
                             checked = checked,
                             enabled = enabled,
+                            horizontalPadding = 0.dp,
                         ) { toggle(list.id) }
                     }
                 }
             }
         }
-        TextButton(onClick = onLocal, enabled = !saving && !writing, modifier = Modifier.fillMaxWidth()) {
-            Text(tr("改用本机列表（不同步 GitHub）"))
+        val localShape = RoundedCornerShape(12.dp)
+        Row(
+            Modifier.fillMaxWidth()
+                .clip(localShape)
+                .background(g.canvasSubtle, localShape)
+                .border(1.dp, g.borderMuted, localShape)
+                .clickable(enabled = !saving && !writing, onClick = onLocal)
+                .padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Oc(R.drawable.oc_bookmark, g.fgMuted, 16.dp)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(tr("改用本机列表"), fontSize = 13.sp, fontWeight = FontWeight.Medium, color = g.fg)
+                Text(tr("仅保存在当前设备，不同步 GitHub"), fontSize = 11.sp, color = g.fgMuted)
+            }
+            Oc(R.drawable.oc_chevron_right, g.fgMuted, 14.dp)
         }
     }
 }
@@ -461,6 +536,8 @@ private fun LocalOnlyStarListDialogContent(repo: Repo, account: StarListAccount,
         subtitle = repo.fullName.ifBlank { "${repo.owner.login}/${repo.name}" },
         closeDescription = tr("关闭"),
         onDismiss = { if (!saving) onDismiss() },
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        contentSpacing = 12.dp,
         footer = {
             if ((lists?.size ?: 0) < LocalStarListsStore.MAX_LISTS) GhButton(
                 tr("新建列表"),
@@ -515,10 +592,13 @@ private fun LocalOnlyStarListDialogContent(repo: Repo, account: StarListAccount,
             lists.orEmpty().forEach { list ->
                 val checked = list.id in selected
                 val enabled = !saving && !loading && (starred == true || checked)
+                val delta = (if (checked && list.id !in original) 1 else 0) -
+                    (if (!checked && list.id in original) 1 else 0)
+                val displayCount = (list.repositories.size + delta).coerceAtLeast(0)
                 ListPickRow(
                     name = list.name,
                     isPrivate = false,
-                    meta = trf("{0} 个仓库", list.repositories.size),
+                    meta = trf("{0} 个仓库", displayCount),
                     checked = checked,
                     enabled = enabled,
                     horizontalPadding = 0.dp,

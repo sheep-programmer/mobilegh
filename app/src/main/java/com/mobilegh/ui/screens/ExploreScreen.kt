@@ -1,15 +1,18 @@
 package com.mobilegh.ui.screens
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -335,7 +339,96 @@ fun ExploreScreen() {
                     }
                 }
             }
+            BottomScrollGlow(
+                listState = if (tab == 0) activityState else feedState,
+                minContentIndex = if (tab == 0) 2 else 1,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
             }
+        }
+    }
+}
+
+@Composable
+private fun BottomScrollGlow(listState: LazyListState, minContentIndex: Int, modifier: Modifier = Modifier) {
+    val g = Gh.c
+    val scope = rememberCoroutineScope()
+    val canScrollDown by remember(listState) { derivedStateOf { listState.canScrollForward } }
+    val alpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (canScrollDown) 1f else 0f,
+        animationSpec = tween(220),
+        label = "bottom-scroll-glow",
+    )
+    if (alpha <= 0.01f) return
+    val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "scroll-pill-pulse")
+    val shift by pulse.animateFloat(
+        initialValue = 0f,
+        targetValue = 3.5f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = tween(1200, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+        ),
+        label = "scroll-chevron-shift",
+    )
+    val glowAlpha by pulse.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 0.65f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = tween(1400, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+        ),
+        label = "scroll-pill-glow",
+    )
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val pressScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (pressed) 0.91f else 1f,
+        animationSpec = androidx.compose.animation.core.spring(
+            dampingRatio = 0.6f,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
+        ),
+        label = "scroll-pill-scale",
+    )
+    val pillShape = RoundedCornerShape(50)
+    Box(
+        modifier
+            .padding(bottom = 12.dp)
+            .graphicsLayer {
+                this.alpha = alpha
+                translationY = shift
+                scaleX = pressScale
+                scaleY = pressScale
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            Modifier
+                .shadow(
+                    elevation = 10.dp,
+                    shape = pillShape,
+                    ambientColor = g.accent.copy(alpha = glowAlpha),
+                    spotColor = g.accent.copy(alpha = glowAlpha),
+                )
+                .clip(pillShape)
+                .background(g.canvas.copy(alpha = 0.95f), pillShape)
+                .border(1.dp, g.accent.copy(alpha = glowAlpha), pillShape)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                ) {
+                    scope.launch {
+                        val next = (listState.firstVisibleItemIndex + 1)
+                            .coerceAtLeast(minContentIndex)
+                            .coerceAtMost((listState.layoutInfo.totalItemsCount - 1).coerceAtLeast(0))
+                        listState.animateScrollToItem(next)
+                    }
+                }
+                .padding(horizontal = 12.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Oc(R.drawable.oc_chevron_down, g.accent, 13.dp)
+            Text(tr("继续下滑"), fontSize = 11.sp, color = g.accent, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -346,6 +439,7 @@ private object RepoPreviewCache {
 
     val snippets = android.util.LruCache<String, Preview>(128)
     val descriptions = android.util.LruCache<String, String>(128)
+    val avatars = android.util.LruCache<String, String>(128)
 }
 
 internal object ExplorePreviewGate {
@@ -354,17 +448,26 @@ internal object ExplorePreviewGate {
     suspend fun <T> withPermit(block: suspend () -> T): T = permits.withPermit { block() }
 }
 
+private data class SnippetState(val text: String? = null, val resolved: Boolean = false)
+
 @Composable
-private fun rememberRepoPreviewSnippet(owner: String, name: String, visible: Boolean): String? {
+private fun rememberRepoPreviewSnippet(owner: String, name: String, visible: Boolean): SnippetState {
     val generation = Session.generation
     val key = "${Net.apiBase}:$generation:$owner/$name"
-    var snippet by remember(key) { mutableStateOf(RepoPreviewCache.snippets.get(key)?.text) }
+    var state by remember(key) {
+        val cached = RepoPreviewCache.snippets.get(key)
+        val now = android.os.SystemClock.elapsedRealtime()
+        val resolved = cached != null && (cached.text != null || now < cached.retryAfter)
+        mutableStateOf(SnippetState(text = cached?.text, resolved = resolved))
+    }
     LaunchedEffect(key, visible) {
-        if (!visible || snippet != null || owner.isBlank() || name.isBlank()) return@LaunchedEffect
-        snippet = ExplorePreviewGate.withPermit {
+        if (!visible || state.resolved || owner.isBlank() || name.isBlank()) return@LaunchedEffect
+        val loaded = ExplorePreviewGate.withPermit {
             val cached = RepoPreviewCache.snippets.get(key)
             val now = android.os.SystemClock.elapsedRealtime()
-            if (cached != null && (cached.text != null || now < cached.retryAfter)) return@withPermit cached.text
+            if (cached != null && (cached.text != null || now < cached.retryAfter)) {
+                return@withPermit SnippetState(text = cached.text, resolved = true)
+            }
             val text = try {
                 GitHub.readme(owner, name, null)?.let { html ->
                     withContext(Dispatchers.Default) { repoPreviewText(html) }
@@ -377,10 +480,11 @@ private fun rememberRepoPreviewSnippet(owner: String, name: String, visible: Boo
             if (Session.generation != generation) return@withPermit null
             val retryAfter = if (text == null) android.os.SystemClock.elapsedRealtime() + 60_000 else 0L
             RepoPreviewCache.snippets.put(key, RepoPreviewCache.Preview(text, retryAfter))
-            text
+            SnippetState(text = text, resolved = true)
         }
+        if (loaded != null) state = loaded
     }
-    return snippet
+    return state
 }
 
 private fun repoPreviewText(html: String): String? {
@@ -401,26 +505,42 @@ private fun repoPreviewText(html: String): String? {
 
 @Composable
 internal fun rememberRepoDesc(o: String, r: String): String? {
+    return rememberRepoMeta(o, r).first
+}
+
+@Composable
+private fun rememberRepoMeta(o: String, r: String): Pair<String?, String?> {
     val generation = Session.generation
     val key = "${Net.apiBase}:$generation:$o/$r"
     var desc by remember(key) { mutableStateOf(RepoPreviewCache.descriptions.get(key)) }
+    var avatar by remember(key) { mutableStateOf(RepoPreviewCache.avatars.get(key)) }
     LaunchedEffect(key) {
-        if (desc != null || o.isBlank() || r.isBlank()) return@LaunchedEffect
-        val d = ExplorePreviewGate.withPermit {
+        if ((desc != null && avatar != null) || o.isBlank() || r.isBlank()) return@LaunchedEffect
+        val loaded = ExplorePreviewGate.withPermit {
+            val cachedDesc = RepoPreviewCache.descriptions.get(key)
+            val cachedAvatar = RepoPreviewCache.avatars.get(key)
+            if (cachedDesc != null && cachedAvatar != null) return@withPermit cachedDesc to cachedAvatar
             try {
-                RepoPreviewCache.descriptions.get(key) ?: GitHub.repo(o, r).description
+                val repo = GitHub.repo(o, r)
+                repo.description to repo.owner.avatarUrl
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
                 null
             }
         }
-        if (!d.isNullOrBlank() && Session.generation == generation) {
-            RepoPreviewCache.descriptions.put(key, d)
-            desc = d
+        if (loaded != null && Session.generation == generation) {
+            loaded.first?.takeIf { it.isNotBlank() }?.let {
+                RepoPreviewCache.descriptions.put(key, it)
+                desc = it
+            }
+            loaded.second.takeIf { it.isNotBlank() }?.let {
+                RepoPreviewCache.avatars.put(key, it)
+                avatar = it
+            }
         }
     }
-    return desc
+    return desc to avatar
 }
 
 /** 推荐仓库精美卡片（保证简介展示，限制一半内容预览，点击进入仓库详情） */
@@ -430,7 +550,8 @@ private fun RecommendedRepoCard(repo: Repo, visible: Boolean) {
     val g = Gh.c
     val owner = repo.owner.login
     val name = repo.name
-    val snippet = rememberRepoPreviewSnippet(owner, name, visible)
+    val snippetState = rememberRepoPreviewSnippet(owner, name, visible)
+    val snippet = snippetState.text
 
     Card(
         modifier = Modifier
@@ -567,35 +688,59 @@ private fun RecommendedRepoCard(repo: Repo, visible: Boolean) {
                         }
                     }
 
-                    // 内容展示更宽裕：扩大高度范围至 230dp，支持展示 11 行文字
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 100.dp, max = 230.dp),
-                    ) {
-                        Text(
-                            text = snippet ?: fallbackContent,
-                            fontSize = 13.sp,
-                            color = g.fgMuted,
-                            lineHeight = 20.sp,
-                            maxLines = 11,
-                            overflow = TextOverflow.Clip,
-                        )
+                    // 未加载完成时居中转圈占位；加载完成后再显示 README 或紧凑兜底信息，避免大面积悬空留白
+                    if (!snippetState.resolved) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(36.dp)
-                                .align(Alignment.BottomCenter)
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            Color.Transparent,
-                                            g.canvasSubtle.copy(alpha = 0.95f),
-                                            g.canvasSubtle,
-                                        )
-                                    )
-                                ),
-                        )
+                                .height(220.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                androidx.compose.material3.CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = g.fgMuted,
+                                )
+                                Text(tr("正在加载 README…"), fontSize = 12.sp, color = g.fgMuted)
+                            }
+                        }
+                    } else {
+                        val content = snippet ?: fallbackContent
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 220.dp),
+                        ) {
+                            Text(
+                                text = content,
+                                fontSize = 13.sp,
+                                color = g.fgMuted,
+                                lineHeight = 20.sp,
+                                maxLines = 11,
+                                overflow = TextOverflow.Clip,
+                            )
+                            if (snippet != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(36.dp)
+                                        .align(Alignment.BottomCenter)
+                                        .background(
+                                            Brush.verticalGradient(
+                                                listOf(
+                                                    Color.Transparent,
+                                                    g.canvasSubtle.copy(alpha = 0.95f),
+                                                    g.canvasSubtle,
+                                                )
+                                            )
+                                        ),
+                                )
+                            }
+                        }
                     }
 
                     Spacer(Modifier.height(6.dp))
@@ -807,7 +952,12 @@ internal fun ExploreActivityCard(e: Event) {
     val g = Gh.c
     val (o, r) = e.repo.name.split('/').let { (it.getOrNull(0) ?: "") to (it.getOrNull(1) ?: "") }
     val card = remember(e) { buildExploreCard(e, o, r) }
-    val repoDesc = rememberRepoDesc(o, r)
+    val (repoDesc, repoOwnerAvatar) = rememberRepoMeta(o, r)
+    val repoAvatarUrl = remember(e.actor, o, repoOwnerAvatar) {
+        repoOwnerAvatar?.takeIf { it.isNotBlank() }
+            ?: e.actor.avatarUrl.takeIf { e.actor.login.equals(o, ignoreCase = true) && it.isNotBlank() }
+            ?: o.takeIf { it.isNotBlank() }?.let { "https://avatars.githubusercontent.com/$it" }
+    }
 
     Column(Modifier.fillMaxWidth()) {
         // 头部：用户头像 + 角标 + 行为描述 + 时间
@@ -878,7 +1028,7 @@ internal fun ExploreActivityCard(e: Event) {
                     ) { nav.push(Screen.Repo(o, r)) },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Avatar("https://github.com/$o.png", size = 16.dp)
+                    Avatar(repoAvatarUrl, size = 16.dp)
                     Spacer(Modifier.width(6.dp))
                     Text(
                         "$o / $r",

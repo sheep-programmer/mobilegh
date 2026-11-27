@@ -151,7 +151,7 @@ object WidgetStore {
             "activity" to "动态", "issues" to "Issues", "pulls" to "Pull Requests", "favorites" to "收藏夹",
             "saved" to "稍后阅读", "repos" to "仓库", "orgs" to "组织", "stars" to "已 Star",
             "lists" to "Star 列表", "gists" to "Gists", "recent" to "最近浏览", "projects" to "项目",
-            "drafts" to "草稿", "invitations" to "待处理邀请",
+            "drafts" to "草稿", "settings" to "设置", "invitations" to "待处理邀请",
         )
         val items = layout.visibleSlots().mapNotNull { slot ->
             val search = layout.search(slot.id)

@@ -41,7 +41,9 @@ fun MobileApprovalCard(modifier: Modifier = Modifier) {
                 Text(if (Session.token == null) tr("登录 GitHub 后自动启用。收到验证请求时，直接输入浏览器显示的数字。")
                     else tr("当前登录方式未注册本机验证设备，验证请求不会弹窗。授权一次即可启用。"), color = g.fgMuted, fontSize = 13.sp)
                 GhButton(if (setup.busy) tr("正在启用…") else if (Session.token == null) tr("登录并启用") else tr("授权启用"), primary = true, enabled = !setup.busy) {
-                    runCatching { MobileApprovalOAuth.begin(ctx) }.onSuccess { ctx.openBrowser(it) }
+                    runCatching { MobileApprovalOAuth.begin(ctx) }.onSuccess { authUrl ->
+                        GitHubWebLogin.request(tr("GitHub 授权登录"), authUrl, onDismiss = { MobileApprovalOAuth.cancel(ctx) })
+                    }
                 }
                 if (setup.waitingForBrowser) TextLink(tr("取消授权")) { MobileApprovalOAuth.cancel(ctx) }
             } else {
@@ -52,7 +54,9 @@ fun MobileApprovalCard(modifier: Modifier = Modifier) {
                     color = if (state.approvedId != null) g.success else g.fgMuted, fontSize = 13.sp)
                 if (state.request != null) GhButton(tr("输入数字并批准"), primary = true) { MobileApprovalMonitor.show() }
                 if (state.error != null && !state.connected) TextLink(tr("重新授权")) {
-                    runCatching { MobileApprovalOAuth.begin(ctx) }.onSuccess { ctx.openBrowser(it) }
+                    runCatching { MobileApprovalOAuth.begin(ctx) }.onSuccess { authUrl ->
+                        GitHubWebLogin.request(tr("GitHub 授权登录"), authUrl, onDismiss = { MobileApprovalOAuth.cancel(ctx) })
+                    }
                 }
             }
             setup.notice?.let { Text(it, color = g.fgMuted, fontSize = 13.sp) }
@@ -102,9 +106,11 @@ private fun ApprovalSetupPrompt() {
     fun done() { prefs.edit().putBoolean("approval_setup_prompted", true).apply(); prompted = true }
     GhDialog(tr("启用 GitHub 数字审批"), ::done, confirm = tr("授权启用"), onConfirm = {
         done()
-        runCatching { MobileApprovalOAuth.begin(ctx) }.onSuccess { ctx.openBrowser(it) }.onFailure { ctx.toast(it.message ?: tr("无法开始授权")) }
+        runCatching { MobileApprovalOAuth.begin(ctx) }.onSuccess { authUrl ->
+            GitHubWebLogin.request(tr("GitHub 授权登录"), authUrl, onDismiss = { MobileApprovalOAuth.cancel(ctx) })
+        }.onFailure { ctx.toast(it.message ?: tr("无法开始授权")) }
     }) {
-        Text(tr("当前登录方式没有注册本机验证设备，GitHub 两步验证请求不会弹窗。授权一次后自动启用，之后可在设置 → 两步验证中管理。"), color = Gh.c.fgMuted, fontSize = 14.sp)
+        Text(tr("当前登录方式没有注册本机验证设备，GitHub 两步验证请求不会弹窗。授权一次后自动启用，之后可在「设置 → 两步验证与数字批准」中管理。"), color = Gh.c.fgMuted, fontSize = 14.sp)
     }
 }
 
@@ -183,7 +189,9 @@ private fun ApprovalSetupRow(setup: ApprovalSetupState, idle: String = tr("授�
         if (setup.waitingForBrowser) GhButton(tr("取消")) { MobileApprovalOAuth.cancel(ctx) }
         else if (setup.canRetry) GhButton(tr("重试"), primary = true) { MobileApprovalOAuth.retry(ctx) }
         else GhButton(if (setup.busy) tr("启用中…") else action, primary = true, enabled = !setup.busy) {
-            runCatching { MobileApprovalOAuth.begin(ctx) }.onSuccess { ctx.openBrowser(it) }.onFailure { ctx.toast(it.message ?: tr("无法开始授权")) }
+            runCatching { MobileApprovalOAuth.begin(ctx) }.onSuccess { authUrl ->
+                GitHubWebLogin.request(tr("GitHub 授权登录"), authUrl, onDismiss = { MobileApprovalOAuth.cancel(ctx) })
+            }.onFailure { ctx.toast(it.message ?: tr("无法开始授权")) }
         }
     }
 }

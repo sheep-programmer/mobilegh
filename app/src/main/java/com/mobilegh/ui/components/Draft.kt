@@ -14,7 +14,7 @@ import com.mobilegh.nav.ScreenCodec
 fun rememberDraft(contextKey: String): DraftController {
     val context = LocalContext.current
     val login = Session.login
-    // 记下草稿所在的页面：「我的 → 草稿」里点一下就能回到这里继续写
+    // 记下草稿所在的页面：「首页 → 草稿」里点一下就能回到这里继续写
     val screen = LocalEntry.current.screen
     return remember(login, Session.generation, contextKey) {
         val origin = runCatching { ScreenCodec.draftJson.encodeToString(ScreenCodec.screen, screen) }.getOrNull()
@@ -29,7 +29,7 @@ fun DraftBinding(controller: DraftController, value: DraftValue) {
     DisposableEffect(controller) {
         onDispose {
             // 离开页面时还有没发出去的内容：告诉用户草稿已经保存在哪里，不再是静默保存
-            if (controller.hasContent) ctx.toast(tr("草稿已保存，可在「我的 → 草稿」继续编辑"))
+            if (controller.hasContent) ctx.toast(tr("草稿已保存，可在「首页 → 草稿」继续编辑"))
             controller.flush()
         }
     }

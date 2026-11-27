@@ -167,7 +167,14 @@ fun AchievementsStrip(login: String, self: Boolean) {
 
 @Composable
 internal fun AchievementBadge(badge: Achievement, modifier: Modifier = Modifier) {
-    val tier = when (badge.tier) { "bronze" -> tr("铜级"); "silver" -> tr("银级"); "gold" -> tr("金级"); else -> "" }
+    val tier = when (badge.tier) {
+        "bronze" -> tr("铜级")
+        "silver" -> tr("银级")
+        "gold" -> tr("金级")
+        "platinum" -> tr("白金级")
+        "diamond" -> tr("钻石级")
+        else -> ""
+    }
     val achievementName = AchievementText.name(badge.slug, badge.name)
     Column(
         modifier.width(76.dp).semantics(mergeDescendants = true) {
@@ -913,7 +920,14 @@ private fun VisibilityOption(
 internal fun AchievementDetailDialog(badge: Achievement, login: String, onDismiss: () -> Unit) {
     val g = Gh.c
     val ctx = rememberCtx()
-    val tier = when (badge.tier) { "bronze" -> tr("铜级"); "silver" -> tr("银级"); "gold" -> tr("金级"); else -> "" }
+    val tier = when (badge.tier) {
+        "bronze" -> tr("铜级")
+        "silver" -> tr("银级")
+        "gold" -> tr("金级")
+        "platinum" -> tr("白金级")
+        "diamond" -> tr("钻石级")
+        else -> ""
+    }
     val achievementName = AchievementText.name(badge.slug, badge.name)
     val detail = rememberLoader("ach-detail:${login.lowercase(Locale.ROOT)}:${badge.slug}") { Web.achievementDetail(login, badge.slug) }
     GhDialog(achievementName, onDismiss = onDismiss, confirm = tr("关闭"), onConfirm = onDismiss) {

@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,7 +61,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -196,7 +204,7 @@ fun Dropdown(
                 .widthIn(min = 180.dp, max = 280.dp)
                 .heightIn(max = 360.dp),
             shape = RoundedCornerShape(12.dp),
-            containerColor = g.canvas,
+            containerColor = if (g.dark) Color(0xFF1C2128) else g.canvas,
             border = BorderStroke(1.dp, g.borderMuted.copy(alpha = 0.5f)),
             shadowElevation = 0.dp,
         ) {
@@ -318,7 +326,7 @@ fun MultiSelectDropdown(
                 .widthIn(min = 210.dp, max = 310.dp)
                 .heightIn(max = 360.dp),
             shape = RoundedCornerShape(12.dp),
-            containerColor = g.canvas,
+            containerColor = if (g.dark) Color(0xFF1C2128) else g.canvas,
             border = BorderStroke(1.dp, g.borderMuted.copy(alpha = 0.5f)),
             shadowElevation = 0.dp,
         ) {
@@ -494,7 +502,7 @@ fun MultiSelectDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = g.canvas,
+        containerColor = if (g.dark) Color(0xFF1C2128) else g.canvas,
         titleContentColor = g.fg,
         textContentColor = g.fg,
         shape = RoundedCornerShape(16.dp),
@@ -870,7 +878,7 @@ fun CardDropdownMenu(
             .widthIn(min = 200.dp, max = 280.dp)
             .heightIn(max = 380.dp),
         shape = RoundedCornerShape(12.dp),
-        containerColor = g.canvas,
+        containerColor = if (g.dark) Color(0xFF1C2128) else g.canvas,
         border = BorderStroke(1.dp, g.borderMuted.copy(alpha = 0.5f)),
         shadowElevation = 0.dp,
     ) {
@@ -1008,7 +1016,7 @@ fun SwitchRow(title: String, desc: String? = null, checked: Boolean, enabled: Bo
     }
 }
 
-/** 分段切换（如 GitHub / 本机、全部 Star / 列表等），无阴影纯扁平设计，未选中项自然融入轨道，选中项高亮清晰 */
+/** 分段切换（如 GitHub / 本机、全部 Star / 列表等），单滑块平移动画，无双阴影与灰暗闪烁 */
 @Composable
 fun Segmented(
     options: List<String>,
@@ -1022,38 +1030,58 @@ fun Segmented(
     val trackBg = if (g.dark) Color(0xFF161B22) else Color(0xFFEFF1F4)
     val selectedBg = if (g.dark) Color(0xFF28303C) else Color.White
     val selectedBorder = if (g.dark) Color(0xFF38434F) else Color(0xFFD0D7DE)
+    val hasSelection = selected in options.indices
+    val targetIndex = if (hasSelection) selected.toFloat() else 0f
+    val indicatorIndex by animateFloatAsState(
+        targetValue = targetIndex,
+        animationSpec = if (animateSelection) tween(180) else snap(),
+        label = "segment-indicator",
+    )
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
             .background(trackBg)
             .border(1.dp, g.borderMuted, RoundedCornerShape(8.dp))
-            .padding(2.dp),
+            .padding(2.dp)
+            .drawBehind {
+                if (!hasSelection || options.isEmpty()) return@drawBehind
+                val count = options.size
+                val gapPx = 2.dp.toPx()
+                val segWidth = ((size.width - gapPx * (count - 1)) / count).coerceAtLeast(0f)
+                val left = (segWidth + gapPx) * indicatorIndex
+                val corner = CornerRadius(6.dp.toPx())
+                val strokeWidth = 1.dp.toPx()
+                drawRoundRect(
+                    color = selectedBg,
+                    topLeft = Offset(left, 0f),
+                    size = Size(segWidth, size.height),
+                    cornerRadius = corner,
+                )
+                drawRoundRect(
+                    color = selectedBorder,
+                    topLeft = Offset(left + strokeWidth / 2f, strokeWidth / 2f),
+                    size = Size(
+                        (segWidth - strokeWidth).coerceAtLeast(0f),
+                        (size.height - strokeWidth).coerceAtLeast(0f),
+                    ),
+                    cornerRadius = corner,
+                    style = Stroke(width = strokeWidth),
+                )
+            },
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         options.forEachIndexed { i, label ->
             val isSelected = i == selected
-            val animatedBg by animateColorAsState(
-                if (isSelected) selectedBg else Color.Transparent,
-                tween(if (animateSelection) 180 else 0),
-                label = "segment-bg",
-            )
-            val animatedBorder by animateColorAsState(
-                if (isSelected) selectedBorder else Color.Transparent,
-                tween(if (animateSelection) 180 else 0),
-                label = "segment-border",
+            val textColor by animateColorAsState(
+                targetValue = if (isSelected) (if (g.dark) Color.White else g.accent) else g.fgMuted,
+                animationSpec = if (animateSelection) tween(180) else snap(),
+                label = "segment-text",
             )
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(6.dp))
-                    .then(
-                        if (isSelected) {
-                            Modifier
-                                .background(animatedBg)
-                                .border(1.dp, animatedBorder, RoundedCornerShape(6.dp))
-                        } else Modifier.background(animatedBg)
-                    )
                     .selectable(
                         selected = isSelected,
                         enabled = enabled,
@@ -1068,7 +1096,7 @@ fun Segmented(
                     text = label,
                     fontSize = 13.sp,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (isSelected) (if (g.dark) Color.White else g.accent) else g.fgMuted,
+                    color = textColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
@@ -1236,7 +1264,12 @@ fun InFileSearchBar(
 fun Modifier.dialogFrame(): Modifier {
     val g = Gh.c
     val shape = RoundedCornerShape(16.dp)
-    return clip(shape).border(1.dp, g.borderMuted.copy(alpha = 0.5f), shape)
+    return shadow(
+        elevation = 14.dp,
+        shape = shape,
+        ambientColor = Color.Black.copy(alpha = if (g.dark) 0.55f else 0.16f),
+        spotColor = Color.Black.copy(alpha = if (g.dark) 0.65f else 0.22f),
+    ).clip(shape).border(1.dp, g.border, shape)
 }
 
 /** 强制显示的弹窗属性：点框外、点遮罩都不会关闭，只能通过弹窗里的按钮（或返回键）处理 */
@@ -1261,7 +1294,7 @@ fun GhDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.DialogProperties(dismissOnClickOutside = dismissOnClickOutside),
-        containerColor = g.canvas,
+        containerColor = if (g.dark) Color(0xFF1C2128) else g.canvas,
         titleContentColor = g.fg,
         textContentColor = g.fg,
         shape = RoundedCornerShape(16.dp),

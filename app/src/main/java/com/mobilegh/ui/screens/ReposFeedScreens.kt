@@ -1,14 +1,18 @@
 package com.mobilegh.ui.screens
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -39,24 +43,47 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** 用户仓库与组织仓库：一个排序下拉 + 一份分页列表 */
+/** 用户仓库与组织仓库：排序下拉 + 正序/倒序 + 分页列表 */
 @Composable
 internal fun RepoFeedScreen(kind: RepoKind, login: String, name: String) {
     var sort by rememberSaveable { mutableIntStateOf(0) }
-    val pagerKey = "rl:$kind:${Session.login.orEmpty()}:$login:$name:$sort"
+    var descending by rememberSaveable { mutableStateOf(SORTS[0].defaultDescending) }
+    val sortOption = SORTS[sort.coerceIn(0, SORTS.lastIndex)]
+    val apiSort = if (sortOption.localOnly) "pushed" else sortOption.apiSort
+    val pagerKey = "rl:$kind:${Session.login.orEmpty()}:$login:$name:$apiSort"
     val diskSnapshot = remember(pagerKey) { RepoFeedCache(File(Api.cacheDir, "repo-feeds")).read(pagerKey) }
     val pager = rememberPager(pagerKey, restore = { p -> diskSnapshot?.let { p.restoreFrom(it.items, it.pages, it.ended) } == true }) { page, force ->
-        val order = SORTS[sort].first
-        if (kind == RepoKind.Org) GitHub.orgRepos(login, order, page, force)
-        else GitHub.userRepos(login, order, page, force)
+        if (kind == RepoKind.Org) GitHub.orgRepos(login, apiSort, page, force)
+        else GitHub.userRepos(login, apiSort, page, force)
     }
     rememberRepoFeedPersistence(pager, pagerKey)
     val state = rememberLazyListState()
     Page(repoFeedTitle(kind), subtitle = repoPageSubtitle(login, name)) { pad ->
         Column(Modifier.padding(pad)) {
-            Row(Modifier.padding(12.dp)) { Dropdown(SORTS[sort].second, SORTS.map { it.second }, { sort = it }) }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Dropdown(
+                    sortOption.label,
+                    SORTS.map { it.label },
+                    { picked -> sort = picked; descending = SORTS[picked].defaultDescending },
+                    active = sort != 0,
+                )
+                DirectionButton(descending) { descending = !descending }
+            }
             HDivider()
-            PagedList(pager, state = state, itemKey = { it.id }, empty = tr("没有可见的仓库"), emptyIcon = R.drawable.oc_repo) { RepoItem(it) }
+            PagedList(
+                pager,
+                state = state,
+                itemKey = { it.id },
+                itemSort = if (sortOption.localOnly || descending != sortOption.defaultDescending) {
+                    repoComparator(sortOption.apiSort, descending)
+                } else null,
+                empty = tr("没有可见的仓库"),
+                emptyIcon = R.drawable.oc_repo,
+            ) { RepoItem(it) }
         }
     }
 }

@@ -52,13 +52,25 @@ object GitHubWebLogin {
         private set
     var title by mutableStateOf<String?>(null)
         private set
+    var sessionRevision by mutableIntStateOf(0)
+        private set
     private var onDone: (() -> Unit)? = null
     private var onDismiss: (() -> Unit)? = null
 
-    /** 当前 WebView 里是否已有 GitHub 登录会话 */
+    /** 当前 WebView 里是否已有对应当前激活账号的 GitHub 登录会话 */
     fun hasSession(): Boolean = runCatching {
-        WebAttachmentUploader.hasSession(CookieManager.getInstance().getCookie("https://github.com"))
+        WebAttachmentUploader.hasSession(
+            CookieManager.getInstance().getCookie("https://github.com"),
+            com.mobilegh.data.Session.login,
+        )
     }.getOrDefault(false)
+
+    /** 刷新持久化 Cookie 并保存到当前账号的隔离库，通知订阅界面重检网页登录态 */
+    fun notifySessionChanged() {
+        runCatching { CookieManager.getInstance().flush() }
+        com.mobilegh.data.Session.snapshotWebCookies()
+        sessionRevision++
+    }
 
     /** 需要登录时调用：打开登录页，登录成功后执行 [done]（只执行一次） */
     fun request(
@@ -79,6 +91,7 @@ object GitHubWebLogin {
         title = null
         onDone = null
         onDismiss = null
+        notifySessionChanged()
         dismiss?.invoke()
     }
 
@@ -92,10 +105,11 @@ object GitHubWebLogin {
         title = null
         onDone = null
         onDismiss = null
+        notifySessionChanged()
     }
 
     internal fun loggedIn() {
-        runCatching { CookieManager.getInstance().flush() }
+        notifySessionChanged()
         WebAttachmentUploader.renewSessionAsync(force = true)
         val callback = onDone
         url = null
@@ -149,6 +163,7 @@ fun GitHubWebLoginHost() {
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
                             CookieManager.getInstance().setAcceptCookie(true)
+                            CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
                             webChromeClient = object : WebChromeClient() {
                                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
                                     progress = newProgress
@@ -173,7 +188,8 @@ fun GitHubWebLoginHost() {
 
                                 private fun handleRedirect(u: String, context: Context): Boolean {
                                     if (MobileApprovalOAuth.handles(u)) {
-                                        runCatching { CookieManager.getInstance().flush() }
+                                        GitHubWebLogin.notifySessionChanged()
+                                        WebAttachmentUploader.renewSessionAsync(force = true)
                                         MobileApprovalOAuth.complete(context, u)
                                         GitHubWebLogin.finish()
                                         return true
@@ -185,6 +201,9 @@ fun GitHubWebLoginHost() {
                                     isPageLoading = false
                                     val opening = GitHubWebLogin.url.orEmpty()
                                     val isPureLogin = opening.startsWith("https://github.com/login") && !opening.contains("/device") && !opening.contains("/oauth")
+                                    if (GitHubWebLogin.hasSession()) {
+                                        GitHubWebLogin.notifySessionChanged()
+                                    }
                                     if (isPureLogin && GitHubWebLogin.hasSession()) {
                                         GitHubWebLogin.loggedIn()
                                     }

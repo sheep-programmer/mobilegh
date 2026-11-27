@@ -30,7 +30,7 @@ internal object NotificationPollRunner {
             !initialConfig.workingHours.allows(now(), zone())
         ) return
 
-        val threads = fetch().filterNot { NotificationMuteRules.isMuted(it) }
+        val threads = fetch().filter { NotificationMuteRules.shouldRemind(it) }
         currentCoroutineContext().ensureActive()
         val fresh = NotificationPollDecision.choose(
             config(), initialLogin, login(), initialGeneration, generation(),

@@ -1,74 +1,84 @@
 # MobileGH
 
-MobileGH 是一款用 Kotlin 和 Jetpack Compose 构建的第三方 GitHub Android 客户端。提供原生渲染的仓库与代码阅读体验、完整的 Issue / PR / Discussions 协作、Actions 设置与日志诊断、加速下载与离线翻译等核心能力。
+MobileGH 是一款原生 Android GitHub 客户端，使用 Kotlin 与 Jetpack Compose 构建。围绕「读代码、处理协作、跟进 CI、管理下载」设计：常用列表先展示本地缓存，正文优先渲染，需要的内容再在后台逐步补齐。
 
 简体中文 · [English](README.en.md) · [下载最新版](https://github.com/sheep-programmer/mobilegh/releases/latest) · [反馈问题](https://github.com/sheep-programmer/mobilegh/issues)
 
 ## 核心亮点
 
-- **原生阅读与离线翻译**：原生 Compose 渲染 README（目录跳转、图片/表格缩放、动态徽章竞速兜底、视频与公式支持）；可选独立离线翻译组件，端侧完成中英互译与按需多语种翻译。
-- **缓存优先，冷启秒开**：首页、Star 列表、仓库列表与列表详情均支持磁盘与进程快照缓存，冷启动先展示缓存内容并在后台静默刷新，同时给出非阻塞刷新状态提示。
-- **完整代码与仓库工作流**：源码高亮与逐行归因（Blame）、分支对比（统一/分栏 Diff）、多文件/文件夹提交与 Git LFS（最高 2 GiB）、以及跨平台仓库导入。
-- **Actions 全链路管理**：查看 Job/Step 日志、跳到失败步骤、搜索并导出日志；支持 Actions 通用权限、Secrets 端侧加密写入、Variables、Runners、Caches 与部署审批。
-- **Issue / PR 深度协作**：支持 YAML/Issue 模板、Issue Type、父子 Issue 层级、Saved Replies、行内审查与代码建议、PR 文件已阅状态同步与系统分享直接建 Issue。
-- **加速镜像、下载与在线更新**：网络设置独立配置「文件与图片」「下载与克隆」加速线路；Release 附件筛选、断点续传、SHA-256 校验、Actions 产物提取 APK，以及独立更新界面与下载完成后自动拉起安装。
-- **安全与宽屏适配**：多账号切换、应用锁、本机 TOTP 验证器、后台通知与工作时间、以及平板/折叠屏自适应左侧导航栏。
+- **原生阅读**：README、Issue、PR、Diff 与 Actions 日志均由原生界面呈现，支持目录跳转、代码高亮、图片与表格缩放、视频、公式和 SVG 图表；可选独立组件提供端侧离线翻译。
+- **缓存优先**：首页收藏、Star、仓库列表与探索推荐优先显示已有内容，冷启动无需白屏等待；数据在后台静默更新，失败时保留旧内容。
+- **完整协作**：覆盖 Issue / PR / Discussions、YAML 表单、父子 Issue、依赖关系、Saved Replies、附件预览、行内审查、代码建议、单个 Commit Diff 与已阅状态同步。
+- **Actions 全链路**：定位失败步骤、搜索与导出日志、触发或重跑工作流、审批部署，并管理权限、Secrets、Variables、Runners 与 Caches；可直接查看 Actions 和存储配额。
+- **仓库与组织管理**：源码阅读、Blame、符号大纲、分支比较、Release 管理、多文件与 Git LFS 提交、仓库导入，以及原生组织资料与头像维护。
+- **下载与更新**：Release 附件筛选、断点续传、完整性校验、Actions 产物 APK 提取、分场景镜像加速；应用更新使用独立界面，完成后自动拉起系统安装器。
+- **多账号与安全**：账号列表切换、按账号隔离的 OAuth 与网页会话、Cookie 自动续期、应用锁、本机 TOTP 验证器、通知降噪，以及平板与折叠屏自适应布局。
 
 ## 界面预览
 
-截图取自最新模拟器构建，使用虚构账号和本地测试数据。
+以下截图均由 v0.41.0 在模拟器中重新采集，使用虚构账号和本地测试数据，不包含真实账号信息。
 
 <table>
   <tr>
-    <td align="center"><img src="docs/screenshots/zh/01-home.png" alt="首页与我的工作快捷入口" width="240"><br>首页工作台</td>
-    <td align="center"><img src="docs/screenshots/zh/03-repo.png" alt="仓库详情与快捷入口" width="240"><br>仓库详情</td>
-    <td align="center"><img src="docs/screenshots/zh/19-file-readme.png" alt="原生渲染 Markdown 与 README" width="240"><br>原生 README</td>
+    <td align="center"><img src="docs/screenshots/zh/01-home.png" alt="首页工作台与快捷入口" width="240"><br>首页工作台</td>
+    <td align="center"><img src="docs/screenshots/zh/03-repo.png" alt="仓库详情与快捷操作" width="240"><br>仓库详情</td>
+    <td align="center"><img src="docs/screenshots/zh/28-explore.png" alt="探索热门推荐与仓库预览" width="240"><br>探索推荐</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/zh/04-issue.png" alt="Issue 正文、评论与操作" width="240"><br>Issue 讨论</td>
-    <td align="center"><img src="docs/screenshots/zh/05-diff-split.png" alt="提交的左右分栏代码对比" width="240"><br>分栏 Diff</td>
-    <td align="center"><img src="docs/screenshots/zh/21-job-log-dark.png" alt="深色模式下的 Actions 作业日志" width="240"><br>Actions 深色日志</td>
+    <td align="center"><img src="docs/screenshots/zh/04-issue.png" alt="Issue 正文与协作操作" width="240"><br>Issue 讨论</td>
+    <td align="center"><img src="docs/screenshots/zh/05-diff-split.png" alt="左右分栏代码对比" width="240"><br>分栏 Diff</td>
+    <td align="center"><img src="docs/screenshots/zh/21-job-log-dark.png" alt="深色模式 Actions 日志" width="240"><br>Actions 日志</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/zh/07-notifications.png" alt="按仓库分组的通知" width="240"><br>通知收件箱</td>
-    <td align="center"><img src="docs/screenshots/zh/12-star-overview.png" alt="Star 列表目录与搜索排序" width="240"><br>Star 列表</td>
-    <td align="center"><img src="docs/screenshots/zh/08-insights.png" alt="贡献者统计与提交趋势" width="240"><br>贡献统计</td>
+    <td align="center"><img src="docs/screenshots/zh/07-notifications.png" alt="通知收件箱与筛选" width="240"><br>通知收件箱</td>
+    <td align="center"><img src="docs/screenshots/zh/12-star-overview.png" alt="Star 列表目录与管理" width="240"><br>Star 列表</td>
+    <td align="center"><img src="docs/screenshots/zh/10-settings.png" alt="多账号列表与应用设置" width="240"><br>多账号与设置</td>
   </tr>
 </table>
 
 <details>
-<summary>查看更多界面截图（代码浏览、分支切换、搜索、成就、设置与平板横屏）</summary>
+<summary>展开更多截图：原生阅读、代码与分支、Star 管理、搜索、成就及平板横屏</summary>
 
 <table>
   <tr>
     <td align="center"><img src="docs/screenshots/zh/02-repos.png" alt="仓库列表" width="240"><br>仓库列表</td>
     <td align="center"><img src="docs/screenshots/zh/18-file-code.png" alt="源码高亮阅读" width="240"><br>源码阅读</td>
-    <td align="center"><img src="docs/screenshots/zh/06-compare.png" alt="分支与提交比较" width="240"><br>分支比较</td>
+    <td align="center"><img src="docs/screenshots/zh/19-file-readme.png" alt="原生 README 渲染" width="240"><br>原生 README</td>
   </tr>
   <tr>
+    <td align="center"><img src="docs/screenshots/zh/06-compare.png" alt="分支与提交比较" width="240"><br>分支比较</td>
     <td align="center"><img src="docs/screenshots/zh/03b-branch-picker-sheet.png" alt="分支与标签选择器" width="240"><br>分支选择</td>
     <td align="center"><img src="docs/screenshots/zh/03c-readme-toc-sheet.png" alt="README 目录跳转" width="240"><br>README 目录</td>
-    <td align="center"><img src="docs/screenshots/zh/09-star-list.png" alt="Star 列表详情" width="240"><br>Star 列表详情</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/zh/16-search-results.png" alt="全局搜索结果" width="240"><br>搜索结果</td>
-    <td align="center"><img src="docs/screenshots/zh/22-issues.png" alt="Issue 列表筛选" width="240"><br>Issue 筛选</td>
+    <td align="center"><img src="docs/screenshots/zh/09-star-list.png" alt="Star 列表详情" width="240"><br>Star 列表详情</td>
+    <td align="center"><img src="docs/screenshots/zh/13-star-picker.png" alt="加入 Star 列表" width="240"><br>加入 Star 列表</td>
+    <td align="center"><img src="docs/screenshots/zh/14-new-list.png" alt="新建 Star 列表" width="240"><br>新建列表</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/zh/15-search-home.png" alt="搜索首页" width="240"><br>全局搜索</td>
+    <td align="center"><img src="docs/screenshots/zh/16-search-results.png" alt="仓库搜索结果" width="240"><br>搜索结果</td>
+    <td align="center"><img src="docs/screenshots/zh/22-issues.png" alt="Issue 列表与筛选" width="240"><br>Issue 筛选</td>
+  </tr>
+  <tr>
     <td align="center"><img src="docs/screenshots/zh/23-pushes.png" alt="最近推送记录" width="240"><br>最近推送</td>
+    <td align="center"><img src="docs/screenshots/zh/24-push-detail.png" alt="推送提交与文件改动" width="240"><br>推送详情</td>
+    <td align="center"><img src="docs/screenshots/zh/08-insights.png" alt="贡献统计与提交趋势" width="240"><br>贡献统计</td>
   </tr>
   <tr>
     <td align="center"><img src="docs/screenshots/zh/25-achievements.png" alt="GitHub 成就徽章" width="240"><br>成就徽章</td>
-    <td align="center"><img src="docs/screenshots/zh/10-settings.png" alt="应用设置" width="240"><br>应用设置</td>
-    <td align="center"><img src="docs/screenshots/zh/11-login.png" alt="登录与授权" width="240"><br>登录页</td>
+    <td align="center"><img src="docs/screenshots/zh/27-achievement-dialog.png" alt="成就详情与解锁历史" width="240"><br>成就详情</td>
+    <td align="center"><img src="docs/screenshots/zh/01b-home-create-sheet.png" alt="原生新建菜单" width="240"><br>新建菜单</td>
   </tr>
 </table>
 
-<img src="docs/screenshots/zh/26-tablet-settings.png" alt="平板横屏使用左侧导航，设置页占满其余宽度" width="800">
+<img src="docs/screenshots/zh/26-tablet-settings.png" alt="平板横屏左侧导航与全宽设置页" width="800">
 
 </details>
 
 ## 下载与登录
 
-支持 **Android 8.0（API 26）及以上**。v0.40.13 的 ARM64 主安装包和各架构校验值见最新 Release。 [Release 说明](docs/RELEASE_v0.40.13.md)
+支持 **Android 8.0（API 26）及以上**。当前版本为 **v0.41.0**，ARM64 主安装包和各架构校验值见最新 Release。 [Release 说明](docs/RELEASE_v0.41.0.md)
 
 | 设备 | 安装包 |
 | --- | --- |

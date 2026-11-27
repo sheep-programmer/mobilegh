@@ -19,7 +19,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.mobilegh.ui.components.GhField
+import com.mobilegh.ui.components.SectionActionChip
 import com.mobilegh.ui.components.SwitchRow
 import com.mobilegh.ui.components.verticalScrollWithBar
 import androidx.compose.foundation.layout.offset
@@ -1359,29 +1365,236 @@ fun NotificationsScreen() {
 
     if (muteDialog) {
         val current = com.mobilegh.data.NotificationMuteRules.config
+        var notifyIssues by remember(muteDialog) { mutableStateOf(current.notifyIssues) }
+        var notifyPrs by remember(muteDialog) { mutableStateOf(current.notifyPrs) }
         var muteBots by remember(muteDialog) { mutableStateOf(current.muteBots) }
-        var reposText by remember(muteDialog) { mutableStateOf(current.mutedRepos.joinToString("\n")) }
-        var keywordsText by remember(muteDialog) { mutableStateOf(current.mutedKeywords.joinToString("\n")) }
-        GhDialog(
-            tr("通知降噪规则"),
-            onDismiss = { muteDialog = false },
-            confirm = tr("保存"),
-            onConfirm = {
-                com.mobilegh.data.NotificationMuteRules.update(
-                    com.mobilegh.data.NotificationMuteConfig(
-                        muteBots = muteBots,
-                        mutedRepos = reposText.lines().map { it.trim() }.filter { it.isNotEmpty() }.toSet(),
-                        mutedKeywords = keywordsText.lines().map { it.trim() }.filter { it.isNotEmpty() },
-                    ),
-                )
-                muteDialog = false
-            },
+        var mutedRepos by remember(muteDialog) { mutableStateOf(current.mutedRepos.toList().sorted()) }
+        var mutedKeywords by remember(muteDialog) { mutableStateOf(current.mutedKeywords) }
+        var repoDraft by remember(muteDialog) { mutableStateOf("") }
+        var keywordDraft by remember(muteDialog) { mutableStateOf("") }
+        fun saveAndClose() {
+            val finalRepos = (mutedRepos + repoDraft.trim().lowercase()).filter { it.isNotEmpty() }.toSet()
+            val finalKeywords = (mutedKeywords + keywordDraft.trim()).filter { it.isNotEmpty() }.distinct()
+            com.mobilegh.data.NotificationMuteRules.update(
+                com.mobilegh.data.NotificationMuteConfig(
+                    muteBots = muteBots,
+                    mutedRepos = finalRepos,
+                    mutedKeywords = finalKeywords,
+                    notifyIssues = notifyIssues,
+                    notifyPrs = notifyPrs,
+                ),
+            )
+            muteDialog = false
+        }
+        Dialog(
+            onDismissRequest = { muteDialog = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
         ) {
-            Column(Modifier.heightIn(max = 420.dp).verticalScrollWithBar(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SwitchRow(tr("自动静音 Bot 通知"), tr("过滤 dependabot、renovate、github-actions 等机器人通知"), muteBots) { muteBots = it }
-                GhField(reposText, { reposText = it }, tr("静音仓库（每行一个 owner/repo）"), singleLine = false, minLines = 2)
-                GhField(keywordsText, { keywordsText = it }, tr("静音关键词（每行一个，匹配标题）"), singleLine = false, minLines = 2)
+            Column(
+                Modifier.fillMaxSize()
+                    .background(g.canvas)
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .imePadding(),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth()
+                        .background(g.header)
+                        .padding(start = 4.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OcButton(R.drawable.oc_arrow_left, { muteDialog = false }, description = tr("关闭"))
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        tr("通知提醒与降噪"),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = g.fg,
+                        modifier = Modifier.weight(1f),
+                    )
+                    GhButton(tr("保存"), primary = true) { saveAndClose() }
+                }
+                HDivider()
+                Column(
+                    Modifier.fillMaxWidth()
+                        .weight(1f)
+                        .verticalScrollWithBar()
+                        .padding(horizontal = 16.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    val cardShape = RoundedCornerShape(12.dp)
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .clip(cardShape)
+                            .background(g.canvas, cardShape)
+                            .border(1.dp, g.border, cardShape)
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                    ) {
+                        SwitchRow(tr("Issue 提醒"), tr("开启后，有新的或更新的 Issue 通知时发送系统提醒（默认关闭）"), notifyIssues) { notifyIssues = it }
+                        HDivider()
+                        SwitchRow(tr("Pull Request 提醒"), tr("开启后，有新的或更新的 PR 通知时发送系统提醒（默认关闭）"), notifyPrs) { notifyPrs = it }
+                        HDivider()
+                        SwitchRow(tr("自动静音 Bot 通知"), tr("过滤 dependabot、renovate、github-actions 等机器人通知"), muteBots) { muteBots = it }
+                    }
+                    MuteRuleListSection(
+                        title = tr("静音仓库"),
+                        placeholder = tr("输入 owner/repo"),
+                        emptyText = tr("暂无静音仓库"),
+                        items = mutedRepos,
+                        draft = repoDraft,
+                        onDraftChange = { repoDraft = it },
+                        onAdd = { raw ->
+                            val v = raw.trim().lowercase()
+                            if (v.isNotEmpty() && v !in mutedRepos) mutedRepos = mutedRepos + v
+                            repoDraft = ""
+                        },
+                        onRemove = { target -> mutedRepos = mutedRepos - target },
+                    )
+                    MuteRuleListSection(
+                        title = tr("静音关键词"),
+                        placeholder = tr("输入标题关键词"),
+                        emptyText = tr("暂无静音关键词"),
+                        items = mutedKeywords,
+                        draft = keywordDraft,
+                        onDraftChange = { keywordDraft = it },
+                        onAdd = { raw ->
+                            val v = raw.trim()
+                            if (v.isNotEmpty() && mutedKeywords.none { it.equals(v, ignoreCase = true) }) {
+                                mutedKeywords = mutedKeywords + v
+                            }
+                            keywordDraft = ""
+                        },
+                        onRemove = { target -> mutedKeywords = mutedKeywords - target },
+                    )
+                }
             }
         }
+    }
+}
+
+private const val MUTE_RULE_PREVIEW_LIMIT = 3
+
+@Composable
+private fun MuteRuleListSection(
+    title: String,
+    placeholder: String,
+    emptyText: String,
+    items: List<String>,
+    draft: String,
+    onDraftChange: (String) -> Unit,
+    onAdd: (String) -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    val g = Gh.c
+    var fullDialogOpen by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(10.dp)
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(shape)
+            .background(g.canvasSubtle, shape)
+            .border(1.dp, g.borderMuted, shape)
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+            if (items.isNotEmpty()) {
+                Spacer(Modifier.width(6.dp))
+                Text("${items.size}", fontSize = 12.sp, color = g.fgMuted)
+            }
+            Spacer(Modifier.weight(1f))
+            if (items.size > MUTE_RULE_PREVIEW_LIMIT) {
+                SectionActionChip(trf("查看全部 ({0})", items.size)) { fullDialogOpen = true }
+            }
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GhField(
+                value = draft,
+                onValueChange = onDraftChange,
+                label = placeholder,
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+            )
+            SectionActionChip(tr("添加"), enabled = draft.isNotBlank()) { onAdd(draft) }
+        }
+        if (items.isEmpty()) {
+            Text(emptyText, fontSize = 12.sp, color = g.fgMuted)
+        } else {
+            val preview = items.take(MUTE_RULE_PREVIEW_LIMIT)
+            val rowShape = RoundedCornerShape(8.dp)
+            Column(
+                Modifier.fillMaxWidth()
+                    .clip(rowShape)
+                    .background(g.canvas, rowShape)
+                    .border(1.dp, g.borderMuted, rowShape),
+            ) {
+                preview.forEachIndexed { index, item ->
+                    if (index > 0) HDivider(Modifier.padding(start = 10.dp))
+                    MuteRuleRow(item) { onRemove(item) }
+                }
+                if (items.size > MUTE_RULE_PREVIEW_LIMIT) {
+                    HDivider()
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable { fullDialogOpen = true }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        Text(
+                            trf("已折叠其余 {0} 项 · 点击查看全部", items.size - MUTE_RULE_PREVIEW_LIMIT),
+                            fontSize = 12.sp,
+                            color = g.accent,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+            }
+        }
+    }
+    if (fullDialogOpen) {
+        GhDialog(
+            title = "$title (${items.size})",
+            onDismiss = { fullDialogOpen = false },
+            dismissText = tr("完成"),
+        ) {
+            if (items.isEmpty()) {
+                Text(emptyText, fontSize = 13.sp, color = g.fgMuted)
+            } else {
+                val listShape = RoundedCornerShape(10.dp)
+                Column(
+                    Modifier.fillMaxWidth()
+                        .heightIn(max = 360.dp)
+                        .clip(listShape)
+                        .background(g.canvasSubtle, listShape)
+                        .border(1.dp, g.borderMuted, listShape)
+                        .verticalScrollWithBar(),
+                ) {
+                    items.forEachIndexed { index, item ->
+                        if (index > 0) HDivider(Modifier.padding(start = 12.dp))
+                        MuteRuleRow(item) { onRemove(item) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MuteRuleRow(text: String, onRemove: () -> Unit) {
+    val g = Gh.c
+    Row(
+        Modifier.fillMaxWidth().padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text,
+            Modifier.weight(1f),
+            fontSize = 13.sp,
+            color = g.fg,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        OcButton(R.drawable.oc_x_circle, onRemove, tint = g.fgMuted, description = tr("移除"))
     }
 }

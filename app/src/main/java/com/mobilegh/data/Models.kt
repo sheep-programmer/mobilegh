@@ -587,6 +587,9 @@ data class Org(
     val blog: String? = null,
     val location: String? = null,
     val email: String? = null,
+    val company: String? = null,
+    val twitterUsername: String? = null,
+    val billingEmail: String? = null,
     val publicRepos: Int = 0,
     val followers: Int = 0,
     val htmlUrl: String? = null,
@@ -668,6 +671,122 @@ data class RateItem(val limit: Int = 0, val remaining: Int = 0, val reset: Long 
 
 @Serializable
 data class RateLimit(val resources: Map<String, RateItem> = emptyMap())
+
+@Serializable
+data class ActionsBilling(
+    val totalMinutesUsed: Int = 0,
+    val totalPaidMinutesUsed: Int = 0,
+    val includedMinutes: Int = 0,
+    val minutesUsedBreakdown: Map<String, Int> = emptyMap(),
+)
+
+@Serializable
+data class SharedStorageBilling(
+    val daysLeftInBillingCycle: Int = 0,
+    val estimatedPaidStorageForMonth: Double = 0.0,
+    val estimatedStorageForMonth: Double = 0.0,
+)
+
+@Serializable
+data class PackagesBilling(
+    val totalGigabytesBandwidthUsed: Double = 0.0,
+    val totalPaidGigabytesBandwidthUsed: Double = 0.0,
+    val includedGigabytesBandwidth: Double = 0.0,
+)
+
+@Serializable
+data class BillingUsageItem(
+    val date: String = "",
+    val product: String = "",
+    val sku: String = "",
+    val unitType: String = "",
+    val quantity: Double = 0.0,
+    val pricePerUnit: Double = 0.0,
+    val grossAmount: Double = 0.0,
+    val discountAmount: Double = 0.0,
+    val netAmount: Double = 0.0,
+    val repositoryName: String = "",
+)
+
+@Serializable
+data class BillingUsageReport(
+    val user: String? = null,
+    val usageItems: List<BillingUsageItem> = emptyList(),
+)
+
+data class BillingUsage(
+    val actions: ActionsBilling? = null,
+    val storage: SharedStorageBilling? = null,
+    val packages: PackagesBilling? = null,
+    val unavailableReason: String? = null,
+    val needsWebSession: Boolean = false,
+    val needsWebExtract: Boolean = false,
+    val items: List<BillingUsageItem> = emptyList(),
+    val planName: String? = null,
+) {
+    companion object {
+        fun planIncludedActionsMinutes(planName: String?): Int =
+            if (planName?.contains("pro", ignoreCase = true) == true) 3000 else 2000
+
+        fun planIncludedPackagesGb(planName: String?): Double =
+            if (planName?.contains("pro", ignoreCase = true) == true) 10.0 else 1.0
+
+        fun fromEnhancedReport(report: BillingUsageReport, planName: String? = null): BillingUsage {
+            val actionsItems = report.usageItems.filter { it.product.contains("action", ignoreCase = true) }
+            val storageItems = report.usageItems.filter { it.product.contains("storage", ignoreCase = true) }
+            val packageItems = report.usageItems.filter { it.product.contains("package", ignoreCase = true) }
+
+            val totalMinutes = actionsItems.sumOf { it.quantity }.toInt()
+            val paidMinutes = actionsItems.sumOf {
+                if (it.netAmount > 0 && it.pricePerUnit > 0) (it.netAmount / it.pricePerUnit).toInt() else 0
+            }
+            val breakdown = actionsItems
+                .groupBy {
+                    it.sku.removePrefix("Actions ").removePrefix("actions ").trim().uppercase().ifBlank { "OTHER" }
+                }
+                .mapValues { (_, items) -> items.sumOf { it.quantity }.toInt() }
+                .filterValues { it > 0 }
+
+            val actions = ActionsBilling(
+                totalMinutesUsed = totalMinutes,
+                totalPaidMinutesUsed = paidMinutes,
+                includedMinutes = planIncludedActionsMinutes(planName),
+                minutesUsedBreakdown = breakdown,
+            )
+
+            val storageGb = storageItems.sumOf { item ->
+                if (item.unitType.contains("hour", ignoreCase = true)) item.quantity / (24.0 * 30.0) else item.quantity
+            }
+            val storage = if (storageItems.isNotEmpty() || !planName.isNullOrBlank()) {
+                SharedStorageBilling(
+                    daysLeftInBillingCycle = daysLeftInCurrentMonth(),
+                    estimatedStorageForMonth = ((storageGb * 100.0).toInt() / 100.0),
+                )
+            } else null
+
+            val packagesUsed = packageItems.sumOf { it.quantity }
+            val packages = if (packageItems.isNotEmpty() || !planName.isNullOrBlank()) {
+                PackagesBilling(
+                    totalGigabytesBandwidthUsed = ((packagesUsed * 100.0).toInt() / 100.0),
+                    includedGigabytesBandwidth = planIncludedPackagesGb(planName),
+                )
+            } else null
+
+            return BillingUsage(
+                actions = actions,
+                storage = storage,
+                packages = packages,
+                items = report.usageItems,
+                planName = planName,
+            )
+        }
+
+        private fun daysLeftInCurrentMonth(): Int {
+            val today = java.time.LocalDate.now(java.time.ZoneOffset.UTC)
+            return (today.lengthOfMonth() - today.dayOfMonth).coerceAtLeast(0)
+        }
+    }
+}
 
 // ---------- GraphQL（camelCase，用 Api.plain 解析） ----------
 

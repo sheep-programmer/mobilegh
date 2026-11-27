@@ -188,6 +188,7 @@ fun homeShortcuts(
     onSaved: () -> Unit = {},
     onProjects: () -> Unit = {},
     onDrafts: () -> Unit = {},
+    onSettings: () -> Unit = {},
     onInvitations: () -> Unit = {},
     invitationsCount: Int? = null,
 ): List<HomeShortcut> {
@@ -206,6 +207,7 @@ fun homeShortcuts(
         HomeShortcut(R.drawable.oc_history, tr("最近浏览"), g.accent, onRecent, BuiltinShortcut.Recent.id),
         HomeShortcut(R.drawable.oc_table, tr("项目"), g.success, onProjects, BuiltinShortcut.Projects.id),
         HomeShortcut(R.drawable.oc_pencil, tr("草稿"), g.attention, onDrafts, BuiltinShortcut.Drafts.id),
+        HomeShortcut(R.drawable.oc_gear, tr("设置"), g.fgMuted, onSettings, BuiltinShortcut.Settings.id),
         HomeShortcut(R.drawable.oc_mail, tr("待处理邀请"), g.done, onInvitations, BuiltinShortcut.Invitations.id, count = invitationsCount),
     )
 }
@@ -444,7 +446,7 @@ fun HomeFavoriteRow(repo: FavoriteRepo, canUp: Boolean, canDown: Boolean, onOpen
             .padding(horizontal = 16.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Avatar("https://github.com/${repo.owner}.png", 22.dp, square = true)
+        Avatar("https://avatars.githubusercontent.com/${repo.owner}", 22.dp, square = true)
         Spacer(Modifier.width(12.dp))
         Text(
             buildAnnotatedString {

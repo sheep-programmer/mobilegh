@@ -870,7 +870,7 @@ private fun RepoHeader(r: Repo, onEdited: () -> Unit = {}) {
         if (r.topics.isNotEmpty()) {
             Spacer(Modifier.height(6.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                r.topics.forEach { Topic(it) }
+                r.topics.forEach { topic -> Topic(topic) { nav.push(Screen.Search(type = 0, query = "topic:$topic")) } }
             }
         }
         Spacer(Modifier.height(8.dp))

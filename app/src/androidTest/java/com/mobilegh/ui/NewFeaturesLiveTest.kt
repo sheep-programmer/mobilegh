@@ -4,7 +4,13 @@ import android.app.NotificationManager
 import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -28,7 +34,11 @@ import com.mobilegh.nav.Navigator
 import com.mobilegh.nav.Screen
 import com.mobilegh.service.GitHubNotificationDelivery
 import com.mobilegh.service.NotificationActionReceiver
+import com.mobilegh.ui.components.ImageViewer
+import com.mobilegh.ui.components.ImageViewerHost
+import com.mobilegh.ui.components.Segmented
 import com.mobilegh.ui.components.ShareCardRenderer
+import com.mobilegh.ui.screens.ActionsQuotaCard
 import com.mobilegh.ui.screens.FileViewScreen
 import com.mobilegh.ui.screens.IssueDetailScreen
 import com.mobilegh.ui.screens.PullChecksScreen
@@ -272,5 +282,98 @@ class NewFeaturesLiveTest {
         compose.waitUntil(5_000) { compose.onAllNodesWithText("${commitB.take(7)} · Second commit").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("${commitB.take(7)} · Second commit").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("1 个文件  ").fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    @Test fun imageViewerRendersSvgWithoutBlackCollapse() {
+        val inst = InstrumentationRegistry.getInstrumentation()
+        val svgBytes = inst.context.assets.open("stellar-architecture.svg").use { it.readBytes() }
+        server = LoopbackApi.media { LoopbackApi.Response(200, "image/svg+xml", svgBytes) }
+        val svgUrl = "${server!!.base}/architecture.svg"
+
+        compose.setContent {
+            MobileGhTheme { ImageViewerHost() }
+        }
+        compose.runOnUiThread { ImageViewer.open(svgUrl, "分层架构") }
+        try {
+            compose.waitUntil(5_000) {
+                compose.onAllNodesWithText("分层架构").fetchSemanticsNodes().isNotEmpty() &&
+                    server!!.requests.isNotEmpty() &&
+                    compose.onAllNodes(androidx.compose.ui.test.hasProgressBarRangeInfo(androidx.compose.ui.semantics.ProgressBarRangeInfo.Indeterminate)).fetchSemanticsNodes().isEmpty()
+            }
+            compose.waitForIdle()
+            Thread.sleep(400)
+            assertTrue(compose.onAllNodesWithText("图片加载失败").fetchSemanticsNodes().isEmpty())
+            val shot = inst.uiAutomation.takeScreenshot()
+            var nonBlack = 0
+            val yStart = shot.height / 3
+            val yEnd = (shot.height * 2) / 3
+            for (y in yStart until yEnd step 16) {
+                for (x in 100 until shot.width - 100 step 16) {
+                    val c = shot.getPixel(x, y)
+                    if (android.graphics.Color.red(c) > 30 || android.graphics.Color.green(c) > 30 || android.graphics.Color.blue(c) > 30) {
+                        nonBlack++
+                    }
+                }
+            }
+            assertTrue("Fullscreen SVG viewer must render visible non-black content (nonBlack=$nonBlack)", nonBlack > 50)
+        } finally {
+            compose.runOnUiThread { ImageViewer.close() }
+        }
+    }
+
+    @Test fun actionsQuotaCardDisplaysMinutesStorageAndPackages() {
+        server = LoopbackApi { _, path, _ ->
+            when {
+                path.contains("/settings/billing/actions") -> 200 to """
+                    {"total_minutes_used":305,"total_paid_minutes_used":0,"included_minutes":2000,"minutes_used_breakdown":{"UBUNTU":205,"MACOS":10,"WINDOWS":90}}
+                """.trimIndent()
+                path.contains("/settings/billing/shared-storage") -> 200 to """
+                    {"days_left_in_billing_cycle":12,"estimated_paid_storage_for_month":0.0,"estimated_storage_for_month":0.42}
+                """.trimIndent()
+                path.contains("/settings/billing/packages") -> 200 to """
+                    {"total_gigabytes_bandwidth_used":0.5,"total_paid_gigabytes_bandwidth_used":0.0,"included_gigabytes_bandwidth":1.0}
+                """.trimIndent()
+                else -> 404 to "{}"
+            }
+        }.also { Net.apiProxy = it.base }
+
+        compose.runOnUiThread { nav.push(Screen.Settings) }
+        compose.setContent {
+            MobileGhTheme {
+                CompositionLocalProvider(LocalNav provides nav, LocalEntry provides nav.top) {
+                    ActionsQuotaCard()
+                }
+            }
+        }
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText("Actions 分钟  已用 305/2000").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("UBUNTU: 205m · MACOS: 10m · WINDOWS: 90m").assertIsDisplayed()
+        compose.onNodeWithText("共享存储预估：0.42 GB · 本周期剩余 12 天").assertIsDisplayed()
+        compose.onNodeWithText("Packages 流量：已用 0.5/1.0 GB").assertIsDisplayed()
+    }
+
+    @Test fun segmentedSwitchesCleanlyBetweenTabs() {
+        compose.setContent {
+            MobileGhTheme {
+                var selected by remember { mutableIntStateOf(0) }
+                Segmented(
+                    options = listOf("活动", "动态"),
+                    selected = selected,
+                ) { selected = it }
+            }
+        }
+        compose.onNodeWithText("活动").assertIsSelected()
+        compose.onNodeWithText("动态").assertIsNotSelected()
+
+        compose.onNodeWithText("动态").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("活动").assertIsNotSelected()
+        compose.onNodeWithText("动态").assertIsSelected()
+
+        compose.onNodeWithText("活动").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("活动").assertIsSelected()
+        compose.onNodeWithText("动态").assertIsNotSelected()
     }
 }

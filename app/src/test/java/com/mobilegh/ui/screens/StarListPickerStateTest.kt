@@ -45,4 +45,14 @@ class StarListPickerStateTest {
         val both = starListChangeMessage(setOf("a"), setOf("b"), lists)!!
         assertTrue(both.contains("工具") && both.contains("前端"))
     }
+
+    @Test fun applyStarListCountDeltaUpdatesCountsWithoutNegativeValues() {
+        val lists = listOf(
+            com.mobilegh.data.GitHubStarList(id = "a", name = "SelfProject", description = "", isPrivate = false, slug = "a", owner = "me", count = 4),
+            com.mobilegh.data.GitHubStarList(id = "b", name = "Empty", description = "", isPrivate = false, slug = "b", owner = "me", count = 0),
+        )
+        val updated = applyStarListCountDelta(lists, before = setOf("b"), after = setOf("a"))
+        assertEquals(5, updated[0].count)
+        assertEquals(0, updated[1].count)
+    }
 }

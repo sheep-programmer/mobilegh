@@ -1,6 +1,25 @@
 package com.mobilegh.ui.screens
 
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import com.mobilegh.nav.Screen
+import com.mobilegh.nav.refreshRetained
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.mobilegh.ui.components.verticalScrollWithBar
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -127,5 +146,171 @@ fun ProfileEditorForm(fields: ProfileFields, onChange: (ProfileFields) -> Unit, 
         SwitchRow(tr("接受工作机会"), checked = fields.hireable, enabled = !saving) { change(fields.copy(hireable = it)) }
         error?.let { Text(it, color = Gh.c.danger, fontSize = 13.sp) }
         GhButton(if (saving) tr("保存中…") else tr("保存资料"), Modifier.fillMaxWidth(), primary = true, enabled = !saving && bioOver <= 0, onClick = onSave)
+    }
+}
+
+private val OrgFieldsSaver = listSaver<OrgFields, String>(
+    save = { listOf(it.name, it.description, it.company, it.location, it.website, it.twitter, it.email, it.billingEmail) },
+    restore = { OrgFields(it[0], it[1], it[2], it[3], it[4], it[5], it[6], it[7]) },
+)
+
+@Composable
+fun EditOrgScreen(login: String) {
+    val nav = LocalNav.current
+    val ctx = rememberCtx()
+    val g = Gh.c
+    val org = rememberLoader("org-edit:$login") { GitHub.org(login, true) }
+    var dirty by remember { mutableStateOf(false) }
+    var confirmLeave by remember { mutableStateOf(false) }
+    fun leave() { if (dirty) confirmLeave = true else nav.pop() }
+    BackHandler(enabled = dirty) { leave() }
+
+    Page(tr("编辑组织信息"), subtitle = login, onBack = { leave() }) { pad ->
+        LoadBox(org, Modifier.padding(pad).fillMaxSize()) { original ->
+            var fields by rememberSaveable(original.login, stateSaver = OrgFieldsSaver) { mutableStateOf(OrgFields.from(original)) }
+            var saving by remember { mutableStateOf(false) }
+            var avatarUploading by remember { mutableStateOf(false) }
+            var error by remember { mutableStateOf<String?>(null) }
+            var localPreview by remember { mutableStateOf<ImageBitmap?>(null) }
+            val scope = rememberCoroutineScope()
+            SideEffect { dirty = fields != OrgFields.from(original) }
+
+            fun uploadSelectedUri(uri: Uri) {
+                avatarUploading = true
+                error = null
+                scope.launch {
+                    try {
+                        val payload = withContext(Dispatchers.IO) {
+                            val resolver = ctx.contentResolver
+                            var name = "avatar.png"
+                            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                                if (c.moveToFirst()) c.getString(0)?.takeIf { it.isNotBlank() }?.let { name = it }
+                            }
+                            val mime = resolver.getType(uri) ?: "image/png"
+                            val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
+                                ?: throw IllegalStateException(tr("无法读取所选图片"))
+                            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+                            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                            Triple(name to mime, bytes, Triple(opts.outWidth.coerceAtLeast(1), opts.outHeight.coerceAtLeast(1), bmp))
+                        }
+                        localPreview = payload.third.third
+                        OrgAvatarUploader.upload(
+                            orgId = original.id,
+                            orgLogin = original.login,
+                            fileName = payload.first.first,
+                            mime = payload.first.second,
+                            bytes = payload.second,
+                            widthPx = payload.third.first,
+                            heightPx = payload.third.second,
+                        )
+                        ctx.toast(tr("组织头像已更新"))
+                        org.load(true)
+                        nav.refreshRetained { s -> s is Screen.Org && s.login.equals(login, true) }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: WebSessionMissing) {
+                        GitHubWebLogin.request(
+                            customTitle = tr("登录 GitHub 网页会话以更换头像"),
+                            urlToOpen = "https://github.com/login",
+                        ) { uploadSelectedUri(uri) }
+                    } catch (e: Exception) {
+                        error = e.friendly()
+                    } finally {
+                        avatarUploading = false
+                    }
+                }
+            }
+
+            val pickAvatar = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                if (uri != null) uploadSelectedUri(uri)
+            }
+
+            val descOver = fields.description.length - BIO_MAX
+            Column(
+                Modifier.fillMaxSize().verticalScrollWithBar().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                val cardShape = RoundedCornerShape(12.dp)
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clip(cardShape)
+                        .background(g.canvasSubtle, cardShape)
+                        .border(1.dp, g.borderMuted, cardShape)
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    val bmp = localPreview
+                    if (bmp != null) {
+                        Image(
+                            bitmap = bmp,
+                            contentDescription = original.login,
+                            modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)),
+                            contentScale = ContentScale.Crop,
+                        )
+                    } else {
+                        Avatar(original.avatarUrl, 64.dp, square = true)
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(tr("组织头像"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+                        Text(tr("选择新图片直接上传为组织头像"), fontSize = 12.sp, color = g.fgMuted)
+                    }
+                    GhButton(
+                        if (avatarUploading) tr("上传中…") else tr("更换头像"),
+                        enabled = !avatarUploading && !saving,
+                    ) { pickAvatar.launch(arrayOf("image/*")) }
+                }
+
+                fun change(next: OrgFields) { if (!saving) fields = next }
+                GhField(fields.name, { change(fields.copy(name = it)) }, tr("组织显示名称"))
+                Column {
+                    GhField(fields.description, { change(fields.copy(description = it)) }, tr("组织简介（最多 160 字符）"), singleLine = false, minLines = 3)
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp), horizontalArrangement = Arrangement.End) {
+                        Text("${fields.description.length}/$BIO_MAX", fontSize = 12.sp, color = if (descOver > 0) g.danger else g.fgMuted)
+                    }
+                    if (descOver > 0) Text(trf("组织简介不能超过 {0} 个字符", BIO_MAX), color = g.danger, fontSize = 13.sp)
+                }
+                GhField(fields.company, { change(fields.copy(company = it)) }, tr("所属公司 / 团队"))
+                GhField(fields.location, { change(fields.copy(location = it)) }, tr("所在地"))
+                GhField(fields.website, { change(fields.copy(website = it)) }, tr("网站链接"))
+                GhField(fields.twitter, { change(fields.copy(twitter = it)) }, tr("Twitter 用户名"))
+                GhField(fields.email, { change(fields.copy(email = it)) }, tr("公开邮箱"))
+                GhField(fields.billingEmail, { change(fields.copy(billingEmail = it)) }, tr("账单 / 联系邮箱"))
+
+                error?.let { Text(it, color = g.danger, fontSize = 13.sp) }
+                GhButton(
+                    if (saving) tr("保存中…") else tr("保存组织信息"),
+                    Modifier.fillMaxWidth(),
+                    primary = true,
+                    enabled = !saving && !avatarUploading && descOver <= 0,
+                ) {
+                    saving = true
+                    error = null
+                    scope.launch {
+                        try {
+                            OrgEditing.save(original, fields)
+                            dirty = false
+                            nav.refreshRetained { s -> s is Screen.Org && s.login.equals(login, true) }
+                            ctx.toast(tr("已更新组织信息"))
+                            nav.pop()
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            error = e.friendly()
+                        } finally {
+                            saving = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (confirmLeave) GhDialog(tr("放弃修改？"), { confirmLeave = false }, confirm = tr("放弃"), danger = true, onConfirm = {
+        confirmLeave = false
+        dirty = false
+        nav.pop()
+    }) {
+        Text(tr("离开后，未保存的组织信息修改会丢失。"), color = Gh.c.fg)
     }
 }

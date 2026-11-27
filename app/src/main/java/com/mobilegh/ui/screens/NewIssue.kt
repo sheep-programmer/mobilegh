@@ -11,6 +11,7 @@ import androidx.compose.runtime.key
 import com.mobilegh.ui.components.attachmentMarkdown
 import com.mobilegh.ui.components.insertAtCursor
 import com.mobilegh.ui.components.rememberCommentAttachments
+import com.mobilegh.ui.components.removeAttachmentSnippet
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -101,6 +102,34 @@ internal data class NewIssueMeta(
     val milestone: MetaOpt? = null,
     val issueType: MetaOpt? = null,
 )
+
+internal fun newIssueDraftOrEmpty(
+    title: String,
+    body: String,
+    meta: NewIssueMeta,
+    template: IssueTemplate?,
+    answers: Map<Int, List<String>>,
+): DraftValue {
+    if (template == null) {
+        val candidate = newIssueDraft(title, body, meta, template = null, answers = emptyMap())
+        return if (
+            candidate.title.isBlank() && candidate.body.isBlank() &&
+            candidate.labels.isEmpty() && candidate.assignees.isEmpty() &&
+            candidate.milestone == null && candidate.issueType == null
+        ) DraftValue() else candidate
+    }
+    val fields = template.fields
+    val defaultAnswers = if (fields.isNotEmpty()) IssueTemplates.defaultAnswers(fields) else emptyMap()
+    val defaultBody = if (fields.isNotEmpty()) IssueTemplates.renderBody(fields, defaultAnswers) else template.body
+    val untouched = title == template.title &&
+        body == defaultBody &&
+        answers == defaultAnswers &&
+        meta.milestone == null &&
+        meta.issueType == null &&
+        meta.labels.map { it.key.lowercase() } == template.labels.map { it.lowercase() } &&
+        meta.assignees.map { it.key.lowercase() } == template.assignees.map { it.lowercase() }
+    return if (untouched) DraftValue() else newIssueDraft(title, body, meta, template.file, answers)
+}
 
 /** 标题、正文与元数据组成的草稿：既是持久化内容，也用于判断是否有未提交的输入 */
 internal fun newIssueDraft(
@@ -234,6 +263,18 @@ fun NewIssueScreen(owner: String, name: String, parentNodeId: String? = null, pa
     var createMore by rememberSaveable { mutableStateOf(false) }
     val templates = rememberLoader("issue-templates") { GitHub.issueTemplates(owner, name, it) }
     val repo = rememberLoader("repo") { GitHub.repo(owner, name, it) }
+    val repoLabels = rememberLoader("repo-labels") { GitHub.repoLabels(owner, name) }
+    LaunchedEffect(repoLabels.data, meta.labels) {
+        val catalog = repoLabels.data.orEmpty()
+        if (catalog.isNotEmpty() && meta.labels.any { it.color.isNullOrBlank() }) {
+            val byName = catalog.associateBy { it.name.lowercase() }
+            val resolved = meta.labels.map { opt ->
+                val matched = byName[opt.key.lowercase()]
+                if (matched != null) MetaOpt(matched.name, matched.name, avatar = opt.avatar, color = matched.color) else opt
+            }
+            if (resolved != meta.labels) meta = meta.copy(labels = resolved)
+        }
+    }
     val template = templates.data?.templates?.firstOrNull { it.file == picked }
     val formFields = template?.fields.orEmpty()
     val isForm = formFields.isNotEmpty()
@@ -436,6 +477,11 @@ fun NewIssueScreen(owner: String, name: String, parentNodeId: String? = null, pa
                         body, { body = it }, placeholder = tr("描述（支持 Markdown）"), contextRepo = "$owner/$name", minLines = 8,
                         modifier = Modifier.padding(horizontal = 16.dp),
                         framed = true, onAttach = { bodyAttach.pick() }, uploading = bodyAttach.uploading,
+                        attachments = bodyAttach.items,
+                        onRemoveAttachment = { att ->
+                            bodyAttach.remove(att)
+                            body = removeAttachmentSnippet(body, att)
+                        },
                     )
                 }
                 // 分享图片上传中断时留在页面上，点「重试」从失败的那一张继续
@@ -460,7 +506,7 @@ fun NewIssueScreen(owner: String, name: String, parentNodeId: String? = null, pa
                         fontSize = 12.sp, lineHeight = 16.sp, color = Gh.c.attention,
                     )
                 }
-                DraftBinding(draft, newIssueDraft(title, formBody, meta, template?.file, answers))
+                DraftBinding(draft, newIssueDraftOrEmpty(title, formBody, meta, template, answers))
                 Spacer(Modifier.height(12.dp))
                 MetaRows(
                     labels = meta.labels.map { it.label to it.color.orEmpty() },
@@ -622,6 +668,12 @@ private fun FormFields(
                             placeholder = f.placeholder.ifBlank { tr("支持 Markdown") },
                             modifier = Modifier.padding(top = 6.dp),
                             framed = true, onAttach = { attach.pick() }, uploading = attach.uploading,
+                            attachments = attach.items,
+                            onRemoveAttachment = { att ->
+                                attach.remove(att)
+                                field = removeAttachmentSnippet(field, att)
+                                onAnswer(f.index, listOf(field.text))
+                            },
                         )
                     }
                 }

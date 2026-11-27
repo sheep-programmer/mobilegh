@@ -85,6 +85,7 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
                 checkAccount(v.user)
                 Session.signIn(result.token, v.user, result.refreshToken, result.expiresIn, BuildConfig.GITHUB_CLIENT_ID, scopes = v.scopes)
                 GitHubWebLogin.close()
+                WebAttachmentUploader.renewSessionAsync(force = true)
                 AppLog.info("auth", tr("OAuth 登录成功"))
             },
             tokenLogin = { clean ->
@@ -118,9 +119,14 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
     BackHandler(menu && !logs && !authenticator) { menu = false }
     LaunchedEffect(device) {
         if (device == null) return@LaunchedEffect
+        // 添加新账号时先暂存旧账号 Cookie 并清空 WebView，避免自动沿用旧账号会话
+        if (adding && !reauthorizing) Session.prepareWebCookiesForNewLogin()
         // 自动复制验证码并在应用内无缝打开授权页面
         ctx.copy(device.userCode, trf("验证码 {0} 已复制，请在页面粘贴", device.userCode))
-        GitHubWebLogin.request(tr("输入授权码"), device.verificationUri, onDismiss = { flow.cancel() })
+        GitHubWebLogin.request(tr("输入授权码"), device.verificationUri, onDismiss = {
+            flow.cancel()
+            if (adding && !reauthorizing) Session.restoreActiveWebCookies()
+        })
         while (isActive) {
             val nowMs = SystemClock.elapsedRealtime()
             remaining = ((flow.deadline - nowMs).coerceAtLeast(0) / 1000).toInt()
@@ -221,6 +227,7 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
                             if (approvalSetup.busy) {
                                 MobileApprovalOAuth.cancel(ctx)
                             }
+                            if (adding && !reauthorizing) Session.prepareWebCookiesForNewLogin()
                             runCatching {
                                 MobileApprovalOAuth.begin(ctx, if (reauthorizing) ApprovalOAuthPurpose.Reauthorize else ApprovalOAuthPurpose.SignIn)
                             }.onSuccess { authUrl ->
@@ -228,7 +235,10 @@ fun LoginScreen(adding: Boolean = false, reauthorizing: Boolean = false) {
                                 GitHubWebLogin.request(
                                     customTitle = tr("GitHub 授权登录"),
                                     urlToOpen = authUrl,
-                                    onDismiss = { MobileApprovalOAuth.cancel(ctx) },
+                                    onDismiss = {
+                                        MobileApprovalOAuth.cancel(ctx)
+                                        if (adding && !reauthorizing) Session.restoreActiveWebCookies()
+                                    },
                                 )
                             }.onFailure { err ->
                                 isStartingAuth = false

@@ -1,8 +1,13 @@
 package com.mobilegh.ui.screens
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -96,56 +101,99 @@ fun IssueHierarchyCard(
 ) {
     val g = Gh.c
     val nav = LocalNav.current
+    val shape = RoundedCornerShape(10.dp)
+    var expanded by rememberSaveable(currentNodeId) { mutableStateOf(false) }
+    val summaryHint = buildList {
+        if (hierarchy.parent != null) add(trf("父 #{0}", hierarchy.parent.number))
+        if (hierarchy.subIssues.isNotEmpty()) add(trf("{0} 个子 Issue", hierarchy.subIssues.size))
+    }.joinToString(" · ")
     Column(
         Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth()
-            .border(1.dp, g.border, RoundedCornerShape(8.dp)),
+            .animateContentSize()
+            .clip(shape)
+            .background(g.canvas, shape)
+            .border(1.dp, g.border, shape),
     ) {
-        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, top = 10.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth()
+                .background(g.canvasSubtle)
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Oc(R.drawable.oc_issue_opened, g.fgMuted, 16.dp)
             Spacer(Modifier.width(8.dp))
-            Text(tr("层级"), fontSize = 13.sp, color = g.fgMuted, fontWeight = FontWeight.Medium)
+            Text(tr("层级"), fontSize = 13.sp, color = g.fg, fontWeight = FontWeight.SemiBold)
+            if (!expanded && summaryHint.isNotEmpty()) {
+                Spacer(Modifier.width(8.dp))
+                Text(summaryHint, fontSize = 12.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
             Spacer(Modifier.weight(1f))
+            if (expanded && canEdit) {
+                com.mobilegh.ui.components.SectionActionChip(tr("添加子 Issue"), enabled = !busy, onClick = onAdd)
+                Spacer(Modifier.width(8.dp))
+            }
+            Oc(if (expanded) R.drawable.oc_chevron_down else R.drawable.oc_chevron_right, g.fgMuted, 16.dp)
+        }
+        if (expanded) {
+            HDivider()
+            hierarchy.parent?.let { parent ->
+                Text(tr("父 Issue"), Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp), fontSize = 12.sp, color = g.fgMuted)
+                IssueRefRow(parent, busy) { nav.push(Screen.IssueDetail(parent.owner, parent.name, parent.number, false)) }
+                if (canEdit) Row(
+                    Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    com.mobilegh.ui.components.SectionActionChip(tr("更换父 Issue"), enabled = !busy, onClick = onChangeParent)
+                    com.mobilegh.ui.components.SectionActionChip(tr("移除父 Issue"), enabled = !busy, onClick = onRemoveParent)
+                }
+            } ?: if (canEdit) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(tr("父 Issue"), fontSize = 13.sp, color = g.fgMuted)
+                    Spacer(Modifier.width(8.dp))
+                    Text(tr("无"), fontSize = 13.sp, color = g.fgMuted, modifier = Modifier.weight(1f))
+                    com.mobilegh.ui.components.SectionActionChip(tr("设置父 Issue"), enabled = !busy, onClick = onChangeParent)
+                }
+            } else Unit
+            hierarchy.summary?.let { summary ->
+                if (hierarchy.parent != null || canEdit) HDivider(Modifier.padding(horizontal = 12.dp))
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    Text(trf("已完成 {0} / {1} · {2}%", summary.completed, summary.total, summary.percentCompleted), fontSize = 12.sp, color = g.fgMuted)
+                    LinearProgressIndicator(
+                        progress = { (summary.percentCompleted / 100f).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                        color = g.success,
+                        trackColor = g.borderMuted,
+                        drawStopIndicator = {},
+                    )
+                }
+            }
+            if (hierarchy.subIssues.isEmpty()) {
+                Text(tr("暂无子 Issue"), Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 13.sp, color = g.fgMuted)
+            } else hierarchy.subIssues.forEachIndexed { index, issue ->
+                if (index > 0 || hierarchy.parent != null || hierarchy.summary != null) HDivider(Modifier.padding(start = 12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    BoxedRef(issue, Modifier.weight(1f), busy) { nav.push(Screen.IssueDetail(issue.owner, issue.name, issue.number, false)) }
+                    if (canEdit) OcButton(R.drawable.oc_x_circle, { onRemoveChild(issue) }, tint = g.fgMuted, enabled = !busy, description = tr("移除子 Issue"))
+                }
+            }
             if (canEdit) {
-                Text(tr("添加子 Issue"), Modifier.clickable(enabled = !busy, onClick = onAdd).padding(8.dp), fontSize = 13.sp, color = g.accent)
+                HDivider()
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    com.mobilegh.ui.components.SectionActionChip(tr("新建子 Issue"), enabled = !busy) {
+                        nav.push(Screen.NewIssue(owner, name, parentNodeId = currentNodeId, parentNumber = currentNumber))
+                    }
+                }
             }
         }
-        hierarchy.parent?.let { parent ->
-            Text(tr("父 Issue"), Modifier.padding(horizontal = 12.dp), fontSize = 12.sp, color = g.fgMuted)
-            IssueRefRow(parent, busy) { nav.push(Screen.IssueDetail(parent.owner, parent.name, parent.number, false)) }
-            if (canEdit) Row(Modifier.padding(start = 12.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(tr("更换父 Issue"), Modifier.clickable(enabled = !busy, onClick = onChangeParent).padding(vertical = 6.dp), fontSize = 13.sp, color = g.accent)
-                Spacer(Modifier.width(16.dp))
-                Text(tr("移除父 Issue"), Modifier.clickable(enabled = !busy, onClick = onRemoveParent).padding(vertical = 6.dp), fontSize = 13.sp, color = g.danger)
-            }
-        } ?: if (canEdit) {
-            Text(tr("设置父 Issue"), Modifier.clickable(enabled = !busy, onClick = onChangeParent).padding(horizontal = 12.dp, vertical = 6.dp), fontSize = 13.sp, color = g.accent)
-        } else Unit
-        hierarchy.summary?.let { summary ->
-            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Text(trf("已完成 {0} / {1} · {2}%", summary.completed, summary.total, summary.percentCompleted), fontSize = 12.sp, color = g.fgMuted)
-                LinearProgressIndicator(
-                    progress = { (summary.percentCompleted / 100f).coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                    color = g.success,
-                    trackColor = g.border,
-                )
-            }
-        }
-        if (hierarchy.subIssues.isEmpty()) {
-            Text(tr("暂无子 Issue"), Modifier.padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 13.sp, color = g.fgMuted)
-        } else hierarchy.subIssues.forEachIndexed { index, issue ->
-            if (index > 0 || hierarchy.parent != null || hierarchy.summary != null) HDivider(Modifier.padding(start = 12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                BoxedRef(issue, Modifier.weight(1f), busy) { nav.push(Screen.IssueDetail(issue.owner, issue.name, issue.number, false)) }
-                if (canEdit) OcButton(R.drawable.oc_x_circle, { onRemoveChild(issue) }, tint = g.fgMuted, enabled = !busy, description = tr("移除子 Issue"))
-            }
-        }
-        if (canEdit) Text(
-            tr("新建子 Issue"),
-            Modifier.clickable(enabled = !busy) { nav.push(Screen.NewIssue(owner, name, parentNodeId = currentNodeId, parentNumber = currentNumber)) }
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            fontSize = 13.sp, color = g.accent,
-        )
     }
 }
 

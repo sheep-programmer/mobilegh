@@ -25,7 +25,19 @@ import com.mobilegh.nav.act
  *
  * 有 GitHub Token 时直接上传。没有 Token 时再使用应用内网页登录，登录成功后继续上传。
  */
-class CommentAttachmentState(val uploading: String?, val pick: () -> Unit)
+data class UploadedAttachment(
+    val url: String,
+    val fileName: String,
+    val isVideo: Boolean,
+    val localUri: String? = null,
+)
+
+class CommentAttachmentState(
+    val uploading: String?,
+    val items: List<UploadedAttachment>,
+    val pick: () -> Unit,
+    val remove: (UploadedAttachment) -> Unit,
+)
 
 @Composable
 fun rememberCommentAttachments(
@@ -36,6 +48,7 @@ fun rememberCommentAttachments(
     val ctx = rememberCtx()
     val entry = LocalEntry.current
     var uploading by remember { mutableStateOf<String?>(null) }
+    var items by remember { mutableStateOf<List<UploadedAttachment>>(emptyList()) }
 
     fun start(uri: Uri) {
         val resolver = ctx.contentResolver
@@ -55,6 +68,8 @@ fun rememberCommentAttachments(
             val url = CommentAttachments.upload(repoId, name, size) {
                 resolver.openInputStream(uri) ?: throw IllegalStateException(tr("无法读取所选文件"))
             }
+            val isVideo = CommentAttachments.VIDEO_EXT.contains(name.substringAfterLast('.', "").lowercase())
+            items = (items.filterNot { it.url == url } + UploadedAttachment(url, name, isVideo, uri.toString()))
             uploading = null
             onUploadingChange(false)
             onUploaded(url, name)
@@ -71,7 +86,10 @@ fun rememberCommentAttachments(
     val openPicker: () -> Unit = {
         pick.launch(arrayOf("image/*", "video/*"))
     }
-    return remember(uploading) { CommentAttachmentState(uploading, openPicker) }
+    val removeItem: (UploadedAttachment) -> Unit = { target ->
+        items = items.filterNot { it.url == target.url }
+    }
+    return remember(uploading, items) { CommentAttachmentState(uploading, items, openPicker, removeItem) }
 }
 
 /** 读取所选文件的显示名与大小；大小未知时按 0 处理，由服务端拒绝 */
@@ -100,4 +118,38 @@ fun insertAtCursor(value: TextFieldValue, snippet: String): TextFieldValue {
     val prefix = if (at == 0 || before.endsWith("\n")) "" else "\n"
     val inserted = prefix + snippet + "\n"
     return TextFieldValue(before + inserted + value.text.substring(at), TextRange(at + inserted.length))
+}
+
+private val MD_IMAGE_REGEX = Regex("""!\[([^\]]*)]\((https://[^)\s]+)\)""")
+private val ASSET_URL_REGEX = Regex("""https://github\.com/user-attachments/assets/[A-Za-z0-9-]+""")
+
+/** 从正文与已上传记录汇总附件列表，便于在编辑器底部展示与弹窗预览 */
+fun parseEditorAttachments(text: String, uploaded: List<UploadedAttachment>): List<UploadedAttachment> {
+    val byUrl = uploaded.associateBy { it.url }.toMutableMap()
+    val ordered = mutableListOf<UploadedAttachment>()
+    val seen = HashSet<String>()
+    for (match in MD_IMAGE_REGEX.findAll(text)) {
+        val alt = match.groupValues[1].ifBlank { tr("图片附件") }
+        val url = match.groupValues[2]
+        if (seen.add(url)) ordered += byUrl[url] ?: UploadedAttachment(url, alt, isVideo = false)
+    }
+    for (match in ASSET_URL_REGEX.findAll(text)) {
+        val url = match.value
+        if (seen.add(url)) ordered += byUrl[url] ?: UploadedAttachment(url, tr("视频/媒体附件"), isVideo = true)
+    }
+    for (item in uploaded) {
+        if (seen.add(item.url)) ordered += item
+    }
+    return ordered
+}
+
+/** 从编辑器文本中移除指定附件对应的 Markdown 图片语法或裸链接 */
+fun removeAttachmentSnippet(value: TextFieldValue, attachment: UploadedAttachment): TextFieldValue {
+    val escaped = Regex.escape(attachment.url)
+    val updated = value.text
+        .replace(Regex("""\n?!\[[^\]]*]\($escaped\)\n?"""), "\n")
+        .replace(Regex("""\n?$escaped\n?"""), "\n")
+        .trim('\n')
+    val cursor = value.selection.min.coerceIn(0, updated.length)
+    return TextFieldValue(updated, TextRange(cursor))
 }

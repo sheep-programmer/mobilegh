@@ -11,11 +11,20 @@ SERIAL_ARG=()
 # macOS 自带的 bash 3.2 在 set -u 下展开空数组会报错，所以用 ${arr[@]+…} 的写法
 A() { "$ADB" ${SERIAL_ARG[@]+"${SERIAL_ARG[@]}"} "$@"; }
 
-# 文件名 → 测试方法
+# 文件名 → 测试方法（全部手机端截图都会校验与自动重跑）
 declare -a SHOTS=(
-  "01-home:home" "02-repos:repos" "03-repo:repo" "04-issue:issue" "05-diff-split:diff"
-  "06-compare:compareScreen" "07-notifications:notifications" "08-insights:insights"
-  "09-star-list:starLists" "10-settings:settings" "11-login:login" "12-star-overview:starListsOverview"
+  "01-home:home" "01-home-profile-popup:homeProfilePopup" "01b-home-create-sheet:homeCreateSheet"
+  "02-repos:repos" "03-repo:repo" "03-star-tab:starTab"
+  "03b-branch-picker-sheet:branchPicker" "03c-readme-toc-sheet:readmeToc"
+  "04-issue:issue" "05-diff-split:diff" "06-compare:compareScreen"
+  "07-notifications:notifications" "08-insights:insights" "09-star-list:starLists"
+  "10-settings:settings" "11-login:login" "12-star-overview:starListsOverview"
+  "13-repos-filter:reposFilter" "13-star-picker:starListPicker" "13b-local-star-picker:localStarListPicker"
+  "14-new-list:newStarList" "14-search-filter:searchFilter" "14b-new-local-list:newLocalList"
+  "15-search-home:searchHome" "16-search-results:searchResults" "17-filter-components:filterComponents"
+  "18-file-code:fileCode" "19-file-readme:fileReadme" "20-job-log:jobLog" "21-job-log-dark:jobLogDark"
+  "22-issues:issues" "23-pushes:pushes" "24-push-detail:pushDetail"
+  "25-achievements:achievementDetailFlow" "27-achievement-dialog:achievementDetailFlow" "28-explore:exploreTab"
 )
 
 # 手机比例的屏幕：1080x2340、约 393dp 宽
@@ -34,6 +43,9 @@ run_tests() { # $1 语言  $2 类过滤（整个类，或 类#方法）
 pull() { # $1 语言
   mkdir -p "$OUT/$1"
   for f in $(A shell run-as com.mobilegh ls "cache/readme/$1" 2>/dev/null | tr -d '\r'); do
+    case "$f" in
+      26-flip-*) continue ;;
+    esac
     A shell run-as com.mobilegh cat "cache/readme/$1/$f" > "$OUT/$1/$f"
   done
 }

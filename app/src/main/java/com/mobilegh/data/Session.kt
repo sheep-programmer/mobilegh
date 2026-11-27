@@ -117,16 +117,91 @@ object Session {
     /** 每次切换账号自增，用于重置界面状态 */
     var generation by mutableIntStateOf(0)
 
+    /** 每次网页 Cookie 在切换或登录后更新自增，用于刷新网页会话徽章 */
+    var webSessionRevision by mutableIntStateOf(0)
+        private set
+
+    private fun webCookieKey(userLogin: String) = "web_cookie_${userLogin.lowercase()}"
+
+    private fun runOnMain(block: () -> Unit) {
+        val looper = runCatching { android.os.Looper.getMainLooper() }.getOrNull()
+        if (looper == null || android.os.Looper.myLooper() == looper) {
+            runCatching(block)
+        } else {
+            android.os.Handler(looper).post { runCatching(block) }
+        }
+    }
+
+    /** 将当前 WebView CookieManager 里的 github.com 会话加密保存给对应账号。 */
+    fun snapshotWebCookies(expectedLogin: String? = login) {
+        if (!::prefs.isInitialized) return
+        val cm = runCatching { android.webkit.CookieManager.getInstance() }.getOrNull() ?: return
+        val cookie = runCatching { cm.getCookie("https://github.com") }.getOrNull() ?: return
+        if (!WebCookieVault.hasValidUserSession(cookie)) return
+        val dotcom = WebCookieVault.extractOwner(cookie)
+        val owner = accounts.firstOrNull { it.login.equals(dotcom, true) }?.login
+            ?: expectedLogin?.takeIf { dotcom == null || dotcom.equals(it, true) }
+            ?: return
+        runCatching { Crypto.encrypt(cookie) }.getOrNull()?.let { enc ->
+            prefs.edit().putString(webCookieKey(owner), enc).apply()
+        }
+    }
+
+    /** 判断指定账号是否已在本机持有有效的 GitHub 网页会话。 */
+    fun hasSavedWebSession(targetLogin: String?): Boolean {
+        if (targetLogin.isNullOrBlank()) return false
+        if (targetLogin.equals(login, true)) {
+            val live = runCatching { android.webkit.CookieManager.getInstance().getCookie("https://github.com") }.getOrNull()
+            return WebCookieVault.belongsTo(live, targetLogin)
+        }
+        if (!::prefs.isInitialized) return false
+        val enc = prefs.getString(webCookieKey(targetLogin), null) ?: return false
+        val saved = runCatching { Crypto.decrypt(enc) }.getOrNull() ?: return false
+        return WebCookieVault.belongsTo(saved, targetLogin)
+    }
+
+    /** 将 CookieManager 切换为 [targetLogin] 专属的已保存 Cookie（先清空避免串用）。 */
+    private fun applyWebCookiesFor(targetLogin: String?) {
+        val decrypted = if (!targetLogin.isNullOrBlank() && ::prefs.isInitialized) {
+            prefs.getString(webCookieKey(targetLogin), null)
+                ?.let { runCatching { Crypto.decrypt(it) }.getOrNull() }
+                ?.takeIf { WebCookieVault.belongsTo(it, targetLogin) }
+        } else null
+        runOnMain {
+            val cm = runCatching { android.webkit.CookieManager.getInstance() }.getOrNull() ?: return@runOnMain
+            cm.removeAllCookies {
+                if (!decrypted.isNullOrBlank()) {
+                    WebCookieVault.toSetCookieDirectives(decrypted).forEach { d ->
+                        cm.setCookie("https://github.com", d)
+                    }
+                }
+                cm.flush()
+                webSessionRevision++
+            }
+        }
+    }
+
+    /** 新增其他账号登录前，暂存当前账号 Cookie 并清空 WebView，防止自动用旧账号授权。 */
+    fun prepareWebCookiesForNewLogin() {
+        snapshotWebCookies(login)
+        runOnMain {
+            val cm = runCatching { android.webkit.CookieManager.getInstance() }.getOrNull() ?: return@runOnMain
+            cm.removeAllCookies {
+                cm.flush()
+                webSessionRevision++
+            }
+        }
+    }
+
+    /** 若取消添加新账号，还原当前激活账号原本保存的网页会话 Cookie。 */
+    fun restoreActiveWebCookies() {
+        applyWebCookiesFor(login)
+    }
+
     fun init(ctx: Context) {
         appContext = ctx.applicationContext
         prefs = ctx.getSharedPreferences("session", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("native_browser_migration", false) && prefs.contains("accounts")) {
-            // Retire stale embedded-login cookies and password sessionStorage from earlier versions.
-            runCatching {
-                android.webkit.CookieManager.getInstance().removeAllCookies(null)
-                android.webkit.CookieManager.getInstance().flush()
-                android.webkit.WebStorage.getInstance().deleteAllData()
-            }
+        if (!prefs.getBoolean("native_browser_migration", false)) {
             prefs.edit().putBoolean("native_browser_migration", true).apply()
         }
         themeMode = prefs.getInt("theme", 0)
@@ -144,6 +219,17 @@ object Session {
         }
         val cur = prefs.getString("current", null)
         accounts.firstOrNull { it.login == cur }?.let { activate(it) }
+        login?.let { curLogin ->
+            if (!prefs.contains(webCookieKey(curLogin))) {
+                val live = runCatching { android.webkit.CookieManager.getInstance().getCookie("https://github.com") }.getOrNull()
+                if (WebCookieVault.belongsTo(live, curLogin)) {
+                    snapshotWebCookies(curLogin)
+                } else if (WebCookieVault.hasValidUserSession(live)) {
+                    snapshotWebCookies(null)
+                    applyWebCookiesFor(curLogin)
+                }
+            }
+        }
     }
 
     private fun activate(a: Account) {
@@ -160,6 +246,10 @@ object Session {
     }
 
     fun signIn(token: String, user: User, refreshToken: String? = null, expiresIn: Long? = null, clientId: String = "", scopes: Set<String>? = null) {
+        val prevLogin = login
+        if (prevLogin != null && !prevLogin.equals(user.login, true)) {
+            snapshotWebCookies(prevLogin)
+        }
         val acc = Account(user.login, user.avatarUrl, Crypto.encrypt(token),
             refreshToken?.takeIf { it.isNotBlank() }?.let(Crypto::encrypt).orEmpty(),
             expiresIn?.let { System.currentTimeMillis() + it.coerceAtMost(31_536_000) * 1000 } ?: 0, clientId,
@@ -170,22 +260,46 @@ object Session {
         prefs.edit().putString("current", acc.login).apply()
         Api.clearCache()
         activate(acc)
+        val live = runCatching { android.webkit.CookieManager.getInstance().getCookie("https://github.com") }.getOrNull()
+        val liveOwner = WebCookieVault.extractOwner(live)
+        if (WebCookieVault.hasValidUserSession(live) && (liveOwner == null || liveOwner.equals(acc.login, true))) {
+            snapshotWebCookies(acc.login)
+        } else {
+            applyWebCookiesFor(acc.login)
+        }
         generation++
         com.mobilegh.service.NotificationPollingWorker.sync(appContext)
     }
 
     fun switchTo(login: String) {
         val a = accounts.firstOrNull { it.login == login } ?: return
+        val prev = this.login
+        if (prev != null && !prev.equals(a.login, true)) {
+            snapshotWebCookies(prev)
+        }
         prefs.edit().putString("current", a.login).apply()
         Api.clearCache()
         activate(a)
+        applyWebCookiesFor(a.login)
         generation++
+    }
+
+    /** 移除指定已保存账号；若为当前账号则自动切到下一个（无其他账号时退出登录） */
+    fun removeAccount(targetLogin: String) {
+        if (targetLogin.equals(login, true)) {
+            signOut()
+            return
+        }
+        accounts.removeAll { it.login.equals(targetLogin, true) }
+        saveAccounts()
+        if (::prefs.isInitialized) prefs.edit().remove(webCookieKey(targetLogin)).apply()
     }
 
     fun signOut() {
         val cur = login
         accounts.removeAll { it.login == cur }
         saveAccounts()
+        if (cur != null && ::prefs.isInitialized) prefs.edit().remove(webCookieKey(cur)).apply()
         token = null
         oauth = null
         login = null
@@ -196,6 +310,7 @@ object Session {
         val next = accounts.firstOrNull()
         prefs.edit().putString("current", next?.login).apply()
         next?.let { activate(it) }
+        applyWebCookiesFor(next?.login)
         generation++
         // 先使在途请求失效，再取消或按下一账号重建周期任务。
         com.mobilegh.service.NotificationPollingWorker.sync(appContext)

@@ -10,8 +10,10 @@ data class NotificationMuteConfig(
     val muteBots: Boolean = false,
     val mutedRepos: Set<String> = emptySet(),
     val mutedKeywords: List<String> = emptyList(),
+    val notifyIssues: Boolean = false,
+    val notifyPrs: Boolean = false,
 ) {
-    val isActive: Boolean get() = muteBots || mutedRepos.isNotEmpty() || mutedKeywords.isNotEmpty()
+    val isActive: Boolean get() = muteBots || mutedRepos.isNotEmpty() || mutedKeywords.isNotEmpty() || notifyIssues || notifyPrs
 }
 
 /**
@@ -24,6 +26,8 @@ object NotificationMuteRules {
     private const val KEY_MUTE_BOTS = "mute_bots"
     private const val KEY_MUTED_REPOS = "muted_repos"
     private const val KEY_MUTED_KEYWORDS = "muted_keywords"
+    private const val KEY_NOTIFY_ISSUES = "notify_issues"
+    private const val KEY_NOTIFY_PRS = "notify_prs"
 
     private val botMarkers = listOf(
         "[bot]", "dependabot", "renovate", "github-actions", "codecov",
@@ -45,6 +49,8 @@ object NotificationMuteRules {
                 .split('\n')
                 .map { it.trim() }
                 .filter { it.isNotEmpty() },
+            notifyIssues = p.getBoolean(KEY_NOTIFY_ISSUES, false),
+            notifyPrs = p.getBoolean(KEY_NOTIFY_PRS, false),
         )
     }
 
@@ -53,12 +59,16 @@ object NotificationMuteRules {
             muteBots = next.muteBots,
             mutedRepos = next.mutedRepos.map { it.trim().lowercase() }.filter { it.isNotEmpty() }.toSet(),
             mutedKeywords = next.mutedKeywords.map { it.trim() }.filter { it.isNotEmpty() }.distinct(),
+            notifyIssues = next.notifyIssues,
+            notifyPrs = next.notifyPrs,
         )
         config = normalized
         prefs?.edit()
             ?.putBoolean(KEY_MUTE_BOTS, normalized.muteBots)
             ?.putStringSet(KEY_MUTED_REPOS, normalized.mutedRepos)
             ?.putString(KEY_MUTED_KEYWORDS, normalized.mutedKeywords.joinToString("\n"))
+            ?.putBoolean(KEY_NOTIFY_ISSUES, normalized.notifyIssues)
+            ?.putBoolean(KEY_NOTIFY_PRS, normalized.notifyPrs)
             ?.apply()
     }
 
@@ -78,5 +88,15 @@ object NotificationMuteRules {
             return true
         }
         return false
+    }
+
+    /** 系统后台轮询提醒判断：先过滤静音规则，再按 Issue / PullRequest 提醒开关决定（默认关闭） */
+    fun shouldRemind(n: Notification, rules: NotificationMuteConfig = config): Boolean {
+        if (isMuted(n, rules)) return false
+        return when (n.subject.type) {
+            "Issue" -> rules.notifyIssues
+            "PullRequest" -> rules.notifyPrs
+            else -> true
+        }
     }
 }

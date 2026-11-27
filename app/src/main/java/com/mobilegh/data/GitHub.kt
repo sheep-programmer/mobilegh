@@ -51,14 +51,23 @@ object GitHub {
 
     // ---------------- 仓库列表 ----------------
     /** affiliation: owner / collaborator / organization_member 的任意组合——官方 App 只显示 owner */
-    suspend fun myRepos(affiliation: String, sort: String, visibility: String, page: Int, force: Boolean) =
+    suspend fun myRepos(
+        affiliation: String,
+        sort: String,
+        visibility: String,
+        page: Int,
+        force: Boolean,
+        direction: String? = null,
+    ) =
         Api.get<List<Repo>>(
             buildString {
                 append("/user/repos?affiliation=$affiliation")
                 // GitHub 对 affiliation 与 visibility 的组合在不同 API 版本行为不一致；
                 // 组织成员仓库由下面的组织接口负责，避免筛选后出现空列表。
                 if (affiliation == "owner") append("&visibility=$visibility")
-                append("&sort=$sort&per_page=$PER&page=$page")
+                append("&sort=$sort")
+                if (!direction.isNullOrBlank()) append("&direction=$direction")
+                append("&per_page=$PER&page=$page")
             },
             force,
         ).track()
@@ -186,6 +195,13 @@ object GitHub {
 
     suspend fun userOrgs(login: String, force: Boolean) = Api.get<List<Org>>("/users/$login/orgs?per_page=100", force)
     suspend fun org(login: String, force: Boolean = false) = Api.get<Org>("/orgs/$login", force)
+    suspend fun orgMembership(org: String): OrgMembership? = try {
+        Api.get<OrgMembership>("/user/memberships/orgs/${Api.encodePath(org)}", true)
+    } catch (e: ApiException) {
+        if (e.code == 403 || e.code == 404) null else throw e
+    }
+    suspend fun updateOrg(login: String, body: JsonObject): Org =
+        Api.send<Org>("PATCH", "/orgs/${Api.encodePath(login)}", body)
     suspend fun orgMembers(org: String, page: Int, force: Boolean) = Api.get<List<User>>("/orgs/$org/members?per_page=$PER&page=$page", force)
 
     // ---------------- 邀请 ----------------
@@ -1243,6 +1259,61 @@ object GitHub {
     suspend fun deleteGistComment(id: String, commentId: Long) = Api.exec("DELETE", "/gists/$id/comments/$commentId")
 
     suspend fun rateLimit() = Api.get<RateLimit>("/rate_limit", force = true)
+
+    /** 读取本月详细按日期与仓库拆分的计费条目（Enhanced Billing API）。 */
+    suspend fun billingUsageDetail(login: String, force: Boolean = false): List<BillingUsageItem> {
+        val enc = Api.encodePath(login)
+        val headers = mapOf("X-GitHub-Api-Version" to "2026-03-10")
+        return Api.get<BillingUsageReport>("/users/$enc/settings/billing/usage", force, headers = headers).usageItems
+    }
+
+    /** 读取当前用户的 Actions 分钟数、共享存储与 Packages 流量配额；优先使用新版计费 API，回退到网页端提取或提示连接网页会话。 */
+    suspend fun billingUsage(login: String, force: Boolean = false): BillingUsage = coroutineScope {
+        val enc = Api.encodePath(login)
+        val planName = runCatching { viewer(false).plan?.name }.getOrNull()
+        val apiHeaders = mapOf("X-GitHub-Api-Version" to "2026-03-10")
+
+        // 1. 新版 Enhanced Billing REST API（需要 Plan:read 权限）
+        val summaryRes = runCatching {
+            Api.get<BillingUsageReport>("/users/$enc/settings/billing/usage/summary", force, headers = apiHeaders)
+        }
+        summaryRes.getOrNull()?.let { report ->
+            return@coroutineScope BillingUsage.fromEnhancedReport(report, planName)
+        }
+
+        // 2. 仅当新版端点返回 404（未迁移账号）时尝试旧版 v3 计费端点
+        val summaryErr = summaryRes.exceptionOrNull()
+        if (summaryErr is ApiException && summaryErr.code == 404) {
+            val a = async { runCatching { Api.get<ActionsBilling>("/users/$enc/settings/billing/actions", force) } }
+            val s = async { runCatching { Api.get<SharedStorageBilling>("/users/$enc/settings/billing/shared-storage", force) } }
+            val p = async { runCatching { Api.get<PackagesBilling>("/users/$enc/settings/billing/packages", force) } }
+            val ar = a.await()
+            val sr = s.await()
+            val pr = p.await()
+            if (ar.isSuccess || sr.isSuccess || pr.isSuccess) {
+                return@coroutineScope BillingUsage(ar.getOrNull(), sr.getOrNull(), pr.getOrNull())
+            }
+        }
+
+        // 3. REST 不可用时（如 410 已迁移或 OAuth 缺少 Plan:read），改用已登录的 GitHub 网页会话读取
+        val webUsage = runCatching { BillingWebReader.fetchFromWeb(planName) }.getOrNull()
+        if (webUsage != null) return@coroutineScope webUsage
+
+        val hasWebCookie = runCatching {
+            val cookie = android.webkit.CookieManager.getInstance().getCookie("https://github.com")
+            WebAttachmentUploader.hasSession(cookie)
+        }.getOrDefault(false)
+
+        if (!hasWebCookie) {
+            BillingUsage(
+                unavailableReason = tr("GitHub 已停用旧版计费接口（410），登录网页会话即可直接在应用内读取 Actions 与存储配额。"),
+                needsWebSession = true,
+            )
+        } else {
+            // 已有网页会话，通知界面用内置 WebView 等待 React 渲染完成后直接抓取数据
+            BillingUsage(needsWebExtract = true)
+        }
+    }
 
     // ---------------- GraphQL：贡献热力图 / 置顶仓库 ----------------
     private const val CONTRIB_Q = """

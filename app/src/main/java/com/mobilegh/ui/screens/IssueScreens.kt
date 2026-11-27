@@ -9,7 +9,9 @@ import com.mobilegh.data.WebSessionMissing
 import com.mobilegh.ui.components.GitHubWebLogin
 import com.mobilegh.ui.components.attachmentMarkdown
 import com.mobilegh.ui.components.insertAtCursor
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -977,56 +979,71 @@ private fun RelatedCard(
 ) {
     val g = Gh.c
     val nav = LocalNav.current
+    val shape = RoundedCornerShape(10.dp)
+    var expanded by rememberSaveable(owner, name) { mutableStateOf(false) }
     Column(
         Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth()
-            .border(1.dp, g.border, RoundedCornerShape(8.dp)),
+            .animateContentSize()
+            .clip(shape)
+            .background(g.canvas, shape)
+            .border(1.dp, g.border, shape),
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, top = 10.dp, bottom = 4.dp),
+            Modifier.fillMaxWidth()
+                .background(g.canvasSubtle)
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Oc(R.drawable.oc_link, g.fgMuted, 16.dp)
             Spacer(Modifier.width(8.dp))
-            Text(tr("相关"), fontSize = 13.sp, color = g.fgMuted, fontWeight = FontWeight.Medium)
+            Text(tr("相关"), fontSize = 13.sp, color = g.fg, fontWeight = FontWeight.SemiBold)
+            if (!expanded && issues.isNotEmpty()) {
+                Spacer(Modifier.width(8.dp))
+                Text(trf("{0} 项", issues.size), fontSize = 12.sp, color = g.fgMuted)
+            }
             Spacer(Modifier.weight(1f))
-            if (canEdit) Text(
-                tr("添加"),
-                Modifier.clickable(enabled = !busy) { onAdd() }.padding(horizontal = 8.dp, vertical = 6.dp),
-                fontSize = 13.sp, color = if (busy) g.fgMuted else g.accent, fontWeight = FontWeight.Medium,
-            )
+            if (expanded && canEdit) {
+                com.mobilegh.ui.components.SectionActionChip(tr("添加"), enabled = !busy, onClick = onAdd)
+                Spacer(Modifier.width(8.dp))
+            }
+            Oc(if (expanded) R.drawable.oc_chevron_down else R.drawable.oc_chevron_right, g.fgMuted, 16.dp)
         }
-        if (issues.isEmpty()) {
-            Text(
-                tr("暂无相关议题"),
-                Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
-                fontSize = 13.sp, color = g.fgMuted,
-            )
-        } else {
-            issues.forEachIndexed { index, issue ->
-                if (index > 0) HDivider(Modifier.padding(start = 12.dp))
-                val open = issue.state == "open"
-                Row(
-                    Modifier.fillMaxWidth().clickable {
-                        val (o, n) = relatedIssueRepo(issue, owner, name)
-                        nav.push(Screen.IssueDetail(o, n, issue.number, issue.pullRequest != null))
-                    }.padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Oc(if (open) R.drawable.oc_issue_opened else R.drawable.oc_issue_closed, if (open) g.success else g.done, 16.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            relatedIssueLabel(issue, owner, name),
-                            fontSize = 12.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(issue.title, fontSize = 14.sp, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    }
-                    if (canEdit) {
-                        Spacer(Modifier.width(4.dp))
-                        OcButton(
-                            R.drawable.oc_x_circle, { onRemove(issue) },
-                            tint = g.fgMuted, enabled = !busy, description = tr("移除相关议题"),
-                        )
+        if (expanded) {
+            HDivider()
+            if (issues.isEmpty()) {
+                Text(
+                    tr("暂无相关议题"),
+                    Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    fontSize = 13.sp, color = g.fgMuted,
+                )
+            } else {
+                issues.forEachIndexed { index, issue ->
+                    if (index > 0) HDivider(Modifier.padding(start = 12.dp))
+                    val open = issue.state == "open"
+                    Row(
+                        Modifier.fillMaxWidth().clickable {
+                            val (o, n) = relatedIssueRepo(issue, owner, name)
+                            nav.push(Screen.IssueDetail(o, n, issue.number, issue.pullRequest != null))
+                        }.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Oc(if (open) R.drawable.oc_issue_opened else R.drawable.oc_issue_closed, if (open) g.success else g.done, 16.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                relatedIssueLabel(issue, owner, name),
+                                fontSize = 12.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(issue.title, fontSize = 14.sp, color = g.fg, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                        if (canEdit) {
+                            Spacer(Modifier.width(4.dp))
+                            OcButton(
+                                R.drawable.oc_x_circle, { onRemove(issue) },
+                                tint = g.fgMuted, enabled = !busy, description = tr("移除相关议题"),
+                            )
+                        }
                     }
                 }
             }
@@ -1440,54 +1457,70 @@ private fun IssueDependenciesCard(
 ) {
     val g = Gh.c
     val nav = LocalNav.current
+    val shape = RoundedCornerShape(10.dp)
+    var expanded by rememberSaveable(owner, name) { mutableStateOf(false) }
+    val depTotal = blockedBy.size + blocking.size
     Column(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-            .border(1.dp, g.border, RoundedCornerShape(8.dp)),
+            .animateContentSize()
+            .clip(shape)
+            .background(g.canvas, shape)
+            .border(1.dp, g.border, shape),
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(start = 12.dp, end = 8.dp, top = 10.dp, bottom = 4.dp),
+            Modifier.fillMaxWidth()
+                .background(g.canvasSubtle)
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Oc(R.drawable.oc_git_branch, g.fgMuted, 16.dp)
             Spacer(Modifier.width(8.dp))
-            Text(tr("Issue 依赖"), fontSize = 13.sp, color = g.fgMuted, fontWeight = FontWeight.Medium)
+            Text(tr("Issue 依赖"), fontSize = 13.sp, color = g.fg, fontWeight = FontWeight.SemiBold)
+            if (!expanded && depTotal > 0) {
+                Spacer(Modifier.width(8.dp))
+                Text(trf("{0} 项", depTotal), fontSize = 12.sp, color = g.fgMuted)
+            }
             Spacer(Modifier.weight(1f))
-            if (canEdit) Text(
-                tr("添加阻塞"),
-                Modifier.clickable(enabled = !busy) { onAdd() }.padding(horizontal = 8.dp, vertical = 6.dp),
-                fontSize = 13.sp, color = if (busy) g.fgMuted else g.accent, fontWeight = FontWeight.Medium,
+            if (expanded && canEdit) {
+                com.mobilegh.ui.components.SectionActionChip(tr("添加阻塞"), enabled = !busy, onClick = onAdd)
+                Spacer(Modifier.width(8.dp))
+            }
+            Oc(if (expanded) R.drawable.oc_chevron_down else R.drawable.oc_chevron_right, g.fgMuted, 16.dp)
+        }
+        if (expanded) {
+            HDivider()
+            DependencyRows(
+                label = tr("被以下 Issue 阻塞"),
+                items = blockedBy,
+                owner = owner,
+                name = name,
+                canEdit = canEdit,
+                busy = busy,
+                onRemove = onRemove,
+                onOpen = { dependency ->
+                    val (targetOwner, targetName) = relatedIssueRepo(
+                        Issue(repositoryUrl = dependency.repositoryUrl), owner, name,
+                    )
+                    nav.push(Screen.IssueDetail(targetOwner, targetName, dependency.number, false))
+                },
+            )
+            DependencyRows(
+                label = tr("阻塞以下 Issue"),
+                items = blocking,
+                owner = owner,
+                name = name,
+                canEdit = false,
+                busy = busy,
+                onRemove = {},
+                onOpen = { dependency ->
+                    val (targetOwner, targetName) = relatedIssueRepo(
+                        Issue(repositoryUrl = dependency.repositoryUrl), owner, name,
+                    )
+                    nav.push(Screen.IssueDetail(targetOwner, targetName, dependency.number, false))
+                },
             )
         }
-        DependencyRows(
-            label = tr("被以下 Issue 阻塞"),
-            items = blockedBy,
-            owner = owner,
-            name = name,
-            canEdit = canEdit,
-            busy = busy,
-            onRemove = onRemove,
-            onOpen = { dependency ->
-                val (targetOwner, targetName) = relatedIssueRepo(
-                    Issue(repositoryUrl = dependency.repositoryUrl), owner, name,
-                )
-                nav.push(Screen.IssueDetail(targetOwner, targetName, dependency.number, false))
-            },
-        )
-        DependencyRows(
-            label = tr("阻塞以下 Issue"),
-            items = blocking,
-            owner = owner,
-            name = name,
-            canEdit = false,
-            busy = busy,
-            onRemove = {},
-            onOpen = { dependency ->
-                val (targetOwner, targetName) = relatedIssueRepo(
-                    Issue(repositoryUrl = dependency.repositoryUrl), owner, name,
-                )
-                nav.push(Screen.IssueDetail(targetOwner, targetName, dependency.number, false))
-            },
-        )
     }
 }
 

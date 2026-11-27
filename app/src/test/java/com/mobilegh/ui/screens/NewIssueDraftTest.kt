@@ -163,4 +163,18 @@ class NewIssueDraftTest {
         assertEquals(1, done)
         assertEquals(0, calls)
     }
+
+    @Test fun untouchedTemplateDoesNotProduceADraft() {
+        val template = com.mobilegh.data.IssueTemplate(
+            file = "feature.yml",
+            name = "功能建议",
+            title = "",
+            body = "默认正文",
+            labels = listOf("enhancement"),
+        )
+        val initialMeta = NewIssueMeta(labels = listOf(MetaOpt("enhancement", "enhancement", color = "a2eeef")))
+        assertTrue(newIssueDraftOrEmpty("", "默认正文", initialMeta, template, emptyMap()).empty)
+        assertFalse(newIssueDraftOrEmpty("新标题", "默认正文", initialMeta, template, emptyMap()).empty)
+        assertTrue(newIssueDraftOrEmpty("", "", NewIssueMeta(), template = null, emptyMap()).empty)
+    }
 }

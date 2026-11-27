@@ -1,6 +1,8 @@
 package com.mobilegh.ui.screens
 
 import androidx.annotation.DrawableRes
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,9 +31,12 @@ import com.mobilegh.ui.components.Card
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -39,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mobilegh.i18n.tr
 import com.mobilegh.ui.components.GhButton
+import com.mobilegh.ui.components.HDivider
 import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.theme.Gh
 
@@ -67,13 +73,17 @@ internal fun ListsSummaryCard(
     onAction: () -> Unit = {},
 ) {
     val g = Gh.c
+    val shape = RoundedCornerShape(12.dp)
     Column(
         modifier.fillMaxWidth()
-            .border(1.dp, g.borderMuted, RoundedCornerShape(12.dp))
-            .background(g.canvas, RoundedCornerShape(12.dp))
-            .padding(14.dp),
+            .clip(shape)
+            .background(g.canvas, shape)
+            .border(1.dp, g.border, shape),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             IconBadge(icon, g.accent, g.accentSubtle, 44)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -81,17 +91,20 @@ internal fun ListsSummaryCard(
                 Text(summary, fontSize = 13.sp, color = g.fgMuted)
             }
             if (action != null) {
-                // 新建用圆形「+」按钮：不占整行，读屏时说明用途
-                Box(
-                    Modifier.size(44.dp).clip(CircleShape)
-                        .background(if (actionEnabled) g.accent else g.borderMuted)
-                        .clickable(enabled = actionEnabled, role = Role.Button, onClickLabel = action, onClick = onAction)
-                        .semantics { contentDescription = action },
-                    contentAlignment = Alignment.Center,
-                ) { Oc(actionIcon ?: R.drawable.oc_plus, Color.White, 20.dp) }
+                Spacer(Modifier.width(8.dp))
+                GhButton(action, icon = actionIcon ?: R.drawable.oc_plus, primary = true, enabled = actionEnabled, onClick = onAction)
             }
         }
-        if (hint.isNotEmpty()) Text(hint, Modifier.padding(top = 10.dp), fontSize = 12.sp, lineHeight = 17.sp, color = g.fgMuted)
+        if (hint.isNotEmpty()) {
+            HDivider()
+            Text(
+                hint,
+                Modifier.fillMaxWidth().background(g.canvasSubtle).padding(horizontal = 14.dp, vertical = 8.dp),
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                color = g.fgMuted,
+            )
+        }
     }
 }
 
@@ -164,15 +177,29 @@ internal fun ListPickRow(
     onToggle: () -> Unit,
 ) {
     val g = Gh.c
-    val shape = RoundedCornerShape(12.dp)
+    val haptic = LocalHapticFeedback.current
+    val shape = RoundedCornerShape(14.dp)
+    val bgColor by animateColorAsState(
+        targetValue = if (checked) g.accentSubtle else g.canvas,
+        animationSpec = tween(180),
+        label = "listPickBg",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (checked) g.accent.copy(alpha = 0.65f) else g.borderMuted,
+        animationSpec = tween(180),
+        label = "listPickBorder",
+    )
     Row(
         Modifier.fillMaxWidth()
             .padding(horizontal = horizontalPadding, vertical = 4.dp)
             .clip(shape)
-            .background(if (checked) g.accentSubtle else g.canvas, shape)
-            .border(1.dp, if (checked) g.accent else g.border, shape)
-            .toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = { onToggle() })
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .background(bgColor, shape)
+            .border(1.dp, borderColor, shape)
+            .toggleable(value = checked, enabled = enabled, role = Role.Checkbox, onValueChange = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onToggle()
+            })
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconBadge(

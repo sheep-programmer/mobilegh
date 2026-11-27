@@ -79,6 +79,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -490,21 +491,16 @@ fun <T> PagedList(
 
 @Composable
 internal fun SilentRefreshBanner(modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxWidth()) {
-        LinearProgressIndicator(
-            modifier = Modifier.fillMaxWidth().height(2.dp).testTag("paged-list-silent-refresh"),
-            color = Gh.c.accent,
-            trackColor = Gh.c.accent.copy(alpha = 0.14f),
-        )
-        Row(
-            Modifier.fillMaxWidth().background(Gh.c.canvasSubtle).padding(horizontal = 16.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.6.dp, color = Gh.c.accent)
-            Text(tr("正在后台刷新…"), fontSize = 11.sp, color = Gh.c.fgMuted)
-        }
-    }
+    val desc = tr("正在后台刷新…")
+    LinearProgressIndicator(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(2.dp)
+            .testTag("paged-list-silent-refresh")
+            .semantics { contentDescription = desc },
+        color = Gh.c.accent,
+        trackColor = Gh.c.accent.copy(alpha = 0.14f),
+    )
 }
 
 // ---------------- 小部件 ----------------
@@ -749,6 +745,7 @@ fun SectionActionChip(
     text: String,
     modifier: Modifier = Modifier,
     tooltip: String? = null,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val g = Gh.c
@@ -758,7 +755,7 @@ fun SectionActionChip(
                 .clip(RoundedCornerShape(50))
                 .background(g.canvasSubtle)
                 .border(1.dp, g.border, RoundedCornerShape(50))
-                .clickable(onClick = onClick)
+                .clickable(enabled = enabled, onClick = onClick)
                 .padding(horizontal = 10.dp, vertical = 4.dp),
             contentAlignment = Alignment.Center,
         ) {
@@ -766,7 +763,7 @@ fun SectionActionChip(
                 text,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                color = g.fg,
+                color = if (enabled) g.fg else g.fgMuted,
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis,

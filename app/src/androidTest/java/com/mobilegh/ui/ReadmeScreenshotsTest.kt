@@ -285,12 +285,22 @@ class ReadmeScreenshotsTest {
         }
         I18n.select(if (lang == "en") AppLanguage.English else AppLanguage.Chinese)
         Session.themeMode = 1
-        compose.runOnUiThread { Session.signIn("fixture-token", User(login = "mona", name = "Mona Lisa", avatarUrl = "https://avatars.githubusercontent.com/u/1?v=4")) }
+        compose.runOnUiThread {
+            Session.signIn(
+                "fixture-token",
+                User(login = "mona", name = "Mona Lisa", avatarUrl = "https://avatars.githubusercontent.com/u/1?v=4"),
+                clientId = "Ov23litcWlPUB3KqPlQ2",
+            )
+        }
     }
 
     @After fun cleanUp() {
         if (args.getString("readmeShots") != "true") return
-        compose.runOnUiThread { nav?.dispose(); Session.signOut() }
+        compose.runOnUiThread {
+            nav?.dispose()
+            Session.accounts.map { it.login }.forEach { Session.removeAccount(it) }
+            Session.signOut()
+        }
         I18n.select(AppLanguage.Chinese)
     }
 
@@ -354,6 +364,16 @@ class ReadmeScreenshotsTest {
         Thread.sleep(1000)
         saveScreen("01-home-profile-popup")
     }
+    @Test fun homeCreateSheet() {
+        val n = Navigator().also { nav = it }
+        compose.setContent { MobileGhTheme { AppRoot(n) } }
+        Thread.sleep(1500)
+        compose.onNodeWithContentDescription(if (lang == "en") "Create" else "新建").performClick()
+        Thread.sleep(1000)
+        compose.waitForIdle()
+        saveScreen("01b-home-create-sheet")
+    }
+    @Test fun exploreTab() = shot("28-explore") { it.tab = Tab.Explore }
     @Test fun repos() = shot("02-repos") { it.tab = Tab.Repos }
     @Test fun starTab() = shot("03-star-tab") { it.tab = Tab.Star }
     @Test fun reposFilter() {
@@ -415,9 +435,19 @@ class ReadmeScreenshotsTest {
     }) { it.push(Screen.Compare("mona", "mobilegh", "main", "dev")) }
     @Test fun notifications() = shot("07-notifications") { it.push(Screen.Notifications) }
     @Test fun insights() = shot("08-insights", wait = 3500, after = { tapCharts() }) { it.push(Screen.Insights("mona", "mobilegh")) }
-    @Test fun settings() = shot("10-settings") { it.push(Screen.Settings) }
+    @Test fun settings() {
+        compose.runOnUiThread {
+            Session.signIn("fixture-token-2", User(login = "octocat", name = "The Octocat", avatarUrl = "https://avatars.githubusercontent.com/u/2?v=4"), clientId = "Ov23litcWlPUB3KqPlQ2")
+            Session.signIn("fixture-token", User(login = "mona", name = "Mona Lisa", avatarUrl = "https://avatars.githubusercontent.com/u/1?v=4"), clientId = "Ov23litcWlPUB3KqPlQ2")
+        }
+        shot("10-settings") { it.push(Screen.Settings) }
+    }
     @Test fun tabletSettings() {
         assumeTrue("Tablet screenshots require a wide window", compose.activity.resources.configuration.screenWidthDp >= 840)
+        compose.runOnUiThread {
+            Session.signIn("fixture-token-2", User(login = "octocat", name = "The Octocat", avatarUrl = "https://avatars.githubusercontent.com/u/2?v=4"), clientId = "Ov23litcWlPUB3KqPlQ2")
+            Session.signIn("fixture-token", User(login = "mona", name = "Mona Lisa", avatarUrl = "https://avatars.githubusercontent.com/u/1?v=4"), clientId = "Ov23litcWlPUB3KqPlQ2")
+        }
         shot("26-tablet-settings") { it.push(Screen.Settings) }
     }
     @Test fun login() {
@@ -527,12 +557,13 @@ class ReadmeScreenshotsTest {
     @Test fun pushes() = shot("23-pushes") { it.push(Screen.Pushes("mona", "mobilegh")) }
     /** 点开一条推送：看到这次推送的提交与文件改动 */
     @Test fun pushDetail() = shot("24-push-detail", after = {
-        compose.onAllNodesWithText("mona 推送了 3 个提交到分支 feature/login")[0].performClick()
+        compose.onAllNodesWithText("dev", substring = true)[0].performClick()
         Thread.sleep(1500)
         compose.waitForIdle()
     }) { it.push(Screen.Pushes("mona", "mobilegh")) }
     /** 逐页巡检：依次打开应用里的每个页面并截图，用于检查各页风格是否统一（输出 sweep/<序号-名称>.png） */
     @Test fun sweepAllScreens() {
+        assumeTrue("只在 -e sweepShots true 时巡检全部页面", args.getString("sweepShots") == "true")
         val screens = listOf<Pair<String, Screen>>(
             "repo-files" to Screen.Files("mona", "mobilegh", "", null),
             "file-finder" to Screen.FileFinder("mona", "mobilegh", null),
@@ -636,13 +667,15 @@ class ReadmeScreenshotsTest {
             Thread.sleep(2000)
             compose.waitForIdle()
             saveScreen("25-achievements")
-            compose.onNodeWithContentDescription("拉取鲨鱼，铜级，x2").performClick()
+            val desc = if (lang == "en") "Pull Shark，Bronze，x2" else "拉取鲨鱼，铜级，x2"
+            val mult = if (lang == "en") "Multiplier x2" else "倍数 x2"
+            compose.onNodeWithContentDescription(desc).performClick()
             // 动效进行中截一张，再截动效结束后的弹窗
             // 不能用 saveScreen：它会 waitForIdle，等于等动画结束。这里直接截屏，抓到转动中的画面
             // 连续抓取动效过程中的几帧（每帧约 80ms），保存为 flip-00..07
             val frameDir = File(compose.activity.cacheDir, "readme/$lang").apply { mkdirs() }
             // 等弹窗真正出现（徽章开始转动）后再抓帧
-            compose.waitUntil(timeoutMillis = 5_000) { compose.onAllNodesWithText("倍数 x2").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(timeoutMillis = 5_000) { compose.onAllNodesWithText(mult).fetchSemanticsNodes().isNotEmpty() }
             repeat(8) { i ->
                 Thread.sleep(80)
                 InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()

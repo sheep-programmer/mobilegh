@@ -155,10 +155,10 @@ internal fun SortBar(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    FlowRow(
-        modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+    Row(
+        modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Dropdown(sorts[index].label, sorts.map { it.label }, { onPick(it) }, active = enabled && index != 0, enabled = enabled)
         DirectionButton(descending, enabled, onFlip)

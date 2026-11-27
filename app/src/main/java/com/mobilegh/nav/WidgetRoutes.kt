@@ -28,6 +28,7 @@ object WidgetRoutes {
             "recent" -> home(Screen.RecentRepositories)
             "projects" -> home(Screen.Projects(ProjectOwnerKind.User, login))
             "drafts" -> home(Screen.Drafts)
+            "settings" -> home(Screen.Settings)
             "invitations" -> home(Screen.Invitations)
             else -> id.removePrefix("search/").takeIf { id.startsWith("search/") }
                 ?.let { layout.search(HomeLayout.searchSlotId(it)) }

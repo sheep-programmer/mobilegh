@@ -92,6 +92,7 @@ sealed interface Screen {
     @Serializable data class Collaborators(val owner: String, val name: String) : Screen
     @Serializable data class Profile(val login: String) : Screen
     @Serializable data class Org(val login: String) : Screen
+    @Serializable data class EditOrg(val login: String) : Screen
     @Serializable data class Users(val kind: UserKind, val a: String, val b: String = "") : Screen
     @Serializable data class Repos(val kind: RepoKind, val login: String = "", val name: String = "") : Screen
     @Serializable data object Orgs : Screen
@@ -118,6 +119,7 @@ sealed interface Screen {
     @Serializable data object Authenticator : Screen
     @Serializable data object OrgDiagnostics : Screen
     @Serializable data object CreateRepo : Screen
+    @Serializable data object CreateOrg : Screen
     @Serializable data object ImportRepo : Screen
     @Serializable data object Login : Screen
     @Serializable data object Reauthorize : Screen

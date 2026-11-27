@@ -154,7 +154,7 @@ fun AddFavoritesScreen() {
                         items(pins, key = { "pin:" + it.owner.login + "/" + it.name }) { p ->
                             FavoriteCandidate(
                                 fullName = "${p.owner.login}/${p.name}",
-                                avatarUrl = "https://github.com/${p.owner.login}.png",
+                                avatarUrl = "https://avatars.githubusercontent.com/${p.owner.login}",
                                 isOrg = false,
                                 description = p.description,
                                 favorite = layout.isFavorite(p.owner.login, p.name),
@@ -312,7 +312,7 @@ fun FavoritesScreen(initialOrganize: Boolean = false) {
                                             .padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        Avatar("https://github.com/${f.owner}.png", 26.dp, square = true)
+                                        Avatar("https://avatars.githubusercontent.com/${f.owner}", 26.dp, square = true)
                                         Spacer(Modifier.width(12.dp))
                                         Column(Modifier.weight(1f)) {
                                             Text(

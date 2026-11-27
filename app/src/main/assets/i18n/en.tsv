@@ -3408,3 +3408,150 @@ MobileGH 应用更新	MobileGH App Update
 应用更新失败	App update failed
 应用更新已就绪	App update ready
 正在后台刷新…	Refreshing in background…
+网页	Web
+切换 ({0})	Switch ({0})
+继续下滑	Scroll down
+正在加载 README…	Loading README…
+新建	Create
+选择要创建的内容	Choose what to create
+选择仓库并提交新的 Issue	Pick a repository and open a new issue
+选择要提交 Issue 的仓库	Select a repository for the new issue
+搜索仓库 (owner/name)	Search repositories (owner/name)
+没有匹配的仓库，试试输入完整仓库名	No matching repository found; try entering the full owner/repo
+创建一个新的个人或组织仓库	Create a new personal or organization repository
+新建组织	New organization
+创建一个新的 GitHub 团队或组织	Create a new GitHub team or organization
+从其他 Git 地址导入已有代码仓库	Import an existing repository from another Git URL
+创建公开或私密代码片段	Create a public or secret code snippet
+新建 Star 列表	New star list
+创建用于归类收藏仓库的列表	Create a list to organize starred repositories
+添加首页快捷方式	Add home shortcut
+将常用仓库或页面固定到首页	Pin a frequent repository or screen to Home
+组织名称 (GitHub 账号名)	Organization name (GitHub login)
+组织名称只能包含字母、数字和单个连字符，不能以连字符开头或结尾	Organization name may contain letters, numbers, or single hyphens, and cannot start or end with a hyphen
+联系邮箱	Contact email
+请输入有效的联系邮箱	Please enter a valid contact email
+组织归属	Belongs to
+个人账号	Personal account
+公司或机构	Business or institution
+公司或机构名称	Company or institution name
+免费组织方案 (Free)	Free organization plan
+支持无限公开与私有仓库及基础团队协作；无需离开应用即可完成创建。	Unlimited public and private repositories with core collaboration features; create natively in-app.
+创建组织	Create organization
+已创建组织 {0}	Created organization {0}
+创建组织失败（HTTP {0}）	Failed to create organization (HTTP {0})
+读取创建组织表单失败（HTTP {0}）	Failed to load organization creation form (HTTP {0})
+未能获取 GitHub 创建组织表单令牌	Could not obtain GitHub organization creation token
+完成人机验证以创建组织	Complete verification to create organization
+GitHub 要求完成人机验证，正在应用内打开验证窗口…	GitHub requires human verification; opening verification window in-app…
+登录 GitHub 网页会话以创建组织	Sign in to GitHub web session to create organization
+编辑组织	Edit organization
+编辑组织信息	Edit organization profile
+组织头像	Organization avatar
+选择新图片直接上传为组织头像	Pick an image to upload as the organization avatar
+更换头像	Change avatar
+组织头像已更新	Organization avatar updated
+登录 GitHub 网页会话以更换头像	Sign in to GitHub web session to change avatar
+申请头像上传失败（HTTP {0}）	Failed to request avatar upload (HTTP {0})
+头像文件上传失败（HTTP {0}）	Failed to upload avatar file (HTTP {0})
+确认头像上传失败（HTTP {0}）	Failed to finalize avatar upload (HTTP {0})
+保存组织头像失败（HTTP {0}）	Failed to save organization avatar (HTTP {0})
+无法读取所选图片	Unable to read the selected image
+所选图片为空	Selected image is empty
+组织显示名称	Organization display name
+组织简介	Organization bio
+组织简介（最多 160 字符）	Organization bio (up to 160 characters)
+组织简介不能超过 {0} 个字符	Organization bio cannot exceed {0} characters
+所属公司 / 团队	Company / team
+网站链接	Website URL
+账单 / 联系邮箱	Billing / contact email
+保存组织信息	Save organization profile
+已更新组织信息	Organization profile updated
+读取组织设置页失败（HTTP {0}）	Failed to load organization settings page (HTTP {0})
+无法确定组织编号，请刷新后重试	Could not determine organization ID; refresh and try again
+GitHub 未返回头像编号，请在应用内设置页完成裁剪	GitHub did not return an avatar ID; complete cropping in-app
+离开后，未保存的组织信息修改会丢失。	Unsaved changes to this organization profile will be lost if you leave.
+Actions 与存储配额	Actions & storage quota
+刷新配额	Refresh quota
+在网页查看计费	View billing on web
+Actions 分钟  已用 {0}/{1}	Actions minutes  Used {0}/{1}
+额外付费分钟：{0} 分钟	Paid minutes overage: {0} min
+Packages 流量：已用 {0}/{1} GB	Packages bandwidth: Used {0}/{1} GB
+共享存储预估：{0} GB · 本周期剩余 {1} 天	Estimated shared storage: {0} GB · {1} days left in cycle
+正在读取 Actions 与存储配额…	Loading Actions and storage quota…
+无法读取 Actions 配额	Unable to load Actions quota
+需要 user 权限（或账号已迁移至新版计费），可前往 GitHub 网页查看详情	Requires user scope (or account migrated to enhanced billing); view details on GitHub web
+Fork 数	Forks
+顺序	Ascending
+仅公开	Public only
+仅私有	Private only
+已折叠其余 {0} 项 · 点击查看全部	Collapsed remaining {0} items · Tap to view all
+查看全部 ({0})	View all ({0})
+{0} 个子 Issue	{0} sub-issues
+父 #{0}	Parent #{0}
+{0} 项	{0} items
+{0} 个附件 · 点击预览	{0} attachments · Tap to preview
+附件预览	Attachment preview
+附件预览 ({0}/{1})	Attachment preview ({0}/{1})
+放大查看	Zoom image
+全屏播放	Play fullscreen
+图片附件	Image attachment
+视频/媒体附件	Video/media attachment
+草稿已保存，可在「首页 → 草稿」继续编辑	Draft saved; continue editing under Home → Drafts
+通知提醒与降噪	Notification alerts & filtering
+Issue 提醒	Issue reminders
+开启后，有新的或更新的 Issue 通知时发送系统提醒（默认关闭）	Send system alerts for new or updated Issue notifications (off by default)
+Pull Request 提醒	Pull Request reminders
+开启后，有新的或更新的 PR 通知时发送系统提醒（默认关闭）	Send system alerts for new or updated PR notifications (off by default)
+自动静音 Bot 通知	Auto-mute bot notifications
+过滤 dependabot、renovate、github-actions 等机器人通知	Filter bot notifications such as dependabot, renovate, and github-actions
+静音仓库	Muted repositories
+暂无静音仓库	No muted repositories
+输入 owner/repo	Enter owner/repo
+静音关键词	Muted keywords
+暂无静音关键词	No muted keywords
+输入标题关键词	Enter title keyword
+改用本机列表	Use local list instead
+仅保存在当前设备，不同步 GitHub	Saved on this device only, not synced to GitHub
+正在同步当前仓库归属…	Syncing repository list membership…
+列表暂无仓库，在仓库页「加入 Star 列表」或长按 Star 中添加	No repositories yet; add from a repo's "Add to Star List" or by long-pressing Star
+已接受，现在可以在「仓库 → 协作」中找到它	Accepted; you can now find it under Repositories → Collaborations
+提示：接受邀请后，官方 App 的仓库列表仍只显示你创建的仓库，而本应用的「仓库 → 协作」会显示它们。	Note: GitHub's official app only lists repositories you created; find collaborated ones under Repositories → Collaborations.
+请先登录 GitHub 账号	Please sign in to your GitHub account first
+。请到「设置 → 安全与隐私 → 重新登录，获取新授权」补齐权限后再试	. Go to Settings → Security & Privacy → Reauthorize to grant missing permissions
+当前登录方式没有注册本机验证设备，GitHub 两步验证请求不会弹窗。授权一次后自动启用，之后可在「设置 → 两步验证与数字批准」中管理。	The current sign-in method did not register this device for GitHub 2FA prompts. Approve once via device authorization to enable it under Settings → 2FA & Mobile Approval.
+GitHub 已停用旧版计费接口（410），登录网页会话即可直接在应用内读取 Actions 与存储配额。	GitHub deprecated the legacy billing endpoint (410); sign in to web session to read Actions & storage quotas natively in-app.
+登录 GitHub 网页会话后即可直接在应用内读取 Actions 与存储配额。	Sign in to your GitHub web session to read Actions & storage quotas in-app.
+连接网页查看配额	Connect web to view quota
+登录 GitHub 读取计费配额	Sign in to GitHub for billing quota
+正在从 GitHub 计费页读取最新配额…	Reading latest quota from GitHub billing…
+暂时无法自动抓取网页配额，请点下方「刷新配额」或前往「查看用量明细」确认套餐额度。	Unable to auto-read web quota; tap Refresh quota or View usage details below.
+查看用量明细	View usage details
+用量与计费明细	Usage & billing details
+当前方案：{0}	Current plan: {0}
+仓库占用：{0}	Repository disk: {0}
+本月计费条目	Current cycle usage items
+正在读取计费明细…	Loading billing details…
+本月暂无产生计费用量条目，所有免费包含额度均充足。	No metered billing usage recorded this cycle; included allowances remain unused.
+额度抵扣 ${0}	Covered ${0}
+实付 ${0}	Billed ${0}
+登录 GitHub 网页会话	Sign in to GitHub web session
+连接 GitHub 网页会话	Connect GitHub web session
+去登录	Sign in
+创建与编辑组织、上传图片附件及读取部分网页功能需要 GitHub 网页会话。是否打开应用内登录补全？	Creating or editing organizations, uploading image attachments, and some web-backed features require a GitHub web session. Open in-app login to connect it?
+补全 GitHub OAuth 授权	Complete GitHub OAuth authorization
+去授权	Authorize
+当前账号通过 Token 登录，未开启 OAuth 自动刷新、设备数字审批及网页同步登录。是否前往重新授权补全？	Signed in with a token without OAuth auto-refresh, 2FA mobile approval, or synced web login. Reauthorize now to complete setup?
+账号列表 ({0})	Accounts ({0})
+点按切换	Tap to switch
+查看个人主页	View profile
+重新登录 / 补全授权	Reauthorize
+连接网页会话	Connect web session
+退出此账号	Sign out account
+切换到此账号	Switch to account
+移除此账号	Remove account
+退出当前账号？	Sign out current account?
+移除已保存账号？	Remove saved account?
+将退出 @{0} 并自动切换到下一个已登录账号。	Sign out @{0} and automatically switch to the next signed-in account.
+将清除 @{0} 在本机的登录凭据并返回登录页。	Remove @{0}'s local credentials and return to the sign-in screen.
+将从多账号列表中移除 @{0} 在本机的凭据。	Remove @{0}'s local credentials from your account list.

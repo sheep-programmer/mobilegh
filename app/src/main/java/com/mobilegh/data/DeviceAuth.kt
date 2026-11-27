@@ -63,7 +63,7 @@ object DeviceAuth {
         return buildString {
             append(tr("当前登录授权权限不足"))
             if (scope != null) append(trf("：缺少 {0}（{1}）", scope, scopeFeature(scope)))
-            append(tr("。请到「设置 → 重新登录，获取新授权」补齐权限后再试"))
+            append(tr("。请到「设置 → 安全与隐私 → 重新登录，获取新授权」补齐权限后再试"))
         }
     }
     private val client = OkHttpClient.Builder().proxySelector(AppNetwork.proxySelector()).connectTimeout(15, TimeUnit.SECONDS)

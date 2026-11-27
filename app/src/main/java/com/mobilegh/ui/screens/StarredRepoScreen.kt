@@ -1,5 +1,7 @@
 package com.mobilegh.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.mobilegh.ui.components.ScrollbarLazyColumn
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,7 +28,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -66,10 +73,15 @@ import com.mobilegh.nav.PagerPage
 import com.mobilegh.nav.act
 import com.mobilegh.nav.rememberPager
 import com.mobilegh.nav.retain
+import com.mobilegh.ui.components.ActiveFilterChips
 import com.mobilegh.ui.components.Card
+import com.mobilegh.ui.components.ChoicePicker
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.EmptyState
 import com.mobilegh.ui.components.ErrorState
+import com.mobilegh.ui.components.FilterCard
+import com.mobilegh.ui.components.FilterEntry
+import com.mobilegh.ui.components.FilterSheet
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.Loading
@@ -170,28 +182,94 @@ private fun starredTitle(listsTab: Boolean, selectedList: String?, lists: List<G
 
 // ---------------- 全部 Star ----------------
 
+private const val STAR_INITIAL_LOAD_LIMIT = 1000
+
 /** 服务端搜索 + 两种服务端排序，每个都能切正序 / 倒序 */
 @Composable
 private fun ColumnScope.StarFeedTab(login: String, isMe: Boolean) {
-    // 输入框与已生效关键词分开：打字过程中列表不变，按回车或点放大镜才应用
+    // 输入框即时筛选已加载内容；同时防抖 300ms 触发服务端全量 Star 搜索，清空时立即恢复
     var input by rememberSaveable { mutableStateOf("") }
     var query by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(input) {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty()) {
+            query = ""
+        } else if (trimmed != query) {
+            delay(300)
+            query = trimmed
+        }
+    }
     var index by rememberSaveable { mutableIntStateOf(0) }
     var descending by rememberSaveable { mutableStateOf(STAR_SORTS[0].descending) }
+    var localSort by rememberSaveable { mutableIntStateOf(-1) }
+    var visibility by rememberSaveable { mutableIntStateOf(0) }
+    var hideForks by rememberSaveable { mutableStateOf(false) }
+    var selectedLanguage by rememberSaveable { mutableStateOf<String?>(null) }
+    var sheet by rememberSaveable { mutableStateOf(false) }
     var truncated by remember(query, index, descending) { mutableStateOf(false) }
     val supported by StarredRepos.searchSupported.collectAsState()
     val sortIndex = restoredStarSortIndex(index)
+    val liveQuery = input.trim()
     val searching = query.isNotEmpty() && Session.token != null && supported
     // 重新进入页面时的刷新策略在 rememberStarFeedPager 里统一处理：未过期则保留已加载的页
     val pager = rememberStarFeedPager(login, isMe, query, sortIndex, descending, supported) { truncated = true }
+    // 初次进入或本地过滤时边获取边分块加载：第一页先展示，后续页在后台逐页追加显示
+    DisposableEffect(pager) { onDispose { pager.cancelLoadAll() } }
+    LaunchedEffect(pager, searching) {
+        if (!searching) {
+            snapshotFlow { !pager.loading && !pager.silentRefreshing }.first { it }
+            if (!pager.end && pager.error == null) pager.loadChunked(STAR_INITIAL_LOAD_LIMIT)
+        } else {
+            pager.cancelLoadAll()
+        }
+    }
+    val languages = remember(pager.items) {
+        pager.items.mapNotNull { it.language?.takeIf(String::isNotBlank) }.distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
+    }
+    val safeLang = selectedLanguage?.takeIf { lang -> languages.any { it.equals(lang, ignoreCase = true) } } ?: selectedLanguage
+    val localSortOptions = listOf(
+        RepoSortOption("stars", tr("Star 数"), defaultDescending = true, localOnly = true),
+        RepoSortOption("forks", tr("Fork 数"), defaultDescending = true, localOnly = true),
+        RepoSortOption("full_name", tr("名称"), defaultDescending = false, localOnly = true),
+        RepoSortOption("pushed", tr("最近推送"), defaultDescending = true, localOnly = true),
+    )
+    val selectedSortChoice = if (localSort in localSortOptions.indices) STAR_SORTS.size + localSort else sortIndex
+    val active = buildList {
+        if (localSort in localSortOptions.indices) {
+            val opt = localSortOptions[localSort]
+            add("sort" to "${opt.label} · ${if (descending) tr("倒序") else tr("正序")}")
+        } else if (sortIndex != 0 || descending != STAR_SORTS[sortIndex].descending) {
+            add("sort" to "${STAR_SORTS[sortIndex].label} · ${if (descending) tr("倒序") else tr("正序")}")
+        }
+        if (visibility != 0) add("visibility" to if (visibility == 1) tr("仅公开") else tr("仅私有"))
+        if (hideForks) add("forks" to tr("隐藏 Fork"))
+        if (safeLang != null) add("lang" to safeLang)
+    }
     StarSearchControls(
         input = input, query = query, index = sortIndex, descending = descending,
         searching = searching, status = starStatus(query, searching, truncated, pager.items.size),
+        filterCount = active.size,
+        onFilter = { sheet = true },
         onInput = { input = it },
         onApply = { query = input.trim() },
         onClear = { input = ""; query = "" },
-        onPick = { picked -> index = picked; descending = STAR_SORTS[picked].descending },
+        onPick = { picked -> localSort = -1; index = picked; descending = STAR_SORTS[picked].descending },
         onFlip = { descending = !descending },
+    )
+    if (active.isNotEmpty()) ActiveFilterChips(
+        active,
+        onRemove = { k ->
+            when (k) {
+                "sort" -> { localSort = -1; index = 0; descending = STAR_SORTS[0].descending }
+                "visibility" -> visibility = 0
+                "forks" -> hideForks = false
+                "lang" -> selectedLanguage = null
+            }
+        },
+        onClear = {
+            localSort = -1; index = 0; descending = STAR_SORTS[0].descending
+            visibility = 0; hideForks = false; selectedLanguage = null
+        },
     )
     val state = rememberLazyListState()
     PagedList(
@@ -203,9 +281,58 @@ private fun ColumnScope.StarFeedTab(login: String, isMe: Boolean) {
         emptyIcon = R.drawable.oc_star,
         filteredEmpty = tr("已加载的 Star 中没有匹配的仓库"),
         autoLoad = autoPageStarFeed(query, searching),
-        // 服务端搜索已经筛过一遍，只有本地回退路径才需要再过滤
-        itemFilter = { searching || starMatches(it, query) },
+        itemSort = if (localSort in localSortOptions.indices) repoComparator(localSortOptions[localSort].apiSort, descending) else null,
+        // 服务端搜索结果已对应当前输入时直接展示；输入变化期间先按 liveQuery 实时本地过滤
+        itemFilter = {
+            ((searching && query == liveQuery) || starMatches(it, liveQuery)) &&
+                (visibility == 0 || (visibility == 2) == it.isPrivate) &&
+                (!hideForks || !it.fork) &&
+                (safeLang == null || it.language.equals(safeLang, ignoreCase = true))
+        },
     ) { RepoItem(it) }
+    if (sheet) {
+        val sortLabels = STAR_SORTS.map { it.label } + localSortOptions.map { it.label }
+        FilterSheet(
+            tr("排序与筛选"), tr("选择后立即生效"), tr("关闭筛选"), { sheet = false },
+            footer = {
+                TextButton(
+                    onClick = {
+                        localSort = -1; index = 0; descending = STAR_SORTS[0].descending
+                        visibility = 0; hideForks = false; selectedLanguage = null
+                    },
+                    enabled = active.isNotEmpty(),
+                ) { Text(tr("重置")) }
+                GhButton(tr("完成"), primary = true) { sheet = false }
+            },
+        ) {
+            FilterCard(null) {
+                ChoicePicker(tr("排序"), sortLabels, selectedSortChoice) { picked ->
+                    if (picked < STAR_SORTS.size) {
+                        localSort = -1
+                        index = picked
+                        descending = STAR_SORTS[picked].descending
+                    } else {
+                        val li = picked - STAR_SORTS.size
+                        localSort = li
+                        descending = localSortOptions[li].defaultDescending
+                    }
+                }
+                ChoicePicker(tr("顺序"), listOf(tr("倒序"), tr("正序")), if (descending) 0 else 1) { descending = (it == 0) }
+            }
+            FilterCard(null) {
+                ChoicePicker(tr("可见性"), listOf(tr("全部"), tr("公开"), tr("私有")), visibility) { visibility = it }
+                ChoicePicker("Fork", listOf(tr("包含 Fork"), tr("隐藏 Fork")), if (hideForks) 1 else 0) { hideForks = (it == 1) }
+            }
+            if (languages.isNotEmpty()) FilterCard(tr("语言")) {
+                Dropdown(
+                    safeLang ?: tr("全部语言"),
+                    listOf(tr("全部语言")) + languages,
+                    { picked -> selectedLanguage = languages.getOrNull(picked - 1) },
+                    active = safeLang != null,
+                )
+            }
+        }
+    }
 }
 
 internal fun autoPageStarFeed(query: String, searching: Boolean): Boolean = query.isEmpty() || searching
@@ -226,17 +353,26 @@ internal fun StarSearchControls(
     descending: Boolean,
     searching: Boolean,
     status: String,
+    filterCount: Int = 0,
+    onFilter: (() -> Unit)? = null,
     onInput: (String) -> Unit,
     onApply: () -> Unit,
     onClear: () -> Unit,
     onPick: (Int) -> Unit,
     onFlip: () -> Unit,
 ) {
-    SearchBox(
-        input, query, onInput, onApply, onClear,
-        tr("搜索 Star"), tr("仓库名称或描述"),
+    Row(
         Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp),
-    )
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        SearchBox(
+            input, query, onInput, onApply, onClear,
+            tr("搜索 Star"), tr("仓库名称或描述"),
+            Modifier.weight(1f),
+        )
+        if (onFilter != null) FilterEntry(filterCount, onClick = onFilter)
+    }
     Row(
         Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -471,13 +607,35 @@ private fun StarListDirectory(
             ) { picker = true }
         }
         lists.error?.let { InlineError(it, Modifier.padding(horizontal = 16.dp)) { lists.load(true) } }
-        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             SearchBox(
-                browser.input, browser.query, { browser.input = it }, { browser.apply() }, { browser.clear() },
+                browser.input, browser.query, { browser.input = it; browser.apply() }, { browser.apply() }, { browser.clear() },
                 tr("搜索列表"), tr("名称或描述"),
                 Modifier.weight(1f),
             )
-            TextButton(onClick = { lists.load(true) }, enabled = !lists.loading) { Text(tr("刷新")) }
+            val g = Gh.c
+            Box(
+                Modifier.size(40.dp)
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(g.canvasSubtle)
+                    .border(1.dp, g.border, androidx.compose.foundation.shape.CircleShape)
+                    .clickable(enabled = !lists.loading) { lists.load(true) },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (lists.loading) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = g.accent,
+                    )
+                } else {
+                    Oc(R.drawable.oc_sync, g.fg, 18.dp)
+                }
+            }
         }
         SortBar(LIST_SORTS, browser.sort, browser.descending, { browser.pick(it) }, { browser.descending = !browser.descending })
     }
@@ -645,7 +803,7 @@ private fun ColumnScope.StarListDetail(
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         SearchBox(
-            input, query, { input = it }, { query = input.trim() }, { input = ""; query = "" },
+            input, query, { input = it; query = it.trim() }, { query = input.trim() }, { input = ""; query = "" },
             tr("搜索列表内仓库"), tr("名称或描述"), Modifier.weight(1f),
         )
         DirectionButton(descending, onClick = onFlip)
@@ -661,7 +819,7 @@ private fun ColumnScope.StarListDetail(
         state = state,
         itemKey = { it.id },
         autoLoad = autoPageStarFeed(query, searching = false),
-        empty = tr("列表暂无仓库，在仓库页「加入自定义列表」中添加"),
+        empty = tr("列表暂无仓库，在仓库页「加入 Star 列表」或长按 Star 中添加"),
         emptyIcon = R.drawable.oc_checklist,
         filteredEmpty = tr("列表中没有匹配的仓库"),
         itemFilter = { starMatches(it, query) },

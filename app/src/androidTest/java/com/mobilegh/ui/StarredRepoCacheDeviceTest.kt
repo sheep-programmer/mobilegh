@@ -166,7 +166,6 @@ class StarredRepoCacheDeviceTest {
             compose.waitUntil(5_000) {
                 compose.onAllNodesWithTag("paged-list-silent-refresh").fetchSemanticsNodes().isNotEmpty()
             }
-            compose.onNodeWithText("正在后台刷新…").assertIsDisplayed()
 
             // 3. 放行静默刷新：列表更新为最新数据，静默刷新状态条消失
             releaseSecondLaunch.countDown()

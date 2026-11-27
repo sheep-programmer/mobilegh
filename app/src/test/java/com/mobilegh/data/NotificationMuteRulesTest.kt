@@ -26,4 +26,20 @@ class NotificationMuteRulesTest {
     @Test fun inactiveRulesNeverMute() {
         assertFalse(NotificationMuteRules.isMuted(notif("dependabot[bot] update"), NotificationMuteConfig()))
     }
+
+    @Test fun issueAndPrRemindersDefaultOffAndRespectMuteRules() {
+        val issue = notif("Bug report").copy(subject = Subject(title = "Bug report", type = "Issue"))
+        val pr = notif("Add feature")
+        val release = notif("v1.0.0").copy(subject = Subject(title = "v1.0.0", type = "Release"))
+
+        val defaults = NotificationMuteConfig()
+        assertFalse(NotificationMuteRules.shouldRemind(issue, defaults))
+        assertFalse(NotificationMuteRules.shouldRemind(pr, defaults))
+        assertTrue(NotificationMuteRules.shouldRemind(release, defaults))
+
+        val enabled = NotificationMuteConfig(notifyIssues = true, notifyPrs = true, mutedRepos = setOf("noisy/repo"))
+        assertTrue(NotificationMuteRules.shouldRemind(issue, enabled))
+        assertTrue(NotificationMuteRules.shouldRemind(pr, enabled))
+        assertFalse(NotificationMuteRules.shouldRemind(notif("Noisy", fullName = "noisy/repo"), enabled))
+    }
 }

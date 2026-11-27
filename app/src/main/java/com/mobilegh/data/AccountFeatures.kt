@@ -87,3 +87,70 @@ object ProfileEditing {
         return result
     }
 }
+
+data class OrgFields(
+    val name: String = "",
+    val description: String = "",
+    val company: String = "",
+    val location: String = "",
+    val website: String = "",
+    val twitter: String = "",
+    val email: String = "",
+    val billingEmail: String = "",
+) {
+    companion object {
+        fun from(org: Org) = OrgFields(
+            name = org.name.orEmpty(),
+            description = org.description.orEmpty(),
+            company = org.company.orEmpty(),
+            location = org.location.orEmpty(),
+            website = org.blog.orEmpty(),
+            twitter = org.twitterUsername.orEmpty(),
+            email = org.email.orEmpty(),
+            billingEmail = org.billingEmail.orEmpty(),
+        )
+    }
+
+    fun patch(original: OrgFields): JsonObject = buildJsonObject {
+        fun changed(key: String, value: String, old: String, max: Int) {
+            if (value != old) {
+                require(value.length <= max && (key == "description" || value.none(Char::isISOControl))) {
+                    trf("{0} 的内容过长或格式无效", if (key == "description") tr("组织简介") else key)
+                }
+                put(key, value.trim())
+            }
+        }
+        changed("name", name, original.name, 255)
+        changed("description", description, original.description, 160)
+        changed("company", company, original.company, 255)
+        changed("location", location, original.location, 255)
+        changed("email", email, original.email, 254)
+        changed("billing_email", billingEmail, original.billingEmail, 254)
+        if (website != original.website) {
+            var value = website.trim()
+            require(value.length <= 2048) { tr("网站地址过长") }
+            if (value.isNotBlank()) {
+                if (!value.contains("://")) value = "https://$value"
+                val uri = runCatching { URI(value) }.getOrNull()
+                require(uri?.scheme in setOf("http", "https") && !uri?.host.isNullOrBlank() && uri?.userInfo == null) {
+                    tr("请输入有效的 http 或 https 网站地址")
+                }
+            }
+            put("blog", value)
+        }
+        if (twitter != original.twitter) {
+            val clean = twitter.trim().removePrefix("@")
+            require(clean.isEmpty() || clean.matches(Regex("[A-Za-z0-9_]{1,15}"))) { tr("Twitter 用户名格式无效") }
+            put("twitter_username", clean)
+        }
+    }
+}
+
+object OrgEditing {
+    suspend fun save(original: Org, fields: OrgFields): Org {
+        check(Session.token != null) { tr("请先登录 GitHub 账号") }
+        val body = fields.patch(OrgFields.from(original))
+        if (body.isEmpty()) return original
+        return GitHub.updateOrg(original.login, body)
+    }
+}

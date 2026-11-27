@@ -256,15 +256,20 @@ private fun ReleaseCard(owner: String, name: String, r: Release, first: Boolean,
         Column(Modifier.padding(top = if (menu.isEmpty()) 12.dp else 2.dp, bottom = 12.dp)) {
             // 标题行撑满卡片宽度，「...」才能贴到右边；不撑满时 Row 只有内容宽，菜单会停在中间
             Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = if (menu.isEmpty()) 12.dp else 0.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(r.name?.takeIf { it.isNotBlank() } ?: r.tagName, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg, modifier = Modifier.weight(1f, false))
-                Spacer(Modifier.width(8.dp))
-                when {
-                    r.draft -> Pill(tr("草稿"), g.fgMuted)
-                    r.prerelease -> Pill(tr("预发布"), g.attention)
-                    first -> Pill(tr("最新"), g.success)
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        r.name?.takeIf { it.isNotBlank() } ?: r.tagName,
+                        fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = g.fg,
+                        modifier = Modifier.weight(1f, false),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    when {
+                        r.draft -> Pill(tr("草稿"), g.fgMuted)
+                        r.prerelease -> Pill(tr("预发布"), g.attention)
+                        first -> Pill(tr("最新"), g.success)
+                    }
                 }
                 if (menu.isNotEmpty()) {
-                    Spacer(Modifier.weight(1f))
                     MoreMenu(menu, g.fgMuted)
                 }
             }

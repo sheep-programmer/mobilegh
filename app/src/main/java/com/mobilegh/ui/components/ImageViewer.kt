@@ -28,6 +28,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -164,7 +165,7 @@ private fun ImageViewerContent(url: String, title: String) {
                 data?.let {
                     withContext(Dispatchers.Default) {
                         val mime = it.mime ?: ImageFetch.mimeOf(url, it.bytes)
-                        val bitmap = it.takeIf { mime !in setOf("image/svg+xml", "image/gif", "image/avif") }
+                        val bitmap = it.takeIf { mime !in setOf("image/gif", "image/avif") }
                             ?.let { Images.decode(it.bytes, 4096) }
                         ViewerImage(it, mime, bitmap, if (bitmap == null) webImageHtml(it.bytes, mime) else null)
                     }
@@ -215,7 +216,7 @@ private fun ImageViewerContent(url: String, title: String) {
                 Spacer(Modifier.height(16.dp))
                 GhButton(tr("重试"), icon = R.drawable.oc_sync) { reload++ }
             }
-            image?.bitmap != null -> ZoomableBitmap(image.bitmap) { showBars = !showBars }
+            image?.bitmap != null -> ZoomableBitmap(image.bitmap, svg = mime == "image/svg+xml") { showBars = !showBars }
             image?.html != null -> WebImage(image.html, onFailure = { renderFailed = true; showBars = true }) { showBars = !showBars }
         }
 
@@ -307,7 +308,7 @@ private fun ImageViewerContent(url: String, title: String) {
 
 /** 双指缩放（1~8 倍）、拖动、双击放大 / 还原；单击切换顶部和底部工具栏 */
 @Composable
-private fun ZoomableBitmap(bitmap: ImageBitmap, onTap: () -> Unit) {
+private fun ZoomableBitmap(bitmap: ImageBitmap, svg: Boolean = false, onTap: () -> Unit) {
     var scale by remember(bitmap) { mutableFloatStateOf(1f) }
     var offset by remember(bitmap) { mutableStateOf(Offset.Zero) }
     var box by remember { mutableStateOf(IntSize.Zero) }
@@ -348,14 +349,23 @@ private fun ZoomableBitmap(bitmap: ImageBitmap, onTap: () -> Unit) {
                 }
             },
     ) {
-        Image(
-            bitmap, null,
-            Modifier.fillMaxSize().graphicsLayer {
+        Box(
+            Modifier.align(Alignment.Center).graphicsLayer {
                 scaleX = scale; scaleY = scale
                 translationX = offset.x; translationY = offset.y
+            }.let { m ->
+                if (svg && bitmap.width > 0 && bitmap.height > 0) {
+                    m.fillMaxWidth().aspectRatio(bitmap.width.toFloat() / bitmap.height.toFloat()).background(Color.White)
+                } else m.fillMaxSize()
             },
-            contentScale = ContentScale.Fit,
-        )
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(
+                bitmap, null,
+                Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit,
+            )
+        }
     }
 }
 
@@ -474,7 +484,7 @@ private fun webImageHtml(bytes: ByteArray, mime: String?): String {
     val type = mime?.takeIf { Regex("image/[a-zA-Z0-9.+-]+").matches(it) } ?: "image/png"
     return """<html><head><meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=8,user-scalable=yes">
         <style>html,body{margin:0;height:100%;background:#000;display:flex;align-items:center;justify-content:center}
-        img{max-width:100%;max-height:100%;object-fit:contain;background:${if (type == "image/svg+xml") "#fff" else "transparent"}}</style></head>
+        img{${if (type == "image/svg+xml") "width:100vw;height:100vh;" else "max-width:100%;max-height:100%;"}object-fit:contain;background:${if (type == "image/svg+xml") "#fff" else "transparent"}}</style></head>
         <body onclick="Tap.t()"><img onerror="Tap.failed()" src="data:$type;base64,$b64"></body></html>"""
 }
 

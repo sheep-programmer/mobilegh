@@ -1,74 +1,84 @@
 # MobileGH
 
-MobileGH is a third-party GitHub client for Android built with Kotlin and Jetpack Compose. It delivers native repository and code reading, complete Issue / PR / Discussions workflows, Actions management and log diagnostics, mirror-accelerated downloads, and optional on-device offline translation.
+MobileGH is a native GitHub client for Android built with Kotlin and Jetpack Compose. It focuses on reading code, collaborating, following CI, and managing downloads: frequently used lists appear from local cache first, primary content renders immediately, and the rest fills in progressively.
 
 [简体中文](README.md) · English · [Download the latest release](https://github.com/sheep-programmer/mobilegh/releases/latest) · [Report an issue](https://github.com/sheep-programmer/mobilegh/issues)
 
 ## Core Highlights
 
-- **Native Reading & Offline Translation**: Native Compose rendering for READMEs (table of contents, image/table zoom, dynamic badge racing fallback, video and math support) plus an optional standalone translation plugin for on-device Chinese–English and multi-language translation.
-- **Cache-First Instant Startup**: Disk and in-memory snapshots for Home, Starred repositories, repository feeds, and list details—showing cached content immediately on cold start with a non-blocking background refresh indicator.
-- **Full Code & Repository Workflows**: Syntax-highlighted source viewing, line-by-line Blame, unified/split diffs, multi-file/folder commits with Git LFS (up to 2 GiB), and repository import.
-- **End-to-End Actions Management**: Inspect jobs and steps, jump to failures, search and export logs, trigger/rerun workflows (with debug logging), approve deployments, and manage Actions settings, device-encrypted Secrets, Variables, Runners, and Caches.
-- **Deep Issue & PR Collaboration**: Issue templates and YAML forms, Issue Types, parent/sub-issues, Saved Replies, inline PR reviews and code suggestions, PR viewed-file sync, and creating issues directly from Android system share.
-- **Mirror Acceleration, Downloads & Auto-Update**: Independent mirror settings for files/images vs. downloads/clones, Release asset filtering, pause/resume, SHA-256 verification, APK extraction from Actions artifact ZIPs, and a dedicated update UI with automatic installer launch.
-- **Security & Adaptive Layout**: Multi-account switching, app lock, on-device TOTP authenticator, background notifications with working hours, and adaptive navigation rail on tablets and foldables.
+- **Native reading**: READMEs, Issues, PRs, diffs, and Actions logs use native UI, with TOC navigation, syntax highlighting, image/table zoom, video, math, and SVG diagrams. An optional component provides on-device offline translation.
+- **Cache first**: Home favorites, stars, repository feeds, and Explore recommendations show existing content immediately after a cold start. Data refreshes silently in the background, and failures preserve the current content.
+- **Complete collaboration**: Issues, PRs, Discussions, YAML forms, parent/sub-issues, dependencies, Saved Replies, attachment previews, inline reviews, code suggestions, per-commit diffs, and viewed-file sync.
+- **End-to-end Actions**: Jump to failed steps, search and export logs, dispatch or rerun workflows, approve deployments, and manage permissions, Secrets, Variables, Runners, and Caches. View Actions and storage quotas directly in the app.
+- **Repository and organization management**: Source reading, Blame, symbol outlines, branch comparisons, Release management, multi-file and Git LFS commits, repository import, plus native organization profile and avatar maintenance.
+- **Downloads and updates**: Release asset filtering, resumable downloads, integrity checks, APK extraction from Actions artifacts, and scenario-specific mirrors. App updates use a dedicated interface and launch the system installer when ready.
+- **Multiple accounts and security**: Account switching, per-account OAuth and web sessions, automatic Cookie renewal, app lock, on-device TOTP, notification muting, and adaptive tablet/foldable layouts.
 
 ## Screenshots
 
-Captured from the latest emulator build using fictional accounts and local test fixtures.
+Every screenshot below was recaptured from v0.41.0 on an emulator using fictional accounts and local test fixtures. No real account data is included.
 
 <table>
   <tr>
     <td align="center"><img src="docs/screenshots/en/01-home.png" alt="Home workspace and shortcuts" width="240"><br>Home</td>
     <td align="center"><img src="docs/screenshots/en/03-repo.png" alt="Repository details and quick actions" width="240"><br>Repository</td>
-    <td align="center"><img src="docs/screenshots/en/19-file-readme.png" alt="Native Markdown and README rendering" width="240"><br>Native README</td>
+    <td align="center"><img src="docs/screenshots/en/28-explore.png" alt="Explore recommendations and repository previews" width="240"><br>Explore</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/en/04-issue.png" alt="Issue description, comments, and actions" width="240"><br>Issue discussion</td>
-    <td align="center"><img src="docs/screenshots/en/05-diff-split.png" alt="Side-by-side diff for a commit" width="240"><br>Split diff</td>
-    <td align="center"><img src="docs/screenshots/en/21-job-log-dark.png" alt="Actions job log in dark mode" width="240"><br>Actions logs</td>
+    <td align="center"><img src="docs/screenshots/en/04-issue.png" alt="Issue description and collaboration actions" width="240"><br>Issue discussion</td>
+    <td align="center"><img src="docs/screenshots/en/05-diff-split.png" alt="Side-by-side code diff" width="240"><br>Split diff</td>
+    <td align="center"><img src="docs/screenshots/en/21-job-log-dark.png" alt="Actions logs in dark mode" width="240"><br>Actions logs</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/en/07-notifications.png" alt="Notifications grouped by repository" width="240"><br>Notifications</td>
-    <td align="center"><img src="docs/screenshots/en/12-star-overview.png" alt="Star lists overview with search and sort" width="240"><br>Star lists</td>
-    <td align="center"><img src="docs/screenshots/en/08-insights.png" alt="Contributor stats and commit trends" width="240"><br>Insights</td>
+    <td align="center"><img src="docs/screenshots/en/07-notifications.png" alt="Notification inbox and filters" width="240"><br>Notifications</td>
+    <td align="center"><img src="docs/screenshots/en/12-star-overview.png" alt="Star list overview and management" width="240"><br>Star lists</td>
+    <td align="center"><img src="docs/screenshots/en/10-settings.png" alt="Account list and app settings" width="240"><br>Accounts and settings</td>
   </tr>
 </table>
 
 <details>
-<summary>More screenshots (Repositories, Code, Branches, Search, Achievements, Settings & Tablet layout)</summary>
+<summary>More screenshots: native reading, code and branches, star management, search, achievements, and tablet layout</summary>
 
 <table>
   <tr>
     <td align="center"><img src="docs/screenshots/en/02-repos.png" alt="Repository list" width="240"><br>Repositories</td>
     <td align="center"><img src="docs/screenshots/en/18-file-code.png" alt="Syntax-highlighted source code" width="240"><br>Source code</td>
-    <td align="center"><img src="docs/screenshots/en/06-compare.png" alt="Compare branches and commits" width="240"><br>Compare</td>
+    <td align="center"><img src="docs/screenshots/en/19-file-readme.png" alt="Native README rendering" width="240"><br>Native README</td>
   </tr>
   <tr>
+    <td align="center"><img src="docs/screenshots/en/06-compare.png" alt="Compare branches and commits" width="240"><br>Compare</td>
     <td align="center"><img src="docs/screenshots/en/03b-branch-picker-sheet.png" alt="Branch and tag picker" width="240"><br>Branch picker</td>
     <td align="center"><img src="docs/screenshots/en/03c-readme-toc-sheet.png" alt="README table of contents" width="240"><br>README TOC</td>
-    <td align="center"><img src="docs/screenshots/en/09-star-list.png" alt="Star list details" width="240"><br>Star list detail</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/en/16-search-results.png" alt="Global search results" width="240"><br>Search results</td>
+    <td align="center"><img src="docs/screenshots/en/09-star-list.png" alt="Star list detail" width="240"><br>Star list detail</td>
+    <td align="center"><img src="docs/screenshots/en/13-star-picker.png" alt="Add to star lists" width="240"><br>Add to star lists</td>
+    <td align="center"><img src="docs/screenshots/en/14-new-list.png" alt="Create a star list" width="240"><br>New list</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/en/15-search-home.png" alt="Search home" width="240"><br>Global search</td>
+    <td align="center"><img src="docs/screenshots/en/16-search-results.png" alt="Repository search results" width="240"><br>Search results</td>
     <td align="center"><img src="docs/screenshots/en/22-issues.png" alt="Issue list and filters" width="240"><br>Issue filters</td>
+  </tr>
+  <tr>
     <td align="center"><img src="docs/screenshots/en/23-pushes.png" alt="Recent pushes" width="240"><br>Recent pushes</td>
+    <td align="center"><img src="docs/screenshots/en/24-push-detail.png" alt="Push commits and file changes" width="240"><br>Push detail</td>
+    <td align="center"><img src="docs/screenshots/en/08-insights.png" alt="Contribution statistics and commit trends" width="240"><br>Insights</td>
   </tr>
   <tr>
     <td align="center"><img src="docs/screenshots/en/25-achievements.png" alt="GitHub achievements" width="240"><br>Achievements</td>
-    <td align="center"><img src="docs/screenshots/en/10-settings.png" alt="App settings" width="240"><br>Settings</td>
-    <td align="center"><img src="docs/screenshots/en/11-login.png" alt="Sign in and authorization" width="240"><br>Sign in</td>
+    <td align="center"><img src="docs/screenshots/en/27-achievement-dialog.png" alt="Achievement details and unlock history" width="240"><br>Achievement detail</td>
+    <td align="center"><img src="docs/screenshots/en/01b-home-create-sheet.png" alt="Native creation menu" width="240"><br>Create menu</td>
   </tr>
 </table>
 
-<img src="docs/screenshots/en/26-tablet-settings.png" alt="Landscape tablet with left navigation and settings filling the remaining width" width="800">
+<img src="docs/screenshots/en/26-tablet-settings.png" alt="Landscape tablet with left navigation and a full-width settings page" width="800">
 
 </details>
 
 ## Download and sign in
 
-Requires **Android 8.0 (API 26) or later**. See the latest Release for the v0.40.13 ARM64 APK and per-ABI checksums. [Release notes](docs/RELEASE_v0.40.13.md)
+Requires **Android 8.0 (API 26) or later**. The current version is **v0.41.0**. See the latest Release for the ARM64 APK and per-ABI checksums. [Release notes](docs/RELEASE_v0.41.0.md)
 
 | Device | APK |
 | --- | --- |

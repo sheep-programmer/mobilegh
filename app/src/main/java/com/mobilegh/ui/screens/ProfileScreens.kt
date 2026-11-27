@@ -664,6 +664,8 @@ fun OrgScreen(login: String) {
     val nav = LocalNav.current
     val ctx = rememberCtx()
     val org = rememberLoader("org:$login") { GitHub.org(login, it) }
+    val membership = rememberLoader("org-membership:$login") { GitHub.orgMembership(login) }
+    val isAdmin = membership.data?.let { it.role.equals("admin", true) && it.state.equals("active", true) } == true
     var sort by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
     val sorts = listOf("pushed" to tr("最近推送"), "updated" to tr("最近更新"), "full_name" to tr("名称"), "created" to tr("创建时间"))
     val repos = rememberPager("orgrepos:$login:$sort") { p, f -> GitHub.orgRepos(login, sorts[sort].first, p, f) }
@@ -671,13 +673,14 @@ fun OrgScreen(login: String) {
     Page(
         org.data?.name ?: login, subtitle = tr("组织"),
         actions = {
-            MoreMenu(listOf(
-                MenuAction(tr("成员")) { nav.push(Screen.Users(UserKind.Members, login)) },
-                MenuAction(tr("项目")) { nav.push(Screen.Projects(ProjectOwnerKind.Org, login)) },
-                MenuAction(tr("复制链接")) { ctx.copy("https://github.com/$login") },
-                MenuAction(tr("分享")) { ctx.share("https://github.com/$login") },
-                MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$login") },
-            ))
+            MoreMenu(buildList {
+                if (isAdmin) add(MenuAction(tr("编辑组织信息")) { nav.push(Screen.EditOrg(login)) })
+                add(MenuAction(tr("成员")) { nav.push(Screen.Users(UserKind.Members, login)) })
+                add(MenuAction(tr("项目")) { nav.push(Screen.Projects(ProjectOwnerKind.Org, login)) })
+                add(MenuAction(tr("复制链接")) { ctx.copy("https://github.com/$login") })
+                add(MenuAction(tr("分享")) { ctx.share("https://github.com/$login") })
+                add(MenuAction(tr("在浏览器打开")) { ctx.openBrowser("https://github.com/$login") })
+            })
         },
     ) { pad ->
         PagedList(repos, Modifier.padding(pad), state = state, itemKey = { it.id }, empty = tr("没有可见的仓库"), onRefresh = { org.refresh() }, header = {
@@ -685,7 +688,12 @@ fun OrgScreen(login: String) {
                 val o = org.data
                 Column(Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Avatar(o?.avatarUrl, 60.dp, square = true)
+                        Box(
+                            Modifier.clip(RoundedCornerShape(12.dp))
+                                .then(if (isAdmin) Modifier.clickable { nav.push(Screen.EditOrg(login)) } else Modifier),
+                        ) {
+                            Avatar(o?.avatarUrl, 60.dp, square = true)
+                        }
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -706,8 +714,11 @@ fun OrgScreen(login: String) {
                         }
                     }
                     Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                         GhButton(tr("成员"), icon = R.drawable.oc_people) { nav.push(Screen.Users(UserKind.Members, login)) }
+                        if (isAdmin) {
+                            GhButton(tr("编辑组织"), icon = R.drawable.oc_pencil) { nav.push(Screen.EditOrg(login)) }
+                        }
                         o?.let { IconText(R.drawable.oc_repo, trf("{0} 个仓库", fmtCount(it.publicRepos + (it.totalPrivateRepos ?: 0)))) }
                     }
                 }

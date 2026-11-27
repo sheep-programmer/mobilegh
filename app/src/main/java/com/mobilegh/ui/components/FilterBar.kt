@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -151,6 +152,9 @@ fun FilterSheet(
     subtitle: String,
     closeDescription: String,
     onDismiss: () -> Unit,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
+    contentSpacing: androidx.compose.ui.unit.Dp = 24.dp,
+    footerArrangement: Arrangement.Horizontal = Arrangement.End,
     footer: @Composable RowScope.() -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -178,14 +182,14 @@ fun FilterSheet(
             HorizontalDivider()
             // 滚动区用 weight：弹层被键盘或矮屏压缩时，底部按钮仍在屏幕内，只有中间内容滚动
             Column(
-                Modifier.weight(1f, fill = false).verticalScrollWithBar().padding(horizontal = 24.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
+                Modifier.weight(1f, fill = false).verticalScrollWithBar().padding(contentPadding),
+                verticalArrangement = Arrangement.spacedBy(contentSpacing),
                 content = content,
             )
             HorizontalDivider()
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.End,
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = footerArrangement,
                 verticalAlignment = Alignment.CenterVertically,
                 content = footer,
             )

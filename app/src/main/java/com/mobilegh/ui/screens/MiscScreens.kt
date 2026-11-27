@@ -8,7 +8,16 @@ import com.mobilegh.ui.components.findFragmentActivity
 import com.mobilegh.ui.components.InlineError
 import com.mobilegh.ui.components.RadioRow
 
+import android.webkit.CookieManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,15 +27,18 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,16 +48,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.mobilegh.BuildConfig
 import com.mobilegh.R
 import com.mobilegh.ui.components.LinkDefaultRow
 import com.mobilegh.data.Api
 import com.mobilegh.data.AppLog
+import com.mobilegh.data.BillingUsage
+import com.mobilegh.data.BillingWebReader
 import com.mobilegh.data.DeviceAuth
 import com.mobilegh.data.Downloads
 import com.mobilegh.data.GitHub
@@ -67,17 +86,23 @@ import com.mobilegh.nav.Screen
 import com.mobilegh.nav.rememberLoader
 import com.mobilegh.ui.components.Avatar
 import com.mobilegh.ui.components.Card
+import com.mobilegh.ui.components.GitHubWebLogin
 import com.mobilegh.ui.components.MenuIcon
 import com.mobilegh.ui.components.Dropdown
 import com.mobilegh.ui.components.GhButton
 import com.mobilegh.ui.components.GhDialog
 import com.mobilegh.ui.components.GhField
+import com.mobilegh.ui.components.GhTooltip
 import com.mobilegh.ui.components.HDivider
+import com.mobilegh.ui.components.MenuAction
 import com.mobilegh.ui.components.MenuRow
 import com.mobilegh.ui.components.MenuGroup
+import com.mobilegh.ui.components.MoreMenu
+import com.mobilegh.ui.components.Oc
 import com.mobilegh.ui.components.OcButton
 import com.mobilegh.ui.components.Page
 import com.mobilegh.ui.components.Pill
+import com.mobilegh.ui.components.SectionActionChip
 import com.mobilegh.ui.components.SectionTitle
 import com.mobilegh.ui.components.Segmented
 import com.mobilegh.ui.components.SwitchRow
@@ -334,41 +359,211 @@ private fun SettingsHome(open: (SettingsPage) -> Unit, onLogout: () -> Unit) {
     val g = Gh.c
     val nav = LocalNav.current
 
-    // 顶部紧凑当前账号条（不重复首页多账号列表，精简压缩）
+    // 顶部多账号列表与维护卡片：支持查看状态、点击叉号弹窗补全、快速切换、新增与移除账号
     val curLogin = Session.login
-    val curAccount = Session.accounts.firstOrNull { it.login == curLogin }
-    if (curAccount != null) {
+    val accountList = Session.accounts.toList()
+    var promptMissingAuth by remember { mutableStateOf<String?>(null) } // "web" | "oauth"
+    var confirmRemoveLogin by remember { mutableStateOf<String?>(null) }
+    if (accountList.isNotEmpty()) {
+        val viewer = rememberLoader("settings_viewer") { GitHub.viewer(false) }.data
+        val hasWebSession = remember(curLogin, Session.generation, GitHubWebLogin.sessionRevision, Session.webSessionRevision) {
+            GitHubWebLogin.hasSession()
+        }
         Card(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp),
         ) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Avatar(curAccount.avatarUrl, 32.dp)
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(curAccount.login, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = g.fg)
-                    Text(tr("当前已登录"), fontSize = 12.sp, color = g.fgMuted)
-                }
-                if (Session.accounts.size > 1) {
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
-                        trf("切换账号 ({0})", Session.accounts.size),
-                        fontSize = 12.sp,
-                        color = g.accent,
-                        modifier = Modifier
-                            .clickable {
-                                val nextIdx = (Session.accounts.indexOfFirst { it.login == curLogin } + 1) % Session.accounts.size
-                                Session.switchTo(Session.accounts[nextIdx].login)
-                            }
-                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        trf("账号列表 ({0})", accountList.size),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = g.fgMuted,
                     )
+                    SectionActionChip(tr("添加账号")) { nav.push(Screen.Login) }
+                }
+                accountList.forEach { acc ->
+                    val isCurrent = acc.login == curLogin
+                    val accHasOAuth = acc.refreshTk.isNotBlank() || acc.clientId.isNotBlank()
+                    HDivider()
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (isCurrent) nav.push(Screen.Me) else Session.switchTo(acc.login)
+                            }
+                            .padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Avatar(acc.avatarUrl, 36.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                val displayName = if (isCurrent) viewer?.name?.takeIf { it.isNotBlank() && !it.equals(acc.login, true) } else null
+                                Text(
+                                    if (displayName != null) "${acc.login} · $displayName" else acc.login,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = g.fg,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                                if (isCurrent && accountList.size > 1) {
+                                    Pill(tr("当前"), g.accent)
+                                }
+                            }
+                            Spacer(Modifier.height(3.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                if (isCurrent) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = (if (!hasWebSession) Modifier.clickable { promptMissingAuth = "web" } else Modifier)
+                                            .padding(vertical = 2.dp),
+                                    ) {
+                                        Text(tr("网页"), fontSize = 12.sp, color = g.fgMuted)
+                                        Spacer(Modifier.width(4.dp))
+                                        Oc(
+                                            if (hasWebSession) R.drawable.oc_check_circle else R.drawable.oc_x_circle,
+                                            if (hasWebSession) g.success else g.danger,
+                                            13.dp,
+                                        )
+                                    }
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = (if (!accHasOAuth) Modifier.clickable { promptMissingAuth = "oauth" } else Modifier)
+                                            .padding(vertical = 2.dp),
+                                    ) {
+                                        Text("OAuth", fontSize = 12.sp, color = g.fgMuted)
+                                        Spacer(Modifier.width(4.dp))
+                                        Oc(
+                                            if (accHasOAuth) R.drawable.oc_check_circle else R.drawable.oc_x_circle,
+                                            if (accHasOAuth) g.success else g.danger,
+                                            13.dp,
+                                        )
+                                    }
+                                } else {
+                                    val otherWebSession = remember(acc.login, Session.generation, GitHubWebLogin.sessionRevision, Session.webSessionRevision) {
+                                        Session.hasSavedWebSession(acc.login)
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(tr("网页"), fontSize = 12.sp, color = g.fgMuted)
+                                        Spacer(Modifier.width(4.dp))
+                                        Oc(
+                                            if (otherWebSession) R.drawable.oc_check_circle else R.drawable.oc_x_circle,
+                                            if (otherWebSession) g.success else g.danger,
+                                            13.dp,
+                                        )
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("OAuth", fontSize = 12.sp, color = g.fgMuted)
+                                        Spacer(Modifier.width(4.dp))
+                                        Oc(
+                                            if (accHasOAuth) R.drawable.oc_check_circle else R.drawable.oc_x_circle,
+                                            if (accHasOAuth) g.success else g.danger,
+                                            13.dp,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        MoreMenu(
+                            buildList {
+                                if (isCurrent) {
+                                    add(MenuAction(tr("查看个人主页"), icon = R.drawable.oc_person) { nav.push(Screen.Me) })
+                                    add(MenuAction(tr("重新登录 / 补全授权"), icon = R.drawable.oc_mark_github) { nav.push(Screen.Reauthorize) })
+                                    if (!hasWebSession) {
+                                        add(MenuAction(tr("连接网页会话"), icon = R.drawable.oc_globe) { promptMissingAuth = "web" })
+                                    }
+                                    add(MenuAction(tr("退出此账号"), danger = true, icon = R.drawable.oc_sign_out) {
+                                        confirmRemoveLogin = acc.login
+                                    })
+                                } else {
+                                    add(MenuAction(tr("切换到此账号"), icon = R.drawable.oc_sync) { Session.switchTo(acc.login) })
+                                    add(MenuAction(tr("查看个人主页"), icon = R.drawable.oc_person) { nav.push(Screen.Profile(acc.login)) })
+                                    add(MenuAction(tr("移除此账号"), danger = true, icon = R.drawable.oc_trash) {
+                                        confirmRemoveLogin = acc.login
+                                    })
+                                }
+                            },
+                        )
+                    }
                 }
             }
+        }
+    }
+    confirmRemoveLogin?.let { target ->
+        val isTargetCurrent = target == curLogin
+        val title = if (isTargetCurrent) tr("退出当前账号？") else tr("移除已保存账号？")
+        val confirmText = if (isTargetCurrent) tr("退出") else tr("移除")
+        GhDialog(
+            title = title,
+            onDismiss = { confirmRemoveLogin = null },
+            confirm = confirmText,
+            danger = true,
+            onConfirm = {
+                confirmRemoveLogin = null
+                if (isTargetCurrent && accountList.size <= 1) {
+                    onLogout()
+                } else {
+                    Session.removeAccount(target)
+                }
+            },
+        ) {
+            Text(
+                if (isTargetCurrent && accountList.size > 1) {
+                    trf("将退出 @{0} 并自动切换到下一个已登录账号。", target)
+                } else if (isTargetCurrent) {
+                    trf("将清除 @{0} 在本机的登录凭据并返回登录页。", target)
+                } else {
+                    trf("将从多账号列表中移除 @{0} 在本机的凭据。", target)
+                },
+                color = g.fg, fontSize = 14.sp, lineHeight = 20.sp,
+            )
+        }
+    }
+    when (promptMissingAuth) {
+        "web" -> GhDialog(
+            title = tr("连接 GitHub 网页会话"),
+            onDismiss = { promptMissingAuth = null },
+            confirm = tr("去登录"),
+            onConfirm = {
+                promptMissingAuth = null
+                GitHubWebLogin.request(tr("登录 GitHub 网页会话"), "https://github.com/login")
+            },
+        ) {
+            Text(
+                tr("创建与编辑组织、上传图片附件及读取部分网页功能需要 GitHub 网页会话。是否打开应用内登录补全？"),
+                color = g.fg, fontSize = 14.sp, lineHeight = 20.sp,
+            )
+        }
+        "oauth" -> GhDialog(
+            title = tr("补全 GitHub OAuth 授权"),
+            onDismiss = { promptMissingAuth = null },
+            confirm = tr("去授权"),
+            onConfirm = {
+                promptMissingAuth = null
+                nav.push(Screen.Reauthorize)
+            },
+        ) {
+            Text(
+                tr("当前账号通过 Token 登录，未开启 OAuth 自动刷新、设备数字审批及网页同步登录。是否前往重新授权补全？"),
+                color = g.fg, fontSize = 14.sp, lineHeight = 20.sp,
+            )
         }
     }
 
@@ -380,7 +575,7 @@ private fun SettingsHome(open: (SettingsPage) -> Unit, onLogout: () -> Unit) {
     }
     Spacer(Modifier.height(10.dp))
     MenuGroup {
-        MenuRow(R.drawable.oc_globe, tr("网络与加速"), g.attention, value = accelerationName()) { open(SettingsPage.Network) }
+        MenuRow(R.drawable.oc_globe, tr("网络与加速"), g.attention) { open(SettingsPage.Network) }
         MenuRow(R.drawable.oc_key, tr("Token 与 API 配额"), g.severe) { open(SettingsPage.Quota) }
         MenuRow(R.drawable.oc_log, tr("存储与诊断"), g.fgMuted, value = AppLog.entries.size.toString() + tr(" 条日志")) { open(SettingsPage.Storage) }
         MenuRow(
@@ -404,13 +599,6 @@ private fun languageName() = when (com.mobilegh.i18n.I18n.choice) {
 
 /** 加速节点的三种模式：摘要和选项使用同一组文字，避免「自动加速」与「自动（推荐）」对不上 */
 private fun accelerationModeLabels() = listOf(tr("自动（推荐）"), tr("手动选择"), tr("关闭"))
-
-@Composable
-private fun accelerationName() = trf(
-    "文件 {0} · 下载 {1}",
-    accelerationModeLabels()[Net.rawMode.coerceIn(0, 2)],
-    accelerationModeLabels()[Net.downloadMode.coerceIn(0, 2)],
-)
 
 /** 外观与语言：主题、界面语言、代码换行 */
 @Composable
@@ -525,6 +713,333 @@ private fun QuotaSection() {
             Text(tr("本应用利用 ETag 条件请求缓存数据，未变化的内容不消耗配额。"), fontSize = 12.sp, color = g.fgMuted)
         }
     }
+    ActionsQuotaCard()
+}
+
+@Composable
+internal fun ActionsQuotaCard() {
+    val g = Gh.c
+    val login = Session.login ?: return
+    val billing = rememberLoader("billing:$login") { GitHub.billingUsage(login, it) }
+    var webExtracted by remember(login) { mutableStateOf<BillingUsage?>(null) }
+    var webExtractFailed by remember(login) { mutableStateOf(false) }
+    var showDetailDialog by remember { mutableStateOf(false) }
+    val viewer = rememberLoader("settings_viewer") { GitHub.viewer(false) }.data
+    val planName = viewer?.plan?.name
+    val data = webExtracted ?: billing.data
+
+    SectionTitle(tr("Actions 与存储配额"))
+    Card(Modifier.padding(horizontal = 16.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            when {
+                billing.loading && data == null -> Text(tr("正在读取 Actions 与存储配额…"), fontSize = 13.sp, color = g.fgMuted)
+                billing.error != null && data == null -> InlineError(billing.error!!) {
+                    webExtracted = null; webExtractFailed = false; billing.refresh()
+                }
+                data?.needsWebSession == true -> {
+                    Text(
+                        data.unavailableReason ?: tr("登录 GitHub 网页会话后即可直接在应用内读取 Actions 与存储配额。"),
+                        fontSize = 13.sp, color = g.fgMuted, lineHeight = 19.sp,
+                    )
+                    GhButton(tr("连接网页查看配额"), primary = true) {
+                        GitHubWebLogin.request(tr("登录 GitHub 读取计费配额"), "https://github.com/login") {
+                            webExtracted = null
+                            webExtractFailed = false
+                            billing.refresh()
+                        }
+                    }
+                }
+                data?.needsWebExtract == true && !webExtractFailed -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = g.accent)
+                        Spacer(Modifier.width(8.dp))
+                        Text(tr("正在从 GitHub 计费页读取最新配额…"), fontSize = 13.sp, color = g.fgMuted)
+                    }
+                    BillingWebExtractor(
+                        planName = planName,
+                        onExtracted = { webExtracted = it },
+                        onFailed = { webExtractFailed = true },
+                    )
+                }
+                data?.needsWebExtract == true && webExtractFailed -> {
+                    Text(tr("暂时无法自动抓取网页配额，请点下方「刷新配额」或前往「查看用量明细」确认套餐额度。"), fontSize = 13.sp, color = g.fgMuted, lineHeight = 19.sp)
+                }
+                data != null -> {
+                    data.actions?.let { a ->
+                        val limit = a.includedMinutes.coerceAtLeast(1)
+                        val remaining = (a.includedMinutes - a.totalMinutesUsed).coerceAtLeast(0)
+                        com.mobilegh.ui.components.RatioRow(
+                            trf("Actions 分钟  已用 {0}/{1}", a.totalMinutesUsed, a.includedMinutes),
+                            remaining,
+                            limit,
+                            if (a.totalMinutesUsed >= a.includedMinutes && a.includedMinutes > 0) g.danger else g.accent,
+                        )
+                        if (a.minutesUsedBreakdown.isNotEmpty()) {
+                            val detail = a.minutesUsedBreakdown.entries
+                                .filter { it.value > 0 }
+                                .joinToString(" · ") { "${it.key}: ${it.value}m" }
+                            if (detail.isNotEmpty()) {
+                                Text(detail, fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = g.fgMuted)
+                            }
+                        }
+                        if (a.totalPaidMinutesUsed > 0) {
+                            Text(trf("额外付费分钟：{0} 分钟", a.totalPaidMinutesUsed), fontSize = 12.sp, color = g.attention)
+                        }
+                    }
+                    data.storage?.let { s ->
+                        Text(
+                            trf("共享存储预估：{0} GB · 本周期剩余 {1} 天", s.estimatedStorageForMonth, s.daysLeftInBillingCycle),
+                            fontSize = 12.sp, color = g.fgMuted,
+                        )
+                    }
+                    data.packages?.let { p ->
+                        Text(
+                            trf("Packages 流量：已用 {0}/{1} GB", p.totalGigabytesBandwidthUsed, p.includedGigabytesBandwidth),
+                            fontSize = 12.sp, color = g.fgMuted,
+                        )
+                    }
+                    data.unavailableReason?.let { reason ->
+                        Text(reason, fontSize = 12.sp, color = g.fgMuted)
+                    }
+                }
+            }
+            val refreshScope = rememberCoroutineScope()
+            val refreshRotate = remember { Animatable(0f) }
+            LaunchedEffect(billing.loading) {
+                if (billing.loading) {
+                    refreshRotate.animateTo(
+                        targetValue = refreshRotate.value + 360f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(durationMillis = 800, easing = LinearEasing),
+                            repeatMode = RepeatMode.Restart,
+                        ),
+                    )
+                } else {
+                    val mod = refreshRotate.value % 360f
+                    if (mod > 1f) {
+                        refreshRotate.animateTo(refreshRotate.value + (360f - mod), tween(220, easing = LinearEasing))
+                    }
+                    refreshRotate.snapTo(0f)
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 2.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                GhTooltip(tr("刷新配额")) {
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(g.canvasSubtle)
+                            .border(1.dp, g.border, RoundedCornerShape(50))
+                            .clickable(enabled = !billing.loading) {
+                                webExtracted = null
+                                webExtractFailed = false
+                                billing.refresh()
+                                refreshScope.launch {
+                                    refreshRotate.snapTo(0f)
+                                    refreshRotate.animateTo(360f, tween(durationMillis = 550, easing = LinearEasing))
+                                }
+                            }
+                            .padding(horizontal = 11.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Oc(
+                            R.drawable.oc_sync,
+                            g.accent,
+                            15.dp,
+                            Modifier.graphicsLayer { rotationZ = refreshRotate.value },
+                        )
+                    }
+                }
+                SectionActionChip(tr("查看用量明细")) { showDetailDialog = true }
+            }
+        }
+    }
+    if (showDetailDialog) {
+        NativeBillingDetailDialog(
+            login = login,
+            usage = data,
+            viewerDiskKb = viewer?.diskUsage,
+            planName = planName ?: data?.planName,
+            onDismiss = { showDetailDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun NativeBillingDetailDialog(
+    login: String,
+    usage: BillingUsage?,
+    viewerDiskKb: Long?,
+    planName: String?,
+    onDismiss: () -> Unit,
+) {
+    val g = Gh.c
+    val detailLoader = rememberLoader("billing-detail:$login") { GitHub.billingUsageDetail(login, true) }
+    val items = detailLoader.data ?: usage?.items.orEmpty()
+
+    GhDialog(
+        title = tr("用量与计费明细"),
+        onDismiss = onDismiss,
+        confirm = tr("关闭"),
+        onConfirm = onDismiss,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 440.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (!planName.isNullOrBlank() || viewerDiskKb != null) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(
+                        trf("当前方案：{0}", planName?.uppercase() ?: "FREE"),
+                        fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = g.fg,
+                    )
+                    viewerDiskKb?.let { kb ->
+                        val sizeText = if (kb >= 1024) "${String.format(java.util.Locale.US, "%.1f", kb / 1024.0)} MB" else "$kb KB"
+                        Text(trf("仓库占用：{0}", sizeText), fontSize = 12.sp, color = g.fgMuted)
+                    }
+                }
+            }
+            usage?.actions?.let { a ->
+                val remaining = (a.includedMinutes - a.totalMinutesUsed).coerceAtLeast(0)
+                com.mobilegh.ui.components.RatioRow(
+                    trf("Actions 分钟  已用 {0}/{1}", a.totalMinutesUsed, a.includedMinutes),
+                    remaining,
+                    a.includedMinutes.coerceAtLeast(1),
+                    if (a.totalMinutesUsed >= a.includedMinutes && a.includedMinutes > 0) g.danger else g.accent,
+                )
+            }
+            usage?.packages?.let { p ->
+                Text(
+                    trf("Packages 流量：已用 {0}/{1} GB", p.totalGigabytesBandwidthUsed, p.includedGigabytesBandwidth),
+                    fontSize = 12.sp, color = g.fgMuted,
+                )
+            }
+            usage?.storage?.let { s ->
+                Text(
+                    trf("共享存储预估：{0} GB · 本周期剩余 {1} 天", s.estimatedStorageForMonth, s.daysLeftInBillingCycle),
+                    fontSize = 12.sp, color = g.fgMuted,
+                )
+            }
+            HDivider()
+            Text(tr("本月计费条目"), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+            when {
+                detailLoader.loading && items.isEmpty() -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(15.dp), strokeWidth = 2.dp, color = g.accent)
+                    Spacer(Modifier.width(8.dp))
+                    Text(tr("正在读取计费明细…"), fontSize = 12.sp, color = g.fgMuted)
+                }
+                detailLoader.error != null && items.isEmpty() -> Text(
+                    detailLoader.error!!, fontSize = 12.sp, color = g.danger,
+                )
+                items.isEmpty() -> Text(
+                    tr("本月暂无产生计费用量条目，所有免费包含额度均充足。"),
+                    fontSize = 12.sp, color = g.fgMuted, lineHeight = 18.sp,
+                )
+                else -> {
+                    items.take(40).forEach { item ->
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(
+                                    listOf(item.product, item.sku).filter { it.isNotBlank() }.distinct().joinToString(" · "),
+                                    fontSize = 13.sp, fontWeight = FontWeight.Medium, color = g.fg,
+                                    modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "${String.format(java.util.Locale.US, "%.2f", item.quantity)} ${item.unitType}",
+                                    fontSize = 12.sp, fontFamily = FontFamily.Monospace, color = g.fgMuted,
+                                )
+                            }
+                            val meta = buildList {
+                                if (item.repositoryName.isNotBlank()) add(item.repositoryName)
+                                if (item.date.isNotBlank()) add(item.date.take(10))
+                                if (item.discountAmount > 0) add(trf("额度抵扣 ${'$'}{0}", String.format(java.util.Locale.US, "%.2f", item.discountAmount)))
+                                if (item.netAmount > 0) add(trf("实付 ${'$'}{0}", String.format(java.util.Locale.US, "%.2f", item.netAmount)))
+                            }.joinToString(" · ")
+                            if (meta.isNotBlank()) {
+                                Text(meta, fontSize = 11.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        HDivider()
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BillingWebExtractor(
+    planName: String?,
+    onExtracted: (BillingUsage) -> Unit,
+    onFailed: () -> Unit,
+) {
+    var pageReady by remember { mutableStateOf(false) }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    LaunchedEffect(pageReady) {
+        if (!pageReady) return@LaunchedEffect
+        repeat(12) { attempt ->
+            delay(550)
+            val wv = webViewRef ?: return@LaunchedEffect
+            wv.evaluateJavascript("document.body ? document.body.innerText : ''") { raw ->
+                val text = decodeJsString(raw)
+                val parsed = BillingWebReader.parseBillingText(text, planName)
+                if (parsed != null) {
+                    onExtracted(parsed)
+                } else if (attempt == 11) {
+                    onFailed()
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        delay(10_000)
+        onFailed()
+    }
+
+    AndroidView(
+        modifier = Modifier.size(1.dp).alpha(0f),
+        factory = { ctx ->
+            WebView(ctx).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                CookieManager.getInstance().setAcceptCookie(true)
+                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        if (url?.contains("/login") == true) {
+                            onFailed()
+                        } else {
+                            pageReady = true
+                        }
+                    }
+                }
+                loadUrl(BillingWebReader.BILLING_URL)
+                webViewRef = this
+            }
+        },
+        update = { webViewRef = it },
+    )
+    DisposableEffect(Unit) {
+        onDispose { webViewRef?.destroy(); webViewRef = null }
+    }
+}
+
+private fun decodeJsString(raw: String?): String {
+    if (raw.isNullOrBlank() || raw == "null") return ""
+    return runCatching { Api.plain.decodeFromString<String>(raw) }.getOrDefault(raw.trim('"'))
 }
 
 @Composable

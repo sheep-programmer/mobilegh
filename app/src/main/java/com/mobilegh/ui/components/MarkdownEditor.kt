@@ -1,6 +1,14 @@
 package com.mobilegh.ui.components
 
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -225,9 +233,14 @@ private fun SegBtn(icon: Int, label: String, active: Boolean, onClick: () -> Uni
     }
 }
 
-/** 底部的「添加文件」条：点击选择图片或视频，上传中显示文件名 */
+/** 底部的「添加文件」条：点击选择图片或视频，上传中显示文件名；已上传附件在下方框内展示，点击弹窗预览 */
 @Composable
-private fun AttachStrip(uploading: String?, onAttach: () -> Unit) {
+private fun AttachStrip(
+    uploading: String?,
+    attachments: List<UploadedAttachment>,
+    onAttach: () -> Unit,
+    onPreview: (Int) -> Unit,
+) {
     val g = Gh.c
     Column(Modifier.fillMaxWidth()) {
         Row(
@@ -243,12 +256,194 @@ private fun AttachStrip(uploading: String?, onAttach: () -> Unit) {
                 fontSize = 13.sp, color = if (uploading != null) g.accent else g.fgMuted,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
-            if (uploading != null) {
+            if (attachments.isNotEmpty() && uploading == null) {
+                Spacer(Modifier.weight(1f))
+                Text(
+                    trf("{0} 个附件 · 点击预览", attachments.size),
+                    fontSize = 12.sp,
+                    color = g.accent,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { onPreview(0) }
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            } else if (uploading != null) {
                 Spacer(Modifier.weight(1f))
                 CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = g.accent)
             }
         }
+        if (attachments.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                attachments.forEachIndexed { index, item ->
+                    val chipShape = RoundedCornerShape(8.dp)
+                    Row(
+                        Modifier
+                            .clip(chipShape)
+                            .background(g.canvasSubtle, chipShape)
+                            .border(1.dp, g.borderMuted, chipShape)
+                            .clickable { onPreview(index) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Oc(if (item.isVideo) R.drawable.oc_play else R.drawable.oc_file_media, g.accent, 14.dp)
+                        Text(
+                            item.fileName,
+                            fontSize = 12.sp,
+                            color = g.fg,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(end = 2.dp),
+                        )
+                    }
+                }
+            }
+        }
         if (uploading != null) LinearProgressIndicator(Modifier.fillMaxWidth(), color = g.accent)
+    }
+}
+
+@Composable
+private fun AttachmentsPreviewDialog(
+    attachments: List<UploadedAttachment>,
+    initialIndex: Int,
+    onRemove: ((UploadedAttachment) -> Unit)?,
+    onDismiss: () -> Unit,
+) {
+    if (attachments.isEmpty()) {
+        onDismiss()
+        return
+    }
+    val g = Gh.c
+    val ctx = LocalContext.current
+    var selected by remember(attachments.size, initialIndex) {
+        mutableStateOf(initialIndex.coerceIn(0, attachments.lastIndex))
+    }
+    val current = attachments[selected.coerceIn(0, attachments.lastIndex)]
+    val previewSrc = current.localUri ?: current.url
+    val localBitmap by produceState<ImageBitmap?>(null, current.url, current.localUri, current.isVideo) {
+        value = if (current.isVideo || current.localUri.isNullOrBlank()) null
+        else kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                ctx.contentResolver.openInputStream(Uri.parse(current.localUri))?.use {
+                    BitmapFactory.decodeStream(it)?.asImageBitmap()
+                }
+            }.getOrNull()
+        }
+    }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Column(
+            Modifier.fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(g.canvas)
+                .border(1.dp, g.border, RoundedCornerShape(14.dp))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (attachments.size > 1) trf("附件预览 ({0}/{1})", selected + 1, attachments.size) else tr("附件预览"),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = g.fg,
+                    )
+                    Text(current.fileName, fontSize = 12.sp, color = g.fgMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                FmtBtn(tr("关闭"), onDismiss) { Oc(R.drawable.oc_x, g.fgMuted, 18.dp) }
+            }
+            if (attachments.size > 1) {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    attachments.forEachIndexed { i, item ->
+                        val active = i == selected
+                        val chipShape = RoundedCornerShape(8.dp)
+                        Row(
+                            Modifier
+                                .clip(chipShape)
+                                .background(if (active) g.accentSubtle else g.canvasSubtle, chipShape)
+                                .border(1.dp, if (active) g.accent else g.borderMuted, chipShape)
+                                .clickable { selected = i }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Oc(if (item.isVideo) R.drawable.oc_play else R.drawable.oc_file_media, if (active) g.accent else g.fgMuted, 14.dp)
+                            Text(
+                                item.fileName,
+                                fontSize = 12.sp,
+                                color = if (active) g.accent else g.fg,
+                                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+            Box(
+                Modifier.fillMaxWidth()
+                    .heightIn(min = 180.dp, max = 300.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (current.isVideo) Color.Black else g.canvasSubtle)
+                    .border(1.dp, g.borderMuted, RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (current.isVideo) {
+                    VideoViewerContent(previewSrc)
+                } else {
+                    val bmp = localBitmap
+                    if (bmp != null) {
+                        Image(
+                            bitmap = bmp,
+                            contentDescription = current.fileName,
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp),
+                            contentScale = ContentScale.Fit,
+                        )
+                    } else {
+                        NetImage(
+                            url = current.url,
+                            contentDescription = current.fileName,
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp),
+                            contentScale = ContentScale.Fit,
+                        )
+                    }
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (onRemove != null) {
+                    TextButton(onClick = {
+                        onRemove(current)
+                        if (attachments.size <= 1) onDismiss()
+                        else selected = selected.coerceAtMost(attachments.size - 2)
+                    }) {
+                        Text(tr("移除"), color = g.danger)
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                GhButton(if (current.isVideo) tr("全屏播放") else tr("放大查看")) {
+                    if (current.isVideo) VideoViewer.open(previewSrc)
+                    else ImageViewer.open(previewSrc, current.fileName)
+                }
+                GhButton(tr("关闭"), primary = true, onClick = onDismiss)
+            }
+        }
     }
 }
 
@@ -295,6 +490,10 @@ fun MarkdownEditor(
     onAttach: (() -> Unit)? = null,
     /** 正在上传的文件名；非空时添加文件条显示上传状态 */
     uploading: String? = null,
+    /** 已上传的附件列表（含本地预览 URI），在底部框内展示并支持点击弹窗预览 */
+    attachments: List<UploadedAttachment> = emptyList(),
+    /** 从底部预览弹窗移除附件时的回调 */
+    onRemoveAttachment: ((UploadedAttachment) -> Unit)? = null,
 ) {
     val g = Gh.c
     // null = 关闭；false = 全屏编辑；true = 全屏预览
@@ -302,6 +501,8 @@ fun MarkdownEditor(
     val preview = sheet == true
     // 外框样式里的编辑 / 预览在框内切换（与网页版一致），全屏按钮仍打开整屏工作区
     var inlinePreview by remember { mutableStateOf(false) }
+    val resolvedAttachments = remember(value.text, attachments) { parseEditorAttachments(value.text, attachments) }
+    var previewAttachmentIndex by remember { mutableStateOf<Int?>(null) }
     if (framed) {
         Column(
             modifier.fillMaxWidth()
@@ -336,7 +537,7 @@ fun MarkdownEditor(
             }
             if (onAttach != null) {
                 HDivider()
-                AttachStrip(uploading, onAttach)
+                AttachStrip(uploading, resolvedAttachments, onAttach) { previewAttachmentIndex = it }
             }
         }
     } else {
@@ -353,8 +554,16 @@ fun MarkdownEditor(
             )
             if (!preview) MarkdownToolbar(value, onValueChange, Modifier.padding(top = 4.dp))
             MentionSuggestions(value, onValueChange, contextRepo, Modifier.padding(top = 4.dp))
-            if (onAttach != null) AttachStrip(uploading, onAttach)
+            if (onAttach != null) AttachStrip(uploading, resolvedAttachments, onAttach) { previewAttachmentIndex = it }
         }
+    }
+    previewAttachmentIndex?.let { index ->
+        AttachmentsPreviewDialog(
+            attachments = resolvedAttachments,
+            initialIndex = index,
+            onRemove = onRemoveAttachment,
+            onDismiss = { previewAttachmentIndex = null },
+        )
     }
     sheet?.let { mode ->
         MarkdownFullscreenSheet(

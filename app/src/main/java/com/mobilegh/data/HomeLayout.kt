@@ -18,10 +18,10 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 
 /** 首页「我的工作」里的内置入口；顺序即默认布局 */
-enum class BuiltinShortcut(val id: String) {
+enum class BuiltinShortcut(val id: String, val defaultVisible: Boolean = true) {
     Activity("activity"), Issues("issues"), Pulls("pulls"), Favorites("favorites"), Saved("saved"), Repos("repos"), Orgs("orgs"),
     Stars("stars"), Lists("lists"), Gists("gists"), Recent("recent"),
-    Projects("projects"), Drafts("drafts"), Invitations("invitations");
+    Projects("projects"), Drafts("drafts"), Settings("settings"), Invitations("invitations", defaultVisible = false);
 
     companion object {
         fun of(id: String) = entries.firstOrNull { it.id == id }
@@ -53,8 +53,10 @@ data class HomeLayout(
     /** 实际生效的入口顺序：未知 id 丢弃，新增的内置入口与保存的搜索追加在末尾 */
     fun slots(): List<ShortcutSlot> {
         val known = BuiltinShortcut.entries.map { it.id } + searches.map { searchSlotId(it.id) }
-        val stored = (shortcuts ?: BuiltinShortcut.entries.map { ShortcutSlot(it.id) }).filter { it.id in known }.distinctBy { it.id }
-        val missing = known.filter { id -> stored.none { it.id == id } }.map { ShortcutSlot(it) }
+        val stored = (shortcuts ?: BuiltinShortcut.entries.map { ShortcutSlot(it.id, it.defaultVisible) }).filter { it.id in known }.distinctBy { it.id }
+        val missing = known.filter { id -> stored.none { it.id == id } }.map { id ->
+            ShortcutSlot(id, visible = BuiltinShortcut.of(id)?.defaultVisible ?: true)
+        }
         return stored + missing
     }
 
@@ -210,11 +212,38 @@ object HomePrefs {
 
     fun init(context: Context) {
         val prefs = context.getSharedPreferences("home_layout_v1", Context.MODE_PRIVATE)
-        store = HomeLayoutStore(object : LocalRecordStorage {
+        val localStore = HomeLayoutStore(object : LocalRecordStorage {
             override fun read(key: String) = prefs.getString(key, null)
             override fun write(key: String, value: String) { prefs.edit().putString(key, value).apply() }
             override fun remove(key: String) { prefs.edit().remove(key).apply() }
         })
+        if (!prefs.getBoolean("migrated_settings_shortcut_v1", false)) {
+            prefs.all.keys.filter { it.startsWith("home:") }.forEach { key ->
+                val login = key.removePrefix("home:")
+                if (login.isNotBlank()) {
+                    val cur = runCatching { localStore.read(login) }.getOrNull()
+                    val existing = cur?.shortcuts
+                    if (existing != null && existing.none { it.id == BuiltinShortcut.Settings.id }) {
+                        val updated = buildList {
+                            var insertedSettings = false
+                            existing.forEach { slot ->
+                                if (slot.id == BuiltinShortcut.Invitations.id && slot.visible && !insertedSettings) {
+                                    add(ShortcutSlot(BuiltinShortcut.Settings.id, visible = true))
+                                    insertedSettings = true
+                                } else if (slot.id != BuiltinShortcut.Invitations.id) {
+                                    add(slot)
+                                }
+                            }
+                            if (!insertedSettings) add(ShortcutSlot(BuiltinShortcut.Settings.id, visible = true))
+                            add(ShortcutSlot(BuiltinShortcut.Invitations.id, visible = false))
+                        }
+                        localStore.setShortcuts(login, updated)
+                    }
+                }
+            }
+            prefs.edit().putBoolean("migrated_settings_shortcut_v1", true).apply()
+        }
+        store = localStore
         cachedLogin = null
         cachedRevision = -1
         cachedLayout = HomeLayout()

@@ -1,5 +1,7 @@
 package com.mobilegh.ui.screens
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import com.mobilegh.ui.components.openBrowser
 import com.mobilegh.ui.components.MenuRow
@@ -23,7 +25,9 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,7 +51,11 @@ import com.mobilegh.data.GitHub
 import com.mobilegh.data.Api
 import com.mobilegh.data.Invitation
 import com.mobilegh.data.OrgMembership
+import com.mobilegh.data.OrganizationCreator
+import com.mobilegh.data.Repo
 import com.mobilegh.data.Session
+import com.mobilegh.data.WebSessionMissing
+import com.mobilegh.ui.components.GitHubWebLogin
 import com.mobilegh.nav.act
 import com.mobilegh.nav.LocalEntry
 import com.mobilegh.nav.LocalNav
@@ -102,7 +110,34 @@ import kotlinx.coroutines.flow.first
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
 
-internal val SORTS get() = listOf("pushed" to tr("最近推送"), "updated" to tr("最近更新"), "full_name" to tr("名称"), "created" to tr("创建时间"))
+internal data class RepoSortOption(
+    val apiSort: String,
+    val label: String,
+    val defaultDescending: Boolean,
+    val localOnly: Boolean = false,
+)
+
+internal val SORTS get() = listOf(
+    RepoSortOption("pushed", tr("最近推送"), defaultDescending = true),
+    RepoSortOption("updated", tr("最近更新"), defaultDescending = true),
+    RepoSortOption("full_name", tr("名称"), defaultDescending = false),
+    RepoSortOption("created", tr("创建时间"), defaultDescending = true),
+    RepoSortOption("stars", tr("Star 数"), defaultDescending = true, localOnly = true),
+    RepoSortOption("forks", tr("Fork 数"), defaultDescending = true, localOnly = true),
+)
+
+internal fun repoComparator(sortKey: String, descending: Boolean): Comparator<Repo> = Comparator { a, b ->
+    val primary = when (sortKey) {
+        "stars" -> a.stargazersCount.compareTo(b.stargazersCount)
+        "forks" -> a.forksCount.compareTo(b.forksCount)
+        "updated" -> (a.updatedAt.orEmpty()).compareTo(b.updatedAt.orEmpty())
+        "created" -> (a.createdAt.orEmpty()).compareTo(b.createdAt.orEmpty())
+        "full_name" -> a.fullName.lowercase().compareTo(b.fullName.lowercase())
+        else -> (a.pushedAt ?: a.updatedAt.orEmpty()).compareTo(b.pushedAt ?: b.updatedAt.orEmpty())
+    }
+    val ordered = if (descending) -primary else primary
+    if (ordered != 0) ordered else a.id.compareTo(b.id)
+}
 
 /** 关键词筛选时最多读取的仓库条数；超过后停止翻页并提示，避免一次搜索拉完整个账号的仓库 */
 internal const val REPO_FILTER_LOAD_LIMIT = 1000
@@ -128,6 +163,7 @@ fun ReposTab() {
     val vis = listOf("all" to tr("全部可见性"), "public" to tr("公开"), "private" to tr("私有"))
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var sort by rememberSaveable { mutableIntStateOf(0) }
+    var descending by rememberSaveable { mutableStateOf(SORTS[0].defaultDescending) }
     var visibility by rememberSaveable { mutableIntStateOf(0) }
     var query by rememberSaveable { mutableStateOf("") }
     var hideForks by rememberSaveable { mutableStateOf(false) }
@@ -137,30 +173,35 @@ fun ReposTab() {
     val directory = rememberLoader("repo-orgs") { GitHub.orgAccess(it) }
     val orgs = directory.data?.orgs.orEmpty().map { it.login }
     val safeOrg = selectedOrg?.takeIf { it in orgs }
-    val key = "repos:${Session.login.orEmpty()}:$filter:$sort:$visibility"
+    val sortOption = SORTS[sort.coerceIn(0, SORTS.lastIndex)]
+    val apiSort = if (sortOption.localOnly) "pushed" else sortOption.apiSort
+    val apiDirection = if (sortOption.localOnly) "desc" else if (descending) "desc" else "asc"
+    val key = "repos:${Session.login.orEmpty()}:$filter:$apiSort:$apiDirection:$visibility"
     val diskSnapshot = remember(key) { RepoFeedCache(File(Api.cacheDir, "repo-feeds")).read(key) }
     val pager = rememberPager(key, restore = { p -> diskSnapshot?.let { p.restoreFrom(it.items, it.pages, it.ended) } == true }) { p, force ->
-        if (filter == 3) emptyList() else GitHub.myRepos(filters[filter].second, SORTS[sort].first, vis[visibility].first, p, force)
+        if (filter == 3) emptyList() else GitHub.myRepos(filters[filter].second, apiSort, vis[visibility].first, p, force, apiDirection)
     }
     rememberRepoFeedPersistence(pager, key)
     // 新建或 Fork 仓库后回到列表时自动刷新
     com.mobilegh.nav.OnRepoChanged(com.mobilegh.data.RepoWrite.ANY, com.mobilegh.data.RepoWrite.ANY, com.mobilegh.data.RepoWrite.REPOS) { pager.refresh() }
     val state = rememberLazyListState()
     com.mobilegh.nav.OnTabReselect(Tab.Repos) { state.animateScrollToItem(0) }
-    // 关键词变化、清空或离开页面时，停掉仍在进行的全量加载（已加载的条目保留，之后可从断点继续）
+    // 离开页面或切到组织视图时停掉全量加载；个人/公开/私有/Fork 列表初次加载即边获取边分块展示，输入搜索词时不打断已有加载
     DisposableEffect(pager) { onDispose { pager.cancelLoadAll() } }
-    LaunchedEffect(pager, query) {
-        pager.cancelLoadAll()
-        if (query.isNotBlank() && filter != 3) {
-            // 普通翻页进行中时不会启动分块加载，先等这一页结束；每块取回后立即显示，达到上限后停止并由 truncated 提示
-            snapshotFlow { pager.loading }.first { !it }
-            pager.loadChunked(REPO_FILTER_LOAD_LIMIT)
+    LaunchedEffect(pager, filter) {
+        if (filter != 3) {
+            snapshotFlow { !pager.loading && !pager.silentRefreshing }.first { it }
+            if (!pager.end && pager.error == null) pager.loadChunked(REPO_FILTER_LOAD_LIMIT)
+        } else {
+            pager.cancelLoadAll()
         }
     }
     var sheet by rememberSaveable { mutableStateOf(false) }
-    // 非默认的排序、可见性、Fork、组织都以可撤销标签展示，一眼能看出当前列表被什么收窄
+    // 非默认的排序、顺序、可见性、Fork、组织都以可撤销标签展示，一眼能看出当前列表被什么收窄
     val active = buildList {
-        if (sort != 0) add("sort" to trf("按{0}", SORTS[sort].second))
+        if (sort != 0 || descending != sortOption.defaultDescending) {
+            add("sort" to "${sortOption.label} · ${if (descending) tr("倒序") else tr("正序")}")
+        }
         if (visibility != 0) add("visibility" to trf("仅{0}", vis[visibility].second))
         if (hideForks) add("forks" to tr("隐藏 Fork"))
         if (filter == 3 && safeOrg != null) add("org" to safeOrg)
@@ -197,13 +238,13 @@ fun ReposTab() {
                 active,
                 onRemove = { k ->
                     when (k) {
-                        "sort" -> sort = 0
+                        "sort" -> { sort = 0; descending = SORTS[0].defaultDescending }
                         "visibility" -> visibility = 0
                         "forks" -> hideForks = false
                         "org" -> selectedOrg = null
                     }
                 },
-                onClear = { sort = 0; visibility = 0; hideForks = false; selectedOrg = null },
+                onClear = { sort = 0; descending = SORTS[0].defaultDescending; visibility = 0; hideForks = false; selectedOrg = null },
             )
             HDivider()
             if (filter == 3) {
@@ -217,7 +258,7 @@ fun ReposTab() {
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                         ) { orgTab = it }
                         OrganizationReposPanel(if (safeOrg == null) orgs else listOf(safeOrg), vis[visibility].first,
-                            SORTS[sort].first, query.trim(), hideForks, directory.data?.warnings.orEmpty(), orgTab, Modifier.weight(1f), directory::refresh)
+                            sortOption, descending, query.trim(), hideForks, directory.data?.warnings.orEmpty(), orgTab, Modifier.weight(1f), directory::refresh)
                     }
                 }
             } else {
@@ -229,7 +270,9 @@ fun ReposTab() {
                         if (query.isNotBlank() || hideForks || visibility != 0 || filter != 0) {
                             query = ""; hideForks = false; visibility = 0; filter = 0
                         } else nav.push(Screen.CreateRepo)
-                    }, autoLoad = query.isBlank(), itemKey = { it.id }, itemFilter = {
+                    }, autoLoad = query.isBlank(),
+                    itemSort = if (sortOption.localOnly) repoComparator(sortOption.apiSort, descending) else null,
+                    itemKey = { it.id }, itemFilter = {
                     (visibility == 0 || (visibility == 2) == it.isPrivate) && (!hideForks || !it.fork) &&
                         (query.isBlank() || it.fullName.contains(query.trim(), true) || it.description?.contains(query.trim(), true) == true)
                 }) { RepoItem(it) }
@@ -237,13 +280,14 @@ fun ReposTab() {
         }
     }
     if (sheet) ReposFilterSheet(
-        sort = sort, onSort = { sort = it },
+        sort = sort, onSort = { picked -> sort = picked; descending = SORTS[picked].defaultDescending },
+        descending = descending, onDescending = { descending = it },
         visibility = visibility, onVisibility = { visibility = it },
         hideForks = hideForks, onHideForks = { hideForks = it },
         orgs = if (filter == 3) orgs else null, selectedOrg = safeOrg, orgsLoading = directory.loading,
         onOrg = { selectedOrg = it }, onRefreshOrgs = { directory.refresh() },
         canReset = active.isNotEmpty(),
-        onReset = { sort = 0; visibility = 0; hideForks = false; selectedOrg = null },
+        onReset = { sort = 0; descending = SORTS[0].defaultDescending; visibility = 0; hideForks = false; selectedOrg = null },
         onDismiss = { sheet = false },
     )
 }
@@ -288,6 +332,7 @@ private fun FilterStatusLine(text: String, color: Color, action: String?, onActi
 @Composable
 private fun ReposFilterSheet(
     sort: Int, onSort: (Int) -> Unit,
+    descending: Boolean, onDescending: (Boolean) -> Unit,
     visibility: Int, onVisibility: (Int) -> Unit,
     hideForks: Boolean, onHideForks: (Boolean) -> Unit,
     orgs: List<String>?, selectedOrg: String?, orgsLoading: Boolean,
@@ -303,7 +348,8 @@ private fun ReposFilterSheet(
         },
     ) {
         FilterCard(null) {
-            ChoicePicker(tr("排序"), SORTS.map { it.second }, sort, onSort)
+            ChoicePicker(tr("排序"), SORTS.map { it.label }, sort, onSort)
+            ChoicePicker(tr("顺序"), listOf(tr("倒序"), tr("正序")), if (descending) 0 else 1) { onDescending(it == 0) }
         }
         FilterCard(null) {
             ChoicePicker(tr("可见性"), listOf(tr("全部"), tr("公开"), tr("私有")), visibility, onVisibility)
@@ -321,19 +367,20 @@ private fun ReposFilterSheet(
 
 @Composable
 private fun OrganizationReposPanel(
-    orgs: List<String>, visibility: String, sort: String, query: String, hideForks: Boolean,
+    orgs: List<String>, visibility: String, sortOption: RepoSortOption, descending: Boolean, query: String, hideForks: Boolean,
     warnings: List<String>, tab: Int, modifier: Modifier, refreshDirectory: () -> Unit,
 ) {
     val g = Gh.c
     val nav = LocalNav.current
     val login = Session.login ?: return
-    val repos = rememberLoader("org-repos:${orgs.joinToString(",")}:$sort") { GitHub.organizationRepos(orgs, sort, it) }
+    val apiSort = if (sortOption.localOnly) "pushed" else sortOption.apiSort
+    val repos = rememberLoader("org-repos:${orgs.joinToString(",")}:$apiSort") { GitHub.organizationRepos(orgs, apiSort, it) }
     val events = rememberLoader("org-events:${orgs.joinToString(",")}") { GitHub.organizationEvents(login, orgs, it) }
     var category by rememberSaveable { mutableStateOf(EventCat.All) }
     val filtered = repos.data.orEmpty().filter {
         (visibility == "all" || (visibility == "private") == it.isPrivate) && (!hideForks || !it.fork) &&
             (query.isBlank() || it.fullName.contains(query, true) || it.description?.contains(query, true) == true)
-    }
+    }.sortedWith(repoComparator(sortOption.apiSort, descending))
     PullToRefreshBox(repos.refreshing || events.refreshing, { refreshDirectory(); repos.refresh(); events.refresh() }, modifier.fillMaxWidth()) {
         ScrollbarLazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp)) {
             if (tab == 0) {
@@ -457,6 +504,134 @@ fun CreateRepoScreen() {
     }
 }
 
+@Composable
+fun CreateOrgScreen() {
+    val nav = LocalNav.current
+    val entry = LocalEntry.current
+    val ctx = rememberCtx()
+    val g = Gh.c
+    val viewer = rememberLoader("me") { GitHub.viewer(it) }
+    var orgLogin by rememberSaveable { mutableStateOf("") }
+    var billingEmail by rememberSaveable { mutableStateOf("") }
+    var corporate by rememberSaveable { mutableStateOf(false) }
+    var companyName by rememberSaveable { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(viewer.data?.email) {
+        if (billingEmail.isBlank() && !viewer.data?.email.isNullOrBlank()) {
+            billingEmail = viewer.data?.email.orEmpty()
+        }
+    }
+
+    fun submit() {
+        val cleanLogin = orgLogin.trim()
+        val cleanEmail = billingEmail.trim()
+        if (!OrganizationCreator.isValidOrgLogin(cleanLogin)) {
+            error = tr("组织名称只能包含字母、数字和单个连字符，不能以连字符开头或结尾")
+            return
+        }
+        if (!cleanEmail.contains('@') || !cleanEmail.contains('.')) {
+            error = tr("请输入有效的联系邮箱")
+            return
+        }
+        busy = true
+        error = null
+        entry.act({ msg ->
+            busy = false
+            error = msg
+        }) {
+            try {
+                when (val result = OrganizationCreator.createFreeOrganization(cleanLogin, cleanEmail, corporate, companyName)) {
+                    is OrganizationCreator.CreateOrgResult.Created -> {
+                        ctx.toast(trf("已创建组织 {0}", result.login))
+                        nav.replace(Screen.Org(result.login))
+                    }
+                    OrganizationCreator.CreateOrgResult.CaptchaRequired -> {
+                        busy = false
+                        error = tr("GitHub 要求完成人机验证，正在应用内打开验证窗口…")
+                        GitHubWebLogin.request(
+                            customTitle = tr("完成人机验证以创建组织"),
+                            urlToOpen = OrganizationCreator.NEW_FREE_ORG_URL,
+                        )
+                    }
+                    is OrganizationCreator.CreateOrgResult.Failed -> {
+                        busy = false
+                        error = result.message
+                    }
+                }
+            } catch (_: WebSessionMissing) {
+                busy = false
+                GitHubWebLogin.request(
+                    customTitle = tr("登录 GitHub 网页会话以创建组织"),
+                    urlToOpen = "https://github.com/login",
+                ) {
+                    submit()
+                }
+            }
+        }
+    }
+
+    Page(tr("新建组织")) { pad ->
+        Column(Modifier.padding(pad).verticalScrollWithBar().padding(vertical = 12.dp)) {
+            val infoShape = RoundedCornerShape(10.dp)
+            Column(
+                Modifier.fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .clip(infoShape)
+                    .background(g.canvasSubtle, infoShape)
+                    .border(1.dp, g.borderMuted, infoShape)
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(tr("免费组织方案 (Free)"), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = g.fg)
+                Text(
+                    tr("支持无限公开与私有仓库及基础团队协作；无需离开应用即可完成创建。"),
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    color = g.fgMuted,
+                )
+            }
+            Spacer(Modifier.height(14.dp))
+            GhField(
+                orgLogin,
+                { orgLogin = it.replace(' ', '-'); error = null },
+                tr("组织名称 (GitHub 账号名)"),
+                Modifier.padding(horizontal = 16.dp),
+            )
+            Spacer(Modifier.height(10.dp))
+            GhField(
+                billingEmail,
+                { billingEmail = it; error = null },
+                tr("联系邮箱"),
+                Modifier.padding(horizontal = 16.dp),
+            )
+            Spacer(Modifier.height(14.dp))
+            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                ChoicePicker(
+                    tr("组织归属"),
+                    listOf(tr("个人账号"), tr("公司或机构")),
+                    if (corporate) 1 else 0,
+                ) { corporate = (it == 1) }
+                if (corporate) {
+                    GhField(companyName, { companyName = it }, tr("公司或机构名称"))
+                }
+            }
+            error?.let { msg ->
+                Spacer(Modifier.height(10.dp))
+                Text(msg, Modifier.padding(horizontal = 16.dp), color = g.danger, fontSize = 12.sp)
+            }
+            Spacer(Modifier.height(18.dp))
+            GhButton(
+                if (busy) tr("创建中…") else tr("创建组织"),
+                Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+                primary = true,
+                enabled = orgLogin.isNotBlank() && billingEmail.isNotBlank() && !busy,
+            ) { submit() }
+        }
+    }
+}
+
 /** 可搜索的单选列表：.gitignore 模板（上百个）与许可证 */
 @Composable
 private fun TemplatePicker(title: String, options: List<Pair<String?, String>>, loading: Boolean, error: String?, onDismiss: () -> Unit, onPick: (String?, String?) -> Unit) {
@@ -489,7 +664,10 @@ fun OrgsScreen() {
     val nav = LocalNav.current
     val g = Gh.c
     val access = rememberLoader("myorgs") { GitHub.orgAccess(it) }
-    Page(tr("我的组织"), actions = { OcButton(R.drawable.oc_shield_lock, { nav.push(Screen.OrgDiagnostics) }) }) { pad ->
+    Page(tr("我的组织"), actions = {
+        OcButton(R.drawable.oc_plus, { nav.push(Screen.CreateOrg) }, description = tr("新建组织"))
+        OcButton(R.drawable.oc_shield_lock, { nav.push(Screen.OrgDiagnostics) })
+    }) { pad ->
         com.mobilegh.ui.components.LoadBox(access, Modifier.padding(pad).fillMaxSize()) { data ->
             ScrollbarLazyColumn(Modifier.fillMaxSize()) {
                 item { SectionTitle(trf("{0} 个可访问组织", data.orgs.size)) { SectionActionChip(tr("权限诊断")) { nav.push(Screen.OrgDiagnostics) } } }
@@ -552,7 +730,7 @@ internal fun InvitationBlock() {
                     hidden = hidden + "r${inv.id}"
                     entry.act({ ctx.toast(it); hidden = hidden - "r${inv.id}" }, onDone = { repoInv.refreshSilently() }) {
                         GitHub.acceptInvitation(inv.id)
-                        ctx.toast(tr("已接受，现在可以在「仓库 → 协作的」中找到它"))
+                        ctx.toast(tr("已接受，现在可以在「仓库 → 协作」中找到它"))
                     }
                 },
                 onDecline = {
@@ -612,7 +790,7 @@ fun InvitationsScreen() {
                                 hidden = hidden + "r${inv.id}"
                                 entry.act({ ctx.toast(it); hidden = hidden - "r${inv.id}" }, onDone = { repoInv.refreshSilently() }) {
                                     GitHub.acceptInvitation(inv.id)
-                                    ctx.toast(tr("已接受，现在可以在「仓库 → 协作的」中找到它"))
+                                    ctx.toast(tr("已接受，现在可以在「仓库 → 协作」中找到它"))
                                 }
                             },
                             onDecline = {
@@ -626,7 +804,7 @@ fun InvitationsScreen() {
                     }
                     item {
                         Text(
-                            tr("提示：接受邀请后，官方 App 的仓库列表仍只显示你创建的仓库，而本应用的「仓库 → 协作的」会显示它们。"),
+                            tr("提示：接受邀请后，官方 App 的仓库列表仍只显示你创建的仓库，而本应用的「仓库 → 协作」会显示它们。"),
                             Modifier.padding(16.dp), fontSize = 12.sp, color = g.fgMuted,
                         )
                     }

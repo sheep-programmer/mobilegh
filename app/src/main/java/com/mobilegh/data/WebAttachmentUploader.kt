@@ -119,20 +119,25 @@ class WebAttachmentUploader(
         private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         private var lastRenewTime = 0L
 
-        /** GitHub 登录后写入的会话 cookie */
-        fun hasSession(cookie: String?): Boolean = cookie?.contains("user_session=") == true
+        /** GitHub 登录后写入的会话 cookie（支持校验当前登录账号隔离） */
+        fun hasSession(cookie: String?, expectedLogin: String? = Session.login): Boolean =
+            WebCookieVault.belongsTo(cookie, expectedLogin)
+
+        private var lastRenewGeneration = -1
 
         /**
          * 自动保活 / 静默续期 Web Session：
-         * 每天最多触发一次轻量心跳请求，更新 GitHub 服务端会话的活跃时间戳（Sliding Expiration），
-         * 并将返回的最新的 Set-Cookie 实时写回 CookieManager 且 flush。
+         * 每个账号每 24 小时最多触发一次轻量心跳请求，更新 GitHub 服务端会话的活跃时间戳（Sliding Expiration），
+         * 将返回的最新 Set-Cookie 写回 CookieManager 并同步至当前账号的加密 Cookie 仓库。
          */
         suspend fun renewSession(force: Boolean = false): Boolean = withContext(Dispatchers.IO) {
             val now = System.currentTimeMillis()
-            if (!force && now - lastRenewTime < 24 * 3600 * 1000L) return@withContext true
+            val curLogin = Session.login
+            val curGen = Session.generation
+            if (!force && lastRenewGeneration == curGen && now - lastRenewTime < 24 * 3600 * 1000L) return@withContext true
             val cookieManager = runCatching { CookieManager.getInstance() }.getOrNull() ?: return@withContext false
             val cookie = runCatching { cookieManager.getCookie("https://github.com") }.getOrNull() ?: return@withContext false
-            if (!hasSession(cookie)) return@withContext false
+            if (!WebCookieVault.belongsTo(cookie, curLogin)) return@withContext false
 
             val req = Request.Builder()
                 .url("https://github.com/")
@@ -145,11 +150,13 @@ class WebAttachmentUploader(
                 productionClient.routed().newCall(req).await().use { resp ->
                     if (resp.isSuccessful) {
                         lastRenewTime = now
+                        lastRenewGeneration = curGen
                         val setCookies = resp.headers("Set-Cookie")
                         for (header in setCookies) {
                             cookieManager.setCookie("https://github.com", header)
                         }
                         cookieManager.flush()
+                        Session.snapshotWebCookies(curLogin)
                         true
                     } else false
                 }
